@@ -1,0 +1,269 @@
+/*
+ * components-ui stylesheet - design tokens, animations and the few CSS
+ * classes the components rely on. Import it after Tailwind:
+ *
+ *   @import "tailwindcss";
+ *   @import "components-ui/styles.css";
+ *
+ * Override any token in your own @theme block after the import.
+ */
+
+/* Lets Tailwind find the classes used by the components next to this file */
+@source "./";
+
+@theme {
+  --color-primary-50: oklch(0.97 0.014 254.604);
+  --color-primary-100: oklch(0.932 0.032 255.585);
+  --color-primary-200: oklch(0.882 0.059 254.128);
+  --color-primary-300: oklch(0.809 0.105 251.813);
+  --color-primary-400: oklch(0.707 0.165 254.624);
+  --color-primary-500: oklch(0.623 0.214 259.815);
+  --color-primary-600: oklch(0.546 0.245 262.881);
+  --color-primary-700: oklch(0.488 0.243 264.376);
+  --color-primary-800: oklch(0.424 0.199 265.638);
+  --color-primary-900: oklch(0.379 0.146 265.522);
+  --color-primary-950: oklch(0.282 0.091 267.935);
+
+  --color-secondary-50: oklch(0.985 0.002 247.839);
+  --color-secondary-100: oklch(0.967 0.003 264.542);
+  --color-secondary-200: oklch(0.928 0.006 264.531);
+  --color-secondary-300: oklch(0.872 0.01 258.338);
+  --color-secondary-400: oklch(0.707 0.022 261.325);
+  --color-secondary-500: oklch(0.551 0.027 264.364);
+  --color-secondary-600: oklch(0.446 0.03 256.802);
+  --color-secondary-700: oklch(0.373 0.034 259.733);
+  --color-secondary-800: oklch(0.278 0.033 256.848);
+  --color-secondary-900: oklch(0.21 0.034 264.665);
+  --color-secondary-950: oklch(0.13 0.028 261.692);
+
+  --color-success-50: oklch(0.982 0.018 155.826);
+  --color-success-100: oklch(0.962 0.044 156.743);
+  --color-success-200: oklch(0.925 0.084 155.995);
+  --color-success-300: oklch(0.871 0.15 154.449);
+  --color-success-400: oklch(0.792 0.209 151.711);
+  --color-success-500: oklch(0.723 0.219 149.579);
+  --color-success-600: oklch(0.627 0.194 149.214);
+  --color-success-700: oklch(0.527 0.154 150.069);
+  --color-success-800: oklch(0.448 0.119 151.328);
+  --color-success-900: oklch(0.393 0.095 152.535);
+  --color-success-950: oklch(0.266 0.065 152.934);
+
+  --color-danger-50: oklch(0.971 0.013 17.38);
+  --color-danger-100: oklch(0.936 0.032 17.717);
+  --color-danger-200: oklch(0.885 0.062 18.334);
+  --color-danger-300: oklch(0.808 0.114 19.571);
+  --color-danger-400: oklch(0.704 0.191 22.216);
+  --color-danger-500: oklch(0.637 0.237 25.331);
+  --color-danger-600: oklch(0.577 0.245 27.325);
+  --color-danger-700: oklch(0.505 0.213 27.518);
+  --color-danger-800: oklch(0.444 0.177 26.899);
+  --color-danger-900: oklch(0.396 0.141 25.723);
+  --color-danger-950: oklch(0.258 0.092 26.042);
+
+  --color-warning-50: oklch(0.987 0.026 102.212);
+  --color-warning-100: oklch(0.973 0.071 103.193);
+  --color-warning-200: oklch(0.945 0.129 101.54);
+  --color-warning-300: oklch(0.905 0.182 98.111);
+  --color-warning-400: oklch(0.852 0.199 91.936);
+  --color-warning-500: oklch(0.795 0.184 86.047);
+  --color-warning-600: oklch(0.681 0.162 75.834);
+  --color-warning-700: oklch(0.554 0.135 66.442);
+  --color-warning-800: oklch(0.476 0.114 61.907);
+  --color-warning-900: oklch(0.421 0.095 57.708);
+  --color-warning-950: oklch(0.286 0.066 53.813);
+
+  --color-info-50: oklch(0.984 0.019 200.873);
+  --color-info-100: oklch(0.956 0.045 203.388);
+  --color-info-200: oklch(0.917 0.08 205.041);
+  --color-info-300: oklch(0.865 0.127 207.078);
+  --color-info-400: oklch(0.789 0.154 211.53);
+  --color-info-500: oklch(0.715 0.143 215.221);
+  --color-info-600: oklch(0.609 0.126 221.723);
+  --color-info-700: oklch(0.52 0.105 223.128);
+  --color-info-800: oklch(0.45 0.085 224.283);
+  --color-info-900: oklch(0.398 0.07 227.392);
+  --color-info-950: oklch(0.302 0.056 229.695);
+
+  --color-neutral-50: oklch(98.5% 0.002 247.839);
+  --color-neutral-100: oklch(96.7% 0.003 264.542);
+  --color-neutral-200: oklch(92.8% 0.006 264.531);
+  --color-neutral-300: oklch(87.2% 0.01 258.338);
+  --color-neutral-400: oklch(70.7% 0.022 261.325);
+  --color-neutral-500: oklch(55.1% 0.027 264.364);
+  --color-neutral-600: oklch(44.6% 0.03 256.802);
+  --color-neutral-700: oklch(37.3% 0.034 259.733);
+  --color-neutral-800: oklch(27.8% 0.033 256.848);
+  --color-neutral-900: oklch(21% 0.034 264.665);
+  --color-neutral-950: oklch(13% 0.028 261.692);
+
+  /* Page background and the surface of cards, panels, popovers */
+  --color-background: #f7f7fa;
+  --color-background-dark: #0f0f0f;
+  --color-surface: #ffffff;
+  --color-surface-dark: #1e1e1e;
+
+  --animate-fade-in: fade-in 0.25s ease-out;
+  --animate-fade-out: fade-out 0.25s ease-out;
+  --animate-slide-up: slide-up 0.25s ease-out;
+  --animate-slide-down: slide-down 0.25s ease-out;
+  --animate-flash: flash 1.5s ease-in-out;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      max-height: 500px;
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
+      max-height: 0;
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+  }
+
+  @keyframes slide-down {
+    from {
+      max-height: 0;
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      max-height: 500px;
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes flash {
+    0% {
+      background-color: transparent;
+    }
+    30% {
+      background-color: var(--color-primary-100);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+}
+
+@layer components {
+  /* A link styled as the primary button, for markup outside React */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1 rounded-md border border-primary-600/30 bg-linear-to-r from-primary-500 to-primary-400 px-3 py-1 text-sm text-white shadow-lg transition-all duration-200 hover:from-primary-600 hover:to-primary-500 hover:shadow-xl focus:ring-2 focus:ring-primary-300 focus:outline-none;
+  }
+
+  /* Joins adjacent buttons / fields into one group */
+  .btn-group {
+    @apply flex;
+
+    & > * {
+      @apply rounded-none! first:rounded-l-md! last:rounded-r-md!;
+
+      &:not(:first-child) {
+        @apply -ml-px;
+      }
+    }
+  }
+
+  .icon-btn {
+    @apply -m-1 cursor-pointer rounded-md p-1 leading-none transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 dark:hover:bg-neutral-800;
+  }
+
+  .link {
+    @apply cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300;
+  }
+
+  /* Renders the HTML produced by RichTextEditor, which preflight would otherwise strip of all formatting */
+  .rich-text {
+    @apply leading-relaxed break-words;
+
+    & p {
+      @apply mb-2 last:mb-0;
+    }
+
+    & a {
+      @apply text-primary-600 underline dark:text-primary-400;
+    }
+
+    & strong,
+    & b {
+      @apply font-bold;
+    }
+
+    & em,
+    & i {
+      @apply italic;
+    }
+  }
+
+  .rich-text-editor[data-placeholder][data-empty]::before {
+    @apply pointer-events-none absolute text-neutral-400;
+    content: attr(data-placeholder);
+  }
+
+  /* App layout - the navbar and main content make room for the Drawer */
+  .drawer {
+    width: var(--drawer-width, 240px);
+  }
+
+  .drawer-collapsed {
+    width: var(--drawer-collapsed-width, 64px);
+  }
+
+  .drawer ~ .navbar,
+  .drawer ~ main {
+    transition:
+      margin-left 0.3s ease,
+      width 0.3s ease;
+  }
+
+  .drawer.drawer-open ~ .navbar,
+  .drawer.drawer-open ~ main {
+    margin-left: var(--drawer-width, 240px);
+    width: calc(100% - var(--drawer-width, 240px));
+  }
+
+  .drawer.drawer-collapsed ~ .navbar,
+  .drawer.drawer-collapsed ~ main {
+    margin-left: var(--drawer-collapsed-width, 64px);
+    width: calc(100% - var(--drawer-collapsed-width, 64px));
+  }
+
+  .drawer.drawer-closed ~ .navbar,
+  .drawer.drawer-closed ~ main {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  @media (max-width: 767.98px) {
+    .drawer ~ .navbar,
+    .drawer ~ main {
+      margin-left: 0 !important;
+      width: 100% !important;
+    }
+  }
+}
+
+/* The shared look of text fields, selects and pickers */
+@utility form-control {
+  @apply w-full rounded-md border border-neutral-300 bg-surface transition-colors focus:ring-2 focus:ring-primary-300 focus:outline-none dark:border-neutral-700 dark:bg-surface-dark;
+}

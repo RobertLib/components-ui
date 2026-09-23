@@ -1,0 +1,103 @@
+@import "tailwindcss";
+@import "../src/styles.css";
+
+/* The docs switch the theme with a class, not only by the system setting */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light;
+  color: #213547;
+  background-color: var(--color-background);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Code highlighting (sugar-high) */
+  --sh-class: #7c3aed;
+  --sh-identifier: #1f2937;
+  --sh-sign: #6b7280;
+  --sh-property: #2563eb;
+  --sh-entity: #0891b2;
+  --sh-jsxliterals: #374151;
+  --sh-string: #059669;
+  --sh-keyword: #db2777;
+  --sh-comment: #9ca3af;
+}
+
+:root.dark {
+  color-scheme: dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: var(--color-background-dark);
+
+  --sh-class: #c4b5fd;
+  --sh-identifier: #e5e7eb;
+  --sh-sign: #9ca3af;
+  --sh-property: #93c5fd;
+  --sh-entity: #67e8f9;
+  --sh-jsxliterals: #d1d5db;
+  --sh-string: #6ee7b7;
+  --sh-keyword: #f9a8d4;
+  --sh-comment: #6b7280;
+}
+
+body {
+  margin: 0;
+}
+
+@layer components {
+  /* Long-form text of the docs pages */
+  .prose {
+    @apply max-w-3xl text-[15px] leading-7 text-neutral-700 dark:text-neutral-300;
+
+    & h2 {
+      @apply mt-12 mb-3 scroll-mt-20 text-2xl font-semibold text-neutral-900 dark:text-neutral-100;
+    }
+
+    & h3 {
+      @apply mt-8 mb-2 scroll-mt-20 text-lg font-semibold text-neutral-900 dark:text-neutral-100;
+    }
+
+    & p {
+      @apply my-3;
+    }
+
+    & ul {
+      @apply my-3 list-disc space-y-1 pl-6;
+    }
+
+    & ol {
+      @apply my-3 list-decimal space-y-1 pl-6;
+    }
+
+    & a {
+      @apply text-primary-600 underline-offset-2 hover:underline dark:text-primary-400;
+    }
+
+    & :not(pre) > code {
+      @apply rounded bg-neutral-200/60 px-1 py-0.5 font-mono text-[0.85em] text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200;
+    }
+
+    & table {
+      @apply my-4 w-full border-collapse text-sm;
+    }
+
+    & th {
+      @apply border-b border-neutral-300 px-2 py-1.5 text-left font-semibold dark:border-neutral-700;
+    }
+
+    & td {
+      @apply border-b border-neutral-200 px-2 py-1.5 align-top dark:border-neutral-800;
+    }
+  }
+}
