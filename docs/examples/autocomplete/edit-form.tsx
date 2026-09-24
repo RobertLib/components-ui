@@ -25,8 +25,11 @@ async function loadPeople({
 }
 
 // The labels of the saved ids, before the list has ever been opened
-async function loadSelectedPeople(ids: AutocompleteValue[]) {
-  const response = await fetch(`/api/people?ids=${ids.join(",")}`);
+async function loadSelectedPeople(
+  ids: AutocompleteValue[],
+  { signal }: { signal: AbortSignal },
+) {
+  const response = await fetch(`/api/people?ids=${ids.join(",")}`, { signal });
   const { items } = (await response.json()) as { items: Person[] };
   return items;
 }

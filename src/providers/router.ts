@@ -96,17 +96,3 @@ export function browserNavigate(href: string, options?: NavigateOptions) {
 }
 
 export const browserBack = () => window.history.back();
-
-/**
- * Whether `href` is the current page or one of its sub-pages - `/users` is
- * active on `/users/42` but not on `/users-archive`.
- */
-export function isActivePath(pathname: string, href: string) {
-  const path = href.split(/[?#]/)[0];
-
-  if (!path) return false;
-  if (path === "/") return pathname === "/";
-
-  const base = path.endsWith("/") ? path.slice(0, -1) : path;
-  return pathname === base || pathname.startsWith(`${base}/`);
-}

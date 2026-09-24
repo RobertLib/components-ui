@@ -6,6 +6,7 @@ import { personColumns } from "./columns";
 // the address bar, then reload the page or use the back button
 // The URL may ask only for these - pass them to the hook and the table
 const pageSizeOptions = [5, 10, 25];
+const columns = personColumns.slice(0, 4);
 
 export default function UrlState() {
   const [query, setQuery] = useDataTableQuery({
@@ -19,7 +20,7 @@ export default function UrlState() {
     <div className="space-y-3">
       <DataTable
         clientSide
-        columns={personColumns.slice(0, 4)}
+        columns={columns}
         data={people}
         maxHeight="420px"
         onQueryChange={setQuery}

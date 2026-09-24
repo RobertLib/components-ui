@@ -1,22 +1,35 @@
 import { cn } from "../utils/cn";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 
 export interface CollapsibleContentProps {
+  /** Classes of the animated wrapper. */
   className?: string;
   /** Length of the height animation in milliseconds. */
   duration?: number;
+  /** The content that collapses. */
   children: ReactNode;
+  /** Id of the wrapper, e.g. for `aria-controls` of the toggle. */
+  id?: string;
+  /** Whether the content is shown - a change animates it in or out. */
   isOpen: boolean;
 }
 
+// Users who asked the system for less motion see the content at once
+const prefersReducedMotion = () =>
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 /**
  * Animates its children in and out by height. Closed content is unmounted
- * once the animation ends.
+ * once the animation ends; open content is clipped only while it animates,
+ * so the focus rings and shadows at its edges show. Without animation for
+ * users who prefer reduced motion.
  */
 export default function CollapsibleContent({
   className,
   duration = 300,
   children,
+  id,
   isOpen,
 }: CollapsibleContentProps) {
   const [isVisible, setIsVisible] = useState(isOpen);
@@ -25,12 +38,26 @@ export default function CollapsibleContent({
   // Content rendered open is shown as it is - only changes animate
   const animatedOpen = useRef(isOpen);
 
-  useEffect(() => {
+  // Before the browser paints - opened content would show at its full
+  // height for a frame before the animation starts from none
+  useLayoutEffect(() => {
     const element = contentRef.current;
     if (!element || animatedOpen.current === isOpen) return;
 
     animatedOpen.current = isOpen;
+
+    if (prefersReducedMotion()) {
+      element.style.height = "";
+      element.style.overflow = "";
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsVisible(isOpen);
+      return;
+    }
+
     const timers: ReturnType<typeof setTimeout>[] = [];
+
+    // What is outside of the animated height is cut off - until it is open
+    element.style.overflow = "hidden";
 
     if (isOpen) {
       // If opening, make visible and measure actual content height
@@ -48,10 +75,12 @@ export default function CollapsibleContent({
         }, 10),
       );
 
-      // After animation completes, remove fixed height
+      // After animation completes, remove fixed height - and the clipping,
+      // which would cut the focus rings at the edges of the content
       timers.push(
         setTimeout(() => {
           element.style.height = "auto";
+          element.style.overflow = "";
         }, duration),
       );
     } else {
@@ -85,7 +114,11 @@ export default function CollapsibleContent({
 
   return (
     <div
-      className={cn("overflow-hidden transition-all ease-in-out", className)}
+      className={cn(
+        "transition-all ease-in-out motion-reduce:transition-none",
+        className,
+      )}
+      id={id}
       ref={contentRef}
       style={{
         transitionDuration: `${duration}ms`,

@@ -18,8 +18,10 @@ of any backend or router.
 
 ## Documentation
 
-The documentation is a site in this repository with live examples of every
-component, prop tables generated from the source and guides:
+**<https://robertlib.github.io/components-ui/>** - live examples of every
+component, prop tables generated from the source and guides.
+
+The site is part of this repository. Run it locally with:
 
 ```sh
 npm install
@@ -27,7 +29,9 @@ npm run dev          # http://localhost:5173
 ```
 
 `npm run build:docs` builds it as a static site into `dist-docs/` (hash
-routing - it works from any static host, e.g. GitHub Pages).
+routing - it works from any static host). The GitHub Actions workflow in
+`.github/workflows/pages.yml` builds it and deploys it to GitHub Pages on
+every push to `main`.
 
 ## Quick start
 
@@ -36,19 +40,24 @@ Requirements: React 19, Tailwind CSS 4 and a bundler that sets
 
 1. **Install** - from the git repository by tag (npm builds the package on
    install), a local folder, or your registry (publishing there needs a scoped
-   name and `"private": true` removed - see the Installation page):
+   name and `"private": true` removed - see the
+   [Installation](https://robertlib.github.io/components-ui/#/installation)
+   page):
 
    ```sh
-   npm install git+https://github.com/RobertLib/components-ui.git#v0.1.0
+   npm install git+https://github.com/RobertLib/components-ui.git#v0.2.0
    ```
 
    If npm reports that the `prepare` script of `components-ui` is not allowed
-   to run (`install-scripts`), approve it - or install a tarball made with
-   `npm pack` instead:
+   to run (`install-scripts`), approve it - npm builds the package with it
+   when it installs from git:
 
    ```sh
    npm install-scripts approve components-ui
    ```
+
+   A tarball made with `npm pack` already contains the build: npm may still
+   list its `prepare` script in that warning, but has nothing to run.
 
 2. **Import the styles** after Tailwind:
 
@@ -76,19 +85,22 @@ Requirements: React 19, Tailwind CSS 4 and a bundler that sets
    }
    ```
 
-See the Installation, Routing and Localization pages of the docs for the
-details (the React Router and Next.js adapters, custom locales).
+See the [Installation](https://robertlib.github.io/components-ui/#/installation),
+[Routing](https://robertlib.github.io/components-ui/#/routing) and
+[Localization](https://robertlib.github.io/components-ui/#/localization) pages
+of the docs for the details (the React Router, Next.js and TanStack Router
+adapters, custom locales).
 
 ## Development
 
-| Script               | What it does                                               |
-| -------------------- | ---------------------------------------------------------- |
-| `npm run dev`        | the docs with hot reload                                   |
-| `npm run check`      | type check, lint, tests and formatting                     |
-| `npm test`           | the unit and component tests (Vitest)                      |
-| `npm run build:lib`  | the package: `dist/index.js`, `dist/styles.css`, the types |
-| `npm run build:docs` | the docs as a static site in `dist-docs/`                  |
-| `npm run format`     | Prettier (with Tailwind class sorting)                     |
+| Script               | What it does                                                            |
+| -------------------- | ----------------------------------------------------------------------- |
+| `npm run dev`        | the docs with hot reload                                                |
+| `npm run check`      | type check, lint (incl. the React Compiler check), tests and formatting |
+| `npm test`           | the unit and component tests (Vitest)                                   |
+| `npm run build:lib`  | the package: `dist/` - a module per source file, the styles, the types  |
+| `npm run build:docs` | the docs as a static site in `dist-docs/`                               |
+| `npm run format`     | Prettier (with Tailwind class sorting)                                  |
 
 ```
 src/          the library - components, providers, i18n, hooks, utils, styles.css
@@ -100,7 +112,13 @@ docs/         the documentation site (not published)
 ```
 
 How to add a component (with its docs and tests) and how to release a version
-is described on the _Developing the library_ page of the docs. The GitHub
-Actions workflow in `.github/workflows/ci.yml` runs `npm run check` and both
-builds on every push to `main` and on every pull request. Changes are recorded in
-[CHANGELOG.md](CHANGELOG.md).
+is described on the
+[Developing the library](https://robertlib.github.io/components-ui/#/guides/contributing)
+page of the docs. The GitHub Actions workflow in `.github/workflows/ci.yml`
+runs `npm run check` and both builds on every push to `main` and on every pull
+request; `.github/workflows/pages.yml` deploys the docs. Changes are recorded
+in [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+[MIT](LICENSE)

@@ -5,7 +5,16 @@ import PropsTable from "../../components/props-table";
 export default function SwitchPage() {
   return (
     <DocPage imports={["Switch"]} title="Switch">
-      <Example name="switch/basic" title="Basic" />
+      <Example
+        description={
+          <p>
+            <code>description</code> puts secondary text under the label and
+            describes the switch with it for screen readers.
+          </p>
+        }
+        name="switch/basic"
+        title="Basic"
+      />
 
       <Section title="Notes">
         <Prose>

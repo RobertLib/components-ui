@@ -5,12 +5,20 @@ import {
   statusOptions,
   type Person,
 } from "../../mocks/data";
+import { Salary } from "./salary";
 
 const statusColors = {
   active: "success",
   invited: "info",
   suspended: "danger",
 } as const;
+
+// `2026-09-24` as that day here - `new Date("2026-09-24")` is midnight in
+// UTC, which is the day before west of Greenwich
+const toLocalDate = (isoDate: string) => {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  return new Date(year, month - 1, day);
+};
 
 /** Column definitions shared by the DataTable examples. */
 export const personColumns: Column<Person>[] = [
@@ -47,18 +55,18 @@ export const personColumns: Column<Person>[] = [
   { key: "city", label: "City", sortable: true, visible: false },
   {
     filter: "date",
+    // A Date without `render` - the table shows it in the date format of
+    // the locale (24.09.2026, 09/24/2026) and sorts and filters it as one
+    getValue: (person) => toLocalDate(person.createdAt),
     key: "createdAt",
     label: "Joined",
     labelInfo: "The day the account was created.",
-    render: (person) => new Date(person.createdAt).toLocaleDateString(),
     sortable: true,
   },
   {
     key: "salary",
     label: "Salary",
-    render: (person) => (
-      <span className="tabular-nums">{person.salary.toLocaleString()} CZK</span>
-    ),
+    render: (person) => <Salary value={person.salary} />,
     sortable: true,
   },
 ];

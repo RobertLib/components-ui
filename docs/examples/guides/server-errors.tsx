@@ -106,7 +106,7 @@ export default function ServerErrors() {
         <Button loading={saving} type="submit">
           Save via {backend === "rest" ? "REST" : "GraphQL"}
         </Button>
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
           Name "error" triggers a general error, a new email address saves.
         </p>
       </form>

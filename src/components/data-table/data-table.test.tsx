@@ -1,5 +1,6 @@
 import {
   act,
+  fireEvent,
   render,
   renderHook,
   screen,
@@ -10,11 +11,12 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
-import { createDataTableQuery } from "./query";
+import { createDataTableQuery, type DataTableQuery } from "./query";
 import useDataTableQuery from "./use-data-table-query";
 import { cs } from "../../i18n/cs";
 import UIProvider from "../../providers/ui-provider";
 import type { Column } from "./types";
+import type { RouterAdapter } from "../../providers/router";
 
 interface Row {
   id: number;
@@ -73,6 +75,51 @@ describe("DataTable in client-side mode", () => {
     await user.click(screen.getByRole("button", { name: "Next page" }));
     expect(bodyNames()).toEqual(["Běla", "Cecilie"]);
     expect(screen.getByText("3–4 of 4")).toBeInTheDocument();
+  });
+
+  it("does not filter and sort again for a new but equal columns array", async () => {
+    const user = userEvent.setup();
+    const getValue = vi.fn((row: Row) => row.name);
+    const filterFn = vi.fn(() => true);
+    const counted: Column<Row>[] = [
+      { ...columns[0], getValue },
+      { ...columns[1], filterFn },
+    ];
+
+    function Parent() {
+      const [count, setCount] = useState(0);
+
+      return (
+        <>
+          <button onClick={() => setCount(count + 1)} type="button">
+            {`Re-render ${count}`}
+          </button>
+          <DataTable
+            clientSide
+            // New arrays of new objects in every render - with a `render`
+            // that changes, which the React Compiler cannot keep
+            columns={counted.map((column) => ({
+              ...column,
+              render: (row: Row) => `${row.id} (${count})`,
+            }))}
+            data={rows}
+            defaultQuery={{ filters: { team: "A" }, sortBy: "name" }}
+          />
+        </>
+      );
+    }
+
+    render(<Parent />);
+    const sorted = getValue.mock.calls.length;
+    const filtered = filterFn.mock.calls.length;
+    expect(sorted).toBeGreaterThan(0);
+    expect(filtered).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Re-render 0" }));
+
+    expect(screen.getByRole("button", { name: "Re-render 1" })).toBeVisible();
+    expect(getValue).toHaveBeenCalledTimes(sorted);
+    expect(filterFn).toHaveBeenCalledTimes(filtered);
   });
 
   it("filters with a debounced text filter and highlights the match", async () => {
@@ -350,6 +397,82 @@ describe("DataTable in client-side mode", () => {
     }
   });
 
+  it("gives an action every matching row after selecting all of them", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+
+    render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={rows}
+        defaultQuery={{ filters: { team: "A" }, pageSize: 1 }}
+        filteredSelection
+        groupActions={[{ label: "Archive", onClick }]}
+      />,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: "Select all rows" }));
+    await user.click(screen.getByRole("button", { name: "Select all 2 rows" }));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+
+    // All rows are loaded - the action gets them all, not just the page
+    expect(onClick).toHaveBeenCalledWith([rows[1], rows[2]], {
+      allFiltered: true,
+      count: 2,
+      query: expect.objectContaining({
+        filters: { team: "A" },
+        page: 1,
+        pageSize: 1,
+      }),
+      rows: [rows[1], rows[2]],
+    });
+  });
+
+  it("takes a defaultQuery with undefined fields", () => {
+    const pageSize: number | undefined = undefined;
+    render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={rows}
+        defaultQuery={{ pageSize }}
+      />,
+    );
+
+    expect(screen.getByText("1–4 of 4")).toBeInTheDocument();
+  });
+
+  it("does not filter and sort the rows again on a selection click", async () => {
+    const user = userEvent.setup();
+    // Called by the filtering and sorting only - the cells show `render`
+    const getValue = vi.fn((row: Row) => row.name);
+    const filterFn = vi.fn((row: Row, value: string) => row.team === value);
+
+    render(
+      <DataTable
+        clientSide
+        columns={[
+          { ...columns[0], getValue, render: (row) => row.name },
+          { ...columns[1], filterFn },
+        ]}
+        data={rows}
+        defaultQuery={{ filters: { team: "A" }, sortBy: "name" }}
+        groupActions={[{ label: "Archive", onClick: () => {} }]}
+      />,
+    );
+    expect(getValue).toHaveBeenCalled();
+    expect(filterFn).toHaveBeenCalled();
+    getValue.mockClear();
+    filterFn.mockClear();
+
+    await user.click(screen.getByRole("checkbox", { name: "Select row Adam" }));
+
+    expect(screen.getByText("1 item selected")).toBeInTheDocument();
+    expect(getValue).not.toHaveBeenCalled();
+    expect(filterFn).not.toHaveBeenCalled();
+  });
+
   it("opens the search field for a search set from outside", () => {
     const table = (search: string) => (
       <DataTable
@@ -433,9 +556,10 @@ describe("DataTable with server data", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
-    expect(
-      screen.getByRole("button", { name: "Previous page" }),
-    ).toBeDisabled();
+    // Unavailable - the pressed button keeps the focus until it moves on
+    const previous = screen.getByRole("button", { name: "Previous page" });
+    expect(previous).toHaveAttribute("aria-disabled", "true");
+    expect(previous).toHaveFocus();
   });
 
   it("leaves an empty cursor page for the first page", async () => {
@@ -468,23 +592,25 @@ describe("DataTable with server data", () => {
     const onQueryChange = vi.fn();
 
     // An offset API without a total, as the docs suggest
-    render(
+    const table = (page: number) => (
       <DataTable
         columns={columns}
         data={rows.slice(0, 2)}
         onQueryChange={onQueryChange}
         pageInfo={{ hasNextPage: true, hasPreviousPage: true }}
-        query={createDataTableQuery({ page: 3, pageSize: 2 })}
-      />,
+        query={createDataTableQuery({ page, pageSize: 2 })}
+      />
     );
+    const { rerender } = render(table(3));
 
     await user.click(screen.getByRole("button", { name: "Previous page" }));
     expect(onQueryChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ after: null, before: null, page: 2 }),
     );
+    rerender(table(2));
     await user.click(screen.getByRole("button", { name: "Next page" }));
     expect(onQueryChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({ after: null, before: null, page: 4 }),
+      expect.objectContaining({ after: null, before: null, page: 3 }),
     );
   });
 
@@ -606,6 +732,56 @@ describe("DataTable cell values", () => {
     await waitFor(() => expect(bodyNames()).toEqual(["Report"]));
   });
 
+  it("shows arrays without render as a list", () => {
+    const consoleError = vi.spyOn(console, "error");
+    render(
+      <DataTable
+        columns={[
+          { key: "tags", label: "Tags" },
+          { key: "owners", label: "Owners" },
+          {
+            key: "chips",
+            label: "Chips",
+            // A render may return several nodes
+            render: (row) => row.tags.map((tag) => <i key={tag}>{tag}</i>),
+          },
+        ]}
+        data={[{ id: 1, owners: [{ name: "Ann" }], tags: ["alpha", "beta"] }]}
+        pagination={false}
+      />,
+    );
+
+    const cells = within(screen.getAllByRole("row")[1]).getAllByRole("cell");
+    expect(cells.map((cell) => cell.textContent)).toEqual([
+      "alpha, beta",
+      '{"name":"Ann"}',
+      "alphabeta",
+    ]);
+    expect(cells[2].querySelectorAll("i")).toHaveLength(2);
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("highlights a search in an array", async () => {
+    const user = userEvent.setup();
+    render(
+      <DataTable
+        clientSide
+        columns={[{ key: "tags", label: "Tags" }]}
+        data={[
+          { id: 1, tags: ["alpha", "beta"] },
+          { id: 2, tags: ["gamma"] },
+        ]}
+        defaultSearchOpen
+        enableGlobalSearch
+      />,
+    );
+
+    await user.type(screen.getByRole("textbox", { name: "Search" }), "bet");
+
+    await waitFor(() => expect(bodyNames()).toEqual(["alpha, beta"]));
+    expect(screen.getByText("bet", { selector: "b" })).toBeInTheDocument();
+  });
+
   it("sorts texts by the rules of the language", async () => {
     const user = userEvent.setup();
     render(
@@ -645,9 +821,12 @@ describe("DataTable filters", () => {
       expect.objectContaining({ filters: {} }),
     );
     expect(bodyNames()).toHaveLength(4);
-    expect(
-      screen.getByRole("button", { name: "Clear filters" }),
-    ).toBeDisabled();
+    // Nothing left to clear - the pressed button keeps the focus
+    const clear = screen.getByRole("button", { name: "Clear filters" });
+    expect(clear).toHaveAttribute("aria-disabled", "true");
+    expect(clear).toHaveFocus();
+    await user.tab();
+    expect(clear).toBeDisabled();
   });
 
   it("keeps the button in the actions column when there is one", () => {
@@ -664,6 +843,136 @@ describe("DataTable filters", () => {
     expect(button.closest("thead")).not.toBeNull();
     expect(button.closest("tr")?.firstElementChild).toContainElement(button);
   });
+});
+
+describe("DataTable filtering the user cannot see", () => {
+  it("ignores a search without the search field client-side", () => {
+    render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={rows}
+        defaultQuery={{ search: "adam" }}
+      />,
+    );
+
+    expect(bodyNames()).toHaveLength(4);
+    expect(screen.queryByText("Adam", { selector: "b" })).toBeNull();
+  });
+
+  it("clears a search without its field with Clear filters", async () => {
+    const user = userEvent.setup();
+    const onQueryChange = vi.fn();
+    // The server filters by it - the table cannot ignore it there
+    render(
+      <DataTable
+        columns={columns}
+        data={rows.slice(1, 2)}
+        onQueryChange={onQueryChange}
+        query={createDataTableQuery({ search: "adam" })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    expect(onQueryChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ filters: {}, search: "" }),
+    );
+  });
+
+  it("ignores a filter of no filterable column client-side", () => {
+    // An old bookmark - `?filters={"id":"1"}`, the Name field is empty
+    render(
+      <DataTable
+        clientSide
+        columns={[columns[0]]}
+        data={rows}
+        defaultQuery={{ filters: { id: "1", team: "A" } }}
+      />,
+    );
+
+    expect(bodyNames()).toHaveLength(4);
+    expect(
+      screen.getByRole("button", { name: "Clear filters" }),
+    ).toBeDisabled();
+  });
+
+  it("keeps a filter of no filterable column for a server, clearable", async () => {
+    const user = userEvent.setup();
+    const onQueryChange = vi.fn();
+    render(
+      <DataTable
+        columns={[{ key: "name", label: "Name" }]}
+        data={rows.slice(0, 1)}
+        onQueryChange={onQueryChange}
+        query={createDataTableQuery({ filters: { status: "archived" } })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    expect(onQueryChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ filters: {} }),
+    );
+  });
+
+  it("drops the filter of a column the user hides", async () => {
+    const user = userEvent.setup();
+    const onQueryChange = vi.fn();
+    render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={rows}
+        defaultQuery={{ filters: { name: "a", team: "A" } }}
+        onQueryChange={onQueryChange}
+      />,
+    );
+    expect(bodyNames()).toEqual(["Adam", "Běla"]);
+
+    await user.click(screen.getByRole("button", { name: "Columns" }));
+    await user.click(screen.getByRole("switch", { name: "Team" }));
+
+    expect(onQueryChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ filters: { name: "a" } }),
+    );
+    expect(bodyNames()).toEqual([
+      "Adam",
+      "Běla",
+      "<img src=x onerror=alert(1)>",
+    ]);
+  });
+
+  it.each([
+    ["without", undefined],
+    ["with", () => "Edit"],
+  ])(
+    "offers Clear filters for the filter of a hidden column %s actions",
+    async (_, actions) => {
+      const user = userEvent.setup();
+      const bodyRows = () =>
+        within(screen.getAllByRole("rowgroup")[1]).getAllByRole("row");
+
+      // No filter field is visible - the filter row is not there
+      render(
+        <DataTable
+          actions={actions}
+          clientSide
+          columns={[
+            { key: "name", label: "Name" },
+            { ...columns[1], visible: false },
+          ]}
+          data={rows}
+          defaultQuery={{ filters: { team: "A" } }}
+        />,
+      );
+      expect(bodyRows()).toHaveLength(2);
+
+      await user.click(screen.getByRole("button", { name: "Clear filters" }));
+
+      expect(bodyRows()).toHaveLength(4);
+    },
+  );
 });
 
 describe("DataTable column settings", () => {
@@ -703,6 +1012,24 @@ describe("DataTable column settings", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("switch", { name: "Team" })).toBeNull();
     expect(trigger).toHaveFocus();
+  });
+
+  it("keep the focus on Reset columns once there is nothing to reset", async () => {
+    const user = userEvent.setup();
+    render(<DataTable columns={columns} data={rows} />);
+
+    await user.click(screen.getByRole("button", { name: "Columns" }));
+    await user.click(screen.getByRole("switch", { name: "Team" }));
+    const reset = screen.getByRole("button", { name: "Reset columns" });
+    reset.focus();
+    await user.keyboard("{Enter}");
+
+    // The panel stays open, the focus on the button - unavailable now
+    expect(headers()).toEqual(["Name", "Team"]);
+    expect(reset).toHaveFocus();
+    expect(reset).toHaveAttribute("aria-disabled", "true");
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("switch", { name: "Team" })).toBeChecked();
   });
 
   it("leaves the panel with Tab for what follows the trigger", async () => {
@@ -762,6 +1089,72 @@ describe("DataTable group actions", () => {
     expect(
       screen.getAllByRole("checkbox", { name: /^Select row/ })[0],
     ).toBeChecked();
+  });
+
+  it("tell actions with the same label apart", async () => {
+    const user = userEvent.setup();
+    let finish!: () => void;
+    const first = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const second = vi.fn();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(
+      <DataTable
+        columns={columns}
+        data={rows}
+        groupActions={[
+          { label: "Export", onClick: first },
+          { label: "Export", onClick: second },
+        ]}
+      />,
+    );
+
+    // No duplicate key warning from React
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+
+    await user.click(
+      screen.getAllByRole("checkbox", { name: /^Select row/ })[0],
+    );
+    const [firstButton, secondButton] = screen.getAllByRole("button", {
+      name: "Export",
+    });
+    await user.click(firstButton);
+
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(firstButton).toHaveAttribute("aria-busy", "true");
+    expect(secondButton).not.toHaveAttribute("aria-busy");
+    expect(secondButton).toBeDisabled();
+
+    await act(async () => finish());
+    await user.click(secondButton);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("leave the selection to the checkboxes, not to aria-selected", async () => {
+    const user = userEvent.setup();
+    render(
+      <DataTable
+        columns={columns}
+        data={rows}
+        groupActions={[{ label: "Archive", onClick: () => {} }]}
+      />,
+    );
+
+    await user.click(
+      screen.getAllByRole("checkbox", { name: /^Select row/ })[0],
+    );
+
+    for (const row of within(screen.getAllByRole("rowgroup")[1]).getAllByRole(
+      "row",
+    )) {
+      expect(row).not.toHaveAttribute("aria-selected");
+    }
   });
 
   it("words the filtered selection by the count", async () => {
@@ -936,6 +1329,323 @@ describe("DataTable with an asynchronous router", () => {
   });
 });
 
+describe("DataTable paging with an asynchronous router", () => {
+  function Table() {
+    const [query, setQuery] = useDataTableQuery({
+      defaults: { pageSize: 1 },
+      syncWithUrl: true,
+    });
+    return (
+      <DataTable
+        clientSide
+        columns={columns}
+        data={rows}
+        onQueryChange={setQuery}
+        query={query}
+      />
+    );
+  }
+
+  function App({
+    initialSearch = "",
+    navigate,
+  }: {
+    initialSearch?: string;
+    navigate: (href: string) => void;
+  }) {
+    const [search, setSearch] = useState(initialSearch);
+    const [pending, setPending] = useState<string[]>([]);
+
+    return (
+      <UIProvider
+        router={{
+          navigate: (href) => {
+            navigate(href);
+            // The URL changes later, like in a router with transitions
+            setPending((current) => [...current, href]);
+          },
+          pathname: "/people",
+          search,
+        }}
+      >
+        <button
+          onClick={() => {
+            const href = pending[pending.length - 1];
+            setSearch(href.includes("?") ? href.slice(href.indexOf("?")) : "");
+            setPending([]);
+          }}
+          type="button"
+        >
+          Finish navigation
+        </button>
+        <Table />
+      </UIProvider>
+    );
+  }
+
+  it("pages on from the pending page", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    render(<App navigate={navigate} />);
+
+    const next = screen.getByRole("button", { name: "Next page" });
+    await user.click(next);
+    await user.click(next);
+    expect(navigate).toHaveBeenLastCalledWith("/people?page=3");
+
+    await user.click(screen.getByRole("button", { name: "Finish navigation" }));
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    expect(navigate).toHaveBeenLastCalledWith("/people?page=2");
+  });
+
+  it("pages the rows of a pending filter from their first page", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    const filters = new URLSearchParams({
+      filters: JSON.stringify({ name: "e" }),
+    });
+    render(<App initialSearch="?page=3" navigate={navigate} />);
+
+    await user.type(
+      screen.getByRole("searchbox", { name: "Filter Name" }),
+      "e",
+    );
+    await waitFor(() =>
+      expect(navigate).toHaveBeenLastCalledWith(`/people?${filters}`),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(navigate).toHaveBeenLastCalledWith(`/people?${filters}&page=2`);
+  });
+
+  it("does not page past the last page", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    render(<App initialSearch="?page=3" navigate={navigate} />);
+
+    const next = screen.getByRole("button", { name: "Next page" });
+    await user.click(next);
+    await user.click(next);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenLastCalledWith("/people?page=4");
+  });
+});
+
+describe("DataTable with a router that applies each navigation late", () => {
+  const searchOf = (href: string) =>
+    href.includes("?") ? href.slice(href.indexOf("?")) : "";
+
+  function App({
+    children,
+    navigate,
+  }: {
+    children: React.ReactNode;
+    navigate: (href: string) => void;
+  }) {
+    const [search, setSearch] = useState("");
+    const [pending, setPending] = useState<string[]>([]);
+
+    return (
+      <UIProvider
+        router={{
+          navigate: (href) => {
+            navigate(href);
+            setPending((current) => [...current, href]);
+          },
+          pathname: "/people",
+          search,
+        }}
+      >
+        <button
+          onClick={() => {
+            const [href, ...later] = pending;
+            setSearch(searchOf(href));
+            setPending(later);
+          }}
+          type="button"
+        >
+          Apply the oldest navigation
+        </button>
+        {children}
+      </UIProvider>
+    );
+  }
+
+  function UrlTable() {
+    const [query, setQuery] = useDataTableQuery({ syncWithUrl: true });
+    return (
+      <DataTable
+        columns={columns}
+        data={rows}
+        onQueryChange={setQuery}
+        query={query}
+      />
+    );
+  }
+
+  it("keeps the typed text when an older filter arrives late", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    const filterUrl = (name: string) =>
+      `/people?${new URLSearchParams({ filters: JSON.stringify({ name }) })}`;
+
+    render(
+      <App navigate={navigate}>
+        <UrlTable />
+      </App>,
+    );
+    const filter = screen.getByRole("searchbox", { name: "Filter Name" });
+    const applyOldest = screen.getByRole("button", {
+      name: "Apply the oldest navigation",
+    });
+
+    await user.type(filter, "ab");
+    await waitFor(() =>
+      expect(navigate).toHaveBeenLastCalledWith(filterUrl("ab")),
+    );
+    await user.type(filter, "c");
+    await waitFor(() =>
+      expect(navigate).toHaveBeenLastCalledWith(filterUrl("abc")),
+    );
+
+    // The router gets to the first change only now
+    await user.click(applyOldest);
+    expect(filter).toHaveValue("abc");
+
+    await user.type(filter, "d");
+    await user.click(applyOldest);
+    await waitFor(() =>
+      expect(navigate).toHaveBeenLastCalledWith(filterUrl("abcd")),
+    );
+    expect(filter).toHaveValue("abcd");
+  });
+
+  it("composes the changes of two tables before the URL catches up", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+
+    function Pages() {
+      const [a, setA] = useDataTableQuery({
+        syncWithUrl: true,
+        urlPrefix: "a_",
+      });
+      const [b, setB] = useDataTableQuery({
+        syncWithUrl: true,
+        urlPrefix: "b_",
+      });
+      const next = (query: DataTableQuery) => ({
+        ...query,
+        page: query.page + 1,
+      });
+
+      return (
+        <>
+          <button onClick={() => setA(next)} type="button">
+            Next A
+          </button>
+          <button onClick={() => setB(next)} type="button">
+            Next B
+          </button>
+          <output>{`${a.page} ${b.page}`}</output>
+        </>
+      );
+    }
+
+    render(
+      <App navigate={navigate}>
+        <Pages />
+      </App>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next A" }));
+    await user.click(screen.getByRole("button", { name: "Next B" }));
+    expect(navigate).toHaveBeenLastCalledWith("/people?a_page=2&b_page=2");
+
+    await user.click(
+      screen.getByRole("button", { name: "Apply the oldest navigation" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Next B" }));
+    expect(navigate).toHaveBeenLastCalledWith("/people?a_page=2&b_page=3");
+
+    await user.click(
+      screen.getByRole("button", { name: "Apply the oldest navigation" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Apply the oldest navigation" }),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("2 3");
+  });
+
+  it("keeps a change back to the shown URL while the router is behind", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+
+    function Pages() {
+      const [a, setA] = useDataTableQuery({
+        syncWithUrl: true,
+        urlPrefix: "a_",
+      });
+      const [b, setB] = useDataTableQuery({
+        syncWithUrl: true,
+        urlPrefix: "b_",
+      });
+
+      return (
+        <>
+          <button
+            onClick={() => setA((query) => ({ ...query, page: 2 }))}
+            type="button"
+          >
+            A to page 2
+          </button>
+          <button
+            onClick={() => setA((query) => ({ ...query, page: 1 }))}
+            type="button"
+          >
+            A to page 1
+          </button>
+          <button
+            onClick={() =>
+              setB((query) => ({ ...query, page: query.page + 1 }))
+            }
+            type="button"
+          >
+            Next B
+          </button>
+          <output>{`${a.page} ${b.page}`}</output>
+        </>
+      );
+    }
+
+    render(
+      <App navigate={navigate}>
+        <Pages />
+      </App>,
+    );
+
+    // A goes to page 2 and back before the router shows either change
+    await user.click(screen.getByRole("button", { name: "A to page 2" }));
+    await user.click(screen.getByRole("button", { name: "A to page 1" }));
+    expect(navigate).toHaveBeenLastCalledWith("/people");
+
+    // The router shows the first of them, then B moves on - on top of the
+    // way back of A, not of the page 2 the router shows meanwhile
+    await user.click(
+      screen.getByRole("button", { name: "Apply the oldest navigation" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Next B" }));
+    expect(navigate).toHaveBeenLastCalledWith("/people?b_page=2");
+
+    await user.click(
+      screen.getByRole("button", { name: "Apply the oldest navigation" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Apply the oldest navigation" }),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("1 2");
+  });
+});
+
 describe("useDataTableQuery URL", () => {
   it("keeps the hash of the page", () => {
     window.history.replaceState(null, "", "/people?tab=all#details");
@@ -957,10 +1667,93 @@ describe("useDataTableQuery URL", () => {
 
     expect(result.current[0].pageSize).toBe(20);
   });
+
+  it("warns about a page size the URL cannot keep", () => {
+    window.history.replaceState(null, "", "/people");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { result } = renderHook(() =>
+      useDataTableQuery({ pageSizeOptions: [10, 25], syncWithUrl: true }),
+    );
+
+    act(() => result.current[1]((query) => ({ ...query, pageSize: 25 })));
+    expect(warn).not.toHaveBeenCalled();
+
+    act(() => result.current[1]((query) => ({ ...query, pageSize: 200 })));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("200"));
+
+    // Once
+    act(() => result.current[1]((query) => ({ ...query, page: 2 })));
+    act(() => result.current[1]((query) => ({ ...query, pageSize: 200 })));
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  const withRouter =
+    (router: Partial<RouterAdapter>) =>
+    ({ children }: { children: React.ReactNode }) => (
+      <UIProvider router={router}>{children}</UIProvider>
+    );
+
+  it("does not put the path of a hash router into its hash again", () => {
+    // A hash router at its root - the page itself is at `/` too
+    window.history.replaceState(null, "", "/#/?page=3");
+    const navigate = vi.fn();
+    const { result } = renderHook(
+      () => useDataTableQuery({ syncWithUrl: true }),
+      { wrapper: withRouter({ navigate, pathname: "/", search: "?page=3" }) },
+    );
+
+    act(() => result.current[1]((query) => ({ ...query, page: 4 })));
+
+    expect(navigate).toHaveBeenLastCalledWith("/?page=4", { replace: false });
+  });
+
+  it("keeps the hash of the page under a basename", () => {
+    window.history.replaceState(null, "", "/app/people?tab=all#details");
+    const navigate = vi.fn();
+    const { result } = renderHook(
+      () => useDataTableQuery({ syncWithUrl: true }),
+      {
+        wrapper: withRouter({
+          navigate,
+          pathname: "/people",
+          search: "?tab=all",
+        }),
+      },
+    );
+
+    act(() => result.current[1]((query) => ({ ...query, page: 2 })));
+
+    expect(navigate).toHaveBeenLastCalledWith(
+      "/people?tab=all&page=2#details",
+      { replace: false },
+    );
+  });
+
+  it("lets two tables of one page change the URL at once", () => {
+    window.history.replaceState(null, "", "/people?tab=all");
+    const { result } = renderHook(
+      () =>
+        [
+          useDataTableQuery({ syncWithUrl: true, urlPrefix: "a_" }),
+          useDataTableQuery({ syncWithUrl: true, urlPrefix: "b_" }),
+        ] as const,
+    );
+
+    act(() => {
+      result.current[0][1]((query) => ({ ...query, page: 2 }));
+      result.current[1][1]((query) => ({ ...query, page: 3 }));
+    });
+
+    expect(window.location.search).toBe("?tab=all&a_page=2&b_page=3");
+    expect(result.current[0][0].page).toBe(2);
+    expect(result.current[1][0].page).toBe(3);
+  });
 });
 
 describe("DataTable selection", () => {
   const archive = { label: "Archive" };
+  const dana: Row = { id: 5, name: "Dana", team: "B" };
 
   it("gives the actions the rows as they are after a refetch", async () => {
     const user = userEvent.setup();
@@ -987,6 +1780,44 @@ describe("DataTable selection", () => {
     ).toBeChecked();
     await user.click(screen.getByRole("button", { name: "Archive" }));
     expect(onClick).toHaveBeenCalledWith([refetched[1]], expect.anything());
+  });
+
+  it("keeps the selected rows that are still there after a refetch", async () => {
+    const user = userEvent.setup();
+    const groupActions = [{ ...archive, onClick: vi.fn() }];
+    const table = (data: Row[], loading = false) => (
+      <DataTable
+        columns={columns}
+        data={data}
+        groupActions={groupActions}
+        loading={loading}
+      />
+    );
+
+    const { rerender } = render(table(rows));
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select row Cecilie" }),
+    );
+    await user.click(screen.getByRole("checkbox", { name: "Select row Adam" }));
+
+    // A poll: Adam was deleted meanwhile, Dana is new
+    const polled = [...rows.filter((row) => row.id !== 2), dana];
+    rerender(table(polled));
+
+    expect(
+      screen.getByRole("checkbox", { name: "Select row Cecilie" }),
+    ).toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: "Select row Dana" }),
+    ).not.toBeChecked();
+    expect(screen.getByText("1 item selected")).toBeInTheDocument();
+
+    // A refetch showing no rows while it loads
+    rerender(table([], true));
+    rerender(table(polled));
+    expect(
+      screen.getByRole("checkbox", { name: "Select row Cecilie" }),
+    ).toBeChecked();
   });
 
   it("keeps rows selected while an action ran when resetting after it", async () => {
@@ -1086,5 +1917,228 @@ describe("DataTable header names", () => {
     expect(
       screen.getByRole("button", { name: "Expand row Cecilie" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("DataTable global search", () => {
+  it("gives the focus back to the search button on Escape", async () => {
+    const user = userEvent.setup();
+    render(<DataTable columns={columns} data={rows} enableGlobalSearch />);
+
+    await user.click(screen.getByRole("button", { name: "Open search" }));
+    const input = screen.getByRole("textbox", { name: "Search" });
+    await waitFor(() => expect(input).toHaveFocus());
+
+    await user.keyboard("x{Escape}");
+
+    const toggle = screen.getByRole("button", { name: "Open search" });
+    expect(toggle).toHaveFocus();
+    // The closed field is out of the way of Tab and screen readers
+    expect(input.closest("[inert]")).not.toBeNull();
+
+    await user.keyboard("y");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(input).toHaveValue("");
+  });
+});
+
+describe("DataTable loading", () => {
+  it("covers only the table while the first page loads", () => {
+    render(<DataTable columns={columns} data={[]} loading toolbar="Tools" />);
+
+    // The toolbar above and the pagination below stay usable - the
+    // overlay is positioned in the table, not in the whole component
+    const overlay = screen.getByRole("status").closest("td");
+    let container = overlay?.parentElement;
+    while (
+      container &&
+      !/\b(relative|absolute|fixed|sticky)\b/.test(container.className)
+    ) {
+      container = container.parentElement;
+    }
+
+    expect(container?.tagName).toBe("TABLE");
+    expect(container).not.toContainElement(screen.getByText("Tools"));
+  });
+});
+
+describe("DataTable full screen", () => {
+  it("leaves full screen on Escape and keeps Tab inside meanwhile", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <button type="button">Before the table</button>
+        <DataTable columns={columns} data={rows} enableGlobalSearch />
+        <button type="button">After the table</button>
+      </>,
+    );
+    const region = screen.getByRole("region", { name: "Data table" });
+    const toggle = screen.getByRole("button", { name: "Toggle full screen" });
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    // The page under the table is out of reach
+    for (let step = 0; step < 20; step++) {
+      await user.tab();
+      expect(region).toContainElement(document.activeElement as HTMLElement);
+    }
+
+    // Escape closes what is open in the table first
+    await user.click(screen.getByRole("button", { name: "Columns" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("switch", { name: "Team" })).toBeNull();
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: "Open search" }));
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Search" })).toHaveFocus(),
+    );
+    await user.keyboard("{Escape}");
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    await user.keyboard("{Escape}");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+describe("DataTable scrolling", () => {
+  it("shows another page, sorting or filter from the first rows", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={rows}
+        defaultQuery={{ pageSize: 2 }}
+      />,
+    );
+    const scroller = container.querySelector<HTMLElement>(
+      "[data-table-scroll]",
+    ) as HTMLElement;
+    const scrollDown = () => {
+      Object.defineProperty(scroller, "scrollTop", {
+        configurable: true,
+        value: 400,
+        writable: true,
+      });
+      fireEvent.scroll(scroller);
+    };
+
+    scrollDown();
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(scroller.scrollTop).toBe(0);
+
+    scrollDown();
+    await user.click(screen.getByRole("button", { name: "Name" }));
+    expect(scroller.scrollTop).toBe(0);
+
+    await user.type(
+      screen.getByRole("searchbox", { name: "Filter Name" }),
+      "a",
+    );
+    await waitFor(() => expect(bodyNames()).toHaveLength(2));
+    scrollDown();
+    await user.type(
+      screen.getByRole("searchbox", { name: "Filter Name" }),
+      "d",
+    );
+    await waitFor(() => expect(bodyNames()).toEqual(["Adam"]));
+    expect(scroller.scrollTop).toBe(0);
+
+    // Not for what shows the same rows - the column settings
+    scrollDown();
+    await user.click(screen.getByRole("button", { name: "Columns" }));
+    expect(scroller.scrollTop).toBe(400);
+  });
+});
+
+describe("DataTable focus scrolling", () => {
+  it("keeps the rows where they are when the focus moves into the toolbar or the header", () => {
+    const { container } = render(
+      <DataTable
+        actions={() => <button type="button">Edit</button>}
+        columns={columns}
+        data={rows}
+      />,
+    );
+    const scroller = container.querySelector<HTMLElement>(
+      "[data-table-scroll]",
+    ) as HTMLElement;
+    let scrollTop = 400;
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      },
+    });
+    act(() => {
+      fireEvent.scroll(scroller);
+    });
+
+    // The browser scrolls what sticks to where it would be without sticking
+    // - up, out from under the scroll padding meant for the rows
+    for (const name of ["Columns", "Name", "Filter Name"]) {
+      scrollTop = 120;
+      act(() =>
+        screen
+          .getAllByRole(name === "Filter Name" ? "searchbox" : "button", {
+            name,
+          })[0]
+          .focus(),
+      );
+      expect(scrollTop).toBe(400);
+    }
+
+    // A control of the rows is scrolled out from under the header as it is
+    scrollTop = 120;
+    act(() => screen.getAllByRole("button", { name: "Edit" })[0].focus());
+    expect(scrollTop).toBe(120);
+  });
+});
+
+describe("DataTable without ResizeObserver", () => {
+  it("renders - as in a test environment without it", () => {
+    vi.stubGlobal("ResizeObserver", undefined);
+
+    try {
+      render(
+        <DataTable
+          clientSide
+          columns={[{ ...columns[0], pinned: "left" }, columns[1]]}
+          data={rows}
+          virtualized
+        />,
+      );
+
+      expect(bodyNames()).toHaveLength(4);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("DataTable column settings storage", () => {
+  it("works when the site data is blocked", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    // Reading `localStorage` throws then - also `typeof localStorage`
+    const storage = vi
+      .spyOn(window, "localStorage", "get")
+      .mockImplementation(() => {
+        throw new DOMException("The operation is insecure.", "SecurityError");
+      });
+
+    try {
+      render(<DataTable columns={columns} data={rows} tableId="people" />);
+
+      await user.click(screen.getByRole("button", { name: "Columns" }));
+      await user.click(screen.getByRole("switch", { name: "Team" }));
+
+      expect(screen.queryByRole("columnheader", { name: /Team/ })).toBeNull();
+    } finally {
+      storage.mockRestore();
+    }
   });
 });

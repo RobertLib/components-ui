@@ -1,23 +1,56 @@
 import { useCallback, useMemo, useState, type SetStateAction } from "react";
 import type { RowId } from "./types";
 
+interface RowSelectionOptions {
+  /**
+   * The rows are loading - they may be a placeholder (none, or the previous
+   * page), so the selection is not narrowed down to them meanwhile.
+   */
+  loading?: boolean;
+  /** The selection is dropped whenever it changes (other filters). */
+  resetKey?: string;
+}
+
 /**
- * Selected rows of the current page - dropped whenever `resetKey` changes
- * (another page, other filters).
+ * The selected rows among `data`. A row that leaves `data` (another page, a
+ * refetch without it) leaves the selection for good - the others stay
+ * selected. Everything is dropped when `resetKey` changes.
  */
 export default function useRowSelection<T extends { id: RowId }>(
   data: T[],
-  resetKey = "default",
+  { loading = false, resetKey = "default" }: RowSelectionOptions = {},
 ) {
+  const rowIds = useMemo(() => data.map((row) => row.id), [data]);
+  // The ids of the rows by value - a refetch of the same rows keeps it
+  const idsKey = useMemo(() => JSON.stringify(rowIds), [rowIds]);
+
   const [selection, setSelection] = useState<{
+    idsKey: string;
     key: string;
     rows: T[];
-  }>({ key: resetKey, rows: [] });
+  }>({ idsKey, key: resetKey, rows: [] });
 
-  // Dropped for good - coming back to the same page starts unselected
   if (selection.key !== resetKey) {
-    setSelection({ key: resetKey, rows: [] });
+    // Dropped for good - coming back to the same filters starts unselected
+    setSelection({ idsKey, key: resetKey, rows: [] });
+  } else if (!loading && selection.idsKey !== idsKey) {
+    // Other rows came - a selected row that is gone stays unselected when
+    // it comes back (a return to its page)
+    const present = new Set(rowIds);
+    setSelection({
+      idsKey,
+      key: resetKey,
+      rows: selection.rows.filter((row) => present.has(row.id)),
+    });
   }
+
+  const selectedIds = useMemo(
+    () =>
+      new Set(
+        selection.key === resetKey ? selection.rows.map((row) => row.id) : [],
+      ),
+    [resetKey, selection],
+  );
 
   // The rows as they are now - a refetch with the same ids brings new
   // objects, which a group action must get instead of the stale ones
@@ -34,11 +67,13 @@ export default function useRowSelection<T extends { id: RowId }>(
   const setSelectedRows = useCallback(
     (value: SetStateAction<T[]>) => {
       setSelection((previous) => {
-        // Meant for the selection of another page - it is gone already
+        // Meant for the selection of other filters - it is gone already
         if (previous.key !== resetKey) return previous;
 
-        const rows = typeof value === "function" ? value(previous.rows) : value;
-        return { key: resetKey, rows };
+        return {
+          ...previous,
+          rows: typeof value === "function" ? value(previous.rows) : value,
+        };
       });
     },
     [resetKey],
@@ -55,22 +90,17 @@ export default function useRowSelection<T extends { id: RowId }>(
     [setSelectedRows],
   );
 
-  const isAllSelected = useMemo(
-    () =>
-      data.length > 0 &&
-      data.every((row) =>
-        selectedRows.some((selected) => selected.id === row.id),
-      ),
-    [data, selectedRows],
-  );
+  // Ids in a set - comparing every row with every selected one grew with
+  // the square of the rows (a fifth of a second for 10 000)
+  const isAllSelected =
+    rowIds.length > 0 && rowIds.every((id) => selectedIds.has(id));
 
   const toggleSelectAll = useCallback(() => {
-    setSelectedRows((prev) =>
-      data.every((row) => prev.some((selected) => selected.id === row.id))
-        ? []
-        : [...data],
-    );
-  }, [data, setSelectedRows]);
+    setSelectedRows((prev) => {
+      const selected = new Set(prev.map((row) => row.id));
+      return rowIds.every((id) => selected.has(id)) ? [] : [...data];
+    });
+  }, [data, rowIds, setSelectedRows]);
 
   const resetSelection = useCallback(() => {
     setSelectedRows([]);
@@ -79,6 +109,7 @@ export default function useRowSelection<T extends { id: RowId }>(
   return {
     isAllSelected,
     resetSelection,
+    selectedIds,
     selectedRows,
     setSelectedRows,
     toggleRowSelection,

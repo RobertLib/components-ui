@@ -2,6 +2,8 @@ import { DataTable, useSnackbar } from "components-ui";
 import { people } from "../../mocks/data";
 import { personColumns } from "./columns";
 
+const columns = personColumns.slice(0, 5);
+
 export default function Selection() {
   const { enqueueSnackbar } = useSnackbar();
 
@@ -9,7 +11,7 @@ export default function Selection() {
     <DataTable
       autoResetSelectedRows
       clientSide
-      columns={personColumns.slice(0, 5)}
+      columns={columns}
       data={people}
       defaultQuery={{ pageSize: 5 }}
       // Once a whole page is selected, offers selecting every matching row

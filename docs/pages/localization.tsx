@@ -48,6 +48,7 @@ const pluralExample = `// A text with plural forms - the right one is picked by 
 selectedCount: {
   one: "Vybrána {count} položka",   // 1
   few: "Vybrány {count} položky",   // 2 - 4
+  many: "Vybráno {count} položky",  // 1,5 - decimals
   other: "Vybráno {count} položek", // 0, 5+
 },`;
 
@@ -85,8 +86,11 @@ export default function Localization() {
           <ul>
             <li>
               <code>code</code> drives <code>Intl</code>: month and weekday
-              names, the calendar header, plural rules. They need no
-              translation.
+              names, the calendar header, AM / PM, plural rules and how counts
+              are written (<code>12,345</code> / <code>12 345</code>). They need
+              no translation. A code <code>Intl</code> does not understand (
+              <code>en_GB</code> instead of <code>en-GB</code>) falls back to{" "}
+              <code>en-US</code>, with a warning in the console.
             </li>
             <li>
               <code>formats</code> are the display patterns of the pickers - the
@@ -105,11 +109,15 @@ export default function Localization() {
             <code>M</code> month, <code>DD</code> / <code>D</code> day,{" "}
             <code>HH</code> / <code>H</code> hours, <code>hh</code> /{" "}
             <code>h</code> hours of the 12-hour clock with <code>A</code> for AM
-            / PM (<code>en</code> uses <code>h:mm A</code>), <code>mm</code>{" "}
-            minutes, <code>WW</code> / <code>W</code> ISO week. Text in square
-            brackets is printed as it is: <code>[W]WW.YYYY</code> → W39.2026.
+            / PM (<code>en</code> uses <code>h:mm A</code>; AM / PM is written
+            in the language of <code>code</code>, e.g. <code>dop.</code> /{" "}
+            <code>odp.</code> in Czech), <code>mm</code> minutes,{" "}
+            <code>WW</code> / <code>W</code> ISO week. Text in square brackets
+            is printed as it is: <code>[W]WW.YYYY</code> → W39.2026 - the week
+            picker labels its weeks with the week format without the year (W39).
             The user types dates in the same format - any separators and missing
-            zeros are fine.
+            zeros are fine, a time without its minutes is the full hour, and{" "}
+            <code>am</code> / <code>pm</code> are understood in any language.
           </p>
         </Callout>
       </Section>
@@ -122,10 +130,22 @@ export default function Localization() {
         <Prose>
           <p>
             <code>createLocale(base, overrides)</code> deep-merges a locale -
-            untranslated texts fall back to the base.
+            untranslated texts fall back to the base, also those a translation
+            tool exports as <code>null</code>. A text with plural forms given
+            with its <code>other</code> form replaces the base one as a whole,
+            so no form of the base language is left in it (the same goes for the{" "}
+            <code>messages</code> of <code>UIProvider</code>).
           </p>
         </Prose>
         <CodeBlock code={customLocale} />
+        <Prose>
+          <p>
+            Punctuation is part of the locale too: <code>form.labelSuffix</code>{" "}
+            follows every field label and <code>DescriptionList</code> term -{" "}
+            <code>":"</code> in English and Czech, <code>" :"</code> in French,
+            or <code>""</code> for labels without one.
+          </p>
+        </Prose>
       </Section>
 
       <Section title="Placeholders and plurals">
@@ -138,7 +158,11 @@ export default function Localization() {
         </Prose>
         <CodeBlock code={pluralExample} />
         <Prose>
-          <p>The helpers are exported for your own texts:</p>
+          <p>
+            The count is written as the language writes numbers (
+            <code>12 345</code> in Czech). The helpers are exported for your own
+            texts:
+          </p>
         </Prose>
         <CodeBlock code={helpers} />
       </Section>

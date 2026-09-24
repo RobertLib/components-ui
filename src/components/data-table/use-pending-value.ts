@@ -10,6 +10,9 @@ const MAX_PENDING = 50;
  * `incoming` meanwhile does not bring the old value back, so a change made
  * before the owner catches up builds on the pending one.
  *
+ * An owner that rejects a change looks the same as one that is late - the
+ * rejected value stays pending until the owner shows another value.
+ *
  * The returned object is the same in every render; `isEqual` must be too.
  */
 export default function usePendingValue<V>(
@@ -50,8 +53,10 @@ export default function usePendingValue<V>(
       const current = state.current;
       current.latest = value;
 
-      // Back at what the owner shows - nothing to wait for
-      if (isEqual(value, current.seen)) {
+      // Back at what the owner shows with nothing on the way - nothing to
+      // wait for. With changes on the way the owner still shows them first,
+      // so the return waits behind them.
+      if (current.pending.length === 0 && isEqual(value, current.seen)) {
         current.pending = [];
       } else {
         current.pending.push(value);

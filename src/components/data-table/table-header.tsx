@@ -1,10 +1,13 @@
 import {
+  Check,
   Columns3,
+  Download,
   GripVertical,
   Maximize,
   Minimize,
   PanelLeft,
   PanelRight,
+  Rows3,
   Search,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -15,44 +18,78 @@ import Popover from "../popover";
 import Switch from "../switch";
 import { formatMessage } from "../../i18n/format";
 import { useMessages } from "../../providers/ui-context";
-import type { Column } from "./types";
+import type { Column, DataTableDensity } from "./types";
 import useDebouncedField from "./use-debounced-field";
 
+const DENSITIES: DataTableDensity[] = ["compact", "normal", "comfortable"];
+
 interface TableHeaderProps<T> {
+  /** Keys of all columns in the order the user arranged them. */
   columnOrder: string[];
+  /** All columns of the table, also the hidden ones. */
   columns: Column<T>[];
+  /** Whether each column is shown, by column key. */
   columnVisibility: Record<string, boolean>;
+  /** Opens the search field right away. */
   defaultSearchOpen?: boolean;
+  /** Height of the rows - the density control shows it. */
+  density: DataTableDensity;
+  /** Shows the row density control. */
+  densityControl: boolean;
+  /** Shows the global search field and its toggle. */
   enableGlobalSearch?: boolean;
+  /** Lets a row of the column settings be a drop target. */
   handleDragOver: (event: React.DragEvent<HTMLElement>) => void;
+  /** Starts dragging a column by its handle in the column settings. */
   handleDragStart: (
     event: React.DragEvent<HTMLElement>,
     columnKey: string,
   ) => void;
+  /** Moves the dragged column in front of the one it is dropped on. */
   handleDrop: (event: React.DragEvent<HTMLElement>, columnKey: string) => void;
+  /** Pins a column to an edge, or unpins it. */
   handlePinColumn: (columnKey: string, position: "left" | "right") => void;
-  /** Some column filter has a value. */
+  /** Some filter has a value - the "Clear filters" button is enabled. */
   hasActiveFilters: boolean;
+  /** The columns differ from their definitions - "Reset columns" is enabled. */
+  hasCustomSettings: boolean;
+  /** A CSV export is running - its button shows a spinner. */
+  isExporting: boolean;
+  /** The table covers the page - the toggle shows "exit full screen". */
   isFullScreen: boolean;
   /** Moves a column one place up or down in the order (the arrow keys). */
   onMoveColumn: (columnKey: string, offset: -1 | 1) => void;
+  /** Empties all filters. */
   onClearFilters: () => void;
+  /** Sets the row density. */
+  onDensityChange: (density: DataTableDensity) => void;
+  /** Exports the rows as CSV - the export button shows with it. */
+  onExport?: () => void;
+  /** Brings back the columns' default order, visibility, pinning and widths. */
   onResetSettings: () => void;
+  /** Called with the typed search once typing pauses. */
   onSearchChange: (search: string) => void;
+  /** Keys of the columns pinned to the left and right edge. */
   pinnedColumns: { left: string[]; right: string[] };
+  /** The header element - its height is measured. */
   ref?: React.Ref<HTMLElement>;
+  /** The search term of the query. */
   search: string;
+  /** Shows or hides columns. */
   setColumnVisibility: (
     visibility:
       | Record<string, boolean>
       | ((prev: Record<string, boolean>) => Record<string, boolean>),
   ) => void;
+  /** Enters or leaves full screen. */
   setIsFullScreen: React.Dispatch<React.SetStateAction<boolean>>;
   /**
-   * The table has filters but no actions column, whose header holds the
-   * "Clear filters" button - the toolbar shows it instead.
+   * The toolbar shows the "Clear filters" button - the table has filters but
+   * no actions column, whose header holds it otherwise, or the filters are
+   * of hidden columns only.
    */
   showClearFilters: boolean;
+  /** Content left of the table controls. */
   toolbar: React.ReactNode;
 }
 
@@ -61,14 +98,20 @@ export function TableHeader<T>({
   columns,
   columnVisibility,
   defaultSearchOpen = false,
+  density,
+  densityControl,
   enableGlobalSearch = false,
   handleDragOver,
   handleDragStart,
   handleDrop,
   handlePinColumn,
   hasActiveFilters,
+  hasCustomSettings,
+  isExporting,
   isFullScreen,
   onClearFilters,
+  onDensityChange,
+  onExport,
   onMoveColumn,
   onResetSettings,
   onSearchChange,
@@ -97,7 +140,13 @@ export function TableHeader<T>({
   // The field shows what is typed right away; the query follows debounced
   const searchField = useDebouncedField(search, onSearchChange);
 
+  const [isDensityOpen, setIsDensityOpen] = useState(false);
+  // "Reset columns" with the focus - once pressed there is nothing to reset,
+  // but a disabled button would drop the focus and close the panel
+  const [isResetFocused, setIsResetFocused] = useState(false);
+
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchToggleRef = useRef<HTMLButtonElement>(null);
   const shouldFocusRef = useRef(false);
   const settingsRef = useRef<HTMLDivElement>(null);
 
@@ -122,26 +171,6 @@ export function TableHeader<T>({
       return () => clearTimeout(timeout);
     }
   }, [isSearchOpen]);
-
-  const hasCustomSettings = () => {
-    const defaultColumnOrder = columns.map((col) => col.key);
-    const isColumnOrderChanged =
-      columnOrder.length !== defaultColumnOrder.length ||
-      !columnOrder.every((col, index) => col === defaultColumnOrder[index]);
-
-    const isColumnVisibilityChanged = columns.some(
-      (column) => columnVisibility[column.key] !== (column.visible ?? true),
-    );
-
-    const isPinnedColumnsChanged =
-      pinnedColumns.left.length > 0 || pinnedColumns.right.length > 0;
-
-    return (
-      isColumnOrderChanged ||
-      isColumnVisibilityChanged ||
-      isPinnedColumnsChanged
-    );
-  };
 
   // The arrow keys on a handle move its column - the row moves in the DOM,
   // so its handle gets the focus back
@@ -177,11 +206,14 @@ export function TableHeader<T>({
           <div className="flex items-center">
             <div
               className={cn(
-                "overflow-hidden transition-all duration-300 ease-in-out",
+                "overflow-hidden transition-all duration-300 ease-in-out motion-reduce:transition-none",
                 isSearchOpen
                   ? "mr-2 w-[calc(100vw-80px)] opacity-100 sm:w-64"
                   : "w-0 opacity-0",
               )}
+              // Closed, the field is out of reach of Tab, clicks and screen
+              // readers - it only has no width
+              inert={!isSearchOpen}
             >
               <input
                 aria-label={messages.dataTable.search}
@@ -192,11 +224,12 @@ export function TableHeader<T>({
                     // Closes the search only, not a dialog around the table
                     e.preventDefault();
                     toggleSearch();
+                    // The focus would stay in the closed field, unseen
+                    searchToggleRef.current?.focus();
                   }
                 }}
                 placeholder={messages.dataTable.search}
                 ref={searchInputRef}
-                tabIndex={isSearchOpen ? 0 : -1}
                 type="text"
                 value={searchField.value}
               />
@@ -214,6 +247,7 @@ export function TableHeader<T>({
                 isSearchOpen && "text-primary-600 dark:text-primary-400",
               )}
               onClick={toggleSearch}
+              ref={searchToggleRef}
             >
               <Search size={18} />
             </IconButton>
@@ -222,7 +256,7 @@ export function TableHeader<T>({
 
         <div
           className={cn(
-            "flex items-center gap-2 transition-all duration-300",
+            "flex items-center gap-2 transition-all duration-300 motion-reduce:transition-none",
             isSearchOpen && "hidden sm:flex",
           )}
         >
@@ -231,6 +265,101 @@ export function TableHeader<T>({
               hasActiveFilters={hasActiveFilters}
               onClear={onClearFilters}
             />
+          )}
+
+          {onExport && (
+            // An IconButton, but not disabled while the export runs - a
+            // disabled button would drop the focus
+            <button
+              aria-busy={isExporting || undefined}
+              aria-disabled={isExporting || undefined}
+              aria-label={messages.dataTable.exportCsv}
+              className={cn(
+                "-m-1 rounded-md p-1 leading-none transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-neutral-800",
+                isExporting ? "cursor-progress" : "cursor-pointer",
+              )}
+              onClick={isExporting ? undefined : onExport}
+              type="button"
+            >
+              {isExporting ? (
+                <svg
+                  aria-hidden="true"
+                  className="h-4.5 w-4.5 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    fill="currentColor"
+                  />
+                </svg>
+              ) : (
+                <Download aria-hidden="true" size={18} />
+              )}
+            </button>
+          )}
+
+          {densityControl && (
+            <Popover
+              align="right"
+              buttonTrigger
+              // Around the button, laid out as the other buttons - a block
+              // would put it on the baseline of a line, 3px higher
+              className="flex"
+              contentClassName="mt-2.5 p-1"
+              contentLabel={messages.dataTable.density.label}
+              onOpenChange={setIsDensityOpen}
+              open={isDensityOpen}
+              position="bottom"
+              trigger={
+                <IconButton aria-label={messages.dataTable.density.label}>
+                  <Rows3 aria-hidden="true" size={18} />
+                </IconButton>
+              }
+              triggerType="click"
+              width="auto"
+            >
+              {/* Toggle buttons, one tab stop each - the panel moves Tab
+                  through its controls, which a radio group would leave */}
+              <div
+                aria-label={messages.dataTable.density.label}
+                className="flex min-w-36 flex-col gap-0.5"
+                role="group"
+              >
+                {DENSITIES.map((value) => (
+                  <button
+                    aria-pressed={density === value}
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 aria-pressed:font-medium motion-reduce:transition-none dark:hover:bg-neutral-800"
+                    key={value}
+                    onClick={() => {
+                      onDensityChange(value);
+                      setIsDensityOpen(false);
+                    }}
+                    type="button"
+                  >
+                    <Check
+                      aria-hidden="true"
+                      className={cn(
+                        "shrink-0 text-primary-500",
+                        density !== value && "invisible",
+                      )}
+                      size={14}
+                    />
+                    {messages.dataTable.density[value]}
+                  </button>
+                ))}
+              </div>
+            </Popover>
           )}
 
           {/* A panel of controls, not a menu - Tab moves through it */}
@@ -250,9 +379,12 @@ export function TableHeader<T>({
             <div className="min-w-48" ref={settingsRef}>
               <div className="m-1 border-b border-neutral-200 pb-1 dark:border-neutral-800">
                 <button
-                  className="w-full cursor-pointer rounded p-1.5 text-left text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-200 dark:hover:bg-neutral-800"
-                  disabled={!hasCustomSettings()}
-                  onClick={onResetSettings}
+                  aria-disabled={!hasCustomSettings || undefined}
+                  className="w-full cursor-pointer rounded p-1.5 text-left text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                  disabled={!hasCustomSettings && !isResetFocused}
+                  onBlur={() => setIsResetFocused(false)}
+                  onClick={hasCustomSettings ? onResetSettings : undefined}
+                  onFocus={() => setIsResetFocused(true)}
                   type="button"
                 >
                   {messages.dataTable.resetColumns}
@@ -272,7 +404,7 @@ export function TableHeader<T>({
                       aria-label={formatMessage(messages.dataTable.moveColumn, {
                         label: columnName,
                       })}
-                      className="mr-2 cursor-grab rounded opacity-50 hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-300"
+                      className="mr-2 cursor-grab rounded opacity-50 hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-500"
                       data-column-handle={column.key}
                       draggable
                       onDragStart={(event) => {
@@ -296,7 +428,7 @@ export function TableHeader<T>({
                       })}
                       aria-pressed={pinnedColumns.left.includes(column.key)}
                       className={cn(
-                        "mr-2 cursor-pointer rounded opacity-50 hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-300",
+                        "mr-2 cursor-pointer rounded opacity-50 hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-500",
                         pinnedColumns.left.includes(column.key) &&
                           "text-primary-500 opacity-100",
                       )}
@@ -311,7 +443,7 @@ export function TableHeader<T>({
                       })}
                       aria-pressed={pinnedColumns.right.includes(column.key)}
                       className={cn(
-                        "mr-2 cursor-pointer rounded opacity-50 hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-300",
+                        "mr-2 cursor-pointer rounded opacity-50 hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-500",
                         pinnedColumns.right.includes(column.key) &&
                           "text-primary-500 opacity-100",
                       )}

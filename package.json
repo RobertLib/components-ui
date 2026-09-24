@@ -1,8 +1,14 @@
 {
   "name": "components-ui",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "React + Tailwind CSS component library with localization, router integration and REST / GraphQL friendly data components.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RobertLib/components-ui.git"
+  },
+  "homepage": "https://robertlib.github.io/components-ui/",
   "type": "module",
   "files": [
     "dist",
@@ -26,6 +32,9 @@
   "sideEffects": [
     "**/*.css"
   ],
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "npm run build:lib && npm run build:docs",
@@ -33,7 +42,7 @@
     "build:docs": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "lint": "oxlint",
+    "lint": "oxlint && node scripts/check-react-compiler.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run test && prettier --check .",

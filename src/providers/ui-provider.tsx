@@ -1,11 +1,12 @@
 import { use, useMemo } from "react";
-import { deepMerge } from "../i18n/format";
+import { deepMerge, toIntlLocale } from "../i18n/format";
 import { en } from "../i18n/en";
 import type { DeepPartial, Locale, Messages } from "../i18n/types";
 import type { RouterAdapter } from "./router";
 import { UIContext } from "./ui-context";
 
 export interface UIProviderProps {
+  /** The part of the app the configuration applies to - usually all of it. */
   children: React.ReactNode;
   /**
    * Texts, date formats and the first day of the week - the built-in `en`
@@ -38,13 +39,17 @@ export default function UIProvider({
   const parent = use(UIContext);
   const baseLocale = locale ?? parent?.locale ?? en;
 
-  const resolvedLocale = useMemo(
-    () =>
-      messages
-        ? { ...baseLocale, messages: deepMerge(baseLocale.messages, messages) }
-        : baseLocale,
-    [baseLocale, messages],
-  );
+  const resolvedLocale = useMemo(() => {
+    // The components hand the code to `Intl`, which throws on one it does
+    // not understand ("en_GB") - such a code falls back with a warning
+    const code = toIntlLocale(baseLocale.code);
+    const valid =
+      code === baseLocale.code ? baseLocale : { ...baseLocale, code };
+
+    return messages
+      ? { ...valid, messages: deepMerge(valid.messages, messages) }
+      : valid;
+  }, [baseLocale, messages]);
 
   const Link = router?.Link ?? parent?.router?.Link;
   const pathname = router?.pathname ?? parent?.router?.pathname;

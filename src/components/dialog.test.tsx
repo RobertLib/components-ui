@@ -1,10 +1,13 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { Activity, useState } from "react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import ConfirmDialog from "./confirm-dialog";
 import DateTimePicker from "./datetime-picker";
 import Dialog from "./dialog";
+import Dropdown from "./dropdown";
 import FileUpload from "./file-upload";
 import Popover from "./popover";
 import Tooltip from "./tooltip";
@@ -75,12 +78,15 @@ describe("Dialog", () => {
       render(<EditWithConfirm nested={nested} onEditClose={onEditClose} />);
 
       await user.click(screen.getByRole("button", { name: "Delete" }));
+      expect(
+        screen.getByRole("alertdialog", { name: "Delete?" }),
+      ).toBeInTheDocument();
       await user.keyboard("{Escape}");
 
       expect(onEditClose).not.toHaveBeenCalled();
       expect(screen.getByRole("dialog", { name: "Edit" })).toBeInTheDocument();
       expect(
-        screen.queryByRole("dialog", { name: "Delete?" }),
+        screen.queryByRole("alertdialog", { name: "Delete?" }),
       ).not.toBeInTheDocument();
 
       await user.keyboard("{Escape}");
@@ -88,7 +94,7 @@ describe("Dialog", () => {
     },
   );
 
-  it("leaves Escape to a popover inside that handled it first", async () => {
+  it("leaves alone an Escape that something inside has handled", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     const handledByPopover = (event: KeyboardEvent) => event.preventDefault();
@@ -114,6 +120,38 @@ describe("Dialog", () => {
     );
 
     expect(screen.getByRole("combobox", { name: /From/ })).toHaveFocus();
+  });
+
+  it("takes the focus itself when nothing in it can have it", async () => {
+    const user = userEvent.setup();
+    const upload = vi.fn();
+
+    function Upload() {
+      const [busy, setBusy] = useState(false);
+      return (
+        <>
+          <button
+            onClick={() => {
+              upload();
+              setBusy(true);
+            }}
+          >
+            Upload
+          </button>
+          <Dialog closeDisabled={busy} open={busy} title="Uploading…">
+            <p>Please wait</p>
+          </Dialog>
+        </>
+      );
+    }
+
+    render(<Upload />);
+    await user.click(screen.getByRole("button", { name: "Upload" }));
+    // Not left on the button under the dialog, where Enter presses it again
+    expect(screen.getByRole("dialog", { name: "Uploading…" })).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(upload).toHaveBeenCalledTimes(1);
   });
 
   it("wraps Tab around the last visible control", async () => {
@@ -374,7 +412,366 @@ describe("Dialog in the overlay stack", () => {
   });
 });
 
+describe("Dialog giving the focus back", () => {
+  it("gives it to the popover's trigger when the button that opened it is gone", async () => {
+    const user = userEvent.setup();
+
+    function Page() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <Popover
+            aria-label="Actions"
+            trigger={<span>Actions</span>}
+            triggerType="click"
+          >
+            <button onClick={() => setOpen(true)} type="button">
+              Rename
+            </button>
+          </Popover>
+          <Dialog onClose={() => setOpen(false)} open={open} title="Rename">
+            <input aria-label="Name" />
+          </Dialog>
+        </>
+      );
+    }
+
+    render(<Page />);
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+    // The popover closed when the focus moved into the dialog
+    expect(screen.queryByRole("button", { name: "Rename" })).toBeNull();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Actions" })).toHaveFocus();
+  });
+
+  it("gives it to the dropdown's trigger when the pick that opened it closed the menu", async () => {
+    const user = userEvent.setup();
+
+    function Page() {
+      const [confirm, setConfirm] = useState(false);
+      return (
+        <>
+          <Dropdown
+            aria-label="Actions"
+            items={[{ label: "Delete", onClick: () => setConfirm(true) }]}
+            trigger={<span>…</span>}
+          />
+          {/* After the menu - the menu and the focus in it are gone by the
+              time the dialog opens in the same commit */}
+          <ConfirmDialog
+            onClose={() => setConfirm(false)}
+            onConfirm={() => setConfirm(false)}
+            open={confirm}
+            title="Delete?"
+          />
+        </>
+      );
+    }
+
+    render(<Page />);
+    const trigger = screen.getByRole("button", { name: "Actions" });
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("menu")).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("gives it to the popover's trigger when a click closed the popover and opened it", async () => {
+    const user = userEvent.setup();
+
+    function Page() {
+      const [open, setOpen] = useState(false);
+      const [dialog, setDialog] = useState(false);
+      return (
+        <>
+          <Popover
+            aria-label="Actions"
+            onOpenChange={setOpen}
+            open={open}
+            trigger={<span>Actions</span>}
+            triggerType="click"
+          >
+            <button
+              onClick={() => {
+                setOpen(false);
+                setDialog(true);
+              }}
+              type="button"
+            >
+              Rename
+            </button>
+          </Popover>
+          <Dialog onClose={() => setDialog(false)} open={dialog} title="Rename">
+            <input aria-label="Name" />
+          </Dialog>
+        </>
+      );
+    }
+
+    render(<Page />);
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Actions" })).toHaveFocus();
+  });
+});
+
+describe("Dialog and Escape", () => {
+  it("ignores the Escape that ends an IME composition", () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog onClose={onClose} open title="Rename">
+        <input aria-label="Name" />
+      </Dialog>,
+    );
+
+    const input = screen.getByRole("textbox", { name: "Name" });
+    fireEvent.keyDown(input, { isComposing: true, key: "Escape" });
+    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Uncontrolled Dialog unmounted by its parent", () => {
+  const sleep = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+
+  function Page({ closeAfter }: { closeAfter: "open" | "closing" }) {
+    const [shown, setShown] = useState(false);
+    return (
+      <>
+        <button onClick={() => setShown(true)} type="button">
+          Details
+        </button>
+        <button onClick={() => setShown(false)} type="button">
+          Hide
+        </button>
+        {shown && (
+          <Dialog title="Details">
+            <input aria-label="Note" />
+            {closeAfter === "closing" && (
+              <button onClick={() => setShown(false)} type="button">
+                Unmount
+              </button>
+            )}
+          </Dialog>
+        )}
+      </>
+    );
+  }
+
+  it.each(["open", "closing"] as const)(
+    "gives the focus back when unmounted while %s",
+    async (closeAfter) => {
+      const user = userEvent.setup();
+      render(<Page closeAfter={closeAfter} />);
+
+      const details = screen.getByRole("button", { name: "Details" });
+      await user.click(details);
+      await act(() => sleep(20));
+      expect(screen.getByRole("textbox", { name: "Note" })).toHaveFocus();
+
+      if (closeAfter === "closing") {
+        // Escape starts the closing animation; the parent unmounts the
+        // dialog before it ends
+        await user.keyboard("{Escape}");
+        fireEvent.click(screen.getByRole("button", { name: "Unmount" }));
+      } else {
+        fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+      }
+
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(details).toHaveFocus();
+    },
+  );
+
+  it("leaves the focus alone once the closing animation gave it back", async () => {
+    const user = userEvent.setup();
+    render(<Page closeAfter="open" />);
+
+    const details = screen.getByRole("button", { name: "Details" });
+    await user.click(details);
+    await act(() => sleep(20));
+    await user.keyboard("{Escape}");
+    await act(() => sleep(250));
+    expect(details).toHaveFocus();
+
+    // The focus has left for the page meanwhile - it stays there
+    details.blur();
+    fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+    expect(document.body).toHaveFocus();
+  });
+});
+
+describe("Dialog and <Activity>", () => {
+  it("closes on Escape after a popover open in a hidden tab", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    function Settings() {
+      const [tab, setTab] = useState<"general" | "advanced">("general");
+      return (
+        <Dialog onClose={onClose} open title="Settings">
+          <button onClick={() => setTab("advanced")} type="button">
+            Advanced
+          </button>
+          <Activity mode={tab === "general" ? "visible" : "hidden"}>
+            <Popover open trigger={<span>More</span>}>
+              Panel
+            </Popover>
+          </Activity>
+        </Dialog>
+      );
+    }
+
+    render(<Settings />);
+    await user.click(screen.getByRole("button", { name: "Advanced" }));
+    await user.keyboard("{Escape}");
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Dialog page scroll lock", () => {
+  afterEach(() => {
+    document.body.style.paddingRight = "";
+  });
+
+  it("keeps the width of the page while its scrollbar is hidden", () => {
+    // A classic 15 px scrollbar beside the 1024 px jsdom window
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(
+      1009,
+    );
+    document.body.style.paddingRight = "4px";
+
+    const { rerender } = render(<Dialog open title="Edit" />);
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.body.style.paddingRight).toBe("19px");
+
+    rerender(<Dialog open={false} title="Edit" />);
+    expect(document.body.style.overflow).toBe("");
+    expect(document.body.style.paddingRight).toBe("4px");
+  });
+});
+
+describe("Dialog sizes", () => {
+  it("keeps a full-size dialog inside the viewport", () => {
+    render(<Dialog open size="full" title="Report" />);
+
+    const dialog = screen.getByRole("dialog");
+    // Centered by the translate - a margin would push it past the right edge
+    expect(dialog).toHaveClass("sm:max-w-[calc(100%-2rem)]");
+    expect(dialog.className).not.toMatch(/\bsm:mx-/);
+  });
+});
+
+describe("Dialog and toasts", () => {
+  it("lets Tab reach the toasts shown over it", async () => {
+    const user = userEvent.setup();
+
+    function Notify() {
+      const { enqueueSnackbar } = useSnackbar();
+      return (
+        <Dialog open title="Edit">
+          <button
+            onClick={() =>
+              enqueueSnackbar("Saved", "success", { persist: true })
+            }
+            type="button"
+          >
+            Save
+          </button>
+        </Dialog>
+      );
+    }
+
+    render(
+      <SnackbarProvider>
+        <Notify />
+      </SnackbarProvider>,
+    );
+
+    const save = screen.getByRole("button", { name: "Save" });
+    await user.click(save);
+    const toast = screen.getByText("Saved").closest<HTMLElement>("[tabindex]")!;
+    const closeToast = screen.getByRole("button", {
+      name: "Close notification",
+    });
+    const closeDialog = screen.getByRole("button", { name: "Close dialog" });
+
+    // From the last control of the dialog through the toast and back
+    await user.tab();
+    expect(toast).toHaveFocus();
+    await user.tab();
+    expect(closeToast).toHaveFocus();
+    await user.tab();
+    expect(closeDialog).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(closeToast).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(toast).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(save).toHaveFocus();
+  });
+});
+
 describe("ConfirmDialog", () => {
+  it("is an alert dialog described by its message", () => {
+    render(
+      <ConfirmDialog
+        className="max-h-[50vh]"
+        message="The customer will be deleted."
+        onClose={noop}
+        onConfirm={noop}
+        open
+        title="Delete?"
+      />,
+    );
+
+    const dialog = screen.getByRole("alertdialog", { name: "Delete?" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAccessibleDescription("The customer will be deleted.");
+    expect(dialog).toHaveClass("max-h-[50vh]");
+  });
+
+  it("gives the focus back to the confirm button when loading ends and it stays open", () => {
+    const confirm = (loading: boolean) => (
+      <ConfirmDialog
+        confirmLabel="Delete"
+        loading={loading}
+        onClose={noop}
+        onConfirm={noop}
+        open
+        title="Delete?"
+      />
+    );
+    const { rerender } = render(confirm(false));
+
+    // A disabled button loses the focus in a browser - the dialog took it
+    rerender(confirm(true));
+    const dialog = screen.getByRole("alertdialog");
+    act(() => dialog.focus());
+
+    rerender(confirm(false));
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus();
+  });
+
   it("cannot be cancelled while loading", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
@@ -392,5 +789,59 @@ describe("ConfirmDialog", () => {
     expect(screen.getByRole("button", { name: "Close dialog" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("Dialog on the server", () => {
+  it("renders nothing, then opens with the focus in it once hydrated", async () => {
+    const page = (
+      <main>
+        <Dialog open title="Order 1042">
+          <input aria-label="Note" />
+        </Dialog>
+      </main>
+    );
+
+    // A route dialog of a server-rendered page
+    const html = renderToString(page);
+    expect(html).toBe("<main></main>");
+
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.append(container);
+    const onRecoverableError = vi.fn();
+
+    const root = await act(async () =>
+      hydrateRoot(container, page, { onRecoverableError }),
+    );
+    expect(onRecoverableError).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Order 1042" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Note" })).toHaveFocus();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    act(() => root.unmount());
+    container.remove();
+    expect(document.body.style.overflow).toBe("");
+  });
+});
+
+describe("Uncontrolled Dialog closing", () => {
+  it("leaves the next Escape to the overlay under it while it animates out", async () => {
+    const user = userEvent.setup();
+    const onOuterClose = vi.fn();
+    render(
+      <Dialog onClose={onOuterClose} open title="Order">
+        <Dialog title="Note">
+          <input aria-label="Text" />
+        </Dialog>
+      </Dialog>,
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+
+    await user.keyboard("{Escape}");
+    // Still animating out
+    expect(screen.getByRole("dialog", { name: "Note" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(onOuterClose).toHaveBeenCalledTimes(1);
   });
 });

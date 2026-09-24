@@ -46,13 +46,13 @@ export default function CodeBlock({
       )}
     >
       {title && (
-        <div className="border-b border-neutral-200 px-4 py-1.5 font-mono text-xs text-neutral-500 dark:border-neutral-800">
+        <div className="border-b border-neutral-200 px-4 py-1.5 font-mono text-xs text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
           {title}
         </div>
       )}
       <button
         aria-label={copied ? "Copied" : "Copy code"}
-        className="absolute top-2 right-2 rounded-md border border-neutral-200 bg-white p-1.5 text-neutral-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-neutral-800 focus:opacity-100 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:text-neutral-200"
+        className="absolute top-2 right-2 rounded-md border border-neutral-200 bg-white p-1.5 text-neutral-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-neutral-800 focus:opacity-100 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-200"
         onClick={copy}
         type="button"
       >

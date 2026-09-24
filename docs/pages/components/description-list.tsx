@@ -9,7 +9,8 @@ export default function DescriptionListPage() {
         description={
           <p>
             The detail of a record. <code>termInfo</code> adds an explanation
-            behind an info icon; long values wrap inside their cell.
+            behind an info button - shown on hover, on keyboard focus and on a
+            tap; long values wrap inside their cell.
           </p>
         }
         name="description-list/basic"

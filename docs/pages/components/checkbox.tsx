@@ -15,6 +15,18 @@ export default function CheckboxPage() {
         name="checkbox/basic"
         title="Basic"
       />
+      <Example
+        description={
+          <p>
+            <code>indeterminate</code> shows a partly checked state - e.g. a
+            &quot;select all&quot; of a partly selected list. A click clears it
+            like on a native checkbox, and the next render brings it back while
+            the prop says so.
+          </p>
+        }
+        name="checkbox/indeterminate"
+        title="Indeterminate"
+      />
 
       <Section title="Props">
         <PropsTable of="Checkbox" />

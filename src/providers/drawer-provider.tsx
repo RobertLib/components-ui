@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { DrawerContext } from "./drawer-context";
 import useIsMobile from "../hooks/use-is-mobile";
 
@@ -23,11 +23,10 @@ const saveCollapsed = (storageKey: string | null, collapsed: boolean) => {
   }
 };
 
-/**
- * Holds the open / collapsed state shared by `Drawer` and `Navbar`. The
- * collapsed state is remembered in `localStorage`.
- */
+const subscribeToNothing = () => () => {};
+
 export interface DrawerProviderProps {
+  /** The `Drawer`, the `Navbar` and the page - `useDrawer()` works inside. */
   children: React.ReactNode;
   /**
    * `localStorage` key the collapsed state is remembered under - give each
@@ -36,31 +35,45 @@ export interface DrawerProviderProps {
   storageKey?: string | null;
 }
 
+/**
+ * Holds the open / collapsed state shared by `Drawer` and `Navbar`. The
+ * collapsed state is remembered in `localStorage`. `AppShell` renders it.
+ */
 export default function DrawerProvider({
   children,
   storageKey = "drawer-collapsed",
 }: Readonly<DrawerProviderProps>) {
   const isMobile = useIsMobile();
+  // False on the server and while a server-rendered page hydrates - the
+  // drawer starts as the server rendered it, and the remembered state is
+  // read right after. Rendered on the client only, it is read at once.
+  const isHydrated = useSyncExternalStore(
+    subscribeToNothing,
+    () => true,
+    () => false,
+  );
 
-  const [isCollapsed, setIsCollapsed] = useState(() =>
-    isMobile ? false : readCollapsed(storageKey),
+  const [isCollapsed, setIsCollapsed] = useState(
+    () => isHydrated && !isMobile && readCollapsed(storageKey),
   );
 
   const [isOpen, setIsOpen] = useState(() => !isMobile);
 
-  useEffect(() => {
-    // Synchronizes the drawer when the device type changes. queueMicrotask
-    // keeps the React Compiler from flagging a cascading render.
-    queueMicrotask(() => {
-      if (isMobile) {
-        setIsCollapsed(false);
-        setIsOpen(false);
-      } else {
-        setIsCollapsed(readCollapsed(storageKey));
-        setIsOpen(true);
-      }
-    });
-  }, [isMobile, storageKey]);
+  // The device type changed - also right after hydrating on a phone, as the
+  // server renders the desktop layout. The state follows in the same render,
+  // so the drawer never renders slid in on a phone, not even for one commit
+  // that would lock the page and take the focus.
+  const [synced, setSynced] = useState({ isHydrated, isMobile, storageKey });
+
+  if (
+    synced.isHydrated !== isHydrated ||
+    synced.isMobile !== isMobile ||
+    synced.storageKey !== storageKey
+  ) {
+    setSynced({ isHydrated, isMobile, storageKey });
+    setIsCollapsed(isHydrated && !isMobile && readCollapsed(storageKey));
+    if (synced.isMobile !== isMobile) setIsOpen(!isMobile);
+  }
 
   const toggleCollapsed = () => {
     setIsCollapsed((prev) => {

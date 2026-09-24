@@ -84,7 +84,7 @@ export default function DemoRouter({
     <DemoNavigateContext value={navigate}>
       <UIProvider locale={locale} router={router}>
         <div className={className}>
-          <div className="mb-3 flex items-center gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1 font-mono text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900">
+          <div className="mb-3 flex items-center gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1 font-mono text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
             <button
               aria-label="Back"
               className="rounded p-0.5 hover:bg-neutral-200 disabled:opacity-30 dark:hover:bg-neutral-800"

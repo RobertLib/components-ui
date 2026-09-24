@@ -21,8 +21,9 @@ export default function TooltipPage() {
         description={
           <p>
             <code>openOnClick</code> toggles it on tap, for devices without a
-            pointer. <code>interactive</code> keeps it open while the pointer is
-            on it, so long content can be scrolled.
+            pointer. Every tooltip stays open while the pointer moves onto it
+            and hides a moment after it is left; <code>interactive</code> also
+            keeps it open on a click in it, so long content can be scrolled.
           </p>
         }
         name="tooltip/interactive"
@@ -35,6 +36,13 @@ export default function TooltipPage() {
             The tooltip is rendered in a portal, so it is not clipped by
             containers with <code>overflow: hidden</code>. For richer, clickable
             content use a <code>Popover</code>.
+          </p>
+          <p>
+            The tooltip wraps its children in an inline element as wide as they
+            are. To let a child fill its container - a truncated title in a list
+            or a table cell - give the tooltip the width:{" "}
+            <code>{'<Tooltip className="w-full" …>'}</code> around a{" "}
+            <code>w-full truncate</code> child.
           </p>
         </Prose>
       </Section>

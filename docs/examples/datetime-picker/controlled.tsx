@@ -15,7 +15,7 @@ export default function Controlled() {
       <p className="text-sm">
         Value: <code>{JSON.stringify(startsAt)}</code>
       </p>
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
         The value keeps the native format whatever the display format - switch
         the component language (EN / CS) in the top bar.
       </p>

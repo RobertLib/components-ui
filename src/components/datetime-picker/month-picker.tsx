@@ -4,7 +4,7 @@ import cn from "../../utils/cn";
 import { isInRange, parseDisplayValue } from "./parse";
 import PickerField from "./picker-field";
 import usePickerPopup from "./use-picker-popup";
-import { formatPattern, getMonthNames } from "../../utils/date";
+import { formatPattern, getMonthNames, pad2, padYear } from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
 
@@ -17,10 +17,15 @@ const parseMonth = (value: string | undefined) => {
 interface MonthGridProps {
   /** Moves the focus to the month - the popup was opened by a key. */
   autoFocus: boolean;
+  /** Latest selectable month. */
   max: ReturnType<typeof parseMonth>;
+  /** Earliest selectable month. */
   min: ReturnType<typeof parseMonth>;
+  /** Escape was pressed in the grid. */
   onEscape: () => void;
+  /** A month (1 - 12) was picked. */
   onSelect: (year: number, month: number) => void;
+  /** The selected month - the grid starts at it (or this month). */
   selected: ReturnType<typeof parseMonth>;
 }
 
@@ -58,6 +63,20 @@ function MonthGrid({
   const minKey = min ? min.year * 12 + min.month - 1 : -Infinity;
   const maxKey = max ? max.year * 12 + max.month - 1 : Infinity;
 
+  // A month selected while the grid is open - typed into the field - is
+  // shown and focused
+  const selectedKey = selected ? selected.year * 12 + selected.month - 1 : null;
+  const [shownSelectedKey, setShownSelectedKey] = useState(selectedKey);
+
+  if (selectedKey !== shownSelectedKey) {
+    setShownSelectedKey(selectedKey);
+
+    if (selected) {
+      setYear(selected.year);
+      setFocusedMonth(selected.month - 1);
+    }
+  }
+
   const isDisabled = (month: number) => {
     const key = year * 12 + month;
     return key < minKey || key > maxKey;
@@ -73,12 +92,20 @@ function MonthGrid({
       : Math.min(Math.max(focusedMonth, firstEnabled), lastEnabled);
 
   useEffect(() => {
-    if (!moveFocusRef.current) return;
+    // Also when a month has the focus that now shows another one - a month
+    // typed while the grid was open moved the focused one
+    const grid = gridRef.current;
+    const active = document.activeElement;
+    const monthHasFocus =
+      active instanceof HTMLElement &&
+      !!grid?.contains(active) &&
+      "monthIndex" in active.dataset;
+    const moveFocus = moveFocusRef.current || monthHasFocus;
     moveFocusRef.current = false;
-    if (tabStop === null) return;
+    if (!moveFocus || tabStop === null) return;
 
     const frame = requestAnimationFrame(() => {
-      gridRef.current
+      grid
         ?.querySelector<HTMLButtonElement>(`[data-month-index="${tabStop}"]`)
         ?.focus();
     });
@@ -86,24 +113,33 @@ function MonthGrid({
   }, [tabStop, year]);
 
   // The arrow keys move between the months - on into the next or the
-  // previous year, and stopping at `min` / `max`. Enter and Space are left
-  // to the buttons: on a month they pick it, on the year buttons they page.
+  // previous year - Home / End to the first / last month of the year, Page
+  // Up / Down by a year (with Shift by ten), all stopping at `min` / `max`.
+  // Enter and Space are left to the buttons: on a month they pick it, on
+  // the year buttons they page.
   const handleGridKeyDown = (event: React.KeyboardEvent) => {
-    const offset = {
-      ArrowDown: COLUMNS,
-      ArrowLeft: -1,
-      ArrowRight: 1,
-      ArrowUp: -COLUMNS,
-    }[event.key];
-    if (offset === undefined) return;
-
-    event.preventDefault();
     if (tabStop === null) return;
 
-    const key = Math.min(
-      Math.max(year * 12 + tabStop + offset, minKey),
-      maxKey,
-    );
+    const current = year * 12 + tabStop;
+    const pageOffset = 12 * (event.shiftKey ? 10 : 1);
+    const target = {
+      ArrowDown: current + COLUMNS,
+      ArrowLeft: current - 1,
+      ArrowRight: current + 1,
+      ArrowUp: current - COLUMNS,
+      End: year * 12 + 11,
+      Home: year * 12,
+      PageDown: current + pageOffset,
+      PageUp: current - pageOffset,
+    }[event.key];
+    if (target === undefined) return;
+
+    event.preventDefault();
+    const key = Math.min(Math.max(target, minKey), maxKey);
+    // Stopped at `min` / `max` - nothing moves, so nothing may take the
+    // focus later on either (a click on a year button)
+    if (key === current) return;
+
     moveFocusRef.current = true;
     setYear(Math.floor(key / 12));
     setFocusedMonth(((key % 12) + 12) % 12);
@@ -116,11 +152,7 @@ function MonthGrid({
   };
 
   return (
-    <div
-      aria-label={messages.selectMonth}
-      onKeyDown={handleKeyDown}
-      role="group"
-    >
+    <div onKeyDown={handleKeyDown}>
       <div className="mb-2 flex items-center justify-between">
         <button
           aria-label={messages.previousYear}
@@ -144,7 +176,7 @@ function MonthGrid({
       </div>
 
       <div
-        aria-label={messages.selectMonth}
+        aria-label={String(year)}
         className="grid grid-cols-3 gap-1.5"
         onKeyDown={handleGridKeyDown}
         ref={gridRef}
@@ -171,10 +203,10 @@ function MonthGrid({
                     className={cn(
                       "w-full rounded p-1.5 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700",
                       isSelected &&
-                        "bg-primary-500 text-white hover:bg-primary-600 dark:hover:bg-primary-600",
+                        "bg-primary-600 text-white hover:bg-primary-700 dark:hover:bg-primary-700",
                       isFocused &&
                         !isSelected &&
-                        "ring-2 ring-primary-400 outline-none",
+                        "ring-2 ring-primary-500 outline-none",
                       disabled &&
                         "cursor-not-allowed opacity-40 hover:bg-transparent dark:hover:bg-transparent",
                     )}
@@ -208,6 +240,7 @@ export default function MonthPicker({
   ...props
 }: CustomPickerProps) {
   const locale = useLocale();
+  const messages = locale.messages.dateTimePicker;
   const {
     close,
     contentRef,
@@ -215,14 +248,14 @@ export default function MonthPicker({
     isOpen,
     onOpenChange,
     openedByKeyboard,
-  } = usePickerPopup();
+  } = usePickerPopup(!props.disabled && !props.readOnly);
 
   const selected = parseMonth(value);
 
   return (
     <PickerField
       {...props}
-      ariaLabel={props.ariaLabel ?? locale.messages.dateTimePicker.selectMonth}
+      ariaLabel={props.ariaLabel ?? messages.selectMonth}
       contentRef={contentRef}
       displayValue={
         selected ? formatPattern(locale.formats.month, selected) : ""
@@ -239,6 +272,7 @@ export default function MonthPicker({
         return typed && isInRange(typed, min, max) ? typed : null;
       }}
       placeholder={placeholder}
+      popupLabel={messages.selectMonth}
       value={value}
     >
       <MonthGrid
@@ -247,7 +281,7 @@ export default function MonthPicker({
         min={parseMonth(min)}
         onEscape={close}
         onSelect={(year, month) => {
-          onValueChange(`${year}-${String(month).padStart(2, "0")}`);
+          onValueChange(`${padYear(year)}-${pad2(month)}`);
           close();
         }}
         selected={selected}

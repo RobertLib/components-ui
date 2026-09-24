@@ -5,6 +5,7 @@ import {
   Checkbox,
   DateTimePicker,
   Input,
+  NumberInput,
   RadioGroup,
   Select,
   Switch,
@@ -30,6 +31,13 @@ export default function FormDataExample() {
         }}
       >
         <Input label="Name" name="name" required />
+        <NumberInput
+          description="Submitted as a plain number, whatever the language shows."
+          formatOptions={{ currency: "CZK", style: "currency" }}
+          label="Monthly salary"
+          min={0}
+          name="salary"
+        />
         <Select
           hasEmpty
           label="Department"

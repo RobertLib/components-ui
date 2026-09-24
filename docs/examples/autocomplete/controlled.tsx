@@ -9,7 +9,7 @@ export default function Controlled() {
     <div className="max-w-sm space-y-3">
       <Autocomplete
         label="City"
-        onChange={(value) => setCity(value as AutocompleteValue | null)}
+        onChange={(value) => setCity(value)}
         options={cities}
         value={city}
       />

@@ -9,16 +9,24 @@
       content="Documentation and live examples of the components-ui React component library."
     />
     <title>components-ui</title>
+    <!-- The script of getColorSchemeScript(), formatted: applies the color
+         scheme remembered by useColorScheme before the first paint -->
     <script>
-      // Apply the saved color theme before the first paint
-      try {
-        const theme = localStorage.getItem("docs-theme") || "system";
-        const dark =
-          theme === "dark" ||
-          (theme === "system" &&
-            window.matchMedia("(prefers-color-scheme: dark)").matches);
-        document.documentElement.classList.toggle("dark", dark);
-      } catch {}
+      (function () {
+        try {
+          var s = localStorage.getItem("color-scheme");
+        } catch (e) {}
+        if (s !== "light" && s !== "dark" && s !== "system") s = "system";
+        try {
+          var d =
+              s === "dark" ||
+              (s === "system" &&
+                matchMedia("(prefers-color-scheme: dark)").matches),
+            r = document.documentElement;
+          r.classList.toggle("dark", d);
+          r.style.colorScheme = d ? "dark" : "light";
+        } catch (e) {}
+      })();
     </script>
   </head>
   <body>

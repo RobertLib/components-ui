@@ -41,6 +41,27 @@ describe("Accordion", () => {
     expect(screen.getAllByRole("button")).toHaveLength(1);
   });
 
+  it("opens and closes at once for users who prefer reduced motion", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      addEventListener: () => {},
+      matches: query === "(prefers-reduced-motion: reduce)",
+      removeEventListener: () => {},
+    }));
+
+    try {
+      render(<Accordion header="Shipping">Details</Accordion>);
+
+      await user.click(screen.getByText("Shipping"));
+      expect(screen.queryByText("Details")).toBeNull();
+
+      await user.click(screen.getByText("Shipping"));
+      expect(screen.getByText("Details").style.height).toBe("");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("follows a controlled open", async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
@@ -55,5 +76,46 @@ describe("Accordion", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
     // The parent has not closed it
     expect(screen.getByText("Details")).toBeInTheDocument();
+  });
+
+  it("leaves links and buttons in the header to themselves", async () => {
+    const user = userEvent.setup();
+    const onEdit = vi.fn();
+    render(
+      <Accordion
+        header={
+          <span>
+            Shipping{" "}
+            <button onClick={onEdit} type="button">
+              Edit
+            </button>{" "}
+            <a href="#terms">Terms</a> <input aria-label="Note" />
+          </span>
+        }
+      >
+        Details
+      </Accordion>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("link", { name: "Terms" }));
+    await user.click(screen.getByRole("textbox", { name: "Note" }));
+
+    expect(onEdit).toHaveBeenCalledOnce();
+    expect(screen.getByText("Details")).toBeInTheDocument();
+
+    // The rest of the header still toggles
+    await user.click(screen.getByText(/Shipping/));
+    await waitFor(() => expect(screen.queryByText("Details")).toBeNull());
+  });
+
+  it("points the toggle at the content it controls", () => {
+    render(<Accordion header="Shipping">Details</Accordion>);
+
+    const toggle = screen.getByRole("button", { expanded: true });
+    const content = document.getElementById(
+      toggle.getAttribute("aria-controls") ?? "",
+    );
+    expect(content).toHaveTextContent("Details");
   });
 });

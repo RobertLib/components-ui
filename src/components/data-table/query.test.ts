@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   applyDataTableQuery,
   createDataTableQuery,
   readQueryFromSearch,
+  resetPagination,
   setFilter,
   toggleSort,
   toOffsetParams,
@@ -96,6 +97,27 @@ describe("query transitions", () => {
     expect(setFilter(query, "status", "a")).toBe(query);
     expect(setFilter(query, "name", "")).toBe(query);
   });
+
+  it("skips undefined overrides - an optional prop passed on", () => {
+    const pageSize: number | undefined = undefined;
+
+    expect(createDataTableQuery({ pageSize, sortBy: undefined })).toEqual(
+      createDataTableQuery(),
+    );
+    expect(readQueryFromSearch("", { defaults: { pageSize } }).pageSize).toBe(
+      20,
+    );
+    expect(
+      writeQueryToSearch("", createDataTableQuery({ page: 2 }), {
+        defaults: { page: undefined },
+      }),
+    ).toBe("?page=2");
+    expect(
+      resetPagination(createDataTableQuery({ page: 3, pageSize: 50 }), {
+        pageSize,
+      }),
+    ).toMatchObject({ page: 1, pageSize: 50 });
+  });
 });
 
 describe("request helpers", () => {
@@ -179,6 +201,29 @@ describe("URL state", () => {
     ).toBe(40);
   });
 
+  it("compares and writes the filters in any order of their keys", () => {
+    const defaults = { filters: { status: "active", team: "A" } };
+    // Cleared and set again - the key moved to the end
+    const query = setFilter(
+      setFilter(createDataTableQuery(defaults), "status", ""),
+      "status",
+      "active",
+    );
+
+    expect(writeQueryToSearch("", query, { defaults })).toBe("");
+    expect(
+      writeQueryToSearch(
+        "",
+        createDataTableQuery({ filters: { b: "2", a: "1" } }),
+      ),
+    ).toBe(
+      writeQueryToSearch(
+        "",
+        createDataTableQuery({ filters: { a: "1", b: "2" } }),
+      ),
+    );
+  });
+
   it("records a turned-off default sorting", () => {
     const defaults = { sortBy: "name" };
     const search = writeQueryToSearch(
@@ -207,6 +252,27 @@ describe("applyDataTableQuery", () => {
     expect(
       names(createDataTableQuery({ filters: { salary: "60000" } })),
     ).toEqual(["Zoë Weber"]);
+  });
+
+  it("ignores filters of no filterable column", () => {
+    expect(
+      names(createDataTableQuery({ filters: { id: "1", unknown: "x" } })),
+    ).toHaveLength(4);
+    // A `filterFn` filters without a `filter` field too
+    expect(
+      applyDataTableQuery(
+        rows,
+        createDataTableQuery({ filters: { id: "1" } }),
+        [
+          ...columns,
+          {
+            filterFn: (row, value) => String(row.id) === value,
+            key: "id",
+            label: "ID",
+          },
+        ],
+      ).total,
+    ).toBe(1);
   });
 
   it("searches the given columns, ignoring diacritics", () => {
@@ -278,6 +344,92 @@ describe("applyDataTableQuery", () => {
     );
     expect(result).toMatchObject({ page: 2, total: 4 });
     expect(result.rows).toHaveLength(1);
+  });
+
+  it("clamps a page before the first one or between two", () => {
+    const pageOf = (page: number) =>
+      applyDataTableQuery(
+        rows,
+        createDataTableQuery({ page, pageSize: 2 }),
+        columns,
+      );
+
+    for (const page of [-1, 0, Number.NaN]) {
+      expect(pageOf(page).page).toBe(1);
+      expect(pageOf(page).rows.map((row) => row.id)).toEqual([1, 2]);
+    }
+    expect(pageOf(1.5).page).toBe(1);
+    expect(pageOf(1.5).rows.map((row) => row.id)).toEqual([1, 2]);
+    expect(pageOf(2.9).rows.map((row) => row.id)).toEqual([3, 4]);
+  });
+
+  it("sorts numbers stored as strings by their value", () => {
+    // Money from an API - Intl.Collator's `numeric` ignores signs and
+    // decimal points
+    const amounts = ["1.5", "-3", "10", "1.25", "-20", "9.75", "", "0.5"].map(
+      (amount, id) => ({ amount, id }),
+    );
+    const sorted = (order: "asc" | "desc") =>
+      applyDataTableQuery(
+        amounts,
+        createDataTableQuery({ order, sortBy: "amount" }),
+        [{ key: "amount", label: "Amount", sortable: true }],
+      ).rows.map((row) => row.amount);
+
+    expect(sorted("asc")).toEqual([
+      "-20",
+      "-3",
+      "0.5",
+      "1.25",
+      "1.5",
+      "9.75",
+      "10",
+      "",
+    ]);
+    expect(sorted("desc")).toEqual([
+      "10",
+      "9.75",
+      "1.5",
+      "1.25",
+      "0.5",
+      "-3",
+      "-20",
+      "",
+    ]);
+  });
+
+  it("compares texts with a shared collator", () => {
+    // `localeCompare` with a locale sets up the collation on every call -
+    // sorting 10 000 rows took hundreds of milliseconds
+    const localeCompare = vi.spyOn(String.prototype, "localeCompare");
+
+    expect(
+      names(createDataTableQuery({ order: "desc", sortBy: "name" })),
+    ).toEqual(["Zoë Weber", "Šimon Novák", "Karel Dvořák", "Anna Svobodová"]);
+    expect(localeCompare).not.toHaveBeenCalled();
+  });
+
+  it("finds, filters and sorts arrays by their items", () => {
+    const tagged = [
+      { id: 1, tags: ["beta", "gamma"] },
+      { id: 2, tags: ["alpha"] },
+      { id: 3, tags: [] },
+    ];
+    const tagColumns: Column<(typeof tagged)[number]>[] = [
+      { filter: "select", key: "tags", label: "Tags", sortable: true },
+    ];
+    const ids = (query: Parameters<typeof createDataTableQuery>[0]) =>
+      applyDataTableQuery(
+        tagged,
+        createDataTableQuery(query),
+        tagColumns,
+      ).rows.map((row) => row.id);
+
+    expect(ids({ search: "gam" })).toEqual([1]);
+    expect(ids({ search: "beta, gamma" })).toEqual([1]);
+    expect(ids({ filters: { tags: "gamma" } })).toEqual([1]);
+    expect(ids({ filters: { tags: "alpha" } })).toEqual([2]);
+    expect(ids({ sortBy: "tags" })).toEqual([2, 1, 3]);
   });
 });
 

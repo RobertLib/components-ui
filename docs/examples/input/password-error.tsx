@@ -10,6 +10,12 @@ export default function PasswordAndError() {
         type="password"
       />
       <Input
+        autoComplete="current-password"
+        floating
+        label="Password with a floating label"
+        type="password"
+      />
+      <Input
         defaultValue="not-an-email"
         error="Enter a valid email address."
         label="Email"

@@ -36,7 +36,7 @@ export default function RequestLog({
       <div className="mb-2 flex items-center justify-between font-semibold text-neutral-600 dark:text-neutral-400">
         Network (mock API)
         <button
-          className="font-normal text-neutral-500 hover:underline"
+          className="font-normal text-neutral-500 hover:underline dark:text-neutral-400"
           onClick={() => requestLog.clear()}
           type="button"
         >
@@ -44,7 +44,7 @@ export default function RequestLog({
         </button>
       </div>
       {entries.length === 0 ? (
-        <p className="text-neutral-500">
+        <p className="text-neutral-500 dark:text-neutral-400">
           No requests yet - interact with the example.
         </p>
       ) : (
@@ -71,13 +71,13 @@ export default function RequestLog({
                     ? "abort"
                     : entry.status}
               </span>
-              <span className="w-10 shrink-0 text-neutral-500">
+              <span className="w-10 shrink-0 text-neutral-500 dark:text-neutral-400">
                 {entry.method}
               </span>
               <span className="min-w-0 break-all text-neutral-800 dark:text-neutral-200">
                 {entry.url}
                 {showBody && entry.body && (
-                  <span className="text-neutral-500">
+                  <span className="text-neutral-500 dark:text-neutral-400">
                     {" "}
                     {describeBody(entry.body)}
                   </span>

@@ -1,5 +1,6 @@
 import { DataTable, DescriptionList, Input, type Column } from "components-ui";
 import { people, type Person } from "../../mocks/data";
+import { Salary } from "./salary";
 
 const columns: Column<Person>[] = [
   { key: "name", label: "Name", sortable: true },
@@ -20,7 +21,7 @@ const columns: Column<Person>[] = [
     filterFn: (person, value) => person.salary >= Number(value),
     key: "salary",
     label: "Salary",
-    render: (person) => `${person.salary.toLocaleString()} CZK`,
+    render: (person) => <Salary value={person.salary} />,
     sortable: true,
   },
 ];

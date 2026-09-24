@@ -53,7 +53,8 @@ export const sampleEvents: CalendarEvent[] = [
   {
     allDay: true,
     color: "red",
-    end: at(2, 23, 59),
+    // The end is exclusive - the midnight after the day
+    end: at(3, 0),
     id: "release",
     start: at(2, 0),
     title: "Release day",
@@ -89,5 +90,23 @@ export const sampleEvents: CalendarEvent[] = [
     start: at(6, 15),
     timeText: "15:00 – 17:00",
     title: "Sprint planning",
+  },
+  {
+    allDay: true,
+    color: "purple",
+    // Three days - the end is the midnight after the last one
+    end: at(12, 0),
+    id: "conference",
+    start: at(9, 0),
+    title: "Partner conference",
+  },
+  {
+    color: "gray",
+    // Over midnight - on both days
+    end: at(5, 6),
+    id: "maintenance",
+    start: at(4, 22),
+    timeText: "22:00 – 6:00",
+    title: "Server maintenance",
   },
 ];

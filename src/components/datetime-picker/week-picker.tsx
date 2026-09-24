@@ -12,6 +12,8 @@ import {
   getISOWeek,
   getISOWeeksInYear,
   pad2,
+  padYear,
+  withoutYear,
 } from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
@@ -27,10 +29,15 @@ type ParsedWeek = ReturnType<typeof parseWeek>;
 interface WeekGridProps {
   /** Moves the focus to the week - the popup was opened by a key. */
   autoFocus: boolean;
+  /** Latest selectable week. */
   max: ParsedWeek;
+  /** Earliest selectable week. */
   min: ParsedWeek;
+  /** Escape was pressed in the grid. */
   onEscape: () => void;
+  /** A week was picked. */
   onSelect: (year: number, week: number) => void;
+  /** The selected week - the grid starts at it (or this week). */
   selected: ParsedWeek;
 }
 
@@ -59,6 +66,9 @@ function WeekGrid({
   const locale = useLocale();
   const messages = locale.messages.dateTimePicker;
   const current = getISOWeek(new Date());
+  // The buttons show the week as the week format of the locale does -
+  // without the year: "W39", "KW 39"
+  const weekPattern = withoutYear(locale.formats.week);
 
   const [year, setYear] = useState(() => selected?.year ?? current.year);
   const [focusedWeek, setFocusedWeek] = useState(
@@ -68,6 +78,20 @@ function WeekGrid({
   // The focused week takes the focus when a key moved it - not when the
   // popup opened by a click, which leaves it in the field for typing
   const moveFocusRef = useRef(autoFocus);
+
+  // A week selected while the grid is open - typed into the field - is
+  // shown and focused
+  const selectedKey = selected ? weekKey(selected.year, selected.week) : null;
+  const [shownSelectedKey, setShownSelectedKey] = useState(selectedKey);
+
+  if (selectedKey !== shownSelectedKey) {
+    setShownSelectedKey(selectedKey);
+
+    if (selected) {
+      setYear(selected.year);
+      setFocusedWeek(selected.week);
+    }
+  }
 
   const weeksInYear = getISOWeeksInYear(year);
   const weeks = Array.from({ length: weeksInYear }, (_, index) => index + 1);
@@ -101,12 +125,20 @@ function WeekGrid({
 
   // Scroll the focused week into view and give it the keyboard focus
   useEffect(() => {
-    const moveFocus = moveFocusRef.current;
+    // Also when a week has the focus that now shows another one - a week
+    // typed while the grid was open moved the focused one
+    const list = listRef.current;
+    const active = document.activeElement;
+    const weekHasFocus =
+      active instanceof HTMLElement &&
+      !!list?.contains(active) &&
+      "week" in active.dataset;
+    const moveFocus = moveFocusRef.current || weekHasFocus;
     moveFocusRef.current = false;
     if (tabStop === null) return;
 
     const frame = requestAnimationFrame(() => {
-      const button = listRef.current?.querySelector<HTMLButtonElement>(
+      const button = list?.querySelector<HTMLButtonElement>(
         `[data-week="${tabStop}"]`,
       );
       button?.scrollIntoView?.({ block: "nearest" });
@@ -115,37 +147,66 @@ function WeekGrid({
     return () => cancelAnimationFrame(frame);
   }, [tabStop, year]);
 
-  /**
-   * Moves the focus by `offset` weeks - on into the next or the previous
-   * year, and stopping at `min` / `max`.
-   */
-  const moveBy = (offset: number) => {
+  /** The week `offset` weeks from the tab stop - on over the new year. */
+  const weekFromTabStop = (from: number, offset: number) =>
+    getISOWeek(addDays(isoWeekStart(year, from), offset * 7));
+
+  // The arrow keys move between the weeks - on into the next or the
+  // previous year - Home / End to the first / last week of the year, Page
+  // Up / Down to the same week of the previous / next year (with Shift by
+  // ten), all stopping at `min` / `max`. Enter and Space are left to the
+  // buttons: on a week they pick it, on the year buttons they page.
+  const handleGridKeyDown = (event: React.KeyboardEvent) => {
     if (tabStop === null) return;
 
-    let target = getISOWeek(addDays(isoWeekStart(year, tabStop), offset * 7));
+    let target: { week: number; year: number };
+
+    switch (event.key) {
+      case "ArrowDown":
+        target = weekFromTabStop(tabStop, COLUMNS);
+        break;
+      case "ArrowLeft":
+        target = weekFromTabStop(tabStop, -1);
+        break;
+      case "ArrowRight":
+        target = weekFromTabStop(tabStop, 1);
+        break;
+      case "ArrowUp":
+        target = weekFromTabStop(tabStop, -COLUMNS);
+        break;
+      case "Home":
+        target = { week: 1, year };
+        break;
+      case "End":
+        target = { week: weeksInYear, year };
+        break;
+      case "PageDown":
+      case "PageUp": {
+        const targetYear =
+          year + (event.key === "PageUp" ? -1 : 1) * (event.shiftKey ? 10 : 1);
+        target = {
+          week: Math.min(tabStop, getISOWeeksInYear(targetYear)),
+          year: targetYear,
+        };
+        break;
+      }
+      default:
+        return;
+    }
+
+    event.preventDefault();
+
     if (min && weekKey(target.year, target.week) < weekKey(min.year, min.week))
       target = min;
     if (max && weekKey(target.year, target.week) > weekKey(max.year, max.week))
       target = max;
+    // Stopped at `min` / `max` - nothing moves, so nothing may take the
+    // focus later on either (a click on a year button)
+    if (target.year === year && target.week === tabStop) return;
 
     moveFocusRef.current = true;
     setYear(target.year);
     setFocusedWeek(target.week);
-  };
-
-  // The arrow keys move between the weeks - Enter and Space are left to
-  // the buttons: on a week they pick it, on the year buttons they page
-  const handleGridKeyDown = (event: React.KeyboardEvent) => {
-    const offset = {
-      ArrowDown: COLUMNS,
-      ArrowLeft: -1,
-      ArrowRight: 1,
-      ArrowUp: -COLUMNS,
-    }[event.key];
-    if (offset === undefined) return;
-
-    event.preventDefault();
-    moveBy(offset);
   };
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -155,11 +216,7 @@ function WeekGrid({
   };
 
   return (
-    <div
-      aria-label={messages.selectWeek}
-      onKeyDown={handleKeyDown}
-      role="group"
-    >
+    <div onKeyDown={handleKeyDown}>
       <div className="mb-2 flex items-center justify-between">
         <button
           aria-label={messages.previousYear}
@@ -184,7 +241,7 @@ function WeekGrid({
 
       <div className="max-h-60 overflow-y-auto" ref={listRef}>
         <div
-          aria-label={messages.selectWeek}
+          aria-label={String(year)}
           className="grid grid-cols-4 gap-1.5"
           onKeyDown={handleGridKeyDown}
           role="grid"
@@ -209,10 +266,10 @@ function WeekGrid({
                       className={cn(
                         "w-full rounded p-1.5 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700",
                         isSelected &&
-                          "bg-primary-500 text-white hover:bg-primary-600 dark:hover:bg-primary-600",
+                          "bg-primary-600 text-white hover:bg-primary-700 dark:hover:bg-primary-700",
                         isFocused &&
                           !isSelected &&
-                          "ring-2 ring-primary-400 outline-none",
+                          "ring-2 ring-primary-500 outline-none",
                         disabled &&
                           "cursor-not-allowed opacity-40 hover:bg-transparent dark:hover:bg-transparent",
                       )}
@@ -223,7 +280,7 @@ function WeekGrid({
                       tabIndex={isFocused ? 0 : -1}
                       type="button"
                     >
-                      W{pad2(week)}
+                      {formatPattern(weekPattern, { week })}
                     </button>
                   </div>
                 );
@@ -247,6 +304,7 @@ export default function WeekPicker({
   ...props
 }: CustomPickerProps) {
   const locale = useLocale();
+  const messages = locale.messages.dateTimePicker;
   const {
     close,
     contentRef,
@@ -254,14 +312,14 @@ export default function WeekPicker({
     isOpen,
     onOpenChange,
     openedByKeyboard,
-  } = usePickerPopup();
+  } = usePickerPopup(!props.disabled && !props.readOnly);
 
   const selected = parseWeek(value);
 
   return (
     <PickerField
       {...props}
-      ariaLabel={props.ariaLabel ?? locale.messages.dateTimePicker.selectWeek}
+      ariaLabel={props.ariaLabel ?? messages.selectWeek}
       contentRef={contentRef}
       displayValue={
         selected ? formatPattern(locale.formats.week, selected) : ""
@@ -278,6 +336,7 @@ export default function WeekPicker({
         return typed && isInRange(typed, min, max) ? typed : null;
       }}
       placeholder={placeholder}
+      popupLabel={messages.selectWeek}
       value={value}
     >
       <WeekGrid
@@ -286,7 +345,7 @@ export default function WeekPicker({
         min={parseWeek(min)}
         onEscape={close}
         onSelect={(year, week) => {
-          onValueChange(`${year}-W${pad2(week)}`);
+          onValueChange(`${padYear(year)}-W${pad2(week)}`);
           close();
         }}
         selected={selected}

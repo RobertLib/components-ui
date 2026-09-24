@@ -1,14 +1,19 @@
-import type { Column } from "./types";
+import type { Column, ColumnPin, DataTableDensity } from "./types";
 import { useCallback, useMemo } from "react";
 import useTableState from "./use-table-state";
+
+/** The record without `key`. */
+function withoutKey<V>(record: Record<string, V>, key: string) {
+  const result = { ...record };
+  delete result[key];
+  return result;
+}
 
 export default function useColumnManagement<T>(
   columns: Column<T>[],
   tableId?: string,
 ) {
   const [state, updateState] = useTableState(tableId);
-
-  const { pinnedColumns } = state;
 
   // The user's choices over the columns' defaults
   const columnVisibility = useMemo(
@@ -21,6 +26,18 @@ export default function useColumnManagement<T>(
       ),
     [columns, state.columnVisibility],
   );
+
+  // The edge each column sticks to - the user's choice, or the column's
+  const pinnedColumns = useMemo(() => {
+    const pinned: Record<ColumnPin, string[]> = { left: [], right: [] };
+
+    for (const column of columns) {
+      const pin = state.columnPinning[column.key] ?? column.pinned ?? false;
+      if (pin) pinned[pin].push(column.key);
+    }
+
+    return pinned;
+  }, [columns, state.columnPinning]);
 
   // Columns added since the order was saved go last
   const columnOrder = useMemo(() => {
@@ -72,53 +89,56 @@ export default function useColumnManagement<T>(
     [columnVisibility, columns, updateState],
   );
 
-  const setPinnedColumns = useCallback(
-    (
-      newPinnedColumns:
-        | { left: string[]; right: string[] }
-        | ((prev: { left: string[]; right: string[] }) => {
-            left: string[];
-            right: string[];
-          }),
-    ) => {
-      if (typeof newPinnedColumns === "function") {
-        updateState({
-          pinnedColumns: newPinnedColumns(pinnedColumns),
-        });
-      } else {
-        updateState({ pinnedColumns: newPinnedColumns });
-      }
-    },
-    [pinnedColumns, updateState],
-  );
-
+  /** Pins a column to an edge - or unpins it when it is pinned there. */
   const handlePinColumn = useCallback(
-    (columnKey: string, position: "left" | "right") => {
-      setPinnedColumns((prev) => {
-        const oppositePosition = position === "left" ? "right" : "left";
+    (columnKey: string, position: ColumnPin) => {
+      const column = columns.find((candidate) => candidate.key === columnKey);
+      if (!column) return;
 
-        const oppositeFiltered = prev[oppositePosition].filter(
-          (key) => key !== columnKey,
-        );
+      const current = pinnedColumns.left.includes(columnKey)
+        ? "left"
+        : pinnedColumns.right.includes(columnKey)
+          ? "right"
+          : false;
+      const next = current === position ? false : position;
+      // Only what differs from the column's default is remembered
+      const others = withoutKey(state.columnPinning, columnKey);
 
-        const isCurrentlyPinned = prev[position].includes(columnKey);
-
-        if (isCurrentlyPinned) {
-          return {
-            ...prev,
-            [oppositePosition]: oppositeFiltered,
-            [position]: prev[position].filter((key) => key !== columnKey),
-          };
-        }
-
-        return {
-          ...prev,
-          [oppositePosition]: oppositeFiltered,
-          [position]: [...prev[position], columnKey],
-        };
+      updateState({
+        columnPinning:
+          next === (column.pinned ?? false)
+            ? others
+            : { ...others, [columnKey]: next },
       });
     },
-    [setPinnedColumns],
+    [columns, pinnedColumns, state.columnPinning, updateState],
+  );
+
+  /** The widths the user resized the columns to, by column key. */
+  const columnWidths = state.columnWidths;
+
+  /** Remembers the width of a column - `null` brings back its own. */
+  const setColumnWidth = useCallback(
+    (columnKey: string, width: number | null) => {
+      const others = withoutKey(state.columnWidths, columnKey);
+
+      updateState({
+        columnWidths:
+          width === null ? others : { ...others, [columnKey]: width },
+      });
+    },
+    [state.columnWidths, updateState],
+  );
+
+  /** The order, pinning and widths of the columns' definitions. */
+  const resetColumnLayout = useCallback(
+    () => updateState({ columnOrder: [], columnPinning: {}, columnWidths: {} }),
+    [updateState],
+  );
+
+  const setDensity = useCallback(
+    (density: DataTableDensity | null) => updateState({ density }),
+    [updateState],
   );
 
   const handleDragStart = useCallback(
@@ -211,18 +231,35 @@ export default function useColumnManagement<T>(
     });
   }, [columnOrder, pinnedColumns.left, pinnedColumns.right, visibleColumns]);
 
+  // Anything "Reset columns" would change - the default order, visibility,
+  // pinning and widths of the columns
+  const hasCustomSettings =
+    columnOrder.some((key, index) => key !== columns[index]?.key) ||
+    columns.some(
+      (column) =>
+        columnVisibility[column.key] !== (column.visible ?? true) ||
+        (state.columnPinning[column.key] ?? column.pinned ?? false) !==
+          (column.pinned ?? false) ||
+        columnWidths[column.key] !== undefined,
+    );
+
   return {
     columnOrder,
     columnVisibility,
+    columnWidths,
+    density: state.density,
     handleDragOver,
     handleDragStart,
     handleDrop,
     handlePinColumn,
+    hasCustomSettings,
     moveColumn,
     pinnedColumns,
+    resetColumnLayout,
     setColumnOrder,
     setColumnVisibility,
-    setPinnedColumns,
+    setColumnWidth,
+    setDensity,
     sortedVisibleColumns,
     visibleColumns,
   };

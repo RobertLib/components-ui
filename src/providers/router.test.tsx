@@ -1,7 +1,7 @@
 import { act, render, renderHook, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { browserNavigate, isActivePath, useBrowserLocation } from "./router";
+import { browserNavigate, useBrowserLocation } from "./router";
 import UIProvider from "./ui-provider";
 import { useRouter } from "./ui-context";
 
@@ -41,20 +41,6 @@ describe("browserNavigate", () => {
     expect(window.history.length).toBe(length + 1);
     // The state of the entry (e.g. of the app's router) stays
     expect(window.history.state).toEqual({ scroll: 20 });
-  });
-});
-
-describe("isActivePath", () => {
-  it("matches the page and its sub-pages only", () => {
-    expect(isActivePath("/users", "/users")).toBe(true);
-    expect(isActivePath("/users/42", "/users")).toBe(true);
-    expect(isActivePath("/users/42", "/users/")).toBe(true);
-    expect(isActivePath("/users-archive", "/users")).toBe(false);
-    expect(isActivePath("/users", "/users?tab=all#top")).toBe(true);
-    expect(isActivePath("/", "/")).toBe(true);
-    expect(isActivePath("/users", "/")).toBe(false);
-    expect(isActivePath("/users", "")).toBe(false);
-    expect(isActivePath("/users", "?tab=all")).toBe(false);
   });
 });
 

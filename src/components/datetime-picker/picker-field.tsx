@@ -1,14 +1,16 @@
 import { Calendar, Clock, X } from "lucide-react";
-import { useImperativeHandle, useRef, useState } from "react";
+import { useId, useImperativeHandle, useRef, useState } from "react";
 import cn from "../../utils/cn";
+import FormDescription from "../form-description";
 import FormError from "../form-error";
 import Popover from "../popover";
 import useIsMobile from "../../hooks/use-is-mobile";
+import { getNextTabbable, getTabbableElements } from "../../utils/tabbable";
 import { useMessages } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
 
 const dimStyles = {
-  sm: "px-2 py-1 text-sm",
+  sm: "px-1 py-0 text-sm",
   md: "px-2 py-1 text-base",
   lg: "px-3 py-2 text-lg",
 };
@@ -25,40 +27,64 @@ interface PickerFieldProps extends Omit<
 > {
   /** Content of the popup. */
   children: React.ReactNode;
+  /**
+   * Whether the field has a clear button - by default when it is not
+   * `required`, like the native date inputs.
+   */
+  clearable?: boolean;
+  /** Ref of the popup panel. */
   contentRef: React.RefObject<HTMLDivElement | null>;
+  /** The value as the field shows it, in the display format of the locale. */
   displayValue: string;
+  /**
+   * More hidden inputs for the form, besides the one of `name` - e.g. the
+   * first and the last day of a range. Those without a name are left out.
+   */
+  hiddenFields?: { name?: string; value: string }[];
+  /** The icon at the end of the field. */
   icon: "calendar" | "clock";
+  /** Ref of the visible field. */
   inputRef: React.RefObject<HTMLInputElement | null>;
+  /** Whether the popup is open. */
   isOpen: boolean;
+  /** Called by the clear button and for an emptied field. */
   onClear: () => void;
   /** `byKeyboard` - the popup opens on a key press, not on a click. */
   onOpenChange: (open: boolean, byKeyboard: boolean) => void;
+  /** Classes of the popup panel - its width. */
   panelClassName?: string;
   /**
    * The value of a text typed in the display format - `null` for a text
    * that is no allowed value, which is then dropped.
    */
   parseText: (text: string) => string | null;
+  /** Accessible name of the popup, e.g. "Select date". */
+  popupLabel: string;
 }
 
 /**
  * The part all custom pickers share: the field showing the formatted value
  * - the value can also be typed into it - the clear button, the popup, the
- * hidden form input and the error message.
+ * hidden form inputs, the help text and the error message.
  */
 export default function PickerField({
   ariaLabel,
   children,
   className,
+  clearable,
   contentRef,
+  description,
+  descriptionId,
   dim,
   disabled,
   displayValue,
   error,
   errorId,
   fieldRef,
+  hiddenFields,
   icon,
   inputId,
+  inputProps,
   inputRef,
   isOpen,
   label,
@@ -71,14 +97,20 @@ export default function PickerField({
   panelClassName,
   parseText,
   placeholder,
+  popupLabel,
   readOnly,
   required,
   value,
 }: PickerFieldProps) {
   const messages = useMessages();
   const isMobile = useIsMobile();
+  const popupId = useId();
   const Icon = icon === "clock" ? Clock : Calendar;
   const canOpen = !disabled && !readOnly;
+  const hasClearButton = !!value && canOpen && (clearable ?? !required);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // The field with its clear button - Tab leaves the popup to what follows
+  const triggerRef = useRef<HTMLDivElement>(null);
   // Whether the field was last pressed with a key or with a pointer
   const keyboardRef = useRef(false);
 
@@ -96,10 +128,22 @@ export default function PickerField({
     inputRef,
   ]);
 
-  // The focus moving between the field and its popup stays in the picker -
-  // the caller's `onFocus` / `onBlur` hear only of it entering and leaving
-  const isPopupFocusMove = (event: React.FocusEvent) =>
-    !!contentRef.current?.contains(event.relatedTarget as Node | null);
+  // The picker is one field for the caller: the focus moving between the
+  // field, the clear button and the popup (a portal) is neither a focus
+  // nor a blur of it
+  const isInPicker = (node: EventTarget | null) =>
+    node instanceof Node &&
+    (!!rootRef.current?.contains(node) || !!contentRef.current?.contains(node));
+
+  // A focus event of any part of the picker as one of the field - what the
+  // caller's handlers are typed for. A copy with the methods of React's
+  // events (on their prototype) - React clears `currentTarget` of the
+  // original after the handlers ran.
+  const asFieldEvent = (event: React.FocusEvent) =>
+    Object.assign(Object.create(Object.getPrototypeOf(event)), event, {
+      currentTarget: inputRef.current,
+      target: inputRef.current,
+    }) as React.FocusEvent<HTMLInputElement>;
 
   // Takes the typed text as the value. A text that is no allowed value is
   // dropped - the field shows the value again.
@@ -119,23 +163,89 @@ export default function PickerField({
     if (parsed !== null && parsed !== value) onValueChange(parsed);
   };
 
+  // Tab moves between the field and the popup as if the popup followed the
+  // field in the page - it is a portal at the end of it. The popup has no
+  // Popover to do that: the field is a control of its own.
+  const handlePopupKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab" || event.defaultPrevented) return;
+
+    // Also from an element out of the tab order, e.g. a clicked option
+    const focused = event.target as Node;
+    const tabbables = getTabbableElements(event.currentTarget);
+    const hasTabbable = (position: number) =>
+      tabbables.some(
+        (element) => focused.compareDocumentPosition(element) & position,
+      );
+
+    if (event.shiftKey) {
+      // From the start of the popup back to the field
+      if (hasTabbable(Node.DOCUMENT_POSITION_PRECEDING)) return;
+      event.preventDefault();
+      inputRef.current?.focus();
+      return;
+    }
+
+    // Past the end of the popup - on to what follows the picker, which
+    // closes the popup
+    if (hasTabbable(Node.DOCUMENT_POSITION_FOLLOWING)) return;
+    event.preventDefault();
+    const next = triggerRef.current
+      ? getNextTabbable(triggerRef.current, contentRef.current)
+      : undefined;
+    (next ?? inputRef.current)?.focus();
+    onOpenChange(false, true);
+  };
+
   return (
-    <div className="flex flex-col gap-1.5">
+    <div
+      className="flex flex-col gap-1.5"
+      onBlur={(event) => {
+        if (!isInPicker(event.relatedTarget)) onBlur?.(asFieldEvent(event));
+      }}
+      onFocus={(event) => {
+        if (!isInPicker(event.relatedTarget)) onFocus?.(asFieldEvent(event));
+      }}
+      ref={rootRef}
+    >
       {label && (
         <label className="block truncate text-sm font-medium" htmlFor={inputId}>
-          {label}: {required && <span className="text-danger-500">*</span>}
+          {label}
+          {messages.form.labelSuffix}{" "}
+          {required && (
+            <span
+              aria-hidden="true"
+              className="text-danger-700 dark:text-danger-400"
+            >
+              *
+            </span>
+          )}
         </label>
       )}
 
-      {/* Hidden input for form submission */}
+      {/* Hidden inputs for form submission */}
       {name && (
         <input
           disabled={disabled}
+          form={inputProps.form}
           name={name}
           readOnly
           type="hidden"
           value={value || ""}
         />
+      )}
+      {hiddenFields?.map(
+        (field, index) =>
+          field.name && (
+            <input
+              disabled={disabled}
+              form={inputProps.form}
+              key={index}
+              name={field.name}
+              readOnly
+              type="hidden"
+              value={field.value}
+            />
+          ),
       )}
 
       <Popover
@@ -150,51 +260,58 @@ export default function PickerField({
             : undefined
         }
         open={isOpen && canOpen}
+        // The dialog is rendered inside, with a name and an id of its own
+        popupRole="none"
         position="bottom"
         trigger={
-          <div className="relative">
+          <div className="relative" ref={triggerRef}>
             <input
+              {...inputProps}
               ref={inputRef}
               className={cn(
                 "form-control w-full pr-8",
-                value && canOpen && "pr-14",
+                hasClearButton && "pr-14",
                 dimStyles[dim],
-                error && "border-danger-500! focus:ring-danger-300!",
+                error && "border-danger-500! focus:ring-danger-500!",
                 disabled && "cursor-not-allowed opacity-60",
                 className,
               )}
-              aria-describedby={errorId}
+              aria-controls={isOpen && canOpen ? popupId : undefined}
+              aria-describedby={cn(
+                errorId,
+                descriptionId,
+                inputProps["aria-describedby"],
+              )}
               aria-expanded={isOpen && canOpen}
               aria-haspopup="dialog"
-              aria-invalid={error ? "true" : undefined}
+              aria-invalid={error ? "true" : inputProps["aria-invalid"]}
               aria-label={label ? undefined : ariaLabel}
-              aria-required={required ? "true" : undefined}
+              aria-required={required ? "true" : inputProps["aria-required"]}
               autoComplete="off"
               disabled={disabled}
               id={inputId}
               // Phones pick from the popup, without a keyboard over it
-              inputMode={isMobile ? "none" : undefined}
-              onBlur={(event) => {
-                // The typed text is taken also when the focus moves on into
-                // the popup - it could leave the picker from there, and the
-                // field would not hear of it
-                commitText();
-                if (!isPopupFocusMove(event)) onBlur?.(event);
-              }}
+              inputMode={isMobile ? "none" : inputProps.inputMode}
+              // The typed text is taken also when the focus moves on into
+              // the popup - it could leave the picker from there
+              onBlur={commitText}
               onChange={(event) => setText(event.target.value)}
               onClick={(event) => {
+                inputProps.onClick?.(event);
                 // A click places the caret - it opens the popup, but does
                 // not close it
                 event.stopPropagation();
                 keyboardRef.current = false;
-                if (canOpen && !isOpen) onOpenChange(true, false);
-              }}
-              onFocus={(event) => {
-                if (!isPopupFocusMove(event)) onFocus?.(event);
+                if (!event.defaultPrevented && canOpen && !isOpen) {
+                  onOpenChange(true, false);
+                }
               }}
               onKeyDown={(event) => {
+                // The caller's handler first - preventing the default
+                // skips the picker's
+                inputProps.onKeyDown?.(event);
                 keyboardRef.current = true;
-                if (!canOpen) return;
+                if (!canOpen || event.defaultPrevented) return;
 
                 if (event.key === "Enter") {
                   // Takes a typed text - otherwise opens the popup. Never a
@@ -209,9 +326,10 @@ export default function PickerField({
                   return;
                 }
 
-                // An open popup has closed on this Escape already
                 if (event.key === "Escape") {
-                  if (text !== null && !event.defaultPrevented) {
+                  // This Escape is left to the popover to close an open
+                  // popup - the typed text goes with the next one
+                  if (text !== null && !isOpen) {
                     event.preventDefault();
                     setText(null);
                   }
@@ -223,7 +341,8 @@ export default function PickerField({
 
                 if (isOpen) {
                   // Into the open popup, to its tab stop: the day, month or
-                  // week in focus, or the hour list
+                  // week in focus, or the hour list. Leaving the field takes
+                  // a typed text, and the popup moves on to it.
                   const popup = contentRef.current;
                   (
                     popup?.querySelector<HTMLElement>("[tabindex='0']") ??
@@ -234,10 +353,13 @@ export default function PickerField({
                     )
                   )?.focus();
                 } else {
+                  // A typed text first - the popup opens on it
+                  commitText();
                   onOpenChange(true, true);
                 }
               }}
-              onPointerDown={() => {
+              onPointerDown={(event) => {
+                inputProps.onPointerDown?.(event);
                 keyboardRef.current = false;
               }}
               placeholder={placeholder}
@@ -248,10 +370,11 @@ export default function PickerField({
               type="text"
               value={text ?? displayValue}
             />
-            {value && canOpen && (
+            {hasClearButton && (
               <button
                 aria-label={messages.dateTimePicker.clear}
-                className="absolute top-1/2 right-8 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                // A 24px square - big enough to hit (WCAG 2.5.8)
+                className="absolute top-1/2 right-7 flex size-6 -translate-y-1/2 items-center justify-center rounded text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-300"
                 onClick={(event) => {
                   event.stopPropagation();
                   onClear();
@@ -259,6 +382,8 @@ export default function PickerField({
                   // in the field
                   inputRef.current?.focus();
                 }}
+                // A press keeps the focus in the field
+                onMouseDown={(event) => event.preventDefault()}
                 type="button"
               >
                 <X size={iconSizes[dim]} />
@@ -274,9 +399,26 @@ export default function PickerField({
         triggerType="click"
         width="auto"
       >
-        {children}
+        <div
+          aria-label={popupLabel}
+          id={popupId}
+          onKeyDown={handlePopupKeyDown}
+          onMouseDown={(event) => {
+            // A press keeps the focus where it is - in the field for
+            // typing, or on the popup's element - instead of giving it to
+            // the page (Safari focuses no buttons on click). The selects
+            // need the press to open.
+            if (!(event.target as Element).closest("select")) {
+              event.preventDefault();
+            }
+          }}
+          role="dialog"
+        >
+          {children}
+        </div>
       </Popover>
 
+      <FormDescription id={descriptionId}>{description}</FormDescription>
       {error && <FormError id={errorId}>{error}</FormError>}
     </div>
   );

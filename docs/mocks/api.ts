@@ -119,6 +119,10 @@ function queryPeople({ filters = {}, order, search, sortBy }: ListQuery) {
   return result;
 }
 
+/** The salaries of people added up. */
+const sumSalaries = (list: Person[]) =>
+  list.reduce((total, person) => total + person.salary, 0);
+
 const takenEmails = new Set(people.map((person) => person.email));
 
 /** Validation shared by the REST and the GraphQL "create person". */
@@ -187,6 +191,8 @@ function handleRest(url: URL, method: string, body: string | undefined) {
 
   return json({
     items: matching.slice(offset, offset + limit),
+    // Totals of all matching rows - for a summary row
+    summary: { salary: sumSalaries(matching) },
     total: matching.length,
   });
 }
@@ -275,6 +281,7 @@ function handleGraphQL(body: string | undefined) {
             hasPreviousPage: start > 0,
             startCursor: nodes.length ? encodeCursor(start) : null,
           },
+          salaryTotal: sumSalaries(matching),
           totalCount: matching.length,
         },
       },

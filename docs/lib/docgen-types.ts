@@ -1,6 +1,10 @@
 /** Shape of the `virtual:docgen` module - see docs/plugins/docgen.ts. */
 
 export interface PropDoc {
+  /**
+   * The default of the prop destructured by the function taking the type
+   * (`Button` for `ButtonProps`), or else its `@default` JSDoc tag.
+   */
   defaultValue?: string;
   description: string;
   name: string;
@@ -16,11 +20,11 @@ export interface TypeDoc {
 }
 
 export interface ComponentDoc {
-  defaults: Record<string, string>;
   description: string;
 }
 
 export interface DocgenData {
+  /** The exported functions and classes - components, hooks and helpers. */
   components: Record<string, ComponentDoc>;
   types: Record<string, TypeDoc>;
 }

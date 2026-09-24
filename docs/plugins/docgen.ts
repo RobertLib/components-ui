@@ -18,6 +18,12 @@ import type {
 
 export type { ComponentDoc, DocgenData, PropDoc, TypeDoc };
 
+interface Context {
+  checker: ts.TypeChecker;
+  /** Everything `src/index.ts` exports, by the symbol it stands for. */
+  publicNames: Map<ts.Symbol, string>;
+}
+
 const isFromNodeModules = (node: ts.Node) =>
   node.getSourceFile().fileName.includes("node_modules");
 
@@ -34,6 +40,159 @@ const cleanTypeText = (text: string) =>
     .replace(/\{ /g, "{ ")
     .trim();
 
+/** The symbol a type reference or a heritage clause names, through imports. */
+function resolveReference(node: ts.Node, checker: ts.TypeChecker) {
+  const name = ts.isTypeReferenceNode(node)
+    ? node.typeName
+    : ts.isExpressionWithTypeArguments(node)
+      ? node.expression
+      : node;
+  const symbol = checker.getSymbolAtLocation(name);
+
+  return symbol && symbol.flags & ts.SymbolFlags.Alias
+    ? checker.getAliasedSymbol(symbol)
+    : symbol;
+}
+
+/** Whether `type` written in place of `reference` needs parentheses. */
+function needsParentheses(reference: ts.TypeReferenceNode, type: ts.TypeNode) {
+  const { parent } = reference;
+  const isUnion = ts.isUnionTypeNode(type);
+  const isIntersection = ts.isIntersectionTypeNode(type);
+
+  if (
+    !isUnion &&
+    !isIntersection &&
+    !ts.isFunctionTypeNode(type) &&
+    !ts.isConstructorTypeNode(type) &&
+    !ts.isConditionalTypeNode(type)
+  ) {
+    return false;
+  }
+
+  if (ts.isUnionTypeNode(parent)) return !isUnion && !isIntersection;
+  if (ts.isIntersectionTypeNode(parent)) return !isIntersection;
+
+  return (
+    ts.isArrayTypeNode(parent) ||
+    ts.isTypeOperatorNode(parent) ||
+    ts.isIndexedAccessTypeNode(parent) ||
+    ts.isOptionalTypeNode(parent) ||
+    ts.isRestTypeNode(parent)
+  );
+}
+
+const printer = ts.createPrinter({ removeComments: true });
+
+/**
+ * The type a local alias that is not part of the public API stands for - a
+ * reader cannot look up `PickerDim`, but can read `"sm" | "md" | "lg"`.
+ * `undefined` for everything else, which keeps its name.
+ */
+function expandPrivateAlias(
+  reference: ts.TypeReferenceNode,
+  context: Context,
+  seen: Set<ts.Symbol>,
+): string | undefined {
+  const { checker, publicNames } = context;
+  const symbol = resolveReference(reference, checker);
+
+  if (
+    !symbol ||
+    !(symbol.flags & ts.SymbolFlags.TypeAlias) ||
+    publicNames.has(symbol) ||
+    seen.has(symbol)
+  ) {
+    return undefined;
+  }
+
+  const declaration = symbol.declarations?.find(ts.isTypeAliasDeclaration);
+  if (!declaration || isFromNodeModules(declaration)) return undefined;
+
+  let type: ts.TypeNode | undefined = declaration.type;
+  let text: string;
+
+  if (declaration.typeParameters) {
+    // A generic alias - let the checker write it with the type arguments
+    type = checker.typeToTypeNode(
+      checker.getTypeFromTypeNode(reference),
+      undefined,
+      ts.NodeBuilderFlags.NoTruncation | ts.NodeBuilderFlags.InTypeAlias,
+    );
+    if (!type) return undefined;
+    text = printer.printNode(
+      ts.EmitHint.Unspecified,
+      type,
+      reference.getSourceFile(),
+    );
+  } else {
+    text = typeNodeText(type, context, new Set(seen).add(symbol))
+      .trim()
+      // A union or an intersection written with a leading operator
+      .replace(/^[|&]\s*/, "");
+  }
+
+  return needsParentheses(reference, type) ? `(${text})` : text;
+}
+
+/** Source text of a type with the private aliases in it expanded. */
+function typeNodeText(
+  node: ts.TypeNode,
+  context: Context,
+  seen = new Set<ts.Symbol>(),
+): string {
+  const source = node.getSourceFile();
+  let text = "";
+  let position = node.getStart(source);
+
+  const visit = (child: ts.Node) => {
+    const expanded = ts.isTypeReferenceNode(child)
+      ? expandPrivateAlias(child, context, seen)
+      : undefined;
+
+    if (expanded === undefined) {
+      ts.forEachChild(child, visit);
+      return;
+    }
+
+    text += source.text.slice(position, child.getStart(source)) + expanded;
+    position = child.getEnd();
+  };
+
+  visit(node);
+  return text + source.text.slice(position, node.getEnd());
+}
+
+/** The string literals of a type like `"link" | "size"`. */
+function stringLiterals(node: ts.TypeNode, checker: ts.TypeChecker) {
+  const type = checker.getTypeFromTypeNode(node);
+  return (type.isUnion() ? type.types : [type])
+    .filter((member) => member.isStringLiteral())
+    .map((member) => member.value);
+}
+
+/**
+ * A React base of a local type seen through `Omit` or `Pick` of that type -
+ * with the keys that are no props of the local type itself:
+ * `Omit<IconButtonProps, "children" | "loading">` accepts the props of
+ * `Omit<React.ComponentProps<"button">, "children">`.
+ */
+function throughUtility(
+  utility: "Omit" | "Pick",
+  base: string,
+  keys: string[],
+) {
+  if (keys.length === 0) return utility === "Omit" ? base : undefined;
+
+  const keysText = keys.map((key) => JSON.stringify(key)).join(" | ");
+  // `Omit<Omit<X, "a">, "b">` is `Omit<X, "a" | "b">`
+  const omitted = /^Omit<(.*), ([^,]*)>$/.exec(base);
+
+  return utility === "Omit" && omitted
+    ? `Omit<${omitted[1]}, ${omitted[2]} | ${keysText}>`
+    : `${utility}<${base}, ${keysText}>`;
+}
+
 /** `React.ComponentProps<"div">` & co. in the heritage of a declaration. */
 function collectReactBases(
   declaration: ts.Declaration,
@@ -44,6 +203,15 @@ function collectReactBases(
   seen.add(declaration);
 
   const bases: string[] = [];
+
+  // The React bases of a local type - looked through
+  const basesOfLocalType = (node: ts.Node) =>
+    (resolveReference(node, checker)?.declarations ?? [])
+      .filter((baseDeclaration) => !isFromNodeModules(baseDeclaration))
+      .flatMap((baseDeclaration) =>
+        collectReactBases(baseDeclaration, checker, seen),
+      );
+
   const addFromTypeNode = (node: ts.Node) => {
     const text = node.getText();
 
@@ -52,20 +220,40 @@ function collectReactBases(
       return;
     }
 
-    // A local base interface - look through it
-    const symbol = checker.getSymbolAtLocation(
-      ts.isExpressionWithTypeArguments(node) ? node.expression : node,
-    );
-    const target =
-      symbol && symbol.flags & ts.SymbolFlags.Alias
-        ? checker.getAliasedSymbol(symbol)
-        : symbol;
+    // `Omit<ButtonProps, "link">` - the bases of the local type, less the
+    // DOM props it leaves out (`link` is one of `ButtonProps` itself)
+    const typeArguments =
+      ts.isTypeReferenceNode(node) || ts.isExpressionWithTypeArguments(node)
+        ? node.typeArguments
+        : undefined;
+    const utility = resolveReference(node, checker)?.getName();
 
-    for (const baseDeclaration of target?.declarations ?? []) {
-      if (!isFromNodeModules(baseDeclaration)) {
-        bases.push(...collectReactBases(baseDeclaration, checker, seen));
+    if (
+      (utility === "Omit" || utility === "Pick") &&
+      typeArguments?.length === 2
+    ) {
+      const [local, keysNode] = typeArguments;
+      const ownProps = new Set(
+        checker
+          .getPropertiesOfType(checker.getTypeFromTypeNode(local))
+          .filter((prop) =>
+            (prop.declarations ?? []).some((node) => !isFromNodeModules(node)),
+          )
+          .map((prop) => prop.getName()),
+      );
+      const keys = stringLiterals(keysNode, checker).filter(
+        (key) => !ownProps.has(key),
+      );
+
+      for (const base of basesOfLocalType(local)) {
+        const shown = throughUtility(utility, base, keys);
+        if (shown) bases.push(shown);
       }
+      return;
     }
+
+    // A local base type - look through it
+    bases.push(...basesOfLocalType(node));
   };
 
   if (ts.isInterfaceDeclaration(declaration)) {
@@ -95,10 +283,8 @@ function collectReactBases(
   return [...new Set(bases)];
 }
 
-function documentType(
-  symbol: ts.Symbol,
-  checker: ts.TypeChecker,
-): TypeDoc | null {
+function documentType(symbol: ts.Symbol, context: Context): TypeDoc | null {
+  const { checker } = context;
   const declaration = symbol.declarations?.[0];
   if (!declaration) return null;
 
@@ -117,17 +303,33 @@ function documentType(
     objectConstituents++;
 
     for (const prop of checker.getPropertiesOfType(constituent)) {
-      const propDeclaration = prop.valueDeclaration ?? prop.declarations?.[0];
-      if (!propDeclaration || isFromNodeModules(propDeclaration)) continue;
+      const declarations = prop.declarations ?? [];
+      const localDeclarations = declarations.filter(
+        (node) => !isFromNodeModules(node),
+      );
+
+      // Props of React and the DOM are summed up by `extends` - unless the
+      // library declares them as well, like the `color` of `Chip`, which
+      // replaces the DOM attribute of the same name
+      const propDeclaration = localDeclarations[0];
+      if (!propDeclaration) continue;
+
+      // A prop of an intersection carries the declarations of every member -
+      // the JSDoc and the type come from the library's own one
+      const ownName = ts.getNameOfDeclaration(propDeclaration);
+      const ownSymbol =
+        localDeclarations.length < declarations.length && ownName
+          ? (checker.getSymbolAtLocation(ownName) ?? prop)
+          : prop;
 
       const typeText =
         (ts.isPropertySignature(propDeclaration) ||
           ts.isPropertyDeclaration(propDeclaration)) &&
         propDeclaration.type
-          ? cleanTypeText(propDeclaration.type.getText())
+          ? cleanTypeText(typeNodeText(propDeclaration.type, context))
           : checker
               .typeToString(
-                checker.getTypeOfSymbolAtLocation(prop, propDeclaration),
+                checker.getTypeOfSymbolAtLocation(ownSymbol, propDeclaration),
                 undefined,
                 ts.TypeFormatFlags.NoTruncation,
               )
@@ -145,7 +347,7 @@ function documentType(
         continue;
       }
 
-      const defaultTag = prop
+      const defaultTag = ownSymbol
         .getJsDocTags(checker)
         .find((tag) => tag.name === "default");
 
@@ -154,7 +356,7 @@ function documentType(
         defaultValue: defaultTag?.text
           ? ts.displayPartsToString(defaultTag.text)
           : undefined,
-        description: docText(prop, checker),
+        description: docText(ownSymbol, checker),
         name: prop.name,
         required,
         type: typeText,
@@ -177,17 +379,44 @@ function documentType(
   };
 }
 
-/** Defaults of the props destructured in the component's signature. */
-function componentDefaults(
-  declaration: ts.Declaration,
-  checker: ts.TypeChecker,
+/** The exported type a parameter is declared with, e.g. `ButtonProps`. */
+function parameterTypeName(
+  parameter: ts.ParameterDeclaration,
+  context: Context,
 ) {
-  const defaults: Record<string, string> = {};
-  const parameter = ts.isFunctionDeclaration(declaration)
-    ? declaration.parameters[0]
-    : undefined;
+  let typeNode = parameter.type;
 
-  if (parameter && ts.isObjectBindingPattern(parameter.name)) {
+  // `Readonly<DrawerProviderProps>`
+  while (
+    typeNode &&
+    ts.isTypeReferenceNode(typeNode) &&
+    typeNode.typeName.getText() === "Readonly" &&
+    typeNode.typeArguments?.length === 1
+  ) {
+    typeNode = typeNode.typeArguments[0];
+  }
+
+  if (!typeNode || !ts.isTypeReferenceNode(typeNode)) return undefined;
+
+  const symbol = resolveReference(typeNode, context.checker);
+  return symbol && context.publicNames.get(symbol);
+}
+
+/**
+ * Defaults of the props a function destructures, by the exported type of
+ * the parameter - `ButtonProps` of `Button({ … }: ButtonProps)`, the options
+ * of `uploadWithProgress(url, body, { … }: UploadWithProgressOptions)`.
+ */
+function destructuredDefaults(declaration: ts.Declaration, context: Context) {
+  const byType = new Map<string, Record<string, string>>();
+  if (!ts.isFunctionDeclaration(declaration)) return byType;
+
+  for (const parameter of declaration.parameters) {
+    const typeName = parameterTypeName(parameter, context);
+    if (!typeName || !ts.isObjectBindingPattern(parameter.name)) continue;
+
+    const defaults: Record<string, string> = {};
+
     for (const element of parameter.name.elements) {
       if (!element.initializer) continue;
       const name = (element.propertyName ?? element.name).getText();
@@ -195,16 +424,18 @@ function componentDefaults(
 
       // A named constant - show its value (`100`, not `DEFAULT_PAGE_SIZE`)
       const constantType = ts.isIdentifier(initializer)
-        ? checker.getTypeAtLocation(initializer)
+        ? context.checker.getTypeAtLocation(initializer)
         : null;
 
       defaults[name.replace(/^["']|["']$/g, "")] = constantType?.isLiteral()
-        ? checker.typeToString(constantType)
+        ? context.checker.typeToString(constantType)
         : initializer.getText();
     }
+
+    byType.set(typeName, defaults);
   }
 
-  return defaults;
+  return byType;
 }
 
 export function generateDocs(root: string): DocgenData {
@@ -230,17 +461,24 @@ export function generateDocs(root: string): DocgenData {
 
   if (!moduleSymbol) throw new Error("Cannot resolve src/index.ts");
 
-  const data: DocgenData = { components: {}, types: {} };
-
-  for (const exported of checker.getExportsOfModule(moduleSymbol)) {
-    const symbol =
+  const exports = checker.getExportsOfModule(moduleSymbol).map((exported) => ({
+    name: exported.getName(),
+    symbol:
       exported.flags & ts.SymbolFlags.Alias
         ? checker.getAliasedSymbol(exported)
-        : exported;
-    const name = exported.getName();
+        : exported,
+  }));
+  const context: Context = {
+    checker,
+    publicNames: new Map(exports.map(({ name, symbol }) => [symbol, name])),
+  };
 
+  const data: DocgenData = { components: {}, types: {} };
+  const defaultsByType = new Map<string, Record<string, string>>();
+
+  for (const { name, symbol } of exports) {
     if (symbol.flags & (ts.SymbolFlags.Interface | ts.SymbolFlags.TypeAlias)) {
-      const doc = documentType(symbol, checker);
+      const doc = documentType(symbol, context);
       if (doc) data.types[name] = doc;
     }
 
@@ -248,10 +486,29 @@ export function generateDocs(root: string): DocgenData {
       symbol.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Class) &&
       symbol.valueDeclaration
     ) {
-      data.components[name] = {
-        defaults: componentDefaults(symbol.valueDeclaration, checker),
-        description: docText(symbol, checker),
-      };
+      data.components[name] = { description: docText(symbol, checker) };
+
+      const found = destructuredDefaults(symbol.valueDeclaration, context);
+
+      for (const [typeName, defaults] of found) {
+        const known = defaultsByType.get(typeName);
+
+        defaultsByType.set(
+          typeName,
+          // The component named after the type wins (`Button` for `ButtonProps`)
+          typeName === `${name}Props`
+            ? { ...known, ...defaults }
+            : { ...defaults, ...known },
+        );
+      }
+    }
+  }
+
+  // The defaults of the destructured props are what the prop tables show -
+  // they win over a `@default` tag, which could fall behind the code
+  for (const [typeName, defaults] of defaultsByType) {
+    for (const prop of data.types[typeName]?.props ?? []) {
+      prop.defaultValue = defaults[prop.name] ?? prop.defaultValue;
     }
   }
 

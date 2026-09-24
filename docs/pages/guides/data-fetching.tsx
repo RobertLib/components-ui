@@ -25,11 +25,12 @@ const autocompleteGraphQL = `// users(search: $search, first: $first, after: $af
       variables: { search, first, after },
       context: { fetchOptions: { signal } },
     });
-    return data.users; // the connection as it is
+    return data?.users ?? []; // the connection as it is
   }}
 />`;
 
-const apolloTable = `import { useQuery } from "@apollo/client";
+const apolloTable = `// Apollo Client 4 - the React hooks come from "@apollo/client/react"
+import { useQuery } from "@apollo/client/react";
 import { DataTable, toRelayVariables, useDataTableQuery } from "components-ui";
 
 function PeopleTable() {
@@ -184,7 +185,9 @@ export default function DataFetchingGuide() {
           </p>
         </Callout>
 
-        <h3 className="mt-8 mb-2 text-lg font-semibold">With Apollo Client</h3>
+        <h3 className="mt-8 mb-2 text-lg font-semibold">
+          With Apollo Client 4
+        </h3>
         <CodeBlock code={apolloTable} />
         <h3 className="mt-8 mb-2 text-lg font-semibold">With TanStack Query</h3>
         <CodeBlock code={tanstackTable} />
@@ -203,7 +206,7 @@ export default function DataFetchingGuide() {
         <CodeBlock
           className="mt-4"
           code={autocompleteGraphQL}
-          title="GraphQL (Apollo)"
+          title="GraphQL (Apollo Client 4)"
         />
         <PropsTable of="LoadOptionsParams" />
       </Section>
@@ -218,7 +221,9 @@ export default function DataFetchingGuide() {
             </li>
             <li>
               A rejected <code>loadOptions</code> is logged in development and
-              reported to <code>onLoadError</code>; the list shows no results.
+              reported to <code>onLoadError</code>; the open list shows an error
+              message (the locale's <code>autocomplete.loadError</code>) and
+              loads again the next time it opens.
             </li>
             <li>
               For forms, <code>getFieldError()</code> reads validation messages

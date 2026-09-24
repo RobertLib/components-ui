@@ -31,7 +31,7 @@ function Page() {
   return (
     <div className="p-6">
       <Header title={title.charAt(0).toUpperCase() + title.slice(1)} />
-      <p className="mt-2 text-sm text-neutral-500">
+      <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
         Content of <code>{pathname}</code>. Collapse the drawer with the button
         in the navbar - the content makes room for it.
       </p>
@@ -45,7 +45,7 @@ export default function Demo() {
   return (
     <DemoRouter initialPath="/dashboard">
       {/* In an app AppShell fills the page; the transform keeps its fixed
-          drawer inside this frame */}
+          drawer - and the backdrop behind it on phones - inside this frame */}
       <div className="relative h-[420px] transform-gpu overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
         <AppShell
           className="h-full bg-background dark:bg-background-dark"

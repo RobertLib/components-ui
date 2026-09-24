@@ -1,8 +1,34 @@
-import type { CalendarView } from "./types";
+import type { CalendarAgendaPeriod, CalendarView } from "./types";
 import type { WeekDay } from "../../i18n/types";
-import { addDays, startOfDay, startOfWeek } from "../../utils/date";
+import { dateOf, existingDayOf, startOfDay } from "../../utils/date";
 
 export { isSameDay } from "../../utils/date";
+
+/**
+ * The start of the day `days` days after the day of `date` - whatever the
+ * time of `date`. Unlike `addDays`, which keeps the time, it steps from day
+ * to day: where a daylight saving change skips a midnight (Havana,
+ * Santiago, Beirut, Cairo, the Azores) that day starts at 1:00, and the
+ * days after it start at midnight again.
+ */
+export const addCalendarDays = (date: Date, days: number) =>
+  dateOf(date.getFullYear(), date.getMonth(), date.getDate() + days);
+
+/**
+ * The start of the day `days` days after the day of `date`, like
+ * `addCalendarDays` - `null` for a day the time zone skips as a whole
+ * (Samoa went from December 29 to 31 in 2011), which a view leaves out.
+ */
+export const getCalendarDay = (date: Date, days: number) =>
+  existingDayOf(date.getFullYear(), date.getMonth(), date.getDate() + days);
+
+/** Days from the first day of the week `date` falls in to its day. */
+export const daysIntoWeek = (date: Date, weekStartsOn: WeekDay) =>
+  (date.getDay() - weekStartsOn + 7) % 7;
+
+/** The start of the first day of the week `date` falls in. */
+export const startOfCalendarWeek = (date: Date, weekStartsOn: WeekDay) =>
+  addCalendarDays(date, -daysIntoWeek(date, weekStartsOn));
 
 /** Whole days from the day of `from` to the day of `to`. */
 export const daysBetween = (from: Date, to: Date) =>
@@ -53,49 +79,103 @@ export const clampDate = (date: Date, min: Date, max: Date) =>
 
 /**
  * The start of the grid slot at `hours:minutes` on the day of `date`. The
- * row of the end hour 24 is the midnight ending the day - it stands for the
- * last slot, so a click or drag there stays on that day.
+ * row of the end hour stands for the last slot before it - like a range
+ * picked there - so the time is one shown; with the end hour 24 (the
+ * midnight ending the day) it stays on that day.
  */
 export const getSlotStart = (
   date: Date,
   hours: number,
   minutes: number,
   slotMinutes: number,
-) => atMinutes(date, Math.min(hours * 60 + minutes, 1440 - slotMinutes));
+  endHour: number,
+) =>
+  atMinutes(date, Math.min(hours * 60 + minutes, endHour * 60 - slotMinutes));
 
 /** The first and the last day of the week `date` falls in. */
 export const getWeekStartEnd = (
   date: Date,
   weekStartsOn: WeekDay,
 ): { start: Date; end: Date } => {
-  const start = startOfWeek(date, weekStartsOn);
-  return { start, end: addDays(start, 6) };
+  // Counted from `date` - a first day the time zone skips starts later
+  const offset = daysIntoWeek(date, weekStartsOn);
+  return {
+    start: addCalendarDays(date, -offset),
+    end: addCalendarDays(date, 6 - offset),
+  };
 };
 
 /**
+ * What the agenda lists - one day is the `"day"`, anything else than a
+ * period or a positive number of days the `"month"`.
+ */
+export function normalizeAgendaPeriod(
+  period: CalendarAgendaPeriod | undefined,
+): CalendarAgendaPeriod {
+  if (typeof period === "number") {
+    if (!Number.isFinite(period) || period < 1) return "month";
+    return Math.floor(period) === 1 ? "day" : Math.floor(period);
+  }
+  return period === "day" || period === "week" ? period : "month";
+}
+
+export interface VisibleRangeOptions {
+  /**
+   * What the agenda view lists - pass the `agendaPeriod` of the calendar.
+   * Default `"month"`.
+   */
+  agendaPeriod?: CalendarAgendaPeriod;
+}
+
+/**
  * The days a view actually paints, as a half-open [start, end) interval:
- * a single day, a week, or - for the month view - the six whole weeks
- * `MonthView` lays out starting with the week holding the 1st. Fetch
- * exactly this window, so moving to another period never pulls in events
- * no tile can show. Pass the `weekStartsOn` of the locale the calendar
- * shows (`useLocale()`), so the weeks match its columns.
+ * a single day, a week, the six whole weeks `MonthView` lays out starting
+ * with the week holding the 1st, or the period of the agenda (the month,
+ * week or day of `date`, or a number of days from it). Fetch exactly this
+ * window, so moving to another period never pulls in events no tile can
+ * show. Pass the `weekStartsOn` of the locale the calendar shows
+ * (`useLocale()`), so the weeks match its columns, and the `agendaPeriod`
+ * of the calendar.
  */
 export const getVisibleRange = (
   date: Date,
   view: CalendarView,
   weekStartsOn: WeekDay,
+  options?: VisibleRangeOptions,
 ): { start: Date; end: Date } => {
+  if (view === "agenda") {
+    const period = normalizeAgendaPeriod(options?.agendaPeriod);
+
+    if (typeof period === "number") {
+      const start = startOfDay(date);
+      return { start, end: addCalendarDays(start, period) };
+    }
+    if (period !== "month") return getVisibleRange(date, period, weekStartsOn);
+
+    // The month itself - no days of the weeks around it
+    const start = dateOf(date.getFullYear(), date.getMonth(), 1);
+    return { start, end: dateOf(date.getFullYear(), date.getMonth() + 1, 1) };
+  }
+
   if (view === "day") {
     const start = startOfDay(date);
-    return { start, end: addDays(start, 1) };
+    return { start, end: addCalendarDays(start, 1) };
   }
 
+  // Counted from `date` and the 1st - from a first day of the week the time
+  // zone skips (see `getCalendarDay`) the range would end a day late
   if (view === "week") {
-    const start = startOfWeek(date, weekStartsOn);
-    return { start, end: addDays(start, 7) };
+    const offset = daysIntoWeek(date, weekStartsOn);
+    return {
+      start: addCalendarDays(date, -offset),
+      end: addCalendarDays(date, 7 - offset),
+    };
   }
 
-  const firstOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
-  const start = startOfWeek(firstOfMonth, weekStartsOn);
-  return { start, end: addDays(start, 42) };
+  const firstOfMonth = dateOf(date.getFullYear(), date.getMonth(), 1);
+  const leading = daysIntoWeek(firstOfMonth, weekStartsOn);
+  return {
+    start: addCalendarDays(firstOfMonth, -leading),
+    end: addCalendarDays(firstOfMonth, 42 - leading),
+  };
 };

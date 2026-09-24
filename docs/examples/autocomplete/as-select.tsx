@@ -21,7 +21,7 @@ export default function AsSelect() {
         options={[
           { label: "Email", value: "email" },
           { label: "SMS", value: "sms" },
-          { label: "Push", value: "push" },
+          { disabled: true, label: "Push (coming soon)", value: "push" },
         ]}
         placeholder="Pick channels"
       />

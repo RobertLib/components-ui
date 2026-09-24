@@ -17,7 +17,8 @@ return { items, nextCursor: body.next }; // cursor-based REST
 // 3. A GraphQL (Relay) connection, as the server returns it
 return data.users; // { nodes | edges, pageInfo: { endCursor, hasNextPage } }`;
 
-const apollo = `import { gql, useApolloClient } from "@apollo/client";
+const apollo = `import { gql } from "@apollo/client";
+import { useApolloClient } from "@apollo/client/react";
 
 const USERS = gql\`
   query Users($search: String, $first: Int!, $after: String) {
@@ -68,7 +69,8 @@ export default function AutocompletePage() {
               <code>multiple</code> shows the selection as chips - click a chip,
               press Backspace / Delete on a focused one or Backspace in the
               empty field to remove one. <code>maxSelections</code> caps the
-              count.
+              count: once it is reached, the list says so and offers only the
+              selected options.
             </p>
           }
           name="autocomplete/multiple"
@@ -78,8 +80,10 @@ export default function AutocompletePage() {
           description={
             <p>
               <code>asSelect</code> turns off typing: a click opens the whole
-              list. <code>hasEmpty</code> adds an empty option to clear the
-              value.
+              list on the selected option, and typed letters highlight the next
+              option starting with them, as in a native select.{" "}
+              <code>hasEmpty</code> adds an empty option to clear the value. An
+              option with <code>disabled</code> is shown but cannot be picked.
             </p>
           }
           name="autocomplete/as-select"
@@ -120,7 +124,9 @@ export default function AutocompletePage() {
           name="autocomplete/rest"
           title="REST"
         />
-        <RequestLog filter="/api/people" />
+        {/* The other examples here call /api/people too - only this one
+            starts its query with the search term */}
+        <RequestLog filter="/api/people?q=" />
 
         <Example
           description={
@@ -149,7 +155,8 @@ export default function AutocompletePage() {
               A saved value holds ids, not labels.{" "}
               <code>loadSelectedOptions</code> loads the items of selected
               values the component has no label for yet, so an edit form shows
-              the names right away.
+              the names right away. A value it does not deliver (a deleted
+              record) shows as it is, so that it can be seen and removed.
             </p>
           }
           name="autocomplete/edit-form"
@@ -177,14 +184,20 @@ export default function AutocompletePage() {
         />
       </Section>
 
-      <Callout title="Labels and values of loaded items">
+      <Callout title="Labels and values of items">
         <p>
           By default the label is read from <code>label</code>,{" "}
           <code>name</code> or <code>title</code> of an item and the value from{" "}
           <code>value</code> or <code>id</code>. For other shapes pass{" "}
-          <code>getOptionLabel</code> / <code>getOptionValue</code>.{" "}
-          <code>onChange</code> gets the value and the item:{" "}
-          <code>(value, item)</code>, or arrays of both in multiple mode.
+          <code>getOptionLabel</code> / <code>getOptionValue</code> - they also
+          read static <code>options</code> of any shape (type the item in the
+          function, e.g. <code>{"(country: Country) => country.name"}</code>
+          ). <code>onChange</code> gets the value and the item:{" "}
+          <code>(value, item)</code>, or <code>(values, items)</code> in
+          multiple mode, where <code>items[i]</code> belongs to{" "}
+          <code>values[i]</code>. The item is <code>null</code> for a value
+          without one - a static option without <code>data</code>, a saved value{" "}
+          <code>loadSelectedOptions</code> did not deliver.
         </p>
       </Callout>
 
@@ -196,13 +209,28 @@ export default function AutocompletePage() {
               <code>required</code> is enforced by the browser. A single field
               without a value submits an empty one, so that clearing it reaches
               the server; a <code>disabled</code> field submits nothing, like a
-              disabled native input.
+              disabled native input - and so does one in a disabled{" "}
+              <code>&lt;fieldset&gt;</code>, which disables it.{" "}
+              <code>form</code> ties the hidden inputs to a form elsewhere in
+              the page, like the attribute of a native field.
             </li>
             <li>
               The field is a <code>combobox</code> with a <code>listbox</code>:
-              arrow keys, Enter to pick and Escape to close. Home / End move the
-              highlight in an <code>asSelect</code> field and the caret in a
-              typing one.
+              ArrowDown opens it, the arrow keys move the highlight, Enter picks
+              and Escape closes. Enter in a closed typing field submits the
+              form, as in a text input. Home / End move the highlight in an{" "}
+              <code>asSelect</code> field and the caret in a typing one. An{" "}
+              <code>asSelect</code> field is a select-only combobox: Enter and
+              Space open it on the selected option and pick, and letters
+              highlight the options starting with them. Keys of an input method
+              (IME) composing text are left to it.
+            </li>
+            <li>
+              <code>description</code> puts help text under the field. It,{" "}
+              <code>aria-describedby</code> and <code>aria-labelledby</code> go
+              to the combobox itself - the combobox is described by the{" "}
+              <code>error</code> message, the description and your{" "}
+              <code>aria-describedby</code>, in this order.
             </li>
             <li>
               A form reset - a reset button, <code>form.reset()</code> or React
@@ -212,12 +240,15 @@ export default function AutocompletePage() {
             <li>
               Static <code>options</code> can grow on scroll: pass{" "}
               <code>loadMore</code>, and <code>hasMore={"{false}"}</code> once
-              everything is loaded.
+              everything is loaded. A list the options do not fill calls it
+              right away.
             </li>
             <li>
               Loading errors are logged in development and passed to{" "}
               <code>onLoadError</code>, e.g. to show a toast. The list then
-              shows an error, and its next opening loads it again.
+              shows an error, and its next opening loads it again. Labels{" "}
+              <code>loadSelectedOptions</code> failed to load show the values as
+              they are and are asked for again when the list next opens.
             </li>
           </ul>
         </Prose>

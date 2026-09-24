@@ -1,7 +1,12 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import Calendar, { type CalendarEvent } from ".";
+import { createLocale } from "../../i18n/format";
+import { cs } from "../../i18n/cs";
+import { en } from "../../i18n/en";
+import { UIContext } from "../../providers/ui-context";
+import UIProvider from "../../providers/ui-provider";
 
 /** A day of September 2026 - the 24th is a Thursday. */
 const d = (day: number, hours = 0, minutes = 0) =>
@@ -31,6 +36,7 @@ const press = { clientX: 400, clientY: 100, isPrimary: true };
 function drag(target: Element, deltaY: number, deltaX = 0) {
   fireEvent.pointerDown(target, press);
   fireEvent.pointerMove(document, {
+    buttons: 1,
     clientX: 400 + deltaX,
     clientY: 100 + deltaY,
   });
@@ -79,6 +85,37 @@ describe("Calendar event clicks and drags", () => {
     fireEvent.click(tile);
 
     expect(onEventDrop).not.toHaveBeenCalled();
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes a drag back to where the event was for no click", () => {
+    const onEventClick = vi.fn();
+    const onEventDrop = vi.fn();
+    render(
+      <Calendar
+        events={[event("Review", d(24, 9), d(24, 10))]}
+        initialDate={d(24)}
+        initialView="week"
+        onEventClick={onEventClick}
+        onEventDrop={onEventDrop}
+      />,
+    );
+
+    const tile = screen.getByTitle("Review");
+    fireEvent.pointerDown(tile, press);
+    // A slot down, and back up
+    fireEvent.pointerMove(document, { buttons: 1, clientX: 400, clientY: 164 });
+    fireEvent.pointerMove(document, { buttons: 1, clientX: 400, clientY: 100 });
+    fireEvent.pointerUp(document);
+    fireEvent.click(tile);
+
+    expect(onEventDrop).not.toHaveBeenCalled();
+    expect(onEventClick).not.toHaveBeenCalled();
+
+    // The next click is one again
+    fireEvent.pointerDown(tile, press);
+    fireEvent.pointerUp(document);
+    fireEvent.click(tile);
     expect(onEventClick).toHaveBeenCalledTimes(1);
   });
 
@@ -216,6 +253,56 @@ describe("Calendar hours", () => {
     expect(onDateClick).toHaveBeenCalledWith(d(24, 23));
   });
 
+  it("gives the row of the end hour the last slot before it (dayEndHour 22)", () => {
+    const onDateClick = vi.fn();
+    const { container, unmount } = render(
+      <Calendar
+        initialDate={d(24)}
+        initialView="week"
+        onDateClick={onDateClick}
+      />,
+    );
+
+    // The 22:00 row of Thursday - an event at 22:00 would not show
+    const slots = weekSlots(container, 4);
+    fireEvent.click(slots[slots.length - 1]);
+    expect(onDateClick).toHaveBeenLastCalledWith(d(24, 21, 30));
+    expect(slots[slots.length - 1]).toHaveAccessibleName(
+      slots[slots.length - 2].getAttribute("aria-label")!,
+    );
+    unmount();
+
+    const { container: dayContainer } = render(
+      <Calendar
+        initialDate={d(24)}
+        initialView="day"
+        onDateClick={onDateClick}
+      />,
+    );
+    const rows = daySlots(dayContainer);
+    fireEvent.click(rows[rows.length - 1]);
+    expect(onDateClick).toHaveBeenLastCalledWith(d(24, 21));
+  });
+
+  it("names the slots on the clock of the locale", () => {
+    render(
+      <UIProvider locale={createLocale(en, { formats: { time: "HH:mm" } })}>
+        <Calendar
+          initialDate={d(24)}
+          initialView="week"
+          onDateClick={() => {}}
+        />
+      </UIProvider>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /September 24, 2026.* 15:00$/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /September 24, 2026.*PM$/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("does not report the click that ends a slot drag", () => {
     const onDateClick = vi.fn();
     const onSlotDragEnd = vi.fn();
@@ -320,13 +407,232 @@ describe("Calendar", () => {
     expect(onDateClick).not.toHaveBeenCalled();
   });
 
-  it("keeps the shown date when the date field is cleared", () => {
+  it("keeps the shown date when the date field is emptied", async () => {
+    const user = userEvent.setup();
     render(<Calendar initialDate={d(24)} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear value" }));
-    expect(screen.getByRole("combobox", { name: "Go to date" })).toHaveValue(
-      "09/24/2026",
+    // The calendar always shows a date - nothing to clear
+    expect(
+      screen.queryByRole("button", { name: "Clear value" }),
+    ).not.toBeInTheDocument();
+
+    const field = screen.getByRole("combobox", { name: "Go to date" });
+    await user.clear(field);
+    await user.tab();
+    expect(field).toHaveValue("09/24/2026");
+  });
+
+  it("says the day the navigation moved to in the day view", async () => {
+    const user = userEvent.setup();
+    render(<Calendar initialDate={d(24)} initialView="day" />);
+
+    // The date field shows it - the heading says it to screen readers
+    const period = screen.getByRole("heading", { level: 2 });
+    expect(period).toHaveAttribute("aria-live", "polite");
+    expect(period).toHaveClass("sr-only");
+    expect(period).toHaveTextContent("Thursday, September 24, 2026");
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(period).toHaveTextContent("Friday, September 25, 2026");
+    await user.click(screen.getByRole("button", { name: "Week" }));
+    expect(period).not.toHaveClass("sr-only");
+    expect(period).toHaveTextContent("09/20/2026 - 09/26/2026");
+  });
+
+  it("offers the days from minDate to maxDate in the date field", async () => {
+    const user = userEvent.setup();
+    render(
+      <Calendar initialDate={d(24)} maxDate={d(26, 12)} minDate={d(20, 12)} />,
     );
+
+    const field = screen.getByRole("combobox", { name: "Go to date" });
+    await user.clear(field);
+    await user.type(field, "09/27/2026{Enter}");
+    expect(field).toHaveValue("09/24/2026");
+
+    await user.clear(field);
+    await user.type(field, "09/26/2026{Enter}");
+    expect(field).toHaveValue("09/26/2026");
+  });
+
+  it("marks today and the selected day of the month grid", () => {
+    const today = new Date();
+    const selected = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate() === 1 ? 2 : 1,
+    );
+    render(<Calendar initialDate={selected} onDateClick={() => {}} />);
+
+    // The days - not the view switcher
+    const pressed = screen
+      .getAllByRole("button", { pressed: true })
+      .filter((button) => button.hasAttribute("data-day"));
+    expect(pressed).toHaveLength(1);
+    expect(pressed[0]).toHaveTextContent(String(selected.getDate()));
+    expect(pressed[0]).not.toHaveAttribute("aria-current");
+
+    const current = document.querySelectorAll('[aria-current="date"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveTextContent(String(today.getDate()));
+    expect(current[0]).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("marks today also without onDateClick", () => {
+    render(<Calendar />);
+
+    expect(document.querySelectorAll('[aria-current="date"]')).toHaveLength(1);
+  });
+
+  it("renders with a locale code Intl does not understand", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const locale = createLocale(en, { code: "en_GB" });
+
+    for (const view of ["month", "week", "day"] as const) {
+      const { unmount } = render(
+        // Without the provider, which would fix the code
+        <UIContext value={{ locale }}>
+          <Calendar
+            events={[
+              event("Standup", d(24, 9), d(24, 10)),
+              { ...event("Trip", d(24), d(25)), allDay: true },
+            ]}
+            initialDate={d(24)}
+            initialView={view}
+            onDateClick={() => {}}
+            onEventClick={() => {}}
+            onSlotDragEnd={() => {}}
+          />
+        </UIContext>,
+      );
+      expect(
+        screen.getAllByRole("button", { name: /Standup, Thursday/ }).length,
+      ).toBeGreaterThan(0);
+      unmount();
+    }
+
+    warn.mockRestore();
+  });
+
+  it("warns about a controlled date that cannot be navigated", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { unmount } = render(<Calendar currentDate={d(24)} />);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("`currentDate` without `setCurrentDate`"),
+    );
+    unmount();
+
+    warn.mockClear();
+    render(<Calendar currentDate={d(24)} setCurrentDate={() => {}} />);
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+});
+
+// `new Date("2026-09-24")` is the evening before in New York and 2:00 of
+// the day in Prague
+describe.each(["America/New_York", "Europe/Prague"])(
+  "Calendar all-day events of date strings (%s)",
+  (timeZone) => {
+    let previousTZ: string | undefined;
+
+    beforeAll(() => {
+      previousTZ = process.env.TZ;
+      process.env.TZ = timeZone;
+    });
+
+    afterAll(() => {
+      if (previousTZ === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTZ;
+    });
+
+    const trip = {
+      ...event("Trip", new Date("2026-09-24"), new Date("2026-09-25")),
+      allDay: true,
+    };
+
+    it("shows them on their day only", () => {
+      render(
+        <Calendar
+          events={[trip]}
+          initialDate={d(24)}
+          onEventClick={() => {}}
+        />,
+      );
+
+      const tiles = screen.getAllByRole("button", {
+        name: /^Trip, Thursday, September 24, 2026, all day$/,
+      });
+      expect(tiles).toHaveLength(1);
+      expect(screen.getAllByText("Trip")).toHaveLength(1);
+    });
+
+    it("shows them in the header of their day of the week view", () => {
+      const { container } = render(
+        <Calendar events={[trip]} initialDate={d(24)} initialView="week" />,
+      );
+
+      expect(screen.getAllByTitle("Trip")).toHaveLength(1);
+      // Thursday - the fifth day
+      expect(
+        container.querySelectorAll(".sticky.top-0 .grid-cols-7 > div")[4],
+      ).toHaveTextContent("Trip");
+    });
+
+    it("takes local midnights as they are", () => {
+      render(
+        <Calendar
+          events={[{ ...trip, end: d(25), start: d(24) }]}
+          initialDate={d(24)}
+        />,
+      );
+
+      expect(screen.getAllByText("Trip")).toHaveLength(1);
+    });
+  },
+);
+
+// In London a date string is a local midnight in winter time and 1:00 in
+// summer time - a range over the change has one of each
+describe("Calendar all-day events of date strings over a clock change", () => {
+  let previousTZ: string | undefined;
+
+  beforeAll(() => {
+    previousTZ = process.env.TZ;
+    process.env.TZ = "Europe/London";
+  });
+
+  afterAll(() => {
+    if (previousTZ === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTZ;
+  });
+
+  const weekend = {
+    ...event("Weekend", new Date("2026-03-28"), new Date("2026-03-30")),
+    allDay: true,
+  };
+
+  it("shows them on their days only", () => {
+    const { unmount } = render(
+      <Calendar
+        events={[weekend]}
+        initialDate={new Date(2026, 2, 29)}
+        initialView="day"
+      />,
+    );
+    expect(screen.getByText("Weekend")).toBeInTheDocument();
+    unmount();
+
+    render(
+      <Calendar
+        events={[weekend]}
+        initialDate={new Date(2026, 2, 30)}
+        initialView="day"
+      />,
+    );
+    expect(screen.queryByText("Weekend")).toBeNull();
   });
 });
 
@@ -346,7 +652,7 @@ describe("Calendar events over several days", () => {
     );
 
     // The second day of both
-    expect(screen.getByText(/Conference/)).toBeInTheDocument();
+    expect(screen.getByText("Conference")).toBeInTheDocument();
     expect(screen.getByTitle("Night shift")).toBeInTheDocument();
     unmount();
 
@@ -426,7 +732,7 @@ describe("Calendar from the keyboard", () => {
       />,
     );
 
-    screen.getByRole("button", { name: "Standup" }).focus();
+    screen.getByRole("button", { name: /^Standup,/ }).focus();
     await user.keyboard("{Enter}");
 
     expect(onEventClick).toHaveBeenCalledWith(
@@ -488,9 +794,9 @@ describe("Calendar from the keyboard", () => {
       within(list).getByText("Thursday, September 24, 2026"),
     ).toBeVisible();
     await user.tab();
-    expect(within(list).getByRole("button", { name: "A" })).toHaveFocus();
+    expect(within(list).getByRole("button", { name: /^A,/ })).toHaveFocus();
 
-    within(list).getByRole("button", { name: "D" }).focus();
+    within(list).getByRole("button", { name: /^D,/ }).focus();
     await user.keyboard("{Enter}");
     expect(onEventClick).toHaveBeenCalledWith(
       expect.objectContaining({ title: "D" }),
@@ -542,5 +848,423 @@ describe("Calendar", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("starts with the first of the views offered", () => {
+    render(<Calendar initialDate={d(24)} viewOptions={["week", "day"]} />);
+
+    expect(screen.getByRole("button", { name: "Week" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("keeps the all-day note after an htmlTitle in the day view", () => {
+    render(
+      <Calendar
+        events={[
+          {
+            ...event("Offsite", d(24), d(25)),
+            allDay: true,
+            htmlTitle: "<b>Offsite</b>",
+          },
+        ]}
+        initialDate={d(24)}
+        initialView="day"
+      />,
+    );
+
+    expect(screen.getByText("Offsite", { selector: "b" })).toBeVisible();
+    expect(screen.getByText("(all day)")).toBeVisible();
+  });
+
+  it.each(["week", "day"] as const)(
+    "labels the midnight ending the day 12:00 AM (%s view)",
+    (view) => {
+      const { container } = render(
+        <Calendar dayEndHour={24} initialDate={d(24)} initialView={view} />,
+      );
+
+      const labels = container.querySelectorAll(".time-column span");
+      expect(labels[labels.length - 1]).toHaveTextContent(/^12:00 AM$/);
+    },
+  );
+
+  it.each(["week", "day"] as const)(
+    "labels the midnight ending the day 24:00 on the 24-hour clock (%s view)",
+    (view) => {
+      const { container } = render(
+        <UIProvider locale={cs}>
+          <Calendar dayEndHour={24} initialDate={d(24)} initialView={view} />
+        </UIProvider>,
+      );
+
+      const labels = container.querySelectorAll(".time-column span");
+      expect(labels[labels.length - 1]).toHaveTextContent(/^24:00$/);
+    },
+  );
+
+  it("keeps month tiles as wide as their cell, a long title cut off", async () => {
+    const user = userEvent.setup();
+    const busy = ["A", "B", "C", "A title too long for a day of a month"].map(
+      (title, index) => event(title, d(24, 8 + index), d(24, 9 + index)),
+    );
+    render(<Calendar events={busy} initialDate={d(24)} />);
+
+    // jsdom has no layout - the classes that fit the tile into the cell: the
+    // tooltip around it takes the width of the cell and lets it shrink
+    const tile = screen.getByText("A").closest(".group\\/event");
+    expect(tile).toHaveClass("w-full", "truncate");
+    expect(tile?.parentElement).toHaveClass("min-w-0", "grow");
+    expect(tile?.parentElement?.parentElement).toHaveClass("w-full");
+
+    // In the list of the day as wide as their text - at most as the list
+    await user.click(screen.getByRole("button", { name: "+1 more" }));
+    const listed = within(screen.getByRole("dialog"))
+      .getByText("A title too long for a day of a month")
+      .closest(".group\\/event");
+    expect(listed?.parentElement?.parentElement).toHaveClass("max-w-full");
+    expect(listed?.parentElement?.parentElement).not.toHaveClass("w-full");
+  });
+
+  it("keeps the icon of a month tile on the line of its title", () => {
+    render(
+      <Calendar
+        events={[event("Standup", d(24, 9), d(24, 10))]}
+        initialDate={d(24)}
+        renderEventIcon={() => <svg data-testid="icon" />}
+      />,
+    );
+
+    expect(screen.getByTestId("icon").parentElement?.tagName).toBe("SPAN");
+  });
+
+  it.each(["week", "day"] as const)(
+    "keeps the icon of a timed tile on the line of its title (%s view)",
+    (view) => {
+      render(
+        <Calendar
+          events={[
+            event("Standup", d(24, 9), d(24, 9, 15)),
+            {
+              ...event("Planning", d(24, 11), d(24, 12)),
+              htmlTitle: "<b>Planning</b> of the sprint",
+            },
+          ]}
+          initialDate={d(24)}
+          initialView={view}
+          renderEventIcon={(item) => <svg data-testid={`icon-${item.id}`} />}
+        />,
+      );
+
+      // A row of the icon and the title - the title is cut off after it
+      const icon = screen.getByTestId("icon-Standup");
+      expect(icon.parentElement).toHaveClass("flex", "items-center");
+      expect(icon.nextElementSibling).toHaveTextContent("Standup");
+      expect(icon.nextElementSibling).toHaveClass("truncate", "min-w-0");
+      expect(icon.nextElementSibling).not.toHaveClass("block");
+      // A rich title wraps next to the icon
+      const rich = screen.getByTestId("icon-Planning").nextElementSibling;
+      expect(rich).toHaveTextContent("Planning of the sprint");
+      expect(rich).toHaveClass("min-w-0");
+      expect(rich).not.toHaveClass("truncate");
+    },
+  );
+
+  it("keeps the sticky header over the time column and the crowded tiles", () => {
+    const { container } = render(
+      <Calendar
+        events={Array.from({ length: 12 }, (_, index) =>
+          event(`E${index}`, d(24, 9), d(24, 10)),
+        )}
+        initialDate={d(24)}
+        initialView="week"
+      />,
+    );
+
+    // The later of equal layers paints on top - the header is a higher one
+    expect(container.querySelector(".week-view > .sticky")).toHaveClass("z-20");
+    expect(container.querySelector(".time-column")).toHaveClass("z-10");
+    // A day column is a layer of its own - no tile climbs out of it
+    for (const column of container.querySelectorAll(".day-column")) {
+      expect(column).toHaveClass("isolate");
+    }
+  });
+});
+
+describe("Calendar order of events", () => {
+  it("shows all-day events first, then by start", () => {
+    render(
+      <Calendar
+        events={[
+          event("Evening", d(24, 18), d(24, 19)),
+          event("Morning", d(24, 8), d(24, 9)),
+          event("Noon", d(24, 12), d(24, 13)),
+          { ...event("Offsite", d(24), d(25)), allDay: true },
+        ]}
+        initialDate={d(24)}
+      />,
+    );
+
+    // The latest is the one behind "+1 more"
+    expect(screen.getByText("Offsite")).toBeInTheDocument();
+    expect(screen.queryByText("Evening")).toBeNull();
+    expect(screen.getByRole("button", { name: "+1 more" })).toBeVisible();
+  });
+
+  it("tabs through the events of a day by their start", () => {
+    render(
+      <Calendar
+        events={[
+          event("Later", d(24, 12), d(24, 13)),
+          event("Earlier", d(24, 9), d(24, 10)),
+        ]}
+        initialDate={d(24)}
+        initialView="week"
+        onEventClick={() => {}}
+      />,
+    );
+
+    expect(
+      screen
+        .getAllByRole("button", { name: /^(Earlier|Later),/ })
+        .map((button) => button.getAttribute("aria-label")?.split(",")[0]),
+    ).toEqual(["Earlier", "Later"]);
+  });
+
+  it("shows only a few all-day events in the week header", async () => {
+    const user = userEvent.setup();
+    render(
+      <Calendar
+        events={["A", "B", "C", "D"].map((title) => ({
+          ...event(title, d(24), d(25)),
+          allDay: true,
+        }))}
+        initialDate={d(24)}
+        initialView="week"
+      />,
+    );
+
+    expect(screen.queryByText("C")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "+2 more" }));
+    expect(within(screen.getByRole("dialog")).getByText("D")).toBeVisible();
+  });
+});
+
+describe("Calendar event names", () => {
+  it("names the tiles by their title and time", () => {
+    render(
+      <Calendar
+        events={[
+          event("Standup", d(24, 9), d(24, 10)),
+          { ...event("Offsite", d(22), d(24)), allDay: true },
+        ]}
+        initialDate={d(24)}
+        initialView="week"
+        onEventClick={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: /^Standup, Thursday, September 24, 2026,? 9:00\s–\s10:00\sAM$/,
+      }),
+    ).toBeInTheDocument();
+    // On both of its days
+    expect(
+      screen.getAllByRole("button", {
+        name: /^Offsite, Tuesday, September 22\s–\sWednesday, September 23, 2026, all day$/,
+      }),
+    ).toHaveLength(2);
+  });
+
+  it("names a tile that opens nothing in text", () => {
+    render(
+      <Calendar
+        events={[event("Standup", d(24, 9), d(24, 10))]}
+        initialDate={d(24)}
+        initialView="day"
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /^Standup/ })).toBeNull();
+    expect(
+      screen.getByText(/^Standup, Thursday, September 24, 2026/),
+    ).toHaveClass("sr-only");
+  });
+
+  it("puts the actions and the links of a title beside the tile's button", () => {
+    render(
+      <Calendar
+        events={[
+          {
+            ...event("Planning", d(24, 9), d(24, 10)),
+            htmlTitle:
+              'Planning <a href="https://example.com/agenda">agenda</a>',
+          },
+        ]}
+        initialDate={d(24)}
+        initialView="week"
+        onEventClick={() => {}}
+        renderEventActions={(item) => (
+          <button type="button">Delete {item.title}</button>
+        )}
+      />,
+    );
+
+    const tile = screen.getByRole("button", { name: /^Planning, Thursday/ });
+    const action = screen.getByRole("button", { name: "Delete Planning" });
+    const link = screen.getByRole("link", { name: "agenda" });
+    expect(tile).not.toContainElement(action);
+    expect(tile).not.toContainElement(link);
+  });
+
+  it("opens no event by a link of its title", () => {
+    const onEventClick = vi.fn();
+    render(
+      <Calendar
+        events={[
+          {
+            ...event("Planning", d(24, 9), d(24, 10)),
+            htmlTitle: 'Planning <a href="#agenda">agenda</a>',
+          },
+        ]}
+        initialDate={d(24)}
+        onEventClick={onEventClick}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "agenda" }));
+    expect(onEventClick).not.toHaveBeenCalled();
+  });
+
+  it("names the tiles in the language and clock of the locale", () => {
+    render(
+      <UIProvider locale={cs}>
+        <Calendar
+          events={[event("Porada", d(24, 9), d(24, 10))]}
+          initialDate={d(24)}
+          initialView="week"
+          onEventClick={() => {}}
+        />
+      </UIProvider>,
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: /^Porada, čtvrtek 24\. září 2026,? 9:00\s?–\s?10:00$/,
+      }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("Calendar keys from the focused slot", () => {
+  it("goes on from a slot of the week view focused by a click", async () => {
+    const user = userEvent.setup();
+    const onDateClick = vi.fn();
+    render(
+      <Calendar
+        initialDate={d(24)}
+        initialView="week"
+        onDateClick={onDateClick}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /September 25, 2026.*3:00\sPM/ }),
+    );
+    await user.keyboard("{Enter}");
+    expect(onDateClick).toHaveBeenLastCalledWith(d(25, 15));
+
+    await user.keyboard("{ArrowDown}");
+    expect(
+      screen.getByRole("button", { name: /September 25, 2026.*3:30\sPM/ }),
+    ).toHaveFocus();
+  });
+
+  it("goes on from a day of the month view focused by a click", async () => {
+    const user = userEvent.setup();
+    render(<Calendar initialDate={d(24)} onDateClick={() => {}} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Monday, September 7, 2026" }),
+    );
+    await user.keyboard("{ArrowRight}");
+    expect(
+      screen.getByRole("button", { name: "Tuesday, September 8, 2026" }),
+    ).toHaveFocus();
+    // The tab stop moved along
+    expect(
+      screen.getByRole("button", { name: "Tuesday, September 8, 2026" }),
+    ).toHaveAttribute("tabindex", "0");
+  });
+});
+
+describe("Calendar ranges without a pointer", () => {
+  it("selects slots with Shift + arrow keys and creates the range", async () => {
+    const user = userEvent.setup();
+    const onSlotDragEnd = vi.fn();
+    render(
+      <Calendar
+        initialDate={d(24)}
+        initialView="week"
+        onSlotDragEnd={onSlotDragEnd}
+      />,
+    );
+
+    const first = screen.getByRole("button", {
+      name: /September 24, 2026.*7:00\sAM/,
+    });
+    expect(first).toHaveAttribute("tabindex", "0");
+    first.focus();
+
+    // The focused slot alone
+    await user.keyboard("{Enter}");
+    expect(onSlotDragEnd).toHaveBeenLastCalledWith({
+      end: d(24, 7, 30),
+      start: d(24, 7),
+    });
+
+    await user.keyboard("{Shift>}{ArrowDown}{ArrowDown}{/Shift}");
+    expect(screen.getByText(/^Selected: /)).toHaveTextContent(
+      /Thursday, September 24, 2026,? 7:00\s–\s8:30\sAM/,
+    );
+    await user.keyboard("{Enter}");
+    expect(onSlotDragEnd).toHaveBeenLastCalledWith({
+      end: d(24, 8, 30),
+      start: d(24, 7),
+    });
+
+    // Escape drops a selection
+    await user.keyboard("{Shift>}{ArrowUp}{/Shift}{Escape}{Enter}");
+    expect(onSlotDragEnd).toHaveBeenLastCalledWith({
+      end: d(24, 8),
+      start: d(24, 7, 30),
+    });
+  });
+
+  it("creates a range of one slot on a tap, not on a mouse click", () => {
+    const onSlotDragEnd = vi.fn();
+    const { container } = render(
+      <Calendar
+        initialDate={d(24)}
+        initialView="day"
+        onSlotDragEnd={onSlotDragEnd}
+      />,
+    );
+
+    const nine = daySlots(container)[2];
+    fireEvent.pointerDown(nine, { ...press, pointerType: "mouse" });
+    fireEvent.pointerUp(nine);
+    fireEvent.click(nine);
+    expect(onSlotDragEnd).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(nine, { ...press, pointerType: "touch" });
+    fireEvent.pointerUp(nine);
+    fireEvent.click(nine);
+    expect(onSlotDragEnd).toHaveBeenCalledWith({
+      end: d(24, 10),
+      start: d(24, 9),
+    });
   });
 });

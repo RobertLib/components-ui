@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import cn from "../utils/cn";
 import IconButton from "./icon-button";
 import Skeleton from "./skeleton";
+import VisuallyHidden from "./visually-hidden";
 import { useMessages, useRouter } from "../providers/ui-context";
 
 export interface HeaderProps extends Omit<
@@ -16,7 +17,10 @@ export interface HeaderProps extends Omit<
   back?: boolean;
   /** What the back arrow does - goes back in the history by default. */
   onBack?: () => void;
-  /** Page title - `null` / `undefined` shows a placeholder while it loads. */
+  /**
+   * Page title - `null` / `undefined` shows a placeholder while it loads,
+   * and screen readers find the heading saying "Loading…".
+   */
   title: React.ReactNode;
 }
 
@@ -52,11 +56,15 @@ export default function Header({
         )}
         <h1 className="text-3xl font-medium">
           {title ?? (
-            <Skeleton
-              className="bg-neutral-200/70 dark:bg-neutral-800/70"
-              height="h-8"
-              width="w-[20vw]"
-            />
+            <>
+              <Skeleton
+                className="bg-neutral-200/70 dark:bg-neutral-800/70"
+                height="h-8"
+                width="w-[20vw]"
+              />
+              {/* The placeholder is a picture - the heading is not empty */}
+              <VisuallyHidden>{messages.common.loading}</VisuallyHidden>
+            </>
           )}
         </h1>
         {afterTitle}

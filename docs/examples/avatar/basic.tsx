@@ -12,12 +12,14 @@ export default function Basic() {
       <Avatar name="Jana Nováková" size="lg" src={photo} />
       <Avatar name="Jana Nováková" size="lg" />
       <Avatar size="lg" />
-      {/* A broken image falls back to the initials */}
-      <Avatar name="Broken Image" size="lg" src="/missing.png" />
+      {/* A picture that fails to load falls back to the initials - here one
+          that is no image at all, so the demo needs no failing request */}
+      <Avatar name="Broken Image" size="lg" src="data:," />
       <div className="flex items-center gap-2">
         <Avatar name="Small" size="sm" />
         <Avatar name="Medium" size="md" />
         <Avatar name="Large" size="lg" />
+        <Avatar name="Extra Large" size="xl" />
       </div>
     </div>
   );

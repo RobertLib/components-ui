@@ -52,7 +52,7 @@ export default function TableOfContents({ pathname }: { pathname: string }) {
               key={heading.id}
             >
               <button
-                className="text-left text-neutral-500 hover:text-primary-600 dark:hover:text-primary-400"
+                className="text-left text-neutral-500 hover:text-primary-600 dark:text-neutral-400 dark:hover:text-primary-400"
                 onClick={() =>
                   document
                     .getElementById(heading.id)

@@ -6,6 +6,7 @@ export default function Static() {
   return (
     <div className="max-w-sm">
       <Autocomplete
+        description="The city the order is delivered to."
         label="City"
         name="city"
         options={cities}

@@ -91,8 +91,11 @@ export default function Introduction() {
               </h3>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {group.pages.map((page) => {
+                  // The JSDoc of the first component named in the title -
+                  // `Toast` for "Toast & Snackbar"
+                  const component = page.title.split(/[\s,&]/)[0];
                   const description =
-                    docs.components[page.title]?.description.split("\n\n")[0];
+                    docs.components[component]?.description.split("\n\n")[0];
 
                   return (
                     <Link

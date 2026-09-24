@@ -12,6 +12,11 @@ export default function Basic() {
         onChange={(event) => setNotifications(event.target.checked)}
       />
       <Switch defaultChecked label="Uncontrolled, on by default" name="beta" />
+      <Switch
+        description="Customers get a copy of every invoice by email."
+        label="Send invoices automatically"
+        name="autoSend"
+      />
       <Switch disabled label="Disabled" />
       <Switch error="This setting is required." label="With an error" />
     </div>

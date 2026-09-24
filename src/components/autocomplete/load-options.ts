@@ -49,7 +49,9 @@ export interface LoadOptionsPage<TItem> {
 export interface RelayConnection<TItem> {
   /** Edges of the connection - their `node`s become the options. */
   edges?: ({ node?: TItem | null } | null)[] | null;
+  /** Nodes of the connection - they become the options. */
   nodes?: (TItem | null)[] | null;
+  /** While `hasNextPage`, the next page is requested after `endCursor`. */
   pageInfo?: {
     endCursor?: string | null;
     hasNextPage: boolean;

@@ -6,13 +6,21 @@ export interface AlertProps extends Omit<React.ComponentProps<"div">, "title"> {
   noIcon?: boolean;
   /** Bold heading above the message. */
   title?: React.ReactNode;
-  /** Color and icon of the alert. */
+  /**
+   * Color and icon of the alert - also its role: `danger` and `warning` are
+   * announced at once, `success` and `info` as a status.
+   */
   type?: "success" | "danger" | "warning" | "info";
 }
 
 /**
  * A highlighted message. Renders nothing without children, so it can be
  * placed unconditionally: `<Alert type="danger">{error}</Alert>`.
+ *
+ * `danger` and `warning` are alerts (`role="alert"`), which screen readers
+ * announce also when they appear with their message. `success` and `info`
+ * are a status (`role="status"`), and a status that appears already filled
+ * is often not announced - tell of the outcome of an action with a toast.
  */
 export default function Alert({
   className,
@@ -52,7 +60,7 @@ export default function Alert({
         return {
           container:
             "from-danger-50 dark:from-danger-900/20 to-danger-50 dark:to-danger-900/20 border border-danger-200 dark:border-danger-800",
-          icon: "text-danger-600 dark:text-danger-400",
+          icon: "text-danger-700 dark:text-danger-400",
           title: "text-danger-900 dark:text-danger-100",
           content: "text-danger-700 dark:text-danger-300",
         };
@@ -77,8 +85,11 @@ export default function Alert({
   };
 
   const styles = getTypeStyles();
-  const roleType = type === "danger" || type === "warning" ? "alert" : "status";
-  const liveType = type === "danger" ? "assertive" : "polite";
+  // An alert interrupts the screen reader, a status waits for a pause - the
+  // explicit `aria-live` only repeats the role for older screen readers
+  const isAlert = type === "danger" || type === "warning";
+  const roleType = isAlert ? "alert" : "status";
+  const liveType = isAlert ? "assertive" : "polite";
 
   return (
     <div

@@ -18,11 +18,11 @@ error.errors[0].extensions   error.graphQLErrors[0].extensions
 { "userErrors": [{ "field": ["input", "email"], "message": "…" }] }`;
 
 const hookForm = `import { Controller, useForm } from "react-hook-form";
-import { Autocomplete, DateTimePicker, Input } from "components-ui";
+import { Autocomplete, DateTimePicker, Input, NumberInput } from "components-ui";
 
 function ProjectForm() {
   const { control, handleSubmit } = useForm({
-    defaultValues: { name: "", ownerId: null, deadline: "" },
+    defaultValues: { name: "", ownerId: null, deadline: "", budget: null },
   });
 
   return (
@@ -59,9 +59,43 @@ function ProjectForm() {
           />
         )}
       />
+      <Controller
+        control={control}
+        name="budget"
+        render={({ field, fieldState }) => (
+          <NumberInput
+            error={fieldState.error?.message}
+            formatOptions={{ currency: "EUR", style: "currency" }}
+            label="Budget"
+            onBlur={field.onBlur}
+            onChange={field.onChange}
+            ref={field.ref}
+            value={field.value}
+          />
+        )}
+      />
     </form>
   );
 }`;
+
+const thirdParty = `import { Controller } from "react-hook-form";
+import PhoneInput from "some-phone-input-library";
+import { Field, getFieldError } from "components-ui";
+
+<Controller
+  control={control}
+  name="phone"
+  render={({ field }) => (
+    <Field
+      description="With the country code."
+      error={getFieldError(serverError, "phone")}
+      label="Phone"
+      required
+    >
+      {(controlProps) => <PhoneInput {...controlProps} {...field} />}
+    </Field>
+  )}
+/>`;
 
 export default function FormsGuide() {
   return (
@@ -74,9 +108,14 @@ export default function FormsGuide() {
           <p>
             Every field accepts a <code>name</code> and submits its value like a
             native input - also the composite ones: <code>Autocomplete</code>,{" "}
-            <code>DateTimePicker</code>, <code>FileUpload</code> and{" "}
-            <code>RichTextEditor</code> render hidden inputs, and a hidden
-            validation input makes the browser enforce <code>required</code>.
+            <code>DateTimePicker</code>, <code>DateRangePicker</code>,{" "}
+            <code>FileUpload</code>, <code>NumberInput</code>,{" "}
+            <code>PinInput</code>, <code>RichTextEditor</code>,{" "}
+            <code>Slider</code>, <code>TagsInput</code> and{" "}
+            <code>TreeView</code> render hidden inputs (
+            <code>CheckboxGroup</code> and <code>SegmentedControl</code> are
+            native checkboxes and radios), and a hidden validation input makes
+            the browser enforce <code>required</code>.
           </p>
         </Prose>
         <Example
@@ -92,10 +131,44 @@ export default function FormsGuide() {
             Pass <code>value</code> and <code>onChange</code> for React state.
             Text fields, selects and pickers call <code>onChange</code> with an
             event (<code>event.target.value</code>), <code>Autocomplete</code>{" "}
-            with the value and the selected item, <code>RichTextEditor</code>{" "}
-            with the HTML.
+            with the value and the selected item, <code>NumberInput</code> with
+            a <code>number</code> (or <code>null</code>),{" "}
+            <code>CheckboxGroup</code> and <code>TagsInput</code> with an array,{" "}
+            <code>Slider</code> with a number or a <code>[start, end]</code>{" "}
+            pair, <code>DateRangePicker</code> with{" "}
+            <code>{"{ start, end }"}</code> (or <code>null</code>) and{" "}
+            <code>RichTextEditor</code> with the HTML.
           </p>
         </Prose>
+      </Section>
+
+      <Section title="Help texts">
+        <Prose>
+          <p>
+            Every field takes a <code>description</code> - help text under the
+            field, e.g. the expected format. It describes the field for screen
+            readers: the control&apos;s <code>aria-describedby</code> lists the{" "}
+            <code>error</code> message first, then the description, then your
+            own <code>aria-describedby</code>. The ids derive from the id of the
+            field - <code>{"${id}-error"}</code> and{" "}
+            <code>{"${id}-description"}</code>.
+          </p>
+        </Prose>
+      </Section>
+
+      <Section title="Custom and third-party controls">
+        <Prose>
+          <p>
+            <code>Field</code> gives any control the label, the description and
+            the error message of the library&apos;s fields. Its child is a
+            function that gets the <code>id</code> and the ARIA attributes to
+            spread on the control - the phone input below stands for a control
+            of another library. <code>FormDescription</code> and{" "}
+            <code>FormError</code> are the pieces for a field laid out by hand.
+          </p>
+        </Prose>
+        <Example collapsed name="field/basic" title="Field" />
+        <CodeBlock code={thirdParty} />
       </Section>
 
       <Section title="Server validation errors">
@@ -139,7 +212,8 @@ export default function FormsGuide() {
             <code>Input</code>, <code>Textarea</code>, <code>Select</code>,{" "}
             <code>Checkbox</code> and <code>Switch</code> pass <code>ref</code>,{" "}
             <code>onBlur</code> and every other native attribute on to the
-            element they render.
+            element they render; the <code>ref</code> of{" "}
+            <code>NumberInput</code> is its visible text field.
           </p>
         </Callout>
       </Section>

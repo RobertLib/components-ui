@@ -1,15 +1,28 @@
 import type { CalendarViewProps } from "./types";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import cn from "../../utils/cn";
 import DateCell from "./date-cell";
 import Spinner from "../spinner";
-import { isOnDay } from "./utils";
 import {
-  addDays,
+  addCalendarDays,
+  daysIntoWeek,
+  getCalendarDay,
+  getVisibleRange,
+} from "./date-utils";
+import { createDayFormat, isOnDay } from "./utils";
+import {
+  dateOf,
   getWeekdayNames,
   isSameDay,
+  parseISODate,
+  shiftDay,
   startOfDay,
-  startOfWeek,
   toISODate,
 } from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
@@ -21,9 +34,17 @@ const DAY_KEYS: Record<string, number> = {
   ArrowUp: -7,
 };
 
+/** The day of a day button (`data-day`). */
+const dayOf = (target: EventTarget | null) =>
+  target instanceof HTMLElement ? parseISODate(target.dataset.day) : null;
+
+const subscribeToNothing = () => () => {};
+
 export default function MonthView({
   currentDate,
   events,
+  getEventColor,
+  getEventLabel,
   isEventClickable,
   loading,
   maxDate,
@@ -42,28 +63,33 @@ export default function MonthView({
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
 
-    let iterationDate = startOfWeek(
-      new Date(year, month, 1),
-      locale.weekStartsOn,
-    );
+    // Counted from the 1st, a day no time zone skips - and the days before
+    // it in its week
+    const firstOfMonth = dateOf(year, month, 1);
+    const leading = daysIntoWeek(firstOfMonth, locale.weekStartsOn);
 
     for (let i = 0; i < 6; i++) {
       const week = [];
       for (let j = 0; j < 7; j++) {
-        const dayStart = startOfDay(iterationDate);
-        const dayEnd = addDays(dayStart, 1);
+        // Each day at its own start - also after one a daylight saving
+        // change starts at 1:00 (Santiago, Havana). A day the time zone
+        // skips as a whole is an empty cell.
+        const date = getCalendarDay(firstOfMonth, i * 7 + j - leading);
+        if (!date) {
+          week.push(null);
+          continue;
+        }
+        const dayEnd = addCalendarDays(date, 1);
 
         const isCurrentMonth =
-          iterationDate.getMonth() === month &&
-          iterationDate.getFullYear() === year;
+          date.getMonth() === month && date.getFullYear() === year;
 
         const isDisabled =
-          (minDate && dayEnd <= minDate) || (maxDate && dayStart > maxDate);
+          (minDate && dayEnd <= minDate) || (maxDate && date > maxDate);
 
         // On every day an event spans - also a timed one past midnight. The
         // end is exclusive: an event ending at midnight is over before that
         // day starts.
-        const date = new Date(iterationDate);
         const dayEvents = (events || []).filter((event) =>
           isOnDay(event, date),
         );
@@ -73,10 +99,8 @@ export default function MonthView({
           disabled: !!isDisabled,
           events: dayEvents,
           isCurrentMonth,
-          isSelected: isSameDay(iterationDate, currentDate),
+          isSelected: isSameDay(date, currentDate),
         });
-
-        iterationDate = addDays(iterationDate, 1);
       }
       result.push(week);
     }
@@ -84,8 +108,12 @@ export default function MonthView({
     return result;
   }, [currentDate, events, locale.weekStartsOn, maxDate, minDate]);
 
-  const gridStart = weeks[0][0].date;
-  const gridEnd = addDays(gridStart, 42);
+  // The six weeks of the grid - the keys do not leave them
+  const { end: gridEnd, start: gridStart } = getVisibleRange(
+    currentDate,
+    "month",
+    locale.weekStartsOn,
+  );
 
   // The day button with the tab stop - the arrow keys move it, like in a
   // date picker. Another month starts at its selected day again.
@@ -111,18 +139,27 @@ export default function MonthView({
       ?.focus();
   }, [focusedDate]);
 
+  // A day button focused by a click or a screen reader - the tab stop and
+  // the arrow keys go on from it
+  const handleGridFocus = (event: React.FocusEvent) => {
+    const day = dayOf(event.target);
+    if (day && !isSameDay(day, focusedDate)) setFocusedDate(day);
+  };
+
   const handleGridKeyDown = (event: React.KeyboardEvent) => {
     // The day buttons only - not the events in the cells
-    if (!(event.target as HTMLElement).dataset.day) return;
+    const day = dayOf(event.target);
+    if (!day) return;
 
-    const weekStart = startOfWeek(focusedDate, locale.weekStartsOn);
+    // Over a day the time zone skips - in the week, towards `day`
+    const offset = daysIntoWeek(day, locale.weekStartsOn);
     const next =
       event.key in DAY_KEYS
-        ? addDays(focusedDate, DAY_KEYS[event.key])
+        ? shiftDay(day, DAY_KEYS[event.key])
         : event.key === "Home"
-          ? weekStart
+          ? shiftDay(day, -offset, 1)
           : event.key === "End"
-            ? addDays(weekStart, 6)
+            ? shiftDay(day, 6 - offset, -1)
             : null;
 
     if (!next) return;
@@ -135,9 +172,15 @@ export default function MonthView({
     setFocusedDate(next);
   };
 
-  const dayLabelFormat = new Intl.DateTimeFormat(locale.code, {
-    dateStyle: "full",
-  });
+  const dayLabelFormat = createDayFormat(locale);
+  // Unknown on the server and while a server-rendered page hydrates - its
+  // clock and time zone may differ from the browser's
+  const isHydrated = useSyncExternalStore(
+    subscribeToNothing,
+    () => true,
+    () => false,
+  );
+  const today = isHydrated ? new Date() : null;
 
   return (
     <div
@@ -171,6 +214,7 @@ export default function MonthView({
 
       <div
         className={cn("grid grid-rows-6", !stickyHeader && "h-full")}
+        onFocus={handleGridFocus}
         onKeyDown={handleGridKeyDown}
         ref={gridRef}
       >
@@ -179,23 +223,33 @@ export default function MonthView({
             className="grid grid-cols-7 border-b border-neutral-200 dark:border-neutral-800"
             key={i}
           >
-            {week.map((day, j) => (
-              <DateCell
-                date={day.date}
-                disabled={day.disabled}
-                events={day.events}
-                isCurrentMonth={day.isCurrentMonth}
-                isEventClickable={isEventClickable}
-                isFocusTarget={isSameDay(day.date, focusedDate)}
-                isSelected={day.isSelected}
-                key={`${i}-${j}`}
-                label={dayLabelFormat.format(day.date)}
-                onDateClick={onDateClick}
-                onEventClick={onEventClick}
-                renderEventActions={renderEventActions}
-                renderEventIcon={renderEventIcon}
-              />
-            ))}
+            {week.map((day, j) =>
+              day === null ? (
+                <div
+                  className="border-r border-neutral-200 dark:border-neutral-800"
+                  key={`${i}-${j}`}
+                />
+              ) : (
+                <DateCell
+                  date={day.date}
+                  disabled={day.disabled}
+                  events={day.events}
+                  getEventColor={getEventColor}
+                  getEventLabel={getEventLabel}
+                  isCurrentMonth={day.isCurrentMonth}
+                  isEventClickable={isEventClickable}
+                  isFocusTarget={isSameDay(day.date, focusedDate)}
+                  isSelected={day.isSelected}
+                  isToday={today !== null && isSameDay(day.date, today)}
+                  key={`${i}-${j}`}
+                  label={dayLabelFormat.format(day.date)}
+                  onDateClick={onDateClick}
+                  onEventClick={onEventClick}
+                  renderEventActions={renderEventActions}
+                  renderEventIcon={renderEventIcon}
+                />
+              ),
+            )}
           </div>
         ))}
       </div>

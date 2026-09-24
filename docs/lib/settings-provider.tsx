@@ -1,12 +1,7 @@
-import { useEffect, useState } from "react";
-import {
-  SettingsContext,
-  type LocaleName,
-  type Theme,
-} from "./settings-context";
+import { useState } from "react";
+import { SettingsContext, type LocaleName } from "./settings-context";
 
 const LOCALE_KEY = "docs-locale";
-const THEME_KEY = "docs-theme";
 
 const read = <T extends string>(key: string, allowed: T[], fallback: T): T => {
   try {
@@ -25,7 +20,10 @@ const write = (key: string, value: string) => {
   }
 };
 
-/** Component language and color theme of the docs, remembered in localStorage. */
+/**
+ * Component language of the docs, remembered in localStorage. The color
+ * scheme is switched with the library's `useColorScheme` (see the navbar).
+ */
 export default function SettingsProvider({
   children,
 }: {
@@ -34,22 +32,6 @@ export default function SettingsProvider({
   const [localeName, setLocaleName] = useState<LocaleName>(() =>
     read(LOCALE_KEY, ["en", "cs"], "en"),
   );
-  const [theme, setTheme] = useState<Theme>(() =>
-    read(THEME_KEY, ["light", "dark", "system"], "system"),
-  );
-
-  useEffect(() => {
-    const query = window.matchMedia("(prefers-color-scheme: dark)");
-
-    const apply = () => {
-      const dark = theme === "dark" || (theme === "system" && query.matches);
-      document.documentElement.classList.toggle("dark", dark);
-    };
-
-    apply();
-    query.addEventListener("change", apply);
-    return () => query.removeEventListener("change", apply);
-  }, [theme]);
 
   return (
     <SettingsContext
@@ -59,11 +41,6 @@ export default function SettingsProvider({
           write(LOCALE_KEY, value);
           setLocaleName(value);
         },
-        setTheme: (value) => {
-          write(THEME_KEY, value);
-          setTheme(value);
-        },
-        theme,
       }}
     >
       {children}

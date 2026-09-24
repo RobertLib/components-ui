@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import {
+  Alert,
+  Button,
   DataTable,
   toRelayVariables,
   useDataTableQuery,
@@ -47,6 +49,7 @@ const PEOPLE = /* GraphQL */ `
         hasNextPage
         hasPreviousPage
       }
+      salaryTotal
       totalCount
     }
   }
@@ -55,8 +58,15 @@ const PEOPLE = /* GraphQL */ `
 interface PeopleConnection {
   nodes: Person[];
   pageInfo: PageInfo;
+  /** The salaries of all matching people added up by the server. */
+  salaryTotal: number;
   totalCount: number;
 }
+
+// The summary row shows the server's total of the salaries
+const columns = personColumns.map((column) =>
+  column.key === "salary" ? { ...column, summary: "sum" as const } : column,
+);
 
 async function fetchPeople(query: DataTableQuery, signal: AbortSignal) {
   const response = await fetch("/api/graphql", {
@@ -70,36 +80,75 @@ async function fetchPeople(query: DataTableQuery, signal: AbortSignal) {
   return data.people as PeopleConnection;
 }
 
+// The CSV export - every row of the query in one connection, not just the
+// page (a large API would page through it with `after`)
+async function fetchAllPeople(query: DataTableQuery) {
+  const all = { ...query, after: null, before: null, pageSize: 10_000 };
+  return (await fetchPeople(all, new AbortController().signal)).nodes;
+}
+
 export default function GraphQLTable() {
   const [query, setQuery] = useDataTableQuery({ defaults: { pageSize: 10 } });
+  // The response to a query - its connection, or why there is none
   const [result, setResult] = useState<{
+    error?: string;
     key: string;
-    people: PeopleConnection;
+    people?: PeopleConnection;
   }>();
+  const [attempt, setAttempt] = useState(0);
 
   const key = JSON.stringify(query);
 
   useEffect(() => {
     const controller = new AbortController();
+    const requested = JSON.stringify(query);
+
     fetchPeople(query, controller.signal)
-      .then((people) => setResult({ key, people }))
-      .catch(() => {});
+      .then((people) => setResult({ key: requested, people }))
+      .catch((error: unknown) => {
+        // Aborted for a newer request - its own response follows
+        if (controller.signal.aborted) return;
+        // Ends the loading, so the table and its pagination do not wait
+        // for a response that never comes
+        setResult({ error: String(error), key: requested });
+      });
+
     return () => controller.abort();
-    // `key` stands for the query
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [attempt, query]);
 
   return (
-    <DataTable
-      columns={personColumns}
-      data={result?.people.nodes ?? []}
-      loading={result?.key !== key}
-      maxHeight="480px"
-      onQueryChange={setQuery}
-      // Cursor pagination: next = `after: endCursor`, previous = `before: startCursor`
-      pageInfo={result?.people.pageInfo}
-      query={query}
-      total={result?.people.totalCount}
-    />
+    <div className="space-y-3">
+      {result?.error && (
+        <Alert title="The people could not be loaded" type="danger">
+          <p>{result.error}</p>
+          <Button
+            className="mt-2"
+            onClick={() => {
+              setResult(undefined);
+              setAttempt((count) => count + 1);
+            }}
+            size="sm"
+            variant="outline"
+          >
+            Try again
+          </Button>
+        </Alert>
+      )}
+      <DataTable
+        columns={columns}
+        data={result?.people?.nodes ?? []}
+        emptyMessage={result?.error ? "Nothing loaded" : undefined}
+        exportFilename="people"
+        loading={result?.key !== key}
+        maxHeight="480px"
+        onExport={fetchAllPeople}
+        onQueryChange={setQuery}
+        // Cursor pagination: next = `after: endCursor`, previous = `before: startCursor`
+        pageInfo={result?.people?.pageInfo}
+        query={query}
+        summaryValues={result?.people && { salary: result.people.salaryTotal }}
+        total={result?.people?.totalCount}
+      />
+    </div>
   );
 }

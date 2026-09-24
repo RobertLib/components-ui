@@ -30,7 +30,10 @@ export default function Tokens() {
       <div className="flex min-w-[560px] items-center gap-2 pt-2 text-xs">
         <div className="w-20 shrink-0" />
         {shades.map((shade) => (
-          <div className="flex-1 text-center text-neutral-500" key={shade}>
+          <div
+            className="flex-1 text-center text-neutral-500 dark:text-neutral-400"
+            key={shade}
+          >
             {shade}
           </div>
         ))}

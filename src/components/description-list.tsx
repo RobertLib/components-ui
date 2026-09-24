@@ -2,17 +2,27 @@ import { Fragment } from "react";
 import { Info } from "lucide-react";
 import cn from "../utils/cn";
 import Tooltip from "./tooltip";
+import { useMessages } from "../providers/ui-context";
 
 export interface DescriptionListItem {
+  /**
+   * Name of the value, e.g. "Email" - followed by `form.labelSuffix` of the
+   * locale, a colon in English.
+   */
   term: string;
+  /** The value - text or any content (a link, a `Chip`, …). */
   desc: React.ReactNode;
   /** Extra classes for the term, e.g. a color that highlights the whole row. */
   termClassName?: string;
-  /** Explanation shown in a tooltip behind an "i" icon next to the term. */
+  /**
+   * Explanation shown in a tooltip behind an "i" button next to the term -
+   * on hover, on keyboard focus and on a click or tap.
+   */
   termInfo?: string;
 }
 
 export interface DescriptionListProps extends React.ComponentProps<"dl"> {
+  /** The term / description pairs, in order. */
   items: DescriptionListItem[];
   /** Shows placeholders instead of the descriptions. */
   loading?: boolean;
@@ -37,6 +47,8 @@ export default function DescriptionList({
   termWidth,
   ...props
 }: DescriptionListProps) {
+  const messages = useMessages();
+
   return (
     <dl
       {...props}
@@ -64,15 +76,19 @@ export default function DescriptionList({
               item.termClassName,
             )}
           >
-            {item.term}:
+            {item.term}
+            {messages.form.labelSuffix}
             {item.termInfo && (
               <Tooltip delay={300} openOnClick title={item.termInfo}>
-                <Info
-                  aria-label={item.termInfo}
-                  className="shrink-0 cursor-help text-neutral-500 dark:text-neutral-400"
-                  role="img"
-                  size={14}
-                />
+                {/* A button, so the keyboard reaches the explanation too - a
+                    generic name, the tooltip describes it */}
+                <button
+                  aria-label={messages.descriptionList.moreInfo}
+                  className="shrink-0 cursor-help rounded text-neutral-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-400"
+                  type="button"
+                >
+                  <Info aria-hidden="true" size={14} />
+                </button>
               </Tooltip>
             )}
           </dt>

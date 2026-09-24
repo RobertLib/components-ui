@@ -8,8 +8,12 @@
  * Override any token in your own @theme block after the import.
  */
 
-/* Lets Tailwind find the classes used by the components next to this file */
+/* Lets Tailwind find the classes used by the components next to this file -
+   not in the source maps and the type declarations of the build, whose
+   comments would only add classes nobody uses */
 @source "./";
+@source not "./**/*.map";
+@source not "./types";
 
 @theme {
   --color-primary-50: oklch(0.97 0.014 254.604);
@@ -126,14 +130,14 @@
     }
   }
 
+  /* No height limit to animate - content of any height slides in whole.
+     CollapsibleContent animates a measured height where it matters. */
   @keyframes slide-up {
     from {
-      max-height: 500px;
       opacity: 1;
       transform: translateY(0);
     }
     to {
-      max-height: 0;
       opacity: 0;
       transform: translateY(-8px);
     }
@@ -141,12 +145,10 @@
 
   @keyframes slide-down {
     from {
-      max-height: 0;
       opacity: 0;
       transform: translateY(-8px);
     }
     to {
-      max-height: 500px;
       opacity: 1;
       transform: translateY(0);
     }
@@ -165,10 +167,32 @@
   }
 }
 
+/*
+ * Less motion for users who ask their system for it: sliding becomes a
+ * fade, placeholders stop pulsing, and the spinner turns slower - it still
+ * shows that something is going on. The components drop their transitions
+ * (`motion-reduce:`) and CollapsibleContent its height animation themselves.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --animate-pulse: none;
+    --animate-slide-down: fade-in 0.25s ease-out;
+    /* Tailwind emits only the keyframes of used animations - `fade-in` is */
+    --animate-slide-up: fade-in 0.25s ease-out reverse;
+    --animate-spin: spin 2s linear infinite;
+  }
+
+  /* The page makes room for the Drawer at once */
+  .drawer ~ .navbar,
+  .drawer ~ main {
+    transition: none;
+  }
+}
+
 @layer components {
   /* A link styled as the primary button, for markup outside React */
   .btn {
-    @apply inline-flex items-center justify-center gap-1 rounded-md border border-primary-600/30 bg-linear-to-r from-primary-500 to-primary-400 px-3 py-1 text-sm text-white shadow-lg transition-all duration-200 hover:from-primary-600 hover:to-primary-500 hover:shadow-xl focus:ring-2 focus:ring-primary-300 focus:outline-none;
+    @apply inline-flex items-center justify-center gap-1 rounded-md border border-primary-700/30 bg-linear-to-r from-primary-600 to-primary-700 px-3 py-1 text-sm text-white shadow-lg ring-offset-surface transition-all duration-200 hover:from-primary-700 hover:to-primary-800 hover:shadow-xl focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:outline-none dark:ring-offset-surface-dark;
   }
 
   /* Joins adjacent buttons / fields into one group */
@@ -185,11 +209,11 @@
   }
 
   .icon-btn {
-    @apply -m-1 cursor-pointer rounded-md p-1 leading-none transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 dark:hover:bg-neutral-800;
+    @apply -m-1 cursor-pointer rounded-md p-1 leading-none transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-neutral-800;
   }
 
   .link {
-    @apply cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300;
+    @apply cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500;
   }
 
   /* Renders the HTML produced by RichTextEditor, which preflight would otherwise strip of all formatting */
@@ -215,9 +239,13 @@
     }
   }
 
+  /* Screen readers get the placeholder from aria-placeholder - the text
+     shown here has no alternative text, so they do not read it as content.
+     Browsers without the alternative text keep the first declaration. */
   .rich-text-editor[data-placeholder][data-empty]::before {
     @apply pointer-events-none absolute text-neutral-400;
     content: attr(data-placeholder);
+    content: attr(data-placeholder) / "";
   }
 
   /* App layout - the navbar and main content make room for the Drawer */
@@ -265,5 +293,126 @@
 
 /* The shared look of text fields, selects and pickers */
 @utility form-control {
-  @apply w-full rounded-md border border-neutral-300 bg-surface transition-colors focus:ring-2 focus:ring-primary-300 focus:outline-none dark:border-neutral-700 dark:bg-surface-dark;
+  @apply w-full rounded-md border border-neutral-300 bg-surface transition-colors focus:ring-2 focus:ring-primary-500 focus:outline-none dark:border-neutral-700 dark:bg-surface-dark;
+
+  /* Placeholders at 4.5:1 (the default half of the text color is 3:1) - also
+     those of a field inside the frame (Input with a prefix, TagsInput) */
+  &::placeholder,
+  & :is(input, textarea)::placeholder {
+    color: var(--color-neutral-500);
+  }
+
+  @variant dark {
+    &::placeholder,
+    & :is(input, textarea)::placeholder {
+      color: var(--color-neutral-400);
+    }
+  }
+}
+
+/* display */
+
+/* The bar of an indeterminate Progress: it runs across the track and out
+   of it (it is two fifths of the track wide) */
+@keyframes progress-indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+/* The same bar for users who prefer reduced motion - it stays in the middle
+   of the track and fades */
+@keyframes progress-fade {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* editor */
+@layer components {
+  /* The blocks of RichTextEditor - headings, lists, quotes, code, rules and
+     tables. Sizes in em follow the text around. */
+  .rich-text {
+    & h2 {
+      @apply mt-4 mb-2 text-[1.3em] leading-snug font-semibold first:mt-0;
+    }
+
+    & h3 {
+      @apply mt-3 mb-1.5 text-[1.12em] leading-snug font-semibold first:mt-0;
+    }
+
+    & ul,
+    & ol {
+      @apply mb-2 pl-6 last:mb-0;
+    }
+
+    & ul {
+      @apply list-disc;
+    }
+
+    & ol {
+      @apply list-decimal;
+    }
+
+    & li > ul,
+    & li > ol {
+      @apply mb-0;
+    }
+
+    & ul ul {
+      @apply list-[circle];
+    }
+
+    & ul ul ul {
+      @apply list-[square];
+    }
+
+    & ol ol {
+      @apply list-[lower-alpha];
+    }
+
+    & ol ol ol {
+      @apply list-[lower-roman];
+    }
+
+    & blockquote {
+      @apply mb-2 border-l-4 border-neutral-300 pl-3 text-neutral-600 last:mb-0 dark:border-neutral-600 dark:text-neutral-400;
+    }
+
+    & code {
+      @apply rounded bg-neutral-100 box-decoration-clone px-1 py-0.5 font-mono text-[0.9em] dark:bg-neutral-800;
+    }
+
+    & u {
+      @apply underline;
+    }
+
+    & s {
+      @apply line-through;
+    }
+
+    & hr {
+      @apply my-3 border-neutral-300 dark:border-neutral-700;
+    }
+
+    & table {
+      @apply mb-2 w-full border-collapse text-left last:mb-0;
+    }
+
+    & th,
+    & td {
+      @apply border border-neutral-300 px-2 py-1 align-top dark:border-neutral-700;
+    }
+
+    & th {
+      @apply bg-neutral-50 font-semibold dark:bg-neutral-800/60;
+    }
+  }
 }

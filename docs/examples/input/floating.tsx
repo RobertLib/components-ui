@@ -5,6 +5,7 @@ export default function Floating() {
     <div className="grid max-w-md gap-6 pt-2">
       <Input floating label="City" />
       <Input defaultValue="Prague" floating label="City with a value" />
+      <Input floating label="Departure" type="date" />
     </div>
   );
 }

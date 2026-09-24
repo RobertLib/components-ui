@@ -48,7 +48,7 @@ export default function Dependent() {
         loadOptions={loadPeople}
         // Reloads the list when the department changes
         loadOptionsDeps={[department]}
-        onChange={(value) => setPersonId(value as AutocompleteValue | null)}
+        onChange={(value) => setPersonId(value)}
         value={personId}
       />
     </div>

@@ -10,11 +10,8 @@ export default function Basic() {
         <Spinner size="xl" />
         {/* The spinner takes the text color */}
         <Spinner className="text-primary-500" size="lg" />
-        <Spinner
-          aria-label="Loading orders"
-          className="text-danger-500"
-          size="lg"
-        />
+        {/* `label` is what screen readers hear - "Loading…" by default */}
+        <Spinner className="text-danger-500" label="Loading orders" size="lg" />
       </div>
 
       {/* Skeletons keep the layout while the content loads */}

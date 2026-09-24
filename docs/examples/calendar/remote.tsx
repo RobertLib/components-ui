@@ -19,7 +19,10 @@ export default function Remote() {
     key: string;
   }>();
 
-  const range = getCalendarVisibleRange(date, view, weekStartsOn);
+  // With the `agendaPeriod` of the calendar - "month" by default
+  const range = getCalendarVisibleRange(date, view, weekStartsOn, {
+    agendaPeriod: "month",
+  });
   const key = `${range.start.toISOString()}/${range.end.toISOString()}`;
 
   useEffect(() => {
@@ -54,6 +57,7 @@ export default function Remote() {
         onViewChange={setView}
         setCurrentDate={setDate}
         view={view}
+        viewOptions={["month", "week", "day", "agenda"]}
       />
     </div>
   );

@@ -8,6 +8,7 @@ export default function Controlled() {
   return (
     <Popover
       align="left"
+      buttonTrigger
       contentClassName="w-64 p-3"
       onOpenChange={setOpen}
       open={open}
@@ -21,6 +22,7 @@ export default function Controlled() {
           event.preventDefault();
           const data = new FormData(event.currentTarget);
           setLabel(String(data.get("label") || "Draft"));
+          // The focus goes back to the button as the panel closes
           setOpen(false);
         }}
       >

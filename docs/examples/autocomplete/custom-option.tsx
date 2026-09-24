@@ -34,10 +34,10 @@ export default function CustomOption() {
 
           return (
             <div className="flex items-center gap-2 py-0.5">
-              <Avatar name={person.name} size="md" />
+              <Avatar alt="" name={person.name} size="md" />
               <div className="min-w-0 flex-1">
                 <div className="truncate">{person.name}</div>
-                <div className="truncate text-xs text-neutral-500">
+                <div className="truncate text-xs text-neutral-500 dark:text-neutral-400">
                   {person.email}
                 </div>
               </div>

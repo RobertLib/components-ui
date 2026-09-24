@@ -1,9 +1,11 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import DateTimePicker from ".";
 import { cs } from "../../i18n/cs";
+import { en } from "../../i18n/en";
+import { createLocale } from "../../i18n/format";
 import UIProvider from "../../providers/ui-provider";
 
 /** Lets the frames the popup schedules (focus, scrolling) run. */
@@ -79,13 +81,37 @@ describe("DateTimePicker keyboard", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Clear value" }));
+    const clear = screen.getByRole("button", { name: "Clear value" });
+    // Big enough to hit - 24px square (WCAG 2.5.8)
+    expect(clear).toHaveClass("size-6");
+    await user.click(clear);
 
     expect(onChange).toHaveBeenCalledWith("");
     const input = screen.getByRole("combobox", { name: /Day/ });
     expect(input).toHaveValue("");
     expect(input).toHaveFocus();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("has no clear button when required, like the native inputs", () => {
+    render(
+      <>
+        <DateTimePicker defaultValue="2026-09-24" label="Day" required />
+        <DateTimePicker
+          defaultValue="10:30"
+          label="Time"
+          required
+          type="time"
+        />
+      </>,
+    );
+
+    expect(screen.getByRole("combobox", { name: /Day/ })).toHaveValue(
+      "09/24/2026",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Clear value" }),
+    ).not.toBeInTheDocument();
   });
 
   it("moves into the time lists when opened from the keyboard", async () => {
@@ -349,6 +375,26 @@ describe("DateTimePicker typing", () => {
     expect(input).toHaveValue("24.12.1990");
   });
 
+  it("takes a date typed without its year or with two digits of it", async () => {
+    // Today is Friday, September 25, 2026 - only `Date` is faked
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 8, 25, 12));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const user = userEvent.setup();
+    const { input, onChange } = renderDate();
+
+    await user.type(input, "24.9.{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("2026-09-24");
+    expect(input).toHaveValue("24.09.2026");
+
+    await user.clear(input);
+    await user.type(input, "3.7.85");
+    await user.tab();
+    expect(onChange).toHaveBeenLastCalledWith("1985-07-03");
+  });
+
   it("drops a text that is no allowed date", async () => {
     const user = userEvent.setup();
     const { input, onChange } = renderDate({
@@ -435,5 +481,759 @@ describe("DateTimePicker with a 12-hour clock", () => {
     await user.type(input, "18:15{Enter}");
     expect(onChange).toHaveBeenLastCalledWith("18:15");
     expect(input).toHaveValue("6:15 PM");
+  });
+});
+
+describe("DateTimePicker focus", () => {
+  const renderBetweenFields = (
+    props: React.ComponentProps<typeof DateTimePicker> = {},
+  ) => {
+    const onBlur = vi.fn();
+    const onFocus = vi.fn();
+    render(
+      <>
+        <input aria-label="Previous field" />
+        <DateTimePicker
+          defaultValue="2026-09-24"
+          label="Day"
+          onBlur={onBlur}
+          onFocus={onFocus}
+          type="date"
+          {...props}
+        />
+        <input aria-label="Next field" />
+      </>,
+    );
+    return {
+      input: screen.getByRole("combobox", { name: /Day/ }),
+      onBlur,
+      onFocus,
+    };
+  };
+
+  it("moves on with Tab from the end of the popup and reports the blur", async () => {
+    const user = userEvent.setup();
+    const { input, onBlur, onFocus } = renderBetweenFields();
+
+    act(() => input.focus());
+    await user.keyboard("{Enter}");
+    await settle();
+    expect(
+      screen.getByRole("button", { name: "September 24, 2026" }),
+    ).toHaveFocus();
+
+    // Past the clear button too - it belongs to the picker
+    await user.tab();
+    const nextField = screen.getByRole("textbox", { name: "Next field" });
+    expect(nextField).toHaveFocus();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(onFocus).toHaveBeenCalledTimes(1);
+    expect(onBlur).toHaveBeenCalledTimes(1);
+    // Reported as a blur of the field
+    const [blur] = onBlur.mock.calls[0];
+    expect(blur.target).toBe(input);
+    expect(blur.currentTarget).toBe(input);
+    expect(blur.relatedTarget).toBe(nextField);
+    expect(blur.type).toBe("blur");
+    // A whole event - also when spread, and with React's methods
+    const spread = { ...blur };
+    expect(spread.target).toBe(input);
+    expect(spread.relatedTarget).toBe(nextField);
+    expect(() => blur.preventDefault()).not.toThrow();
+  });
+
+  it("goes back to the field with Shift+Tab from the start of the popup", async () => {
+    const user = userEvent.setup();
+    const { input, onBlur, onFocus } = renderBetweenFields();
+
+    act(() => input.focus());
+    await user.keyboard("{Enter}");
+    await settle();
+    act(() => screen.getByRole("button", { name: "Previous month" }).focus());
+
+    await user.tab({ shift: true });
+    expect(input).toHaveFocus();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(onBlur).not.toHaveBeenCalled();
+
+    await user.tab({ shift: true });
+    expect(
+      screen.getByRole("textbox", { name: "Previous field" }),
+    ).toHaveFocus();
+    expect(onFocus).toHaveBeenCalledTimes(1);
+    expect(onBlur).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the time lists with Tab to what follows the picker", async () => {
+    const user = userEvent.setup();
+    const { onBlur } = renderBetweenFields({
+      defaultValue: "10:30",
+      type: "time",
+    });
+
+    act(() => screen.getByRole("combobox", { name: /Day/ }).focus());
+    await user.keyboard("{Enter}");
+    await settle();
+    expect(screen.getByRole("listbox", { name: "Hours" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("listbox", { name: "Minutes" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("textbox", { name: "Next field" })).toHaveFocus();
+    expect(onBlur).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports the blur when the focus leaves the popup any other way", async () => {
+    const user = userEvent.setup();
+    const { input, onBlur } = renderBetweenFields();
+
+    act(() => input.focus());
+    await user.keyboard("{Enter}");
+    await settle();
+    act(() => screen.getByRole("textbox", { name: "Next field" }).focus());
+
+    expect(onBlur).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the focus in the field on a click into the popup", async () => {
+    const user = userEvent.setup();
+    const { input, onBlur } = renderBetweenFields();
+
+    await user.click(input);
+    await user.click(screen.getByRole("button", { name: "Next month" }));
+    expect(input).toHaveFocus();
+    await user.click(screen.getByText("Sun"));
+    expect(input).toHaveFocus();
+    expect(onBlur).not.toHaveBeenCalled();
+  });
+
+  it("names the popup and points the field at it", async () => {
+    const user = userEvent.setup();
+    const { input } = renderBetweenFields();
+
+    expect(input).not.toHaveAttribute("aria-controls");
+    await user.click(input);
+    const dialog = screen.getByRole("dialog", { name: "Select date" });
+    expect(input).toHaveAttribute("aria-controls", dialog.id);
+  });
+
+  it("closes the popup of a picker that becomes disabled - for good", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<DateTimePicker label="Day" type="date" />);
+
+    await user.click(screen.getByRole("combobox", { name: /Day/ }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    rerender(<DateTimePicker disabled label="Day" type="date" />);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    rerender(<DateTimePicker label="Day" type="date" />);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /Day/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+});
+
+describe("DateTimePicker typed value and the popup", () => {
+  it("opens the day grid on a typed date", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <UIProvider locale={cs}>
+        <DateTimePicker
+          defaultValue="2026-09-24"
+          label="Birth date"
+          onChange={(event) => onChange(event.target.value)}
+          type="date"
+        />
+      </UIProvider>,
+    );
+
+    const input = screen.getByRole("combobox", { name: /Birth date/ });
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, "3.7.1985");
+    await user.keyboard("{ArrowDown}");
+    await settle();
+    expect(
+      screen.getByRole("button", { name: "3. července 1985" }),
+    ).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("1985-07-03");
+  });
+
+  it("takes a typed date once, whether the popup is open or not", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <UIProvider locale={cs}>
+        <DateTimePicker
+          label="Birth date"
+          onChange={(event) => onChange(event.target.value)}
+          type="date"
+        />
+      </UIProvider>,
+    );
+
+    const input = screen.getByRole("combobox", { name: /Birth date/ });
+    act(() => input.focus());
+    await user.keyboard("3.7.1985{ArrowDown}");
+    await settle();
+    expect(
+      screen.getByRole("button", { name: "3. července 1985" }),
+    ).toHaveFocus();
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    await user.keyboard("{Escape}");
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, "4.7.1985");
+    await user.keyboard("{ArrowDown}");
+    await settle();
+    expect(
+      screen.getByRole("button", { name: "4. července 1985" }),
+    ).toHaveFocus();
+    expect(onChange.mock.calls).toEqual([["1985-07-03"], ["1985-07-04"]]);
+  });
+
+  it("opens the month grid on a typed month", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <UIProvider locale={cs}>
+        <DateTimePicker
+          defaultValue="2026-09"
+          label="Month"
+          onChange={(event) => onChange(event.target.value)}
+          type="month"
+        />
+      </UIProvider>,
+    );
+
+    const input = screen.getByRole("combobox", { name: /Month/ });
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, "3.2020");
+    await user.keyboard("{ArrowDown}");
+    await settle();
+    expect(screen.getByRole("button", { name: "Březen 2020" })).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("2020-03");
+  });
+
+  it("opens the week grid on a typed week", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <DateTimePicker
+        defaultValue="2026-W39"
+        label="Week"
+        onChange={(event) => onChange(event.target.value)}
+        type="week"
+      />,
+    );
+
+    const input = screen.getByRole("combobox", { name: /Week/ });
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, "W05 2020");
+    await user.keyboard("{ArrowDown}");
+    await settle();
+    expect(screen.getByRole("button", { name: "Week 5, 2020" })).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("2020-W05");
+  });
+});
+
+describe("DateTimePicker onChange event", () => {
+  it("has target, currentTarget, type and methods that do nothing", async () => {
+    const user = userEvent.setup();
+    const seen: unknown[] = [];
+    render(
+      <DateTimePicker
+        defaultValue="2026-09-24"
+        label="Day"
+        name="day"
+        onChange={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          seen.push(
+            event.target.name,
+            event.target.value,
+            event.currentTarget.value,
+            event.type,
+          );
+        }}
+        type="date"
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Clear value" }));
+    expect(seen).toEqual(["day", "", "", "change"]);
+  });
+
+  it("takes handlers of native change events and of form libraries", () => {
+    // Compile-time checks: a handler shared with native inputs, and what
+    // React Hook Form's register() returns
+    const shared = (event: React.ChangeEvent<HTMLInputElement>) =>
+      event.target.value;
+    const registered = {
+      name: "day",
+      onBlur: async (_event: { target: unknown; type?: unknown }) => {},
+      onChange: async (_event: { target: unknown; type?: unknown }) => {},
+      ref: (_instance: unknown) => {},
+    };
+    render(
+      <>
+        <DateTimePicker label="Shared" onChange={shared} type="date" />
+        <DateTimePicker label="Registered" type="date" {...registered} />
+      </>,
+    );
+    expect(screen.getAllByRole("combobox")).toHaveLength(2);
+  });
+});
+
+describe("DateTimePicker native attributes", () => {
+  it("passes the other input props to the field and the form to the hidden input", async () => {
+    const user = userEvent.setup();
+    const onKeyDown = vi.fn();
+    render(
+      <>
+        <form aria-label="Order" id="order" />
+        <DateTimePicker
+          aria-describedby="hint"
+          autoFocus
+          data-testid="delivery"
+          defaultValue="2026-09-24"
+          error="Pick a workday"
+          form="order"
+          label="Delivery"
+          name="delivery"
+          onKeyDown={onKeyDown}
+          tabIndex={3}
+          title="Delivery day"
+          type="date"
+        />
+        <p id="hint">Weekdays only</p>
+      </>,
+    );
+
+    const input = screen.getByRole("combobox", { name: /Delivery/ });
+    expect(input).toHaveFocus();
+    expect(input).toHaveAttribute("data-testid", "delivery");
+    expect(input).toHaveAttribute("tabindex", "3");
+    expect(input).toHaveAttribute("title", "Delivery day");
+    expect(input).toHaveAccessibleDescription("Pick a workday Weekdays only");
+
+    await user.keyboard("x");
+    expect(onKeyDown).toHaveBeenCalled();
+
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+    expect(Object.fromEntries(new FormData(form))).toEqual({
+      delivery: "2026-09-24",
+    });
+  });
+
+  it("lets a key handler that prevents the default skip the picker's", async () => {
+    const user = userEvent.setup();
+    render(
+      <DateTimePicker
+        label="Day"
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.preventDefault();
+        }}
+        type="date"
+      />,
+    );
+
+    act(() => screen.getByRole("combobox", { name: /Day/ }).focus());
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps the caller's description in native mode", () => {
+    render(
+      <>
+        <DateTimePicker
+          aria-describedby="hint"
+          error="Too late"
+          label="Day"
+          mode="native"
+          type="date"
+        />
+        <p id="hint">Until Friday</p>
+      </>,
+    );
+
+    expect(screen.getByLabelText(/Day/)).toHaveAccessibleDescription(
+      "Too late Until Friday",
+    );
+  });
+
+  it("gives native time inputs the minute step", () => {
+    render(
+      <>
+        <DateTimePicker
+          label="Time"
+          minuteStep={15}
+          mode="native"
+          type="time"
+        />
+        <DateTimePicker
+          label="Starts"
+          mode="native"
+          quarterMinutesOnly
+          type="datetime-local"
+        />
+        <DateTimePicker label="Day" minuteStep={15} mode="native" type="date" />
+      </>,
+    );
+
+    expect(screen.getByLabelText(/Time/)).toHaveAttribute("step", "900");
+    expect(screen.getByLabelText(/Starts/)).toHaveAttribute("step", "900");
+    expect(screen.getByLabelText(/Day/)).not.toHaveAttribute("step");
+  });
+
+  it("leaves the required asterisk out of the name", () => {
+    render(
+      <>
+        <DateTimePicker label="Day" required type="date" />
+        <DateTimePicker label="Native" mode="native" required type="date" />
+      </>,
+    );
+
+    expect(screen.getByRole("combobox", { name: "Day:" })).toBeRequired();
+    const native = screen.getByLabelText(/Native/);
+    expect(native).toHaveAccessibleName("Native:");
+    expect(native).toBeRequired();
+  });
+});
+
+describe("DateTimePicker description", () => {
+  it("describes the field after its error, in both modes", () => {
+    render(
+      <>
+        <DateTimePicker
+          aria-describedby="hint"
+          description="Weekdays only"
+          error="Pick a day"
+          label="Custom"
+          type="date"
+        />
+        <DateTimePicker
+          aria-describedby="hint"
+          description="Weekdays only"
+          error="Pick a day"
+          label="Native"
+          mode="native"
+          type="date"
+        />
+        <p id="hint">Until Friday</p>
+      </>,
+    );
+
+    const custom = screen.getByRole("combobox", { name: /Custom/ });
+    expect(custom).toHaveAccessibleDescription(
+      "Pick a day Weekdays only Until Friday",
+    );
+    expect(screen.getByLabelText(/Native/)).toHaveAccessibleDescription(
+      "Pick a day Weekdays only Until Friday",
+    );
+
+    // Under the field, above the error
+    const [description] = screen.getAllByText("Weekdays only");
+    const [error] = screen.getAllByRole("alert");
+    expect(
+      custom.compareDocumentPosition(description) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      description.compareDocumentPosition(error) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("takes rich content and leaves the field undescribed without it", () => {
+    const { rerender } = render(
+      <DateTimePicker
+        description={
+          <>
+            See the <a href="/holidays">holidays</a>
+          </>
+        }
+        id="delivery"
+        label="Delivery"
+        type="date"
+      />,
+    );
+
+    const input = screen.getByRole("combobox", { name: /Delivery/ });
+    expect(input).toHaveAttribute("aria-describedby", "delivery-description");
+    expect(input).toHaveAccessibleDescription("See the holidays");
+    expect(screen.getByRole("link", { name: "holidays" })).toBeInTheDocument();
+
+    rerender(<DateTimePicker id="delivery" label="Delivery" type="date" />);
+    expect(input).not.toHaveAttribute("aria-describedby");
+    expect(document.getElementById("delivery-description")).toBeNull();
+  });
+});
+
+describe("DateTimePicker years before 1000", () => {
+  it("shows and picks the days of the years 0 - 99", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <DateTimePicker
+        defaultValue="0050-03-07"
+        label="Day"
+        onChange={(event) => onChange(event.target.value)}
+        type="date"
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: /Day/ }));
+    expect(screen.getByRole("combobox", { name: "Year" })).toHaveDisplayValue(
+      "50",
+    );
+    await user.click(screen.getByRole("button", { name: "March 10, 50" }));
+    expect(onChange).toHaveBeenLastCalledWith("0050-03-10");
+  });
+
+  it("emits months and weeks with four-digit years", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { unmount } = render(
+      <DateTimePicker
+        defaultValue="0999-05"
+        label="Month"
+        onChange={(event) => onChange(event.target.value)}
+        type="month"
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: /Month/ }));
+    await user.click(screen.getByRole("button", { name: "June 999" }));
+    expect(onChange).toHaveBeenLastCalledWith("0999-06");
+    unmount();
+
+    render(
+      <DateTimePicker
+        defaultValue="0999-W05"
+        label="Week"
+        onChange={(event) => onChange(event.target.value)}
+        type="week"
+      />,
+    );
+    await user.click(screen.getByRole("combobox", { name: /Week/ }));
+    await user.click(screen.getByRole("button", { name: "Week 6, 999" }));
+    expect(onChange).toHaveBeenLastCalledWith("0999-W06");
+  });
+});
+
+describe("DateTimePicker minute steps", () => {
+  it("keeps clamped and typed minutes on the step", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <DateTimePicker
+        label="Time"
+        min="09:10"
+        minuteStep={15}
+        onChange={(event) => onChange(event.target.value)}
+        type="time"
+      />,
+    );
+
+    const input = screen.getByRole("combobox", { name: /Time/ });
+    await user.click(input);
+    const hours = await screen.findByRole("listbox", { name: "Hours" });
+    // 9:00 is before min - 9:10 is no option of the step, 9:15 is
+    await user.click(within(hours).getByRole("option", { name: "9 AM" }));
+    expect(onChange).toHaveBeenLastCalledWith("09:15");
+
+    await user.clear(input);
+    await user.type(input, "12:34{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("12:30");
+  });
+
+  it("moves a kept minute onto the step", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <DateTimePicker
+        defaultValue="10:07"
+        label="Time"
+        minuteStep={15}
+        onChange={(event) => onChange(event.target.value)}
+        type="time"
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: /Time/ }));
+    const hours = await screen.findByRole("listbox", { name: "Hours" });
+    await user.click(within(hours).getByRole("option", { name: "11 AM" }));
+    expect(onChange).toHaveBeenLastCalledWith("11:00");
+  });
+
+  it("keeps the time of a date-time on the step", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <DateTimePicker
+        label="When"
+        min="2030-01-01T12:10"
+        onChange={(event) => onChange(event.target.value)}
+        quarterMinutesOnly
+        type="datetime-local"
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: /When/ }));
+    const hours = await screen.findByRole("listbox", { name: "Hours" });
+    await user.click(within(hours).getByRole("option", { name: "12 PM" }));
+    expect(onChange).toHaveBeenLastCalledWith("2030-01-01T12:15");
+  });
+});
+
+describe("DateTimePicker without a time", () => {
+  it("selects no hour and no minute", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <DateTimePicker
+        label="Time"
+        onChange={(event) => onChange(event.target.value)}
+        type="time"
+      />,
+    );
+
+    act(() => screen.getByRole("combobox", { name: /Time/ }).focus());
+    await user.keyboard("{Enter}");
+    await settle();
+    const hours = screen.getByRole("listbox", { name: "Hours" });
+    const minutes = screen.getByRole("listbox", { name: "Minutes" });
+    for (const list of [hours, minutes]) {
+      expect(list).not.toHaveAttribute("aria-activedescendant");
+      expect(
+        within(list)
+          .getAllByRole("option")
+          .filter((option) => option.getAttribute("aria-selected") === "true"),
+      ).toHaveLength(0);
+    }
+
+    // The first hour - ArrowUp would start from the last one
+    expect(hours).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(onChange).toHaveBeenLastCalledWith("00:00");
+  });
+
+  it("starts from the last hour with ArrowUp", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <DateTimePicker
+        label="Time"
+        onChange={(event) => onChange(event.target.value)}
+        type="time"
+      />,
+    );
+
+    act(() => screen.getByRole("combobox", { name: /Time/ }).focus());
+    await user.keyboard("{Enter}");
+    await settle();
+    await user.keyboard("{ArrowUp}");
+    expect(onChange).toHaveBeenLastCalledWith("23:00");
+  });
+});
+
+describe("DateTimePicker time ranges over midnight", () => {
+  it("offers and accepts the times of a night shift", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <UIProvider locale={cs}>
+        <DateTimePicker
+          label="Shift"
+          max="06:00"
+          min="22:00"
+          onChange={(event) => onChange(event.target.value)}
+          type="time"
+        />
+      </UIProvider>,
+    );
+
+    const input = screen.getByRole("combobox", { name: /Shift/ });
+    await user.click(input);
+    const hours = await screen.findByRole("listbox", { name: "Hodiny" });
+    expect(within(hours).getByRole("option", { name: "12" })).toBeDisabled();
+    expect(within(hours).getByRole("option", { name: "07" })).toBeDisabled();
+    expect(within(hours).getByRole("option", { name: "23" })).toBeEnabled();
+    expect(within(hours).getByRole("option", { name: "02" })).toBeEnabled();
+
+    await user.click(within(hours).getByRole("option", { name: "23" }));
+    expect(onChange).toHaveBeenLastCalledWith("23:00");
+
+    await user.clear(input);
+    await user.type(input, "12:00{Enter}");
+    expect(input).toHaveValue("23:00");
+    await user.clear(input);
+    await user.type(input, "5:30{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("05:30");
+  });
+});
+
+describe("DateTimePicker texts of the locale", () => {
+  it("writes AM and PM of the locale in the time lists", async () => {
+    const user = userEvent.setup();
+    const cs12 = createLocale(cs, { formats: { time: "h:mm A" } });
+    render(
+      <UIProvider locale={cs12}>
+        <DateTimePicker defaultValue="21:05" label="Čas" type="time" />
+      </UIProvider>,
+    );
+
+    const input = screen.getByRole("combobox", { name: /Čas/ });
+    expect(input).toHaveValue("9:05 odp.");
+    await user.click(input);
+    expect(
+      screen.getByRole("option", { name: "9 odp.", selected: true }),
+    ).toBeInTheDocument();
+  });
+
+  it("labels the week buttons by the week format of the locale", async () => {
+    const user = userEvent.setup();
+    const de = createLocale(en, {
+      code: "de-DE",
+      formats: { week: "[KW] WW YYYY" },
+    });
+    render(
+      <UIProvider locale={de}>
+        <DateTimePicker defaultValue="2026-W39" label="Week" type="week" />
+      </UIProvider>,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: /Week/ }));
+    expect(
+      screen.getByRole("button", { name: "Week 39, 2026" }),
+    ).toHaveTextContent("KW 39");
+  });
+
+  it("works with an invalid locale code", async () => {
+    const user = userEvent.setup();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    render(
+      <UIProvider locale={{ ...en, code: "en_GB" }}>
+        <DateTimePicker defaultValue="2026-09-24" label="Day" type="date" />
+      </UIProvider>,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: /Day/ }));
+    expect(
+      screen.getByRole("button", { name: "September 24, 2026" }),
+    ).toBeInTheDocument();
+    expect(warn).toHaveBeenCalled();
   });
 });

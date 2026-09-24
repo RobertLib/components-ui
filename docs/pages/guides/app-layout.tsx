@@ -20,7 +20,7 @@ createRoot(document.getElementById("root")!).render(
 const app = `// app.tsx
 import { Route, Routes } from "react-router";
 import { cs, ErrorBoundary, SnackbarProvider, UIProvider } from "components-ui";
-import { useReactRouterAdapter } from "./router-adapter"; // see Routing
+import useReactRouterAdapter from "./use-react-router-adapter"; // see Routing
 
 export default function App() {
   const router = useReactRouterAdapter();
@@ -132,7 +132,10 @@ export default function AppLayoutGuide() {
             <code>Navbar</code> and the page content, and holds the drawer
             state. The menu is plain data: entries the user may not see are
             written as <code>{"can.x && { … }"}</code>, and groups left without
-            children disappear. See the live demo on the{" "}
+            children disappear. Permissions that arrive later change the menu in
+            place - an expanded group stays expanded, as the items are told
+            apart by their <code>href</code> or <code>label</code> (or an{" "}
+            <code>id</code>). See the live demo on the{" "}
             <Link to="/components/app-shell">AppShell page</Link>.
           </p>
         </Prose>

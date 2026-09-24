@@ -7,10 +7,12 @@ import {
   normalizeDateTime,
   parseDisplayValue,
   parseTime,
+  snapDateTime,
 } from "./parse";
 import usePickerPopup from "./use-picker-popup";
 import {
   formatPattern,
+  getDayPeriods,
   parseISODate,
   toISODate,
   usesHour12,
@@ -29,6 +31,7 @@ export default function DateTimePanelPicker({
   ...props
 }: CustomPickerProps) {
   const locale = useLocale();
+  const messages = locale.messages.dateTimePicker;
   const {
     close,
     contentRef,
@@ -36,11 +39,13 @@ export default function DateTimePanelPicker({
     isOpen,
     onOpenChange,
     openedByKeyboard,
-  } = usePickerPopup();
+  } = usePickerPopup(!props.disabled && !props.readOnly);
 
+  const dayPeriods = getDayPeriods(locale.code);
   const [datePart = "", timePart = ""] = (value || "").split("T");
   const selectedDate = parseISODate(datePart);
   const time = parseTime(timePart);
+  // A picked day without a time yet - its first minute
   const hours = time?.hours ?? "00";
   const minutes = time?.minutes ?? "00";
 
@@ -62,25 +67,35 @@ export default function DateTimePanelPicker({
   const timeLimit = (limit: string | undefined) =>
     limit?.startsWith(day) ? limit.slice(11) : undefined;
 
+  // Kept inside the range, on the minute step
   const change = (date: string, newHours: string, newMinutes: string) =>
     onValueChange(
-      clampValue(`${date}T${newHours}:${newMinutes}`, minValue, maxValue),
+      snapDateTime(
+        clampValue(`${date}T${newHours}:${newMinutes}`, minValue, maxValue),
+        minuteStep,
+        minValue,
+        maxValue,
+      ),
     );
 
   const displayValue = selectedDate
-    ? formatPattern(locale.formats.dateTime, {
-        day: selectedDate.getDate(),
-        hours: Number(hours),
-        minutes: Number(minutes),
-        month: selectedDate.getMonth() + 1,
-        year: selectedDate.getFullYear(),
-      })
+    ? formatPattern(
+        locale.formats.dateTime,
+        {
+          day: selectedDate.getDate(),
+          hours: Number(hours),
+          minutes: Number(minutes),
+          month: selectedDate.getMonth() + 1,
+          year: selectedDate.getFullYear(),
+        },
+        dayPeriods,
+      )
     : "";
 
   return (
     <PickerField
       {...props}
-      ariaLabel={props.ariaLabel ?? locale.messages.dateTimePicker.openCalendar}
+      ariaLabel={props.ariaLabel ?? messages.openCalendar}
       contentRef={contentRef}
       displayValue={displayValue}
       icon="calendar"
@@ -94,15 +109,24 @@ export default function DateTimePanelPicker({
           text,
           locale.formats.dateTime,
           "datetime-local",
+          dayPeriods,
         );
-        return typed && isInRange(typed, minValue, maxValue) ? typed : null;
+        // An allowed date-time goes onto the minute step
+        return typed && isInRange(typed, minValue, maxValue)
+          ? snapDateTime(typed, minuteStep, minValue, maxValue)
+          : null;
       }}
       placeholder={placeholder}
+      popupLabel={messages.selectDateTime}
       value={value}
     >
       {/* Side by side from the `sm` breakpoint up, stacked on phones */}
       <div className="flex flex-col gap-2 sm:flex-row">
-        <div className="w-72 max-w-full">
+        <div
+          aria-label={messages.selectDate}
+          className="w-72 max-w-full"
+          role="group"
+        >
           <DayGrid
             autoFocus={openedByKeyboard}
             max={parseISODate(max)}
@@ -113,16 +137,19 @@ export default function DateTimePanelPicker({
           />
         </div>
 
-        <div className="border-t border-neutral-300 pt-2 sm:w-44 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-2 dark:border-neutral-600">
+        <div
+          aria-label={messages.selectTime}
+          className="border-t border-neutral-300 pt-2 sm:w-44 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-2 dark:border-neutral-600"
+          role="group"
+        >
           <TimeLists
-            hasValue={!!time}
             hour12={usesHour12(locale.formats.dateTime)}
-            hours={hours}
+            hours={time?.hours ?? null}
             listClassName="max-h-32 sm:max-h-48"
             max={timeLimit(maxValue)}
             min={timeLimit(minValue)}
             minuteStep={minuteStep}
-            minutes={minutes}
+            minutes={time?.minutes ?? null}
             onChange={(newHours, newMinutes) =>
               change(day, newHours, newMinutes)
             }

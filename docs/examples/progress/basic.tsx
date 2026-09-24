@@ -20,9 +20,21 @@ export default function Basic() {
         showPercentage
         value={value}
       />
-      <Progress size="sm" value={30} variant="success" />
-      <Progress value={60} variant="warning" />
-      <Progress max={5} size="lg" value={4} variant="danger" />
+      {/* Without a visible label, name the bar for screen readers */}
+      <Progress
+        aria-label="Storage used"
+        size="sm"
+        value={30}
+        variant="success"
+      />
+      <Progress aria-label="Monthly quota" value={60} variant="warning" />
+      <Progress
+        aria-label="Failed checks"
+        max={5}
+        size="lg"
+        value={4}
+        variant="danger"
+      />
     </div>
   );
 }

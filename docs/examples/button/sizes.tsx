@@ -10,10 +10,6 @@ export default function Sizes() {
       <Button aria-label="Add" size="icon">
         <Plus size={16} />
       </Button>
-      <Button>
-        <Plus className="mr-1" size={16} />
-        With icon
-      </Button>
     </div>
   );
 }

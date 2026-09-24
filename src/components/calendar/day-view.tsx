@@ -1,35 +1,69 @@
 import type { CalendarEvent, CalendarViewProps } from "./types";
-import { getSlotStart, minutesIntoDay } from "./date-utils";
+import { addCalendarDays, getSlotStart } from "./date-utils";
 import {
-  calculateOverlapPositions,
-  clickableTileProps,
+  createSlotLabeler,
+  formatTimeRange,
   getColorStyles,
   getEventTooltipText,
-  getVisibleMinutes,
   isOnDay,
-  spansMidnight,
 } from "./utils";
 import { useCallback, useMemo, useRef } from "react";
 import cn from "../../utils/cn";
-import EventActions from "./event-actions";
+import EventTile from "./event-tile";
 import EventTitle from "./event-title";
 import Spinner from "../spinner";
-import useEventDrag, { type DragType } from "./use-event-drag";
-import useSlotDrag from "./use-slot-drag";
+import TimeGrid from "./time-grid";
+import TimedEvents from "./timed-events";
+import useEventDrag from "./use-event-drag";
+import useSlotDrag, { toTimeRange, type SlotRange } from "./use-slot-drag";
 import useSlotFocus from "./use-slot-focus";
 import {
-  addDays,
   formatDate,
   formatPattern,
+  getDayPeriods,
   startOfDay,
+  usesHour12,
 } from "../../utils/date";
+import { formatMessage } from "../../i18n/format";
 import { useLocale } from "../../providers/ui-context";
 
-export default function DayView({
+/**
+ * The current date in hour slots - with `resources` a column for each
+ * resource.
+ */
+export default function DayView(props: CalendarViewProps) {
+  return props.resources && props.resources.length > 0 ? (
+    <ResourceDayView {...props} />
+  ) : (
+    <SingleDayView {...props} />
+  );
+}
+
+/** The day in a column for each resource - they scroll sideways. */
+function ResourceDayView(props: CalendarViewProps) {
+  const { currentDate } = props;
+  const days = useMemo(() => [startOfDay(currentDate)], [currentDate]);
+
+  return (
+    <TimeGrid
+      {...props}
+      className="day-view"
+      days={days}
+      slotDuration={60}
+      slotHeight={128}
+      tileClassName="px-2 outline-[1.5px] outline-surface dark:outline-surface-dark"
+    />
+  );
+}
+
+/** The day in one column, its all-day events above it. */
+function SingleDayView({
   currentDate,
   dayEndHour,
   dayStartHour,
   events,
+  getEventColor,
+  getEventLabel,
   isEventClickable,
   loading,
   maxDate,
@@ -49,7 +83,13 @@ export default function DayView({
   const END_HOUR = dayEndHour;
 
   const locale = useLocale();
+  // The slots - drags measure the pointer in them
   const gridRef = useRef<HTMLDivElement>(null);
+  // The view scrolls - a drag scrolls it along at its edges
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // How the last slot was pressed - a tap or a click of a screen reader
+  // picks a slot, a mouse or a pen drags a range
+  const pressTypeRef = useRef<string | null>(null);
 
   const isClickable = useCallback(
     (event: CalendarEvent) =>
@@ -65,41 +105,27 @@ export default function DayView({
     [isClickable, onEventClick],
   );
 
-  const {
-    handleDragStart,
-    getEventDisplayTimes,
-    isDragging,
-    isAnyDragging,
-    wasDragged,
-    resetWasDragged,
-  } = useEventDrag({
-    slotHeight: SLOT_HEIGHT,
-    slotDurationMinutes: SLOT_DURATION,
-    startHour: START_HOUR,
-    endHour: END_HOUR,
-    onEventDrop,
-    onEventResize,
-  });
+  const { getEventDisplayTimes, handleDragStart, isAnyDragging, isDragging } =
+    useEventDrag({
+      endHour: END_HOUR,
+      gridRef,
+      onEventDrop,
+      onEventResize,
+      scrollRef,
+      slotDurationMinutes: SLOT_DURATION,
+      slotHeight: SLOT_HEIGHT,
+      startHour: START_HOUR,
+    });
 
-  const {
-    slotDragState,
-    handleSlotDragStart,
-    wasSlotDragged,
-    resetSlotDragged,
-  } = useSlotDrag({
-    slotHeight: SLOT_HEIGHT,
-    slotDurationMinutes: SLOT_DURATION,
+  const { handleSlotDragStart, slotDragState } = useSlotDrag({
     endHour: END_HOUR,
+    gridRef,
     onSlotDragEnd,
+    scrollRef,
+    slotDurationMinutes: SLOT_DURATION,
+    slotHeight: SLOT_HEIGHT,
+    startHour: START_HOUR,
   });
-
-  const handleEventPointerDown = useCallback(
-    (e: React.PointerEvent, event: CalendarEvent, type: DragType) => {
-      if (!onEventDrop && !onEventResize) return;
-      handleDragStart(e, event, type);
-    },
-    [handleDragStart, onEventDrop, onEventResize],
-  );
 
   // Rows from the start hour to the end hour (inclusive)
   const hours = Array.from(
@@ -108,9 +134,10 @@ export default function DayView({
   );
 
   const dayStart = startOfDay(currentDate);
-  const isDisabled =
-    (minDate && addDays(dayStart, 1) <= minDate) ||
-    (maxDate && dayStart > maxDate);
+  const isDisabled = !!(
+    (minDate && addCalendarDays(dayStart, 1) <= minDate) ||
+    (maxDate && dayStart > maxDate)
+  );
 
   // Also the events that began on an earlier day and run into this one
   const dayEvents = useMemo(
@@ -123,23 +150,58 @@ export default function DayView({
 
   const formattedDate = formatDate(currentDate, locale.formats.date);
 
-  // The keyboard way to `onDateClick` - the hours are one tab stop, the
-  // arrow keys move between them
+  // The time of the row of `hour` - the row of the end hour stands for the
+  // last hour before it
+  const slotStart = (hour: number) =>
+    getSlotStart(currentDate, hour, 0, SLOT_DURATION, END_HOUR);
+
+  // The hour rows `first` - `last` as a range - the row of the end hour
+  // stands for the last hour before it
+  const slotRange = (first: number, last: number): SlotRange => {
+    const lastStart = END_HOUR * 60 - SLOT_DURATION;
+    return {
+      day: dayStart,
+      from: Math.min(hours[first] * 60, lastStart),
+      to: Math.min(hours[last] * 60, lastStart) + SLOT_DURATION,
+    };
+  };
+
+  // Slots are picked with `onDateClick`, or they start a range
+  const slotsFocusable = !!onDateClick || !!onSlotDragEnd;
+
+  // The keyboard way to the slots - the hours are one tab stop, the arrow
+  // keys move between them; Shift + arrow keys select a range
   const slotFocus = useSlotFocus({
     days: 1,
     gridRef,
     initialDay: 0,
     onActivate: (_, slot) => {
       if (isDisabled) return;
-      onDateClick?.(getSlotStart(currentDate, hours[slot], 0, SLOT_DURATION));
+      if (onDateClick) {
+        onDateClick(slotStart(hours[slot]));
+      } else {
+        onSlotDragEnd?.(toTimeRange(slotRange(slot, slot)));
+      }
     },
+    onSelectRange: onSlotDragEnd
+      ? (_, first, last) => {
+          if (isDisabled) return;
+          onSlotDragEnd(toTimeRange(slotRange(first, last)));
+        }
+      : undefined,
     slots: hours.length,
   });
 
-  const slotLabelFormat = new Intl.DateTimeFormat(locale.code, {
-    dateStyle: "full",
-    timeStyle: "short",
-  });
+  const keyboardRange =
+    slotFocus.selection && !isDisabled
+      ? slotRange(slotFocus.selection.first, slotFocus.selection.last)
+      : null;
+  const keyboardTimes = keyboardRange && toTimeRange(keyboardRange);
+  // The range dragged over the slots or selected with the keyboard
+  const selectedRange = slotDragState ?? keyboardRange;
+
+  // On the clock of the time column - also a time the clocks skip
+  const getSlotLabel = createSlotLabeler(locale);
 
   return (
     <div
@@ -149,6 +211,7 @@ export default function DayView({
         slotDragState && "select-none",
         stickyHeader ? "h-150 overflow-y-auto" : "overflow-auto",
       )}
+      ref={scrollRef}
     >
       {/* Loading overlay */}
       {loading && (
@@ -168,29 +231,28 @@ export default function DayView({
             <div className="font-medium">{formattedDate}</div>
             <div className="mt-2 space-y-1">
               {allDayEvents.map((event) => (
-                <div
+                <EventTile
+                  actions={renderEventActions?.(event)}
                   className={cn(
-                    "group/event relative rounded border-l-2 px-2 py-1 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
-                    ...getColorStyles(event.color),
+                    "relative rounded border-l-2 px-2 py-1 text-sm",
+                    ...getColorStyles(getEventColor(event)),
                     isClickable(event) ? "cursor-pointer" : "cursor-default",
                   )}
+                  clickable={isClickable(event)}
                   key={event.id}
-                  onClick={() => handleEventClick(event)}
+                  label={getEventLabel(event)}
+                  onOpen={() => handleEventClick(event)}
                   title={getEventTooltipText(event)}
-                  {...(isClickable(event)
-                    ? clickableTileProps(() => handleEventClick(event))
-                    : {})}
                 >
-                  {renderEventActions && (
-                    <EventActions>{renderEventActions(event)}</EventActions>
-                  )}
-
                   {/* Optional custom icon renderer */}
                   {renderEventIcon?.(event)}
-                  <EventTitle event={event}>
-                    {`${event.title} (${locale.messages.calendar.allDay})`}
-                  </EventTitle>
-                </div>
+                  <EventTitle event={event}>{event.title}</EventTitle>{" "}
+                  {/* Also after an `htmlTitle` - in the label for screen
+                      readers */}
+                  <span aria-hidden="true">
+                    ({locale.messages.calendar.allDay})
+                  </span>
+                </EventTile>
               ))}
             </div>
           </div>
@@ -201,41 +263,56 @@ export default function DayView({
         <div className="time-column">
           {hours.map((hour) => (
             <div
-              className="relative h-32 border-r border-b border-neutral-200 text-xs text-neutral-500 dark:border-neutral-800"
+              className="relative h-32 border-r border-b border-neutral-200 text-xs text-neutral-500 dark:border-neutral-800 dark:text-neutral-400"
               key={hour}
             >
-              <span className="absolute top-1 right-2">
-                {formatPattern(locale.formats.time, {
-                  hours: hour,
-                  minutes: 0,
-                })}
+              {/* On one line - "10:00 AM" fits the column this way */}
+              <span className="absolute top-1 right-1.5 whitespace-nowrap">
+                {formatPattern(
+                  locale.formats.time,
+                  {
+                    // The end hour 24 is the midnight ending the day - 12:00 AM
+                    // (not PM) on the 12-hour clock, 24:00 on the 24-hour one
+                    hours: usesHour12(locale.formats.time) ? hour % 24 : hour,
+                    minutes: 0,
+                  },
+                  getDayPeriods(locale.code),
+                )}
               </span>
             </div>
           ))}
         </div>
 
+        {/* A layer of its own - its crowded tiles stay under the sticky
+            header */}
         <div
-          className="relative"
-          onKeyDown={onDateClick ? slotFocus.handleKeyDown : undefined}
+          className="relative isolate"
+          onBlur={slotsFocusable ? slotFocus.handleBlur : undefined}
+          onFocus={slotsFocusable ? slotFocus.handleFocus : undefined}
+          onKeyDown={slotsFocusable ? slotFocus.handleKeyDown : undefined}
           ref={gridRef}
         >
           {hours.map((hour, index) => {
             const handleSlotClick = () => {
-              // Don't trigger click if we just finished dragging
-              if (wasSlotDragged()) {
-                resetSlotDragged();
-                return;
-              }
+              const pressType = pressTypeRef.current;
+              pressTypeRef.current = null;
               if (isDisabled) return;
-              onDateClick?.(getSlotStart(currentDate, hour, 0, SLOT_DURATION));
+
+              if (onDateClick) {
+                onDateClick(slotStart(hour));
+              } else if (
+                onSlotDragEnd &&
+                pressType !== "mouse" &&
+                pressType !== "pen"
+              ) {
+                onSlotDragEnd(toTimeRange(slotRange(index, index)));
+              }
             };
 
             const handleSlotPointerDown = (e: React.PointerEvent) => {
-              if (isDisabled || !onSlotDragEnd) return;
-              handleSlotDragStart(
-                e,
-                getSlotStart(currentDate, hour, 0, SLOT_DURATION),
-              );
+              pressTypeRef.current = e.pointerType;
+              if (isDisabled) return;
+              handleSlotDragStart(e, dayStart, hour * 60);
             };
 
             return (
@@ -243,18 +320,19 @@ export default function DayView({
                 className={cn(
                   "h-32 border-r border-b border-neutral-200 dark:border-neutral-800",
                   !isDisabled &&
-                    (onDateClick || onSlotDragEnd) &&
+                    slotsFocusable &&
                     "cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-700",
-                  onDateClick &&
-                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-inset",
+                  slotsFocusable &&
+                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-inset",
                 )}
                 key={hour}
                 onClick={handleSlotClick}
                 onPointerDown={handleSlotPointerDown}
-                {...(onDateClick && {
+                {...(slotsFocusable && {
                   "aria-disabled": isDisabled || undefined,
-                  "aria-label": slotLabelFormat.format(
-                    getSlotStart(currentDate, hour, 0, SLOT_DURATION),
+                  "aria-label": getSlotLabel(
+                    dayStart,
+                    Math.min(hour, END_HOUR - 1) * 60,
                   ),
                   "data-slot": `0-${index}`,
                   role: "button",
@@ -264,143 +342,57 @@ export default function DayView({
             );
           })}
 
-          {/* Slot drag preview */}
-          {slotDragState && (
+          {/* The range being picked */}
+          {selectedRange && (
             <div
               className="pointer-events-none absolute right-1 left-1 rounded-md border-2 border-dashed border-primary-500 bg-primary-100/50 dark:bg-primary-900/50"
               style={{
-                // Wall-clock minutes, like the event tiles - also over a
+                // Clock minutes, like the event tiles - also over a
                 // daylight saving change
-                top: `${((minutesIntoDay(currentDate, slotDragState.startDate) - START_HOUR * 60) / SLOT_DURATION) * SLOT_HEIGHT}px`,
-                height: `${((minutesIntoDay(currentDate, slotDragState.currentEndDate) - minutesIntoDay(currentDate, slotDragState.startDate)) / SLOT_DURATION) * SLOT_HEIGHT}px`,
+                top: `${((selectedRange.from - START_HOUR * 60) / SLOT_DURATION) * SLOT_HEIGHT}px`,
+                height: `${((selectedRange.to - selectedRange.from) / SLOT_DURATION) * SLOT_HEIGHT}px`,
               }}
             />
           )}
 
-          {(() => {
-            // Only the events within or overlapping the hour range, cut to it
-            const tiles = timedEvents.flatMap((event) => {
-              const { start, end } = getEventDisplayTimes(event);
-              const minutes = getVisibleMinutes(
-                start,
-                end,
-                currentDate,
-                START_HOUR,
-                END_HOUR,
-              );
-              return minutes ? [{ end, event, minutes, start }] : [];
-            });
-            // Laid out by the times shown - a dragged event by where it is
-            // dragged to
-            const overlapPositions = calculateOverlapPositions(
-              tiles.map(({ end, event, start }) => ({ ...event, end, start })),
-            );
-
-            return tiles.map(({ event, minutes }) => {
-              const top =
-                ((minutes.from - START_HOUR * 60) / SLOT_DURATION) *
-                SLOT_HEIGHT;
-              const height =
-                ((minutes.to - minutes.from) / SLOT_DURATION) * SLOT_HEIGHT;
-
-              const eventIsDragging = isDragging(event.id);
-              const eventClickable = isClickable(event);
-              // One day's grid cannot move or resize an event over several
-              const canDrag = !spansMidnight(event);
-              const canMove = !!onEventDrop && canDrag;
-              const canResize = !!onEventResize && canDrag;
-
-              // Calculate horizontal positioning for overlapping events
-              // First event takes full width, subsequent events are layered on top with offset
-              const overlapInfo = overlapPositions.get(event.id);
-              const index = overlapInfo?.index ?? 0;
-              const totalInGroup = overlapInfo?.totalInGroup ?? 1;
-
-              // Each subsequent event is offset to the right by a portion of the width
-              // e.g., with 2 events: first is full width, second starts at 50%
-              const leftPercent =
-                totalInGroup > 1 ? (index * 50) / (totalInGroup - 1) : 0;
-              const widthPercent = 100 - leftPercent;
-
-              return (
-                <div
-                  className={cn(
-                    "group/event absolute overflow-hidden rounded-md border-l-2 px-2 py-1 text-xs leading-tight select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
-                    ...getColorStyles(event.color),
-                    eventIsDragging &&
-                      "opacity-80 shadow-lg ring-2 ring-primary-500",
-                    canMove
-                      ? // A finger on it drags, it does not scroll the view
-                        "cursor-move touch-none"
-                      : eventClickable
-                        ? "cursor-pointer"
-                        : "cursor-default",
-                    isAnyDragging && !eventIsDragging && "pointer-events-none",
-                  )}
-                  key={event.id}
-                  onClick={() => {
-                    // Don't trigger click if we just finished dragging
-                    if (wasDragged()) {
-                      resetWasDragged();
-                      return;
-                    }
-                    handleEventClick(event);
-                  }}
-                  onPointerDown={(e) => {
-                    if (canMove) {
-                      handleEventPointerDown(e, event, "move");
-                    }
-                  }}
-                  style={{
-                    height: `${height}px`,
-                    top: `${top}px`,
-                    left: `calc(${leftPercent}% + 2px)`,
-                    width: `calc(${widthPercent}% - 4px)`,
-                    zIndex: index + 1,
-                  }}
-                  title={getEventTooltipText(event)}
-                  {...(eventClickable
-                    ? clickableTileProps(() => handleEventClick(event))
-                    : {})}
-                >
-                  {/* Resize handle - top */}
-                  {canResize && (
-                    <div
-                      className="absolute top-0 right-0 left-0 z-10 h-2 cursor-ns-resize touch-none hover:bg-black/10"
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        handleEventPointerDown(e, event, "resize-top");
-                      }}
-                    />
-                  )}
-
-                  {renderEventActions && (
-                    <EventActions>{renderEventActions(event)}</EventActions>
-                  )}
-
-                  {/* Optional custom icon renderer */}
-                  {renderEventIcon?.(event)}
-
-                  <EventTitle event={event}>
-                    <div className="truncate font-medium">{event.title}</div>
-                  </EventTitle>
-
-                  {/* Resize handle - bottom */}
-                  {canResize && (
-                    <div
-                      className="absolute right-0 bottom-0 left-0 z-10 h-2 cursor-ns-resize touch-none hover:bg-black/10"
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        handleEventPointerDown(e, event, "resize-bottom");
-                      }}
-                    />
-                  )}
-                </div>
-              );
-            });
-          })()}
+          <TimedEvents
+            canMove={!!onEventDrop}
+            canResize={!!onEventResize}
+            day={currentDate}
+            disabled={isDisabled}
+            endHour={END_HOUR}
+            events={timedEvents}
+            getColor={getEventColor}
+            getDisplayTimes={getEventDisplayTimes}
+            getLabel={getEventLabel}
+            isAnyDragging={isAnyDragging}
+            isClickable={isClickable}
+            isDragging={isDragging}
+            onDragStart={handleDragStart}
+            onEventClick={handleEventClick}
+            renderEventActions={renderEventActions}
+            renderEventIcon={renderEventIcon}
+            slotDurationMinutes={SLOT_DURATION}
+            slotHeight={SLOT_HEIGHT}
+            startHour={START_HOUR}
+            tileClassName="px-2"
+          />
         </div>
       </div>
+
+      {/* The range selected with the keyboard, for screen readers */}
+      {onSlotDragEnd && (
+        <div aria-live="polite" className="sr-only">
+          {keyboardTimes &&
+            formatMessage(locale.messages.calendar.rangeSelected, {
+              range: formatTimeRange(
+                keyboardTimes.start,
+                keyboardTimes.end,
+                locale,
+              ),
+            })}
+        </div>
+      )}
     </div>
   );
 }

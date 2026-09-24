@@ -78,6 +78,99 @@ describe("getFieldError", () => {
     expect(getFieldError(null, "email")).toBeUndefined();
     expect(getFieldError({ email: ["x"] }, "name")).toBeUndefined();
   });
+
+  it("reads a list in which some entries have no field", () => {
+    const payload = {
+      userErrors: [
+        { field: ["input", "email"], message: "is taken" },
+        { message: "Out of stock" },
+      ],
+    };
+    expect(getFieldError(payload, "email")).toBe("is taken");
+    expect(getFieldError(payload, "message")).toBeUndefined();
+
+    const body = [{ field: "name", message: "is required" }, { message: "x" }];
+    expect(getFieldError(body, "name")).toBe("is required");
+  });
+
+  it("does not take the members of the error for fields", () => {
+    const apollo = {
+      errors: [
+        {
+          extensions: { code: "UNAUTHENTICATED", stacktrace: ["at x"] },
+          message: "Not signed in",
+          path: ["createUser"],
+        },
+      ],
+    };
+    expect(getFieldError(apollo, "code")).toBeUndefined();
+    expect(getFieldError(apollo, "stacktrace")).toBeUndefined();
+    expect(getFieldError(apollo, "path")).toBeUndefined();
+    expect(getFieldError({ message: "Boom" }, "message")).toBeUndefined();
+    expect(getFieldError({ detail: "Not found." }, "detail")).toBeUndefined();
+    expect(
+      getFieldError({ status: 404, title: "Not Found" }, "title"),
+    ).toBeUndefined();
+
+    // A list of messages is still a field of that name, and so is anything
+    // in an `errors` map
+    expect(getFieldError({ title: ["can't be blank"] }, "title")).toBe(
+      "can't be blank",
+    );
+    expect(
+      getFieldError({ errors: { message: ["is required"] } }, "message"),
+    ).toBe("is required");
+    expect(
+      getFieldError(
+        { errors: [{ extensions: { code: ["is taken"] }, message: "" }] },
+        "code",
+      ),
+    ).toBe("is taken");
+  });
+
+  it("follows dotted names into nested objects and lists", () => {
+    expect(
+      getFieldError(
+        { address: { street: ["can't be blank"] } },
+        "address.street",
+      ),
+    ).toBe("can't be blank");
+    expect(
+      getFieldError(
+        { errors: { billing_address: { zip_code: "is invalid" } } },
+        "billingAddress.zipCode",
+      ),
+    ).toBe("is invalid");
+    expect(
+      getFieldError({ items: [{}, { price: ["too low"] }] }, "items.1.price"),
+    ).toBe("too low");
+    // Rails' nested attributes report a dotted key
+    expect(getFieldError({ "address.street": ["x"] }, "address.street")).toBe(
+      "x",
+    );
+    expect(
+      getFieldError({ address: { street: ["x"] } }, "address.city"),
+    ).toBeUndefined();
+    expect(getFieldError({ address: ["x"] }, "address.street")).toBeUndefined();
+  });
+
+  it("matches names with numbers, acronyms and dashes", () => {
+    expect(getFieldError({ address_line_1: ["x"] }, "addressLine1")).toBe("x");
+    expect(getFieldError({ address_line1: ["x"] }, "addressLine1")).toBe("x");
+    expect(getFieldError({ addressLine1: "x" }, "address_line_1")).toBe("x");
+    expect(getFieldError({ user_id: ["x"] }, "userID")).toBe("x");
+    expect(getFieldError({ UserId: ["x"] }, "user_id")).toBe("x");
+    expect(
+      getFieldError(
+        {
+          errors: [
+            { detail: "x", source: { pointer: "/data/attributes/first-name" } },
+          ],
+        },
+        "firstName",
+      ),
+    ).toBe("x");
+  });
 });
 
 describe("getBaseError", () => {
@@ -123,6 +216,78 @@ describe("getBaseError", () => {
     expect(getFieldError(error, "data")).toBeUndefined();
     expect(getFieldError(error, "email")).toBe("is taken");
   });
+
+  it("takes the user error without a field, also next to field errors", () => {
+    expect(getBaseError({ userErrors: [{ message: "Out of stock" }] })).toBe(
+      "Out of stock",
+    );
+    expect(
+      getBaseError({
+        userErrors: [
+          { field: ["input", "email"], message: "is taken" },
+          { message: "Out of stock" },
+        ],
+      }),
+    ).toBe("Out of stock");
+    expect(
+      getBaseError({ userErrors: [{ field: "email", message: "x" }] }),
+    ).toBeUndefined();
+  });
+
+  it("gives the message of a GraphQL error without field messages", () => {
+    const response = {
+      errors: [{ message: "Not authorized", path: ["deleteUser"] }],
+    };
+    const apollo3 = {
+      graphQLErrors: [
+        { extensions: { code: "FORBIDDEN" }, message: "Not authorized" },
+      ],
+      message: "Not authorized",
+    };
+
+    expect(getBaseError(response)).toBe("Not authorized");
+    expect(getBaseError(apollo3)).toBe("Not authorized");
+    // Its message says nothing the fields do not
+    expect(
+      getBaseError({
+        errors: [
+          {
+            extensions: { code: "BAD_USER_INPUT", email: ["is taken"] },
+            message: "Validation failed",
+          },
+        ],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("gives the detail or title of REST errors without field messages", () => {
+    expect(getBaseError({ detail: "Not found." })).toBe("Not found.");
+    expect(
+      getBaseError({
+        status: 403,
+        title: "Forbidden",
+        traceId: "00-1",
+        type: "https://tools.ietf.org/html/rfc9110#section-15.5.4",
+      }),
+    ).toBe("Forbidden");
+    expect(
+      getBaseError({ detail: "Order 42 is closed", status: 409, title: "x" }),
+    ).toBe("Order 42 is closed");
+    expect(getBaseError({ message: "Unauthenticated." })).toBe(
+      "Unauthenticated.",
+    );
+
+    const validation = {
+      errors: { Email: ["The Email field is required."] },
+      status: 400,
+      title: "One or more validation errors occurred.",
+    };
+    expect(getBaseError(validation)).toBeUndefined();
+    expect(getFieldError(validation, "email")).toBe(
+      "The Email field is required.",
+    );
+    expect(getBaseError(new Error("Failed to fetch"))).toBeUndefined();
+  });
 });
 
 describe("getNestedErrors", () => {
@@ -136,5 +301,31 @@ describe("getNestedErrors", () => {
       },
     };
     expect(getNestedErrors(body)).toEqual(["Item 1: must be positive"]);
+  });
+
+  it("names deeper records by their path", () => {
+    const body = {
+      errors: {
+        orders: [
+          {
+            errors: { date: ["is in the past"] },
+            items: [
+              { errors: { price: ["must be positive"] }, name: "Item A" },
+              { errors: { price: ["is too high"] } },
+            ],
+            name: "Order 1",
+          },
+          {
+            items: [{ errors: { qty: ["is zero"] }, model_name: "Item" }],
+          },
+        ],
+      },
+    };
+    expect(getNestedErrors(body)).toEqual([
+      "Order 1: is in the past",
+      "Order 1 › Item A: must be positive",
+      "Order 1: is too high",
+      "Item: is zero",
+    ]);
   });
 });

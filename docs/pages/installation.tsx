@@ -3,7 +3,7 @@ import CodeBlock from "../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 
 const installGit = `# a tagged version from your git host - npm builds dist/ on install
-npm install git+https://github.com/RobertLib/components-ui.git#v0.1.0
+npm install git+https://github.com/RobertLib/components-ui.git#v0.2.0
 
 # the latest commit of a branch
 npm install git+https://github.com/RobertLib/components-ui.git#main
@@ -12,15 +12,37 @@ npm install git+https://github.com/RobertLib/components-ui.git#main
 npm install-scripts approve components-ui`;
 
 const installLocal = `# working on the library and an app side by side
-npm install ../components-ui       # a "file:" dependency
+npm install ../components-ui       # a "file:" dependency - a symlink
 # after a change in the library:
 cd ../components-ui && npm run build:lib`;
+
+const dedupeVite = `// vite.config.ts of the app
+export default defineConfig({
+  resolve: { dedupe: ["react", "react-dom"] },
+});`;
+
+const dedupeWebpack = `// webpack.config.js of the app (Rsbuild / Rspack: the same resolve.alias)
+resolve: {
+  alias: {
+    react: path.resolve("./node_modules/react"),
+    "react-dom": path.resolve("./node_modules/react-dom"),
+  },
+},`;
+
+const installTarball = `# a copy instead of a link - like an install from a registry
+cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.2.0.tgz
+cd ../my-app && npm install ../components-ui/components-ui-0.2.0.tgz`;
 
 const installRegistry = `# in the library: set a scoped name, remove "private": true, then
 npm publish --registry https://npm.your-company.com
 
 # in a project
 npm install @your-company/components-ui`;
+
+const registryImports = `import { Button, UIProvider } from "@your-company/components-ui";`;
+
+const registryCss = `@import "tailwindcss";
+@import "@your-company/components-ui/styles.css";`;
 
 const css = `/* src/index.css (or app/globals.css in Next.js) */
 @import "tailwindcss";
@@ -48,13 +70,20 @@ const baseStyles = `/* A sensible base the components are designed for */
   }
 }`;
 
-const providers = `import { cs, SnackbarProvider, UIProvider } from "components-ui";
+const providers = `import {
+  ConfirmProvider,
+  cs,
+  SnackbarProvider,
+  UIProvider,
+} from "components-ui";
 
 export default function App() {
   return (
     <UIProvider locale={cs}>
       <SnackbarProvider>
-        <YourRoutes />
+        <ConfirmProvider>
+          <YourRoutes />
+        </ConfirmProvider>
       </SnackbarProvider>
     </UIProvider>
   );
@@ -110,12 +139,41 @@ export default function Installation() {
           plain
           title="From a local folder"
         />
+        <Callout title="Two copies of React" type="warning">
+          <p>
+            The linked folder brings its own <code>node_modules</code>, and the
+            bundler resolves the <code>react</code> the library imports from
+            there - the app then runs two copies of React and fails with
+            "Invalid hook call" (in a production build "Cannot read properties
+            of null"). Make the bundler take React from the app:
+          </p>
+        </Callout>
+        <CodeBlock code={dedupeVite} title="Vite" />
+        <CodeBlock className="mt-4" code={dedupeWebpack} title="webpack" />
+        <Prose>
+          <p>
+            With other setups (Next.js and its Turbopack, …) test the library as
+            a tarball - it installs as a copy, without its{" "}
+            <code>node_modules</code>, so there is one React. Repeat both
+            commands after each change:
+          </p>
+        </Prose>
+        <CodeBlock code={installTarball} plain title="From a tarball" />
         <CodeBlock
           className="mt-4"
           code={installRegistry}
           plain
           title="From a (private) npm registry"
         />
+        <Prose>
+          <p>
+            The scoped name changes the imports, the path of the stylesheet and
+            of the <code>@source</code> fallback below - wherever these docs
+            write <code>components-ui</code>, use the name you published:
+          </p>
+        </Prose>
+        <CodeBlock code={registryImports} />
+        <CodeBlock className="mt-4" code={registryCss} />
         <Callout>
           <p>
             You can also copy <code>src/</code> into a project - it has no
@@ -150,9 +208,10 @@ export default function Installation() {
           <p>
             <code>UIProvider</code> sets the language and connects your router
             (see <Link to="/routing">Routing</Link>).{" "}
-            <code>SnackbarProvider</code> is needed only for toasts. Both are
-            optional - without them the components speak English and use plain
-            links.
+            <code>SnackbarProvider</code> is needed only for toasts and{" "}
+            <code>ConfirmProvider</code> only for <code>useConfirm</code>. All
+            of them are optional - without <code>UIProvider</code> the
+            components speak English and use plain links.
           </p>
         </Prose>
         <CodeBlock code={providers} />
@@ -169,11 +228,14 @@ export default function Installation() {
               <strong>Vite</strong> - works as shown above.
             </li>
             <li>
-              <strong>Next.js (App Router)</strong> - the package is marked{" "}
-              <code>"use client"</code>: server components can render its
-              components, which then run on the client, while its helper
-              functions (<code>getFieldError</code>, <code>formatMessage</code>,
-              …) are for client components. Import the styles in{" "}
+              <strong>Next.js (App Router)</strong> - the components, hooks and
+              providers are marked <code>"use client"</code>: server components
+              can render the components, which then run on the client. The
+              helper functions that need no React (
+              <code>readQueryFromSearch</code> and the other DataTable query
+              helpers, <code>getFieldError</code>, <code>formatMessage</code>,{" "}
+              <code>cn</code>, <code>getColorSchemeScript</code>, …) work in
+              server components too. Import the styles in{" "}
               <code>app/globals.css</code> and render the providers in a client
               component (see <Link to="/routing">Routing</Link> for the Next.js
               adapter).

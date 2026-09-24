@@ -1,6 +1,7 @@
 import cn from "../utils/cn";
 
 export interface FormErrorProps extends React.ComponentProps<"div"> {
+  /** The message - without it nothing is rendered. */
   children?: React.ReactNode;
 }
 
@@ -19,7 +20,7 @@ export default function FormError({
     <div
       {...props}
       className={cn(
-        "animate-fade-in text-sm text-danger-600 dark:text-danger-400",
+        "animate-fade-in text-sm text-danger-700 dark:text-danger-400",
         className,
       )}
       role="alert"

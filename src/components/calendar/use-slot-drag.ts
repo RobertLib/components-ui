@@ -1,218 +1,143 @@
 import type { NewEventTimeRange } from "./types";
-import { atHour, clampDate } from "./date-utils";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { atMinutes } from "./date-utils";
+import { isDragPress, startPointerDrag } from "./pointer-drag";
+import { useEffect, useRef, useState } from "react";
 
-export interface SlotDragState {
-  /** The date of the slot where drag started */
-  startDate: Date;
-  /** Current end date based on pointer position */
-  currentEndDate: Date;
-  /** Initial Y position when drag started */
-  initialY: number;
+/** A range of time slots of one day - of one resource. */
+export interface SlotRange {
+  /** The day of the range. */
+  day: Date;
+  /**
+   * Start of the range in minutes since the midnight starting `day` - on
+   * the clock the rows show, also over a daylight saving change.
+   */
+  from: number;
+  /** The resource of the column of the range. */
+  resourceId?: string;
+  /** End of the range in minutes since the midnight starting `day`. */
+  to: number;
+}
+
+/**
+ * The dates of a range of slots - with its resource. A range whose rows a
+ * daylight saving change skips all (2:00 - 3:00 when the clocks jump to
+ * 3:00) starts at the end of the gap and keeps its length - it never comes
+ * out empty.
+ */
+export function toTimeRange({
+  day,
+  from,
+  resourceId,
+  to,
+}: SlotRange): NewEventTimeRange {
+  const start = atMinutes(day, from);
+  const end = atMinutes(day, to);
+
+  return {
+    end: end > start ? end : new Date(start.getTime() + (to - from) * 60_000),
+    start,
+    ...(resourceId !== undefined && { resourceId }),
+  };
 }
 
 interface UseSlotDragOptions {
-  /**
-   * Height of one slot in pixels
-   */
+  /** Height of one slot in pixels. */
   slotHeight: number;
-  /**
-   * Duration of one slot in minutes
-   */
+  /** Length of one slot in minutes. */
   slotDurationMinutes: number;
-  /**
-   * End hour of the calendar
-   */
+  /** First hour of the grid. */
+  startHour: number;
+  /** Hour the grid ends with - a range never runs past it. */
   endHour: number;
-  /**
-   * Callback when slot drag ends
-   */
+  /** The element holding the slots. */
+  gridRef: React.RefObject<HTMLElement | null>;
+  /** The scroll container of the view - scrolled along a drag at its edges. */
+  scrollRef?: React.RefObject<HTMLElement | null>;
+  /** A range was dragged over the slots - no drag without it. */
   onSlotDragEnd?: (range: NewEventTimeRange) => void;
 }
 
-export default function useSlotDrag({
-  slotHeight,
-  slotDurationMinutes,
-  endHour,
-  onSlotDragEnd,
-}: UseSlotDragOptions) {
-  const [dragState, setDragState] = useState<SlotDragState | null>(null);
-  const isDraggingRef = useRef(false);
+/**
+ * Picking a range of empty slots by dragging over them - down or up from
+ * the pressed slot, to the one under the pointer.
+ */
+export default function useSlotDrag(options: UseSlotDragOptions) {
+  const [slotDragState, setSlotDragState] = useState<SlotRange | null>(null);
+  // A drag outlives the render it started in - it reads the latest options
+  const optionsRef = useRef(options);
+  // Ends the drag in progress without a range
+  const stopRef = useRef<(() => void) | null>(null);
 
-  /**
-   * Snaps minutes to the nearest slot boundary
-   */
-  const snapToSlot = useCallback(
-    (date: Date): Date => {
-      const result = new Date(date);
-      const minutes = result.getMinutes();
-      const snappedMinutes =
-        Math.round(minutes / slotDurationMinutes) * slotDurationMinutes;
-      result.setMinutes(snappedMinutes, 0, 0);
-      return result;
-    },
-    [slotDurationMinutes],
-  );
-
-  /**
-   * Converts Y offset in pixels to minutes
-   */
-  const pixelsToMinutes = useCallback(
-    (pixels: number): number => {
-      return (pixels / slotHeight) * slotDurationMinutes;
-    },
-    [slotHeight, slotDurationMinutes],
-  );
-
-  /**
-   * Starts a slot drag operation - with the mouse or a pen. A finger on the
-   * slots scrolls the view, its tap is a click.
-   */
-  const handleSlotDragStart = useCallback(
-    (e: React.PointerEvent, slotDate: Date) => {
-      // The primary button only - a right click opens the context menu
-      if (!onSlotDragEnd || e.button !== 0 || !e.isPrimary) return;
-      if (e.pointerType === "touch") return;
-
-      e.preventDefault();
-      isDraggingRef.current = false;
-      try {
-        e.currentTarget.setPointerCapture?.(e.pointerId);
-      } catch {
-        // A pointer that is gone already
-      }
-
-      // The range ends by the end hour at the latest - a press on the row
-      // of the end hour starts the last slot before it
-      const dayEnd = atHour(slotDate, endHour);
-      const lastStart = new Date(dayEnd);
-      lastStart.setMinutes(lastStart.getMinutes() - slotDurationMinutes);
-      const startDate = slotDate > lastStart ? lastStart : slotDate;
-
-      // Default end is one slot after start
-      const endDate = new Date(startDate);
-      endDate.setMinutes(endDate.getMinutes() + slotDurationMinutes);
-
-      setDragState({
-        startDate,
-        currentEndDate: endDate > dayEnd ? dayEnd : endDate,
-        initialY: e.clientY,
-      });
-    },
-    [endHour, onSlotDragEnd, slotDurationMinutes],
-  );
-
-  /**
-   * Handles pointer move during slot drag
-   */
-  const handleSlotDragMove = useCallback(
-    (e: PointerEvent) => {
-      if (!dragState) return;
-
-      const deltaY = e.clientY - dragState.initialY;
-
-      // Mark as dragging if there's significant movement
-      if (Math.abs(deltaY) > 5) {
-        isDraggingRef.current = true;
-      }
-
-      const deltaMinutes = pixelsToMinutes(deltaY);
-
-      // Calculate new end time
-      let newEnd = new Date(dragState.startDate);
-      newEnd.setMinutes(
-        newEnd.getMinutes() + slotDurationMinutes + deltaMinutes,
-      );
-      // At least one slot, at most to the end hour of the slot's day - an
-      // end hour of 24 is the midnight ending it. The end hour wins: the
-      // range never runs past the hours shown.
-      const dayEnd = atHour(dragState.startDate, endHour);
-      const minEnd = new Date(dragState.startDate);
-      minEnd.setMinutes(minEnd.getMinutes() + slotDurationMinutes);
-      newEnd = clampDate(
-        snapToSlot(newEnd),
-        minEnd > dayEnd ? dayEnd : minEnd,
-        dayEnd,
-      );
-
-      setDragState((prev) =>
-        prev
-          ? {
-              ...prev,
-              currentEndDate: newEnd,
-            }
-          : null,
-      );
-    },
-    [dragState, endHour, pixelsToMinutes, slotDurationMinutes, snapToSlot],
-  );
-
-  /**
-   * Ends the slot drag operation
-   */
-  const handleSlotDragEnd = useCallback(
-    (cancelled = false) => {
-      if (!dragState) return;
-
-      // Only call callback if actually dragged
-      if (isDraggingRef.current && !cancelled) {
-        onSlotDragEnd?.({
-          start: dragState.startDate,
-          end: dragState.currentEndDate,
-        });
-      }
-
-      if (isDraggingRef.current) {
-        // The flag stays set for the click that follows the release - the
-        // slot's click handler resets it, or this task ending does
-        setTimeout(() => {
-          isDraggingRef.current = false;
-        });
-      }
-
-      setDragState(null);
-    },
-    [dragState, onSlotDragEnd],
-  );
-
-  /**
-   * Returns whether a drag just completed (to prevent click)
-   */
-  const wasSlotDragged = useCallback((): boolean => {
-    return isDraggingRef.current;
-  }, []);
-
-  /**
-   * Resets the drag flag
-   */
-  const resetSlotDragged = useCallback(() => {
-    isDraggingRef.current = false;
-  }, []);
-
-  // Global pointer handlers while dragging
   useEffect(() => {
-    if (!dragState) return;
+    optionsRef.current = options;
+  });
 
-    const onPointerMove = (e: PointerEvent) => handleSlotDragMove(e);
-    const onPointerUp = () => handleSlotDragEnd();
-    const onPointerCancel = () => handleSlotDragEnd(true);
+  useEffect(() => () => stopRef.current?.(), []);
 
-    document.addEventListener("pointermove", onPointerMove);
-    document.addEventListener("pointerup", onPointerUp);
-    document.addEventListener("pointercancel", onPointerCancel);
+  /**
+   * Starts a range at the slot `minutes` after the midnight of `day` - in
+   * the column of the resource `resourceId` - with the mouse or a pen. A
+   * finger on the slots scrolls the view, its tap is a click.
+   */
+  const handleSlotDragStart = (
+    e: React.PointerEvent,
+    day: Date,
+    minutes: number,
+    resourceId?: string,
+  ) => {
+    const {
+      endHour,
+      gridRef,
+      onSlotDragEnd,
+      scrollRef,
+      slotDurationMinutes: slot,
+      slotHeight,
+      startHour,
+    } = optionsRef.current;
+    if (!onSlotDragEnd || e.pointerType === "touch" || !isDragPress(e)) {
+      return;
+    }
 
-    return () => {
-      document.removeEventListener("pointermove", onPointerMove);
-      document.removeEventListener("pointerup", onPointerUp);
-      document.removeEventListener("pointercancel", onPointerCancel);
+    // No text is selected along the drag
+    e.preventDefault();
+    stopRef.current?.();
+
+    // The range ends by the end hour at the latest - a press on the row of
+    // the end hour starts the last slot before it
+    const anchor = Math.min(minutes, endHour * 60 - slot);
+    let range: SlotRange = { day, from: anchor, resourceId, to: anchor + slot };
+    setSlotDragState(range);
+
+    const finish = () => {
+      stopRef.current = null;
+      setSlotDragState(null);
     };
-  }, [dragState, handleSlotDragMove, handleSlotDragEnd]);
 
-  return {
-    slotDragState: dragState,
-    handleSlotDragStart,
-    isSlotDragging: dragState !== null,
-    wasSlotDragged,
-    resetSlotDragged,
+    stopRef.current = startPointerDrag(e, {
+      axis: "y",
+      grid: gridRef.current,
+      scroller: scrollRef?.current,
+      onMove: ({ y }) => {
+        // The slot under the pointer - within the hours shown
+        const other = Math.min(
+          Math.max(anchor + Math.round(y / slotHeight) * slot, startHour * 60),
+          endHour * 60 - slot,
+        );
+        const from = Math.min(anchor, other);
+        const to = Math.max(anchor, other) + slot;
+        if (from === range.from && to === range.to) return;
+
+        range = { day, from, resourceId, to };
+        setSlotDragState(range);
+      },
+      onDrop: () => {
+        finish();
+        optionsRef.current.onSlotDragEnd?.(toTimeRange(range));
+        return true;
+      },
+      onCancel: finish,
+    });
   };
+
+  return { handleSlotDragStart, slotDragState };
 }

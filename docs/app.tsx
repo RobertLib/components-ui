@@ -9,7 +9,9 @@ function NotFound() {
   return (
     <div className="py-20 text-center">
       <h1 className="mb-2 text-3xl font-bold">Page not found</h1>
-      <p className="mb-6 text-neutral-500">This page does not exist.</p>
+      <p className="mb-6 text-neutral-500 dark:text-neutral-400">
+        This page does not exist.
+      </p>
       <Button link="/">Back to the introduction</Button>
     </div>
   );

@@ -165,3 +165,33 @@ export const roleOptions = [
   { label: "Editor", value: "Editor" },
   { label: "Viewer", value: "Viewer" },
 ];
+
+/**
+ * `count` people generated like `people` - with a seed of their own, so the
+ * same ones every time. For the examples with thousands of rows.
+ */
+export function createPeople(count: number, seed = 7): Person[] {
+  const nextRandom = createRandom(seed);
+  const pickOne = <T>(items: readonly T[]) =>
+    items[Math.floor(nextRandom() * items.length)];
+
+  return Array.from({ length: count }, (_, index) => {
+    const firstName = pickOne(FIRST_NAMES);
+    const lastName = pickOne(LAST_NAMES);
+    const created = new Date(2022, 0, 1 + Math.floor(nextRandom() * 1300));
+
+    return {
+      city: pickOne(CITIES),
+      createdAt: `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, "0")}-${String(created.getDate()).padStart(2, "0")}`,
+      department: pickOne(DEPARTMENTS),
+      email: `${toAscii(firstName)}.${toAscii(lastName)}${index}@example.com`,
+      firstName,
+      id: index + 1,
+      lastName,
+      name: `${firstName} ${lastName}`,
+      role: pickOne(ROLES),
+      salary: 30_000 + Math.round(nextRandom() * 90) * 1_000,
+      status: pickOne(STATUSES),
+    };
+  });
+}

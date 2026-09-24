@@ -3,11 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import Breadcrumbs from "../components/breadcrumbs";
 import Button from "../components/button";
+import Calendar from "../components/calendar";
+import DataTable from "../components/data-table";
 import Header from "../components/header";
 import useDataTableQuery from "../components/data-table/use-data-table-query";
 import Pagination from "../components/pagination";
 import Tabs from "../components/tabs";
 import { cs } from "../i18n/cs";
+import { en } from "../i18n/en";
 import type { LinkComponentProps } from "./router";
 import UIProvider from "./ui-provider";
 
@@ -94,7 +97,7 @@ describe("UIProvider", () => {
     );
 
     expect(screen.getByRole("link", { name: "Úvod" })).toBeInTheDocument();
-    expect(screen.getByText("21 - 40 / 45")).toBeInTheDocument();
+    expect(screen.getByText("21–40 z 45")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Další stránka" }),
     ).toBeInTheDocument();
@@ -111,5 +114,30 @@ describe("UIProvider", () => {
 
     const home = screen.getByRole("link", { name: "Domů" });
     expect(home).toHaveAttribute("data-router-link");
+  });
+
+  it("falls back from a locale code Intl does not understand", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const locale = { ...en, code: "en_GB" };
+
+    render(
+      <UIProvider locale={locale}>
+        <Calendar initialDate={new Date(2026, 8, 24)} initialView="week" />
+        <DataTable
+          clientSide
+          columns={[{ key: "name", label: "Name", sortable: true }]}
+          data={[
+            { id: 1, name: "Zoe" },
+            { id: 2, name: "Adam" },
+          ]}
+          defaultQuery={{ order: "asc", sortBy: "name" }}
+        />
+      </UIProvider>,
+    );
+
+    // Rendered instead of throwing "Invalid language tag"
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getAllByRole("row").at(-1)).toHaveTextContent("Zoe");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"en_GB"'));
   });
 });

@@ -1,5 +1,10 @@
 @import "tailwindcss";
-@import "../src/styles.css";
+/* Static: every token becomes a CSS variable, also those no class uses -
+   the palette on the Theming page reads them all */
+@import "../src/styles.css" theme(static);
+
+/* The tests are no source of classes (they contain made-up ones) */
+@source not "../src/**/*.test.{ts,tsx}";
 
 /* The docs switch the theme with a class, not only by the system setting */
 @custom-variant dark (&:where(.dark, .dark *));
@@ -88,8 +93,9 @@ body {
       @apply rounded bg-neutral-200/60 px-1 py-0.5 font-mono text-[0.85em] text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200;
     }
 
+    /* A table wider than the page scrolls on its own, the page does not */
     & table {
-      @apply my-4 w-full border-collapse text-sm;
+      @apply my-4 block border-collapse overflow-x-auto text-sm;
     }
 
     & th {

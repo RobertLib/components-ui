@@ -6,9 +6,8 @@ import {
 } from "lucide-react";
 import Button from "./button";
 import { useState } from "react";
-import cn from "../utils/cn";
-import { formatMessage } from "../i18n/format";
-import { useMessages } from "../providers/ui-context";
+import { formatMessage, formatNumber } from "../i18n/format";
+import { useLocale } from "../providers/ui-context";
 
 /**
  * Cursor-based pagination state, shaped like the `pageInfo` of a Relay
@@ -17,7 +16,12 @@ import { useMessages } from "../providers/ui-context";
 export interface PageInfo {
   /** Cursor of the last row - requested as `after` for the next page. */
   endCursor?: string | null;
+  /** There is a page after this one - enables the next button. */
   hasNextPage: boolean;
+  /**
+   * There is a page before this one - enables the previous button (so does
+   * a `currentPage` above 1).
+   */
   hasPreviousPage: boolean;
   /** Cursor of the first row - requested as `before` for the previous page. */
   startCursor?: string | null;
@@ -25,8 +29,9 @@ export interface PageInfo {
 
 export type PaginationDirection = "first" | "prev" | "next" | "last";
 
+/** The other props go to the `<nav>` - an `aria-label` replaces the default one. */
 export interface PaginationProps extends Omit<
-  React.ComponentProps<"ul">,
+  React.ComponentProps<"nav">,
   "onChange"
 > {
   /** 1-based number of the shown page. */
@@ -59,10 +64,12 @@ export interface PaginationProps extends Omit<
 
 /**
  * First / previous / next (/ last) buttons with the shown range. Works with
- * cursor pagination (GraphQL connections) and offset pagination (REST).
+ * cursor pagination (GraphQL connections) and offset pagination (REST). A
+ * button that becomes unavailable while it has the focus (Last page, Next
+ * onto the last page) keeps the focus, announced as unavailable, until the
+ * focus moves on.
  */
 export default function Pagination({
-  className,
   currentPage = 1,
   loading = false,
   onChange,
@@ -71,7 +78,8 @@ export default function Pagination({
   total,
   ...props
 }: PaginationProps) {
-  const messages = useMessages();
+  const locale = useLocale();
+  const { messages } = locale;
 
   const isCursorMode = pageInfo !== undefined;
 
@@ -91,16 +99,10 @@ export default function Pagination({
 
   const isBusy = loading || (movedFrom !== null && movedFrom === cursorKey);
 
-  const move = (...args: [PaginationDirection, (string | undefined)?]) => {
-    if (isBusy) return;
-    if (args[1] && cursorKey !== null) setMovedFrom(cursorKey);
-    onChange(...args);
-  };
+  // The button with the focus - one that becomes unavailable (the last page
+  // reached) must not drop it to the page
+  const [focused, setFocused] = useState<PaginationDirection | null>(null);
 
-  // Not `disabled` - a pressed button keeps the focus while the page loads
-  const busyProps = isBusy
-    ? { "aria-disabled": true, className: "cursor-wait opacity-60" }
-    : {};
   const lastPage =
     total !== undefined ? Math.max(1, Math.ceil(total / pageSize)) : undefined;
 
@@ -114,18 +116,57 @@ export default function Pagination({
   const isEmptyPage =
     total === 0 || (lastPage !== undefined && currentPage > lastPage);
 
+  // Numbers as the language writes them - "1–20 of 1,234"
   const range =
     total === undefined
       ? null
       : formatMessage(messages.pagination.range, {
-          from: isEmptyPage ? 0 : (currentPage - 1) * pageSize + 1,
-          to: isEmptyPage ? 0 : Math.min(currentPage * pageSize, total),
-          total,
+          from: formatNumber(
+            locale.code,
+            isEmptyPage ? 0 : (currentPage - 1) * pageSize + 1,
+          ),
+          to: formatNumber(
+            locale.code,
+            isEmptyPage ? 0 : Math.min(currentPage * pageSize, total),
+          ),
+          total: formatNumber(locale.code, total),
         });
 
+  const available: Record<PaginationDirection, boolean> = {
+    first: hasPreviousPage,
+    last: hasNextPage,
+    next: hasNextPage,
+    prev: hasPreviousPage,
+  };
+
+  const move = (...args: [PaginationDirection, (string | undefined)?]) => {
+    if (isBusy || !available[args[0]]) return;
+    if (args[1] && cursorKey !== null) setMovedFrom(cursorKey);
+    onChange(...args);
+  };
+
+  // An unavailable button is `disabled` - unless it has the focus, which it
+  // keeps (`aria-disabled`) until the focus moves on. So is a busy one: a
+  // pressed button keeps the focus while the page loads.
+  const buttonProps = (direction: PaginationDirection) => {
+    const isKept = !available[direction] && focused === direction;
+
+    return {
+      ...((isBusy || isKept) && {
+        "aria-disabled": true,
+        className: isKept
+          ? "cursor-not-allowed opacity-60"
+          : "cursor-wait opacity-60",
+      }),
+      disabled: !available[direction] && !isKept,
+      onBlur: () => setFocused(null),
+      onFocus: () => setFocused(direction),
+    };
+  };
+
   return (
-    <nav aria-label={messages.pagination.label}>
-      <ul {...props} className={cn("flex items-center gap-1.5", className)}>
+    <nav aria-label={messages.pagination.label} {...props}>
+      <ul className="flex items-center gap-1.5">
         {range && (
           <li className="mr-1.25 flex items-center text-sm">
             <span aria-live="polite">{range}</span>
@@ -135,9 +176,8 @@ export default function Pagination({
           <Button
             aria-label={messages.pagination.first}
             color="default"
-            disabled={!hasPreviousPage}
             onClick={() => move("first")}
-            {...busyProps}
+            {...buttonProps("first")}
             size="sm"
           >
             <ChevronsLeft size={18} />
@@ -147,9 +187,8 @@ export default function Pagination({
           <Button
             aria-label={messages.pagination.previous}
             color="default"
-            disabled={!hasPreviousPage}
             onClick={() => move("prev", pageInfo?.startCursor || undefined)}
-            {...busyProps}
+            {...buttonProps("prev")}
             size="sm"
           >
             <ChevronLeft size={18} />
@@ -159,9 +198,8 @@ export default function Pagination({
           <Button
             aria-label={messages.pagination.next}
             color="default"
-            disabled={!hasNextPage}
             onClick={() => move("next", pageInfo?.endCursor || undefined)}
-            {...busyProps}
+            {...buttonProps("next")}
             size="sm"
           >
             <ChevronRight size={18} />
@@ -173,9 +211,8 @@ export default function Pagination({
             <Button
               aria-label={messages.pagination.last}
               color="default"
-              disabled={!hasNextPage}
               onClick={() => move("last")}
-              {...busyProps}
+              {...buttonProps("last")}
               size="sm"
             >
               <ChevronsRight size={18} />

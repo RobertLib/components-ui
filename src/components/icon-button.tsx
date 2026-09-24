@@ -3,7 +3,10 @@ import cn from "../utils/cn";
 export interface IconButtonProps extends React.ComponentProps<"button"> {
   /** Shows a spinner instead of the icon and disables the button. */
   loading?: boolean;
-  /** Color of the icon. */
+  /**
+   * Color of the icon.
+   * @default "default"
+   */
   variant?: "default" | "primary" | "secondary" | "danger";
 }
 
@@ -34,7 +37,7 @@ export default function IconButton({
       {...props}
       aria-busy={loading || undefined}
       className={cn(
-        "-m-1 cursor-pointer rounded-md p-1 leading-none transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 dark:hover:bg-neutral-800",
+        "-m-1 cursor-pointer rounded-md p-1 leading-none transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-neutral-800",
         variantStyles[variant],
         (disabled || loading) && disabledStyles,
         className,

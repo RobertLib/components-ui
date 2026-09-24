@@ -15,9 +15,9 @@ async function loadPeople({
   signal,
 }: LoadOptionsParams) {
   const params = new URLSearchParams({
-    limit: String(pageSize),
-    offset: String(offset),
     q: search,
+    offset: String(offset),
+    limit: String(pageSize),
   });
   const response = await fetch(`/api/people?${params}`, { signal });
 
@@ -40,11 +40,11 @@ export default function Rest() {
       <Autocomplete
         label="Person (REST)"
         loadOptions={loadPeople}
-        onChange={(_, item) => setPerson((item as Person | null) ?? null)}
+        onChange={(_, item) => setPerson(item)}
         pageSize={20}
         placeholder="Type a name…"
       />
-      <p className="text-sm text-neutral-500">
+      <p className="text-sm text-neutral-500 dark:text-neutral-400">
         Selected: {person ? `${person.name} <${person.email}>` : "nobody"}
       </p>
     </div>

@@ -3,6 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import cn from "../utils/cn";
 import Overlay from "./overlay";
 import {
+  isEscapeKey,
   isTopmostOverlay,
   lockPageScroll,
   OverlayContext,
@@ -12,7 +13,7 @@ import {
 import Popover from "./popover";
 import { getNextTabbable, getTabbableElements } from "../utils/tabbable";
 import useIsMobile from "../hooks/use-is-mobile";
-import { isActivePath } from "../providers/router";
+import { findActiveLink } from "../providers/active-path";
 import { useDrawer } from "../providers/drawer-context";
 import { useMessages, useRouter } from "../providers/ui-context";
 
@@ -26,21 +27,34 @@ export interface DrawerItem {
    */
   children?: DrawerEntry[];
   /**
-   * Groups only: whether the group starts expanded. By default a group is
-   * expanded while it contains the current page.
+   * Groups only: whether the group starts expanded - by default when it
+   * contains the current page. A group also expands when the current page
+   * moves into it; one the user expanded stays expanded.
    */
   defaultExpanded?: boolean;
   /**
    * Link target - the item is active on this path and below it, unless a
-   * more specific item matches (`/users/new` rather than `/users`).
+   * more specific item matches: `/users/new` rather than `/users`, and of
+   * links to one path the one whose query parameters the page has
+   * (`/tasks?filter=mine` rather than `/tasks?filter=all`).
    */
   href?: string;
-  /** Icon before the label - the only thing shown while collapsed. */
+  /**
+   * Icon before the label - the only thing shown while collapsed (without
+   * one, the first letter of the label is).
+   */
   icon?: React.ReactNode;
+  /**
+   * Tells the item apart from the others of its level, so that a group
+   * keeps its state (expanded) while entries before it come and go - by
+   * default its `href`, else its `label`.
+   */
+  id?: string;
+  /** Text of the item - its name, also while the drawer is collapsed. */
   label: string;
 }
 
-export interface DrawerProps extends React.ComponentProps<"aside"> {
+export interface DrawerProps extends React.ComponentProps<"nav"> {
   /** Shown at the top while the drawer is expanded, e.g. the app logo. */
   header?: React.ReactNode;
   /** Shows placeholder items, e.g. while the user's permissions load. */
@@ -59,30 +73,24 @@ const visibleItems = (entries: DrawerEntry[] = []): DrawerItem[] =>
       !!entry && (!entry.children || visibleItems(entry.children).length > 0),
   );
 
-const pathOf = (href: string) => href.split(/[?#]/)[0];
+/** The items and all their descendants, in the order of the menu. */
+const flattenItems = (items: DrawerItem[]): DrawerItem[] =>
+  items.flatMap((item) => [item, ...flattenItems(visibleItems(item.children))]);
 
 /**
- * The `href` of the active item - of several matching ones the most
- * specific: `/users/new` over `/users` on `/users/new`.
+ * The keys of `items` - by their `id`, `href` or `label`, so that the state
+ * of a group stays with it when the entries before it change. A key two
+ * items share is told apart by a number.
  */
-function findActiveHref(items: DrawerItem[], pathname: string) {
-  let activeHref: string | undefined;
+function getItemKeys(items: DrawerItem[]) {
+  const counts = new Map<string, number>();
 
-  const visit = (entries: DrawerItem[]) => {
-    for (const item of entries) {
-      if (
-        item.href &&
-        isActivePath(pathname, item.href) &&
-        (!activeHref || pathOf(item.href).length > pathOf(activeHref).length)
-      ) {
-        activeHref = item.href;
-      }
-      visit(visibleItems(item.children));
-    }
-  };
-
-  visit(items);
-  return activeHref;
+  return items.map((item) => {
+    const key = item.id ?? item.href ?? item.label;
+    const count = counts.get(key) ?? 0;
+    counts.set(key, count + 1);
+    return count === 0 ? key : `${key}#${count}`;
+  });
 }
 
 /**
@@ -99,19 +107,29 @@ export default function Drawer({
 }: DrawerProps) {
   const { isCollapsed, isOpen, toggleOpen } = useDrawer();
   const messages = useMessages();
-  const { pathname } = useRouter();
+  const { pathname, search } = useRouter();
 
   const menuItems = visibleItems(items);
-  const activeHref = findActiveHref(menuItems, pathname);
+  const menuKeys = getItemKeys(menuItems);
+  // Of several matching items the most specific - `/users/new` over
+  // `/users` on `/users/new`
+  const activeItem = findActiveLink(
+    flattenItems(menuItems),
+    (item) => item.href,
+    pathname,
+    search,
+  );
 
   const isMobile = useIsMobile();
   const isOverlaid = isOpen && isMobile;
-  const asideRef = useRef<HTMLElement>(null);
+  const rootRef = useRef<HTMLElement>(null);
+  // The content of the drawer - the modal dialog while it is slid in
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Slid in over the page, the drawer is modal - in the overlay stack shared
   // with dialogs and popovers, so Escape closes only the topmost of them
   const { childContext, id: layerId } = useOverlayLayer(isOverlaid, {
-    getElements: () => [asideRef.current],
+    getElements: () => [rootRef.current],
     modal: true,
   });
 
@@ -122,7 +140,7 @@ export default function Drawer({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
-        event.key === "Escape" &&
+        isEscapeKey(event) &&
         !event.defaultPrevented &&
         isTopmostOverlay(layerId)
       ) {
@@ -142,13 +160,14 @@ export default function Drawer({
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
-    const aside = asideRef.current;
-    if (!aside) return;
+    const root = rootRef.current;
+    const panel = panelRef.current;
+    if (!root || !panel) return;
 
     if (isOverlaid) {
       returnFocusRef.current = document.activeElement as HTMLElement | null;
-      if (!aside.contains(document.activeElement)) {
-        (getTabbableElements(aside)[0] ?? aside).focus();
+      if (!root.contains(document.activeElement)) {
+        (getTabbableElements(panel)[0] ?? panel).focus();
       }
       return lockPageScroll();
     }
@@ -157,77 +176,107 @@ export default function Drawer({
     returnFocusRef.current = null;
     const active = document.activeElement;
     // Unless the focus has moved somewhere else meanwhile
-    if (!active || active === document.body || aside.contains(active)) {
+    if (!active || active === document.body || root.contains(active)) {
       returnFocus?.focus?.();
     }
   }, [isOverlaid]);
 
   // Tab stays in the slid-in drawer
-  useFocusTrap(isOverlaid, layerId, asideRef);
+  useFocusTrap(isOverlaid, layerId, panelRef);
 
   return (
     <>
+      {/* In place, not in a portal: in a parent with a transform, a filter
+          or a z-index (a demo frame) a backdrop in the body would paint
+          over the drawer */}
       {isOverlaid && (
         <Overlay
           aria-label={messages.common.close}
           onClick={toggleOpen}
+          portal={false}
           role="button"
         />
       )}
-      <aside
+      {/* The navigation landmark of the app - named, as the page may have
+          more of them (breadcrumbs, pagination) */}
+      <nav
+        aria-label={messages.drawer.label}
         {...props}
         aria-hidden={!isOpen}
-        aria-label={messages.drawer.label}
         className={cn(
-          "drawer fixed inset-y-0 left-0 z-40 flex flex-col border-r border-neutral-100 bg-surface shadow-lg transition-all duration-300 focus:outline-none dark:border-neutral-900 dark:bg-surface-dark",
+          "drawer fixed inset-y-0 left-0 z-40 flex flex-col border-r border-neutral-100 bg-surface shadow-lg transition-all duration-300 motion-reduce:transition-none dark:border-neutral-900 dark:bg-surface-dark",
           isCollapsed ? "drawer-collapsed" : "",
           isOpen
             ? "drawer-open translate-x-0"
             : "drawer-closed -translate-x-full",
+          // Open as on a desktop, but on a phone-sized screen: a page
+          // rendered on the server, before it hydrates - out of sight until
+          // the drawer knows the device
+          isOpen && !isMobile && "max-md:-translate-x-full",
           className,
         )}
         inert={!isOpen}
-        ref={asideRef}
-        // Takes the focus when it slides in without any link in it
-        tabIndex={isOverlaid ? -1 : undefined}
+        ref={rootRef}
       >
-        {!isCollapsed && header && (
-          <div className="shrink-0 p-4 pb-1">{header}</div>
-        )}
+        {/* Slid in over the page, the drawer is a modal dialog - the nav
+            itself cannot take that role */}
+        <div
+          aria-label={isOverlaid ? messages.drawer.label : undefined}
+          aria-modal={isOverlaid ? true : undefined}
+          className="flex min-h-0 flex-1 flex-col focus:outline-none"
+          ref={panelRef}
+          role={isOverlaid ? "dialog" : undefined}
+          // Takes the focus when it slides in without any link in it
+          tabIndex={isOverlaid ? -1 : undefined}
+        >
+          {!isCollapsed && header && (
+            <div className="shrink-0 p-4 pb-1">{header}</div>
+          )}
 
-        <nav className="flex-1 overflow-y-auto p-4">
-          <ul className="space-y-1">
-            <OverlayContext value={childContext}>
-              {isLoading ? (
-                <DrawerSkeleton isCollapsed={isCollapsed} />
-              ) : (
-                menuItems.map((item, index) => (
-                  <DrawerMenuItem
-                    activeHref={activeHref}
-                    item={item}
-                    key={index}
-                    isCollapsed={isCollapsed}
-                  />
-                ))
-              )}
-            </OverlayContext>
-          </ul>
-        </nav>
-      </aside>
+          <div className="flex-1 overflow-y-auto p-4">
+            <ul className="space-y-1">
+              <OverlayContext value={childContext}>
+                {isLoading ? (
+                  <DrawerSkeleton isCollapsed={isCollapsed} />
+                ) : (
+                  menuItems.map((item, index) => (
+                    <DrawerMenuItem
+                      activeItem={activeItem}
+                      item={item}
+                      key={menuKeys[index]}
+                      isCollapsed={isCollapsed}
+                    />
+                  ))
+                )}
+              </OverlayContext>
+            </ul>
+          </div>
+        </div>
+      </nav>
     </>
   );
 }
 
+/** The first letter of `label` - shown for an item without an icon. */
+const initialOf = (label: string) =>
+  Array.from(label.trim())[0]?.toLocaleUpperCase() ?? "";
+
 interface DrawerMenuItemProps {
-  /** The `href` of the one active item of the whole menu. */
-  activeHref?: string;
+  /** The one active item of the whole menu. */
+  activeItem?: DrawerItem;
+  /**
+   * The drawer shows icons only: a top-level item shows its icon, a group
+   * its children in a popover.
+   */
   isCollapsed?: boolean;
+  /** The entry to render. */
   item: DrawerItem;
+  /** Nesting depth - 0 at the top level. */
   level?: number;
 }
 
 function DrawerMenuItem({
-  activeHref,
+  activeItem,
   isCollapsed,
   item,
   level = 0,
@@ -238,25 +287,36 @@ function DrawerMenuItem({
   const submenuId = useId();
 
   const children = visibleItems(item.children);
+  const childKeys = getItemKeys(children);
   const hasChildren = children.length > 0;
 
-  const containsActive = (entries: DrawerItem[]): boolean =>
-    entries.some(
-      (child) =>
-        (!!child.href && child.href === activeHref) ||
-        containsActive(visibleItems(child.children)),
-    );
+  const hasActiveChild =
+    hasChildren && !!activeItem && flattenItems(children).includes(activeItem);
 
   const [isExpanded, setIsExpanded] = useState(
-    () => hasChildren && (item.defaultExpanded ?? containsActive(children)),
+    () => hasChildren && (item.defaultExpanded ?? hasActiveChild),
   );
+
+  // The current page moved into the group - it expands. A group the user
+  // expanded stays so when the page moves out of it.
+  const [hadActiveChild, setHadActiveChild] = useState(hasActiveChild);
+  if (hasActiveChild !== hadActiveChild) {
+    setHadActiveChild(hasActiveChild);
+    if (hasActiveChild) setIsExpanded(true);
+  }
+
   const [showPopover, setShowPopover] = useState(false);
   const groupButtonRef = useRef<HTMLButtonElement>(null);
   const popoverContentRef = useRef<HTMLDivElement>(null);
   // The popover was opened from the keyboard - its first link takes the focus
   const focusPopoverRef = useRef(false);
 
-  const isActive = !!item.href && item.href === activeHref;
+  const isActive = !!item.href && item === activeItem;
+  // Collapsed, a top-level item shows only its icon - and a group its
+  // children in a popover
+  const iconOnly = !!isCollapsed && level === 0;
+  const inPopover = iconOnly && hasChildren;
+  const isGroupOpen = inPopover ? showPopover : isExpanded;
 
   const handleToggle = (event: React.MouseEvent) => {
     if (!hasChildren) return;
@@ -266,18 +326,21 @@ function DrawerMenuItem({
       return;
     }
 
-    // Collapsed, the children are in a popover. The pointer opens it by
-    // hovering; a key press (a click with no `detail`) toggles it.
+    // Collapsed, the popover opens as the pointer or the keyboard focus
+    // comes to the group; a key press (a click with no `detail`) moves the
+    // focus into it
     if (event.detail !== 0) return;
-    focusPopoverRef.current = !showPopover;
-    setShowPopover(!showPopover);
+    const firstLink = getTabbableElements(popoverContentRef.current)[0];
+    if (showPopover && firstLink) {
+      firstLink.focus();
+      return;
+    }
+    focusPopoverRef.current = true;
+    setShowPopover(true);
   };
 
   const handlePopoverOpenChange = (open: boolean) => {
-    // The focus in a closing popover goes back to its group (Escape)
-    if (!open && popoverContentRef.current?.contains(document.activeElement)) {
-      groupButtonRef.current?.focus();
-    }
+    if (!open) focusPopoverRef.current = false;
     setShowPopover(open);
   };
 
@@ -305,94 +368,81 @@ function DrawerMenuItem({
     }
   };
 
-  return (
-    <li
-      className="relative"
-      onMouseOver={() => isCollapsed && setShowPopover(true)}
-      onMouseOut={() => isCollapsed && setShowPopover(false)}
+  const icon = item.icon ? (
+    <span aria-hidden="true" className={cn(!iconOnly && "mr-3")}>
+      {item.icon}
+    </span>
+  ) : (
+    iconOnly && (
+      // Something to point at, where an icon would be - the name stays in
+      // `aria-label` and `title`
+      <span
+        aria-hidden="true"
+        className="flex size-4.5 items-center justify-center leading-none font-semibold"
+      >
+        {initialOf(item.label)}
+      </span>
+    )
+  );
+
+  const groupButton = (
+    <button
+      aria-controls={hasChildren && isGroupOpen ? submenuId : undefined}
+      aria-expanded={hasChildren ? isGroupOpen : undefined}
+      aria-label={iconOnly ? item.label : undefined}
+      className={cn(
+        "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800",
+        isActive &&
+          "bg-neutral-100 font-medium text-primary-600 dark:bg-neutral-800 dark:text-primary-400",
+        level > 0 && "pl-7",
+        iconOnly && "justify-center",
+      )}
+      onClick={handleToggle}
+      ref={groupButtonRef}
+      // The popover of a group shows its name
+      title={iconOnly && !hasChildren ? item.label : undefined}
+      type="button"
     >
+      <span className="flex items-center">
+        {icon}
+        {!iconOnly && item.label}
+      </span>
+      {hasChildren && !isCollapsed && (
+        <span className="ml-auto">
+          <ChevronRight
+            className={cn(
+              "h-4 w-4 transition-transform duration-200 motion-reduce:transition-none",
+              isExpanded && "rotate-90",
+            )}
+          />
+        </span>
+      )}
+    </button>
+  );
+
+  return (
+    <li className="relative">
       {item.href && !hasChildren ? (
         <Link
           aria-current={isActive ? "page" : undefined}
-          aria-label={isCollapsed && level === 0 ? item.label : undefined}
+          aria-label={iconOnly ? item.label : undefined}
           className={cn(
-            "flex w-full items-center rounded-lg px-3 py-2 text-sm transition-colors hover:bg-neutral-100 focus:ring-2 focus:ring-primary-300 focus:outline-none dark:hover:bg-neutral-800",
+            "flex w-full items-center rounded-lg px-3 py-2 text-sm transition-colors hover:bg-neutral-100 focus:ring-2 focus:ring-primary-500 focus:outline-none dark:hover:bg-neutral-800",
             isActive &&
               "bg-neutral-100 font-medium text-primary-600 dark:bg-neutral-800 dark:text-primary-400",
             level > 0 && "pl-7",
-            isCollapsed && level === 0 && "justify-center",
+            iconOnly && "justify-center",
           )}
           href={item.href}
           onClick={handleLinkClick}
-          title={isCollapsed && level === 0 ? item.label : undefined}
+          title={iconOnly ? item.label : undefined}
         >
-          {item.icon && (
-            <span
-              aria-hidden="true"
-              className={cn(!(isCollapsed && level === 0) && "mr-3")}
-            >
-              {item.icon}
-            </span>
-          )}
-          {(!isCollapsed || level > 0) && item.label}
+          {icon}
+          {!iconOnly && item.label}
         </Link>
-      ) : (
-        <button
-          aria-controls={hasChildren ? submenuId : undefined}
-          aria-expanded={
-            hasChildren ? (isCollapsed ? showPopover : isExpanded) : undefined
-          }
-          aria-label={isCollapsed && level === 0 ? item.label : undefined}
-          className={cn(
-            "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800",
-            isActive &&
-              "bg-neutral-100 font-medium text-primary-600 dark:bg-neutral-800 dark:text-primary-400",
-            level > 0 && "pl-7",
-            isCollapsed && level === 0 && "justify-center",
-          )}
-          onClick={handleToggle}
-          ref={groupButtonRef}
-          type="button"
-        >
-          <span className="flex items-center">
-            {item.icon && (
-              <span
-                aria-hidden="true"
-                className={cn(!(isCollapsed && level === 0) && "mr-3")}
-              >
-                {item.icon}
-              </span>
-            )}
-            {(!isCollapsed || level > 0) && item.label}
-          </span>
-          {hasChildren && !isCollapsed && (
-            <span className="ml-auto">
-              <ChevronRight
-                className={cn(
-                  "h-4 w-4 transition-transform duration-200",
-                  isExpanded && "rotate-90",
-                )}
-              />
-            </span>
-          )}
-        </button>
-      )}
-
-      {hasChildren && isExpanded && !isCollapsed && (
-        <ul className="mt-1 animate-slide-down space-y-1" id={submenuId}>
-          {children.map((child, index) => (
-            <DrawerMenuItem
-              activeHref={activeHref}
-              isCollapsed={isCollapsed}
-              item={child}
-              key={index}
-              level={level + 1}
-            />
-          ))}
-        </ul>
-      )}
-
-      {isCollapsed && hasChildren && level === 0 && showPopover && (
+      ) : inPopover ? (
+        // The group is the trigger of the popover: one hover logic for both,
+        // with the delay that lets the pointer cross over to the popover
         <Popover
           contentClassName="p-2"
           contentLabel={item.label}
@@ -400,6 +450,7 @@ function DrawerMenuItem({
           onOpenChange={handlePopoverOpenChange}
           open={showPopover}
           position="bottom"
+          trigger={groupButton}
         >
           <div className="px-3 py-1 font-medium">{item.label}</div>
           <ul
@@ -415,20 +466,37 @@ function DrawerMenuItem({
           >
             {children.map((child, index) => (
               <DrawerMenuItem
-                activeHref={activeHref}
+                activeItem={activeItem}
                 isCollapsed={false}
                 item={child}
-                key={index}
+                key={childKeys[index]}
               />
             ))}
           </ul>
         </Popover>
+      ) : (
+        groupButton
+      )}
+
+      {hasChildren && isExpanded && !isCollapsed && (
+        <ul className="mt-1 animate-slide-down space-y-1" id={submenuId}>
+          {children.map((child, index) => (
+            <DrawerMenuItem
+              activeItem={activeItem}
+              isCollapsed={isCollapsed}
+              item={child}
+              key={childKeys[index]}
+              level={level + 1}
+            />
+          ))}
+        </ul>
       )}
     </li>
   );
 }
 
 interface DrawerSkeletonProps {
+  /** Placeholders for the icons only. */
   isCollapsed?: boolean;
 }
 

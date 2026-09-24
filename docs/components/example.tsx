@@ -1,19 +1,48 @@
 import { ChevronDown, Code } from "lucide-react";
-import { useState } from "react";
+import { use, useState } from "react";
 import { cn, ErrorBoundary } from "components-ui";
 import CodeBlock from "./code-block";
 import { slugify } from "./slugify";
 
+// Every example and its source is a small chunk of its own, loaded only by
+// the pages that show it
 const modules = import.meta.glob<{ default: React.ComponentType }>(
   "../examples/**/*.tsx",
-  { eager: true },
 );
 
 const sources = import.meta.glob<string>("../examples/**/*.tsx", {
-  eager: true,
   import: "default",
   query: "?raw",
 });
+
+interface LoadedExample {
+  Demo: React.ComponentType;
+  source: string;
+}
+
+const loadedExamples = new Map<string, Promise<LoadedExample>>();
+
+/** The component and the source of an example - requested once, together. */
+function loadExample(name: string) {
+  const key = `../examples/${name}.tsx`;
+  const loadModule = modules[key];
+  const loadSource = sources[key];
+
+  if (!loadModule || !loadSource) {
+    throw new Error(`Example "${name}" not found in docs/examples`);
+  }
+
+  let example = loadedExamples.get(key);
+
+  if (!example) {
+    example = Promise.all([loadModule(), loadSource()]).then(
+      ([module, source]) => ({ Demo: module.default, source }),
+    );
+    loadedExamples.set(key, example);
+  }
+
+  return example;
+}
 
 interface ExampleProps {
   /** Classes of the preview area, e.g. a minimum height. */
@@ -37,18 +66,14 @@ export default function Example({
   name,
   title,
 }: ExampleProps) {
-  const key = `../examples/${name}.tsx`;
-  const Demo = modules[key]?.default;
-  const source = sources[key] ?? "";
+  // Suspends up to the page, which then appears with all its examples at
+  // once - nothing jumps as they arrive
+  const { Demo, source } = use(loadExample(name));
 
   // Short examples show their code right away, long ones on request
   const [showCode, setShowCode] = useState(
     () => !(collapsed ?? source.split("\n").length > 45),
   );
-
-  if (!Demo) {
-    throw new Error(`Example "${name}" not found in docs/examples`);
-  }
 
   return (
     <section className="my-8">
@@ -76,7 +101,7 @@ export default function Example({
         <div className="border-t border-neutral-200 dark:border-neutral-800">
           <button
             aria-expanded={showCode}
-            className="flex w-full items-center gap-1.5 px-4 py-2 text-left text-xs font-medium text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+            className="flex w-full items-center gap-1.5 px-4 py-2 text-left text-xs font-medium text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
             onClick={() => setShowCode((value) => !value)}
             type="button"
           >

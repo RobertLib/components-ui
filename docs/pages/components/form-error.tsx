@@ -12,7 +12,9 @@ export default function FormErrorPage() {
           <p>
             All fields render it for their <code>error</code> prop. Use it on
             its own for errors that belong to no single field, e.g. the{" "}
-            <code>getBaseError()</code> of a server response.
+            <code>getBaseError()</code> of a server response. For a control of
+            your own, <code>Field</code> renders it together with the label and
+            a <code>FormDescription</code>, with the ids connected.
           </p>
         </Prose>
       </Section>

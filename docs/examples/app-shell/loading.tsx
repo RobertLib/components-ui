@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Drawer, DrawerProvider } from "components-ui";
+import { Button, Drawer, DrawerProvider, Navbar } from "components-ui";
 import DemoRouter from "../../lib/demo-router";
 
 // While the menu depends on data that is still loading (permissions, …)
@@ -26,6 +26,9 @@ export default function Loading() {
               { href: "/reports", label: "Reports" },
             ]}
           />
+          {/* Its toggle collapses the drawer - and slides it in on phones,
+              where it starts closed */}
+          <Navbar />
         </DrawerProvider>
       </div>
     </DemoRouter>

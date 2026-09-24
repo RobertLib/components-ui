@@ -3,7 +3,7 @@ import Pagination, {
   type PaginationDirection,
 } from "../pagination";
 import Select from "../select";
-import { resetPagination, type DataTableQuery } from "./query";
+import { isSameFilters, resetPagination, type DataTableQuery } from "./query";
 import { useMessages } from "../../providers/ui-context";
 
 interface TableFooterProps {
@@ -11,9 +11,13 @@ interface TableFooterProps {
   loading?: boolean;
   /** The page actually shown - may differ from `query.page` client-side. */
   page: number;
+  /** Cursor pagination: the `pageInfo` of the connection. */
   pageInfo?: PageInfo;
+  /** Choices of the "rows per page" select. */
   pageSizeOptions: number[];
+  /** The current query - its page size and cursors. */
   query: DataTableQuery;
+  /** Number of rows matching the query (offset pagination). */
   total?: number;
   /** Changes the query - builds on the latest one, not on `query`. */
   updateQuery: (update: (current: DataTableQuery) => DataTableQuery) => void;
@@ -58,6 +62,22 @@ export function TableFooter({
     direction: PaginationDirection,
     cursor?: string,
   ) => {
+    // Where a move starts from - the latest query, which a slow router or a
+    // filter change on the way may not show yet. The shown `page` while that
+    // is the page of `query` (client-side it is clamped to the rows), and
+    // always for a cursor, which continues from the shown page. `total`
+    // bounds the latest query only while it counts the same rows.
+    const startOf = (current: DataTableQuery) => ({
+      from: cursor || current.page === query.page ? page : current.page,
+      last:
+        cursor ||
+        (current.pageSize === query.pageSize &&
+          current.search === query.search &&
+          isSameFilters(current.filters, query.filters))
+          ? lastPage
+          : undefined,
+    });
+
     const toFirstPage = (current: DataTableQuery) => ({
       ...current,
       after: null,
@@ -76,21 +96,33 @@ export function TableFooter({
         updateQuery(toFirstPage);
         break;
       case "prev":
-        updateQuery((current) => ({
-          ...current,
-          after: null,
-          before: cursor ?? null,
-          // From past the end straight to the last page
-          page: Math.max(1, Math.min(page - 1, lastPage ?? page)),
-        }));
+        updateQuery((current) => {
+          const { from, last } = startOf(current);
+
+          return {
+            ...current,
+            after: null,
+            before: cursor ?? null,
+            // From past the end straight to the last page
+            page: Math.max(1, Math.min(from - 1, last ?? from)),
+          };
+        });
         break;
       case "next":
-        updateQuery((current) => ({
-          ...current,
-          after: cursor ?? null,
-          before: null,
-          page: page + 1,
-        }));
+        updateQuery((current) => {
+          const { from, last } = startOf(current);
+
+          return {
+            ...current,
+            after: cursor ?? null,
+            before: null,
+            // Not past the end - a cursor goes where `pageInfo` says
+            page:
+              cursor || last === undefined
+                ? from + 1
+                : Math.min(from + 1, last),
+          };
+        });
         break;
       case "last":
         updateQuery((current) => ({

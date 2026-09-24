@@ -16,9 +16,11 @@ docs/                    this documentation site (not published)
 dist/                    the built package (npm run build:lib)`;
 
 const scripts = `npm run dev          # the docs with hot reload - http://localhost:5173
-npm run check        # type check + lint + tests
+npm run check        # type check, lint, tests and formatting - what CI runs
+npm run lint         # oxlint and the React Compiler check
 npm test             # the unit and component tests (Vitest)
-npm run build:lib    # the package: dist/index.js, dist/styles.css, dist/types
+npm run format       # Prettier, with Tailwind class sorting
+npm run build:lib    # the package: dist/ (a module per source file), styles.css, types
 npm run build:docs   # the docs as a static site in dist-docs/`;
 
 const newComponent = `// src/components/badge.tsx
@@ -58,6 +60,14 @@ export default function ContributingGuide() {
 
       <Section title="Scripts">
         <CodeBlock code={scripts} plain />
+        <Prose>
+          <p>
+            <code>npm run check</code> runs the type check (<code>tsc -b</code>{" "}
+            - the library and these docs), the lint (oxlint and the React
+            Compiler check), the tests and <code>prettier --check</code>. Run{" "}
+            <code>npm run format</code> before committing.
+          </p>
+        </Prose>
       </Section>
 
       <Section title="Adding a component">

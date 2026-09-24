@@ -17,6 +17,7 @@ export default function DatePicker({
   ...props
 }: CustomPickerProps) {
   const locale = useLocale();
+  const messages = locale.messages.dateTimePicker;
   const {
     close,
     contentRef,
@@ -24,14 +25,14 @@ export default function DatePicker({
     isOpen,
     onOpenChange,
     openedByKeyboard,
-  } = usePickerPopup();
+  } = usePickerPopup(!props.disabled && !props.readOnly);
 
   const selectedDate = parseISODate(value);
 
   return (
     <PickerField
       {...props}
-      ariaLabel={props.ariaLabel ?? locale.messages.dateTimePicker.openCalendar}
+      ariaLabel={props.ariaLabel ?? messages.openCalendar}
       contentRef={contentRef}
       displayValue={
         selectedDate ? formatDate(selectedDate, locale.formats.date) : ""
@@ -48,6 +49,7 @@ export default function DatePicker({
         return typed && isInRange(typed, min, max) ? typed : null;
       }}
       placeholder={placeholder}
+      popupLabel={messages.selectDate}
       value={value}
     >
       <DayGrid

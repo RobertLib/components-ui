@@ -11,6 +11,8 @@ export default function Basic() {
         Opens on hover, closes when the pointer leaves.
       </Popover>
       <Popover
+        // The Button is the trigger itself - no button wrapped around it
+        buttonTrigger
         contentClassName="p-3 text-sm"
         position="bottom"
         trigger={<Button variant="outline">Click me</Button>}

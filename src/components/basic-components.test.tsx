@@ -39,7 +39,7 @@ describe("Button", () => {
     );
 
     const link = screen.getByRole("link", { name: "New user" });
-    expect(link).toHaveAttribute("href", "/users/new");
+    expect(link).not.toHaveAttribute("href");
     expect(link).toHaveAttribute("aria-disabled", "true");
 
     await user.click(link);
@@ -190,11 +190,11 @@ describe("Spinner", () => {
     rerender(
       <UIProvider locale={cs}>
         <Spinner />
-        <Spinner label="Ukládání..." />
+        <Spinner label="Ukládání…" />
       </UIProvider>,
     );
     const [loading, saving] = screen.getAllByRole("status");
-    expect(loading).toHaveTextContent("Načítání...");
-    expect(saving).toHaveTextContent("Ukládání...");
+    expect(loading).toHaveTextContent("Načítání…");
+    expect(saving).toHaveTextContent("Ukládání…");
   });
 });

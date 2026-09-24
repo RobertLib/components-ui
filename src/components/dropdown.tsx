@@ -1,96 +1,80 @@
 import { isValidElement, useId, useRef, useState } from "react";
-import cn from "../utils/cn";
+import MenuList, { type MenuListHandle } from "./menu/menu-list";
 import Popover from "./popover";
 import { getNextTabbable, getTabbableElements } from "../utils/tabbable";
-import { useRouter } from "../providers/ui-context";
+import type { DropdownEntry } from "./menu/types";
 
-export interface DropdownItem {
-  /** Renders the item as a link. */
-  href?: string;
-  label: string;
-  /** Called when the item is picked. */
-  onClick?: () => void;
-}
+export type {
+  DropdownEntry,
+  DropdownGroup,
+  DropdownItem,
+  DropdownRadioGroup,
+  DropdownRadioOption,
+  DropdownSeparator,
+} from "./menu/types";
 
 export interface DropdownProps extends React.ComponentProps<"div"> {
   /**
-   * Menu entries - `DropdownItem`s, or any element for custom content. The
+   * `trigger` is a button itself - a `Button`, an `IconButton`: it becomes
+   * the menu button (`aria-expanded`, the focus, the `aria-*` props given
+   * to the dropdown) instead of a button wrapped around it.
+   */
+  buttonTrigger?: boolean;
+  /**
+   * Menu entries - `DropdownItem`s (commands, links, checkboxes, submenus),
+   * `{ type: "group" }` items under a heading, `{ type: "radio" }` options,
+   * `{ type: "separator" }` lines, or any element for custom content. The
    * arrow keys also stop at custom content with a control (a switch, a
    * button) and give that control the focus. `null` / `false` entries are
    * skipped, so `cond && item` works.
    */
-  items: (DropdownItem | React.ReactNode)[];
+  items: DropdownEntry[];
+  /** Called when the menu opens or closes. */
+  onOpenChange?: (open: boolean) => void;
   /** The element that opens the menu on click. */
   trigger: React.ReactNode;
 }
 
-const isDropdownItem = (item: unknown): item is DropdownItem =>
-  !isValidElement(item) &&
-  typeof item === "object" &&
-  item !== null &&
-  "label" in item;
-
-// Keeps the focus where it is (on the menu or the trigger) when an item is
-// clicked, so it is not lost with the closing menu
-const keepFocus = (event: React.MouseEvent) => event.preventDefault();
-
-/** A menu opened by clicking its trigger, navigable with the arrow keys. */
+/**
+ * A menu opened by clicking its trigger, navigable with the arrow keys,
+ * Home / End and typed letters; Enter or Space picks an item. Opened from
+ * the keyboard (ArrowDown, Enter, Space - ArrowUp for the last item), it
+ * highlights its first item. Items can have icons, shortcuts and
+ * descriptions, be checkboxes or radio options, and open submenus.
+ */
 export default function Dropdown({
+  buttonTrigger = false,
+  id,
   items,
   onKeyDown,
+  onOpenChange,
   trigger,
   ...props
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const { Link, navigate } = useRouter();
-  const menuRef = useRef<HTMLUListElement>(null);
-  const triggerRef = useRef<HTMLDivElement>(null);
+  // Opened from the keyboard, the menu highlights its first (or last) item
+  // once it is in the page - opened with the mouse, none
+  const [highlight, setHighlight] = useState<"first" | "last" | null>(null);
+  const menuRef = useRef<MenuListHandle>(null);
 
-  const itemStyles =
-    "block w-full text-sm text-left px-4 py-1.25 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus:bg-neutral-100 dark:focus:bg-neutral-800 transition-colors";
+  const generatedId = useId();
+  const menuId = `dropdown-menu-${generatedId}`;
+  const triggerId = id ?? `dropdown-trigger-${generatedId}`;
+  // The menu is named by its button - a button given as the trigger keeps
+  // an id of its own
+  const buttonId =
+    buttonTrigger && isValidElement<{ id?: string }>(trigger)
+      ? trigger.props.id
+      : undefined;
 
-  const id = useId();
-  const menuId = `dropdown-menu-${id}`;
-  const itemId = (index: number) => `${menuId}-item-${index}`;
-
-  const validItems = items.filter(
-    (item) => item !== null && item !== undefined && item !== false,
-  );
-
-  // The first control of custom content, e.g. a switch
-  const controlOf = (index: number) =>
-    getTabbableElements(menuRef.current?.children[index])[0];
-
-  // The arrow keys move between the items and the custom content with a
-  // control, past plain content like headings
-  const navigableIndexes = () =>
-    validItems.flatMap((item, index) =>
-      isDropdownItem(item) || controlOf(index) ? [index] : [],
-    );
-
-  const changeOpen = (next: boolean) => {
-    // The menu has the focus once the arrow keys moved into it - give it
-    // back to the trigger (the popover's wrapper) before the menu goes
-    if (!next && menuRef.current?.contains(document.activeElement)) {
-      triggerRef.current?.parentElement?.focus();
-    }
+  // The popover gives the focus in the closing menu back to the trigger
+  const changeOpen = (
+    next: boolean,
+    highlightOnOpen: "first" | "last" | null,
+  ) => {
     setOpen(next);
-    // Every opening starts without a highlighted item
-    setActiveIndex(-1);
-  };
-
-  const moveTo = (index: number | undefined) => {
-    if (index === undefined) return;
-    setActiveIndex(index);
-
-    if (isDropdownItem(validItems[index])) {
-      // The focused menu announces its active item (aria-activedescendant)
-      menuRef.current?.focus({ preventScroll: true });
-    } else {
-      // Custom content takes the focus itself and handles its own keys
-      controlOf(index)?.focus();
-    }
+    setHighlight(highlightOnOpen);
+    if (next !== open) onOpenChange?.(next);
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -99,164 +83,96 @@ export default function Dropdown({
     if (event.defaultPrevented) return;
 
     if (!open) {
+      // Opened from the keyboard, the menu highlights its first item - its
+      // last one with ArrowUp - once it is in the page
       if (
         event.key === "ArrowDown" ||
+        event.key === "ArrowUp" ||
         event.key === "Enter" ||
         event.key === " "
       ) {
         event.preventDefault();
-        changeOpen(true);
+        changeOpen(true, event.key === "ArrowUp" ? "last" : "first");
       }
       // Other keys are left to the page - Escape closes a Dialog around
       return;
     }
 
-    // Enter and Space on the trigger keep the open menu open - Enter picks
-    // the highlighted item, if any. Custom content in the menu (a portal
-    // outside the trigger) handles its keys itself.
+    // The keys of the menu (a portal outside the trigger) reach here too,
+    // also those of its submenus
     const onTrigger = event.currentTarget.contains(event.target as Node);
-    if (onTrigger && (event.key === "Enter" || event.key === " ")) {
-      event.preventDefault();
-    }
 
-    switch (event.key) {
-      case "Escape":
-        event.preventDefault();
-        event.stopPropagation();
-        changeOpen(false);
-        break;
-      case "ArrowDown":
-        event.preventDefault();
-        moveTo(navigableIndexes().find((index) => index > activeIndex));
-        break;
-      case "ArrowUp":
-        event.preventDefault();
-        moveTo(navigableIndexes().findLast((index) => index < activeIndex));
-        break;
-      case "Enter": {
-        // A control in custom content handles its Enter itself
-        const selectedItem = validItems[activeIndex];
+    if (event.key === "Tab") {
+      // The focus moves on from the trigger, not from the menu at the end
+      // of the page
+      const wrapper = event.currentTarget;
+      const triggerElement = buttonTrigger
+        ? getTabbableElements(wrapper)[0]
+        : wrapper;
+      changeOpen(false, null);
 
-        if (isDropdownItem(selectedItem)) {
-          event.preventDefault();
-          selectedItem.onClick?.();
-          if (selectedItem.href) navigate(selectedItem.href);
-          changeOpen(false);
-        }
-        break;
-      }
-      case "Tab": {
-        // The focus moves on from the trigger, not from the menu at the end
-        // of the page
-        const wrapper = event.currentTarget;
-        const menu = menuRef.current;
-        changeOpen(false);
+      if (!event.shiftKey) {
         // Past the menu to what follows the trigger - handled here, so the
         // popover does not move the focus into the closing menu
-        if (!event.shiftKey) {
-          event.preventDefault();
-          (getNextTabbable(wrapper, menu) ?? wrapper).focus();
-        }
-        break;
+        event.preventDefault();
+        (
+          getNextTabbable(wrapper, document.getElementById(menuId)) ??
+          triggerElement
+        )?.focus();
+      } else if (!onTrigger) {
+        // From the menu back to the trigger - not to the end of the page,
+        // where the menu is
+        event.preventDefault();
+        triggerElement?.focus();
       }
-      default:
-        break;
+      return;
+    }
+
+    // Escape is left to the popover: it closes the topmost overlay only and
+    // gives the focus in the menu back to the trigger. The keys pressed on
+    // the trigger move through the menu - Enter and Space keep the open
+    // menu open and pick the highlighted item, if any.
+    if (onTrigger) {
+      if (event.key === "Enter" || event.key === " ") event.preventDefault();
+      menuRef.current?.handleTriggerKeyDown(event);
     }
   };
-
-  const activeItem = validItems[activeIndex];
-
-  const dropdownMenu = (
-    <ul
-      aria-activedescendant={
-        isDropdownItem(activeItem) ? itemId(activeIndex) : undefined
-      }
-      aria-orientation="vertical"
-      className="min-w-48 focus:outline-none"
-      id={menuId}
-      ref={menuRef}
-      role="menu"
-      tabIndex={-1}
-    >
-      {validItems.map((item, index) => {
-        const isActive = index === activeIndex;
-
-        return (
-          <li
-            className="m-1"
-            key={index}
-            onMouseEnter={() => setActiveIndex(index)}
-            role={isDropdownItem(item) ? "none" : undefined}
-          >
-            {isDropdownItem(item) ? (
-              item.href ? (
-                <Link
-                  className={cn(
-                    itemStyles,
-                    isActive && "bg-neutral-100 dark:bg-neutral-800",
-                  )}
-                  href={item.href}
-                  id={itemId(index)}
-                  onClick={() => {
-                    item.onClick?.();
-                    changeOpen(false);
-                  }}
-                  onMouseDown={keepFocus}
-                  role="menuitem"
-                >
-                  {item.label}
-                </Link>
-              ) : (
-                <button
-                  className={cn(
-                    itemStyles,
-                    isActive && "bg-neutral-100 dark:bg-neutral-800",
-                  )}
-                  id={itemId(index)}
-                  onClick={() => {
-                    item.onClick?.();
-                    changeOpen(false);
-                  }}
-                  onMouseDown={keepFocus}
-                  role="menuitem"
-                  type="button"
-                >
-                  {item.label}
-                </button>
-              )
-            ) : (
-              (item as React.ReactNode)
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
 
   return (
     <Popover
       align="right"
       aria-controls={open ? menuId : undefined}
-      contentClassName="mt-2.5"
-      onOpenChange={changeOpen}
+      buttonTrigger={buttonTrigger}
+      // Up to 24rem before it scrolls - held to the room on its side
+      contentClassName="mt-2.5 max-h-96"
+      id={triggerId}
+      onOpenChange={(next) => changeOpen(next, null)}
       open={open}
       // The menu itself is the popup - no unnamed dialog around it
       popupRole="menu"
       position="bottom"
       trigger={
-        <div
-          className="rounded-md p-1 leading-none transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800"
-          ref={triggerRef}
-        >
-          {trigger}
-        </div>
+        buttonTrigger ? (
+          trigger
+        ) : (
+          <div className="rounded-md p-1 leading-none transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800">
+            {trigger}
+          </div>
+        )
       }
       triggerType="click"
       width="auto"
       {...props}
       onKeyDown={handleKeyDown}
     >
-      {dropdownMenu}
+      <MenuList
+        aria-labelledby={buttonId ?? triggerId}
+        entries={items}
+        id={menuId}
+        initialFocus={highlight}
+        onClose={() => changeOpen(false, null)}
+        ref={menuRef}
+      />
     </Popover>
   );
 }

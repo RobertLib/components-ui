@@ -1,32 +1,55 @@
 import { useId } from "react";
 import cn from "../utils/cn";
+import FormDescription from "./form-description";
 import FormError from "./form-error";
+import { useCheckedControl } from "../hooks/use-form-control";
 
 export interface CheckboxProps extends Omit<
   React.ComponentProps<"input">,
   "type"
 > {
+  /**
+   * Classes of the checkbox `<input>` itself - not of the wrapper around it,
+   * its label, description or error message.
+   */
+  className?: string;
   /** Secondary text under the label. */
-  description?: string;
+  description?: React.ReactNode;
   /** Validation message - also marks the checkbox as invalid. */
   error?: string;
+  /**
+   * Shows the checkbox as partly checked - e.g. a "select all" of a partly
+   * selected list; assistive technology announces it as "mixed". A click
+   * clears it like on a native checkbox: the checkbox turns checked or
+   * unchecked, and the next render with `indeterminate` brings it back.
+   */
+  indeterminate?: boolean;
+  /** Text of the `<label>` next to the checkbox. */
   label?: string;
 }
 
 /**
  * A checkbox with a label and an optional description. Works controlled
  * (`checked` + `onChange`) and uncontrolled (`defaultChecked`) like a native
- * one - `form.reset()` brings back `defaultChecked`.
+ * one - `form.reset()` brings back `defaultChecked` and leaves a controlled
+ * checkbox as `checked` says. `indeterminate` shows a partly checked state.
  */
 export default function Checkbox({
   className,
   description,
   error,
   id,
+  indeterminate,
   label,
+  ref,
   required,
   ...props
 }: CheckboxProps) {
+  const checkboxRef = useCheckedControl({
+    checked: props.checked,
+    indeterminate,
+    ref,
+  });
   const generatedId = useId();
   const checkboxId = id ?? generatedId;
   const errorId = error ? `${checkboxId}-error` : undefined;
@@ -48,9 +71,10 @@ export default function Checkbox({
             descriptionId,
             props["aria-describedby"],
           )}
-          aria-invalid={error ? "true" : undefined}
-          aria-required={required ? "true" : undefined}
+          aria-invalid={error ? "true" : props["aria-invalid"]}
+          aria-required={required ? "true" : props["aria-required"]}
           id={checkboxId}
+          ref={checkboxRef}
           required={required}
           type="checkbox"
         />
@@ -63,17 +87,20 @@ export default function Checkbox({
                 htmlFor={checkboxId}
               >
                 {label}
-                {required && <span className="ml-1 text-danger-500">*</span>}
+                {/* The star is for the eye - `required` tells assistive technology */}
+                {required && (
+                  <span
+                    aria-hidden="true"
+                    className="ml-1 text-danger-700 dark:text-danger-400"
+                  >
+                    *
+                  </span>
+                )}
               </label>
             )}
-            {description && (
-              <p
-                className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400"
-                id={descriptionId}
-              >
-                {description}
-              </p>
-            )}
+            <FormDescription className="mt-0.5" id={descriptionId}>
+              {description}
+            </FormDescription>
           </div>
         )}
       </div>

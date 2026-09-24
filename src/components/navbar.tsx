@@ -1,7 +1,7 @@
 import { Loader, Menu, PanelLeft, PanelLeftClose } from "lucide-react";
 import Avatar from "./avatar";
 import cn from "../utils/cn";
-import Dropdown, { type DropdownItem } from "./dropdown";
+import Dropdown, { type DropdownEntry } from "./dropdown";
 import IconButton from "./icon-button";
 import useIsMobile from "../hooks/use-is-mobile";
 import { useDrawer } from "../providers/drawer-context";
@@ -12,8 +12,12 @@ export interface NavbarUser {
   avatarUrl?: string;
   /** Second line under the name, e.g. the role. */
   description?: React.ReactNode;
-  /** Items of the menu opened by clicking the user, e.g. "Log out". */
-  menuItems?: (DropdownItem | React.ReactNode)[];
+  /**
+   * Entries of the menu opened by clicking the user, e.g. "Log out" - the
+   * items of `Dropdown`, also separators, groups and submenus.
+   */
+  menuItems?: DropdownEntry[];
+  /** Name of the user, next to the avatar. */
   name: string;
 }
 
@@ -40,40 +44,54 @@ export default function Navbar({
   className,
   loading = false,
   noDrawerToggle = false,
+  ref,
   user,
   ...props
 }: NavbarProps) {
-  const { isCollapsed, toggleCollapsed, toggleOpen } = useDrawer();
+  const { isCollapsed, isOpen, toggleCollapsed, toggleOpen } = useDrawer();
   const isMobile = useIsMobile();
   const messages = useMessages();
 
+  // The name is written out next to the avatar - the avatar (its picture's
+  // alt text, its title) would name the user a second time
   const userInfo = user && (
     <div className="flex items-center gap-2.5">
-      <Avatar name={user.name} size="md" src={user.avatarUrl} />
+      <Avatar
+        aria-hidden="true"
+        name={user.name}
+        size="md"
+        src={user.avatarUrl}
+      />
       <div className="-my-1 text-left">
-        {user.name}
+        <div>{user.name}</div>
         {user.description && (
-          <>
-            <br />
-            <span className="text-sm text-primary-500">{user.description}</span>
-          </>
+          <div className="text-sm text-primary-600 dark:text-primary-400">
+            {user.description}
+          </div>
         )}
       </div>
     </div>
   );
 
   return (
+    // The header is the landmark - the bar holds a toggle, a user menu and
+    // the content of the app, not a navigation of its own (the Drawer and
+    // the Breadcrumbs in it are named ones)
     <header className="navbar sticky top-0 z-20 bg-surface dark:bg-surface-dark">
-      <nav
+      <div
         {...props}
         className={cn(
           "flex items-center justify-between gap-4 border-b border-neutral-100 px-4 py-3 dark:border-neutral-900",
           className,
         )}
+        // The props are typed for any `HTMLElement` - a div is one
+        ref={ref as React.Ref<HTMLDivElement>}
       >
         <div className="flex min-w-0 items-center gap-4">
           {!noDrawerToggle && (
             <IconButton
+              // Slid in on phones, not collapsed to icons on desktop
+              aria-expanded={isMobile ? isOpen : !isCollapsed}
               aria-label={
                 isMobile
                   ? messages.navbar.toggleMenu
@@ -95,7 +113,7 @@ export default function Navbar({
         {loading ? (
           <Loader
             aria-hidden="true"
-            className="animate-spin text-neutral-500"
+            className="animate-spin text-neutral-500 dark:text-neutral-400"
             size={20}
           />
         ) : (
@@ -109,7 +127,7 @@ export default function Navbar({
               ))}
           </div>
         )}
-      </nav>
+      </div>
     </header>
   );
 }

@@ -77,10 +77,15 @@ export default function DataTablePage() {
             Sorting, column filters (text, select, date), the global search,
             paging, an actions column and the column settings - reorder by
             dragging or with the arrow keys on a handle, hide, pin to the left
-            or right, all remembered under <code>tableId</code>. Text matches
-            ignore case and diacritics and are highlighted; dates and booleans
-            without a <code>render</code> show by the locale (
-            <code>24.09.2026</code>, "Yes").
+            or right, all remembered under <code>tableId</code> like the column
+            widths (drag the edge of a header) and the row density (the rows
+            icon in the toolbar). Text matches ignore case and diacritics and
+            are highlighted; dates and booleans without a <code>render</code>{" "}
+            show by the locale (<code>24.09.2026</code>, "Yes"), lists as{" "}
+            <code>alpha, beta</code>. Numbers stored as strings (
+            <code>"-3.50"</code>) sort by their value. The full screen button
+            covers the page - Escape or the button leave it, and Tab stays in
+            the table meanwhile.
           </p>
         }
         name="data-table/client-side"
@@ -93,10 +98,13 @@ export default function DataTablePage() {
             <code>groupActions</code> adds a checkbox column and buttons acting
             on the selected rows. With <code>filteredSelection</code>, selecting
             a whole page offers selecting every row matching the filters - the
-            action then gets <code>allFiltered: true</code> and should act on
-            the query rather than on the loaded rows. With{" "}
-            <code>autoResetSelectedRows</code> only the rows the action got are
-            deselected - rows picked while it ran stay selected.
+            action then gets <code>allFiltered: true</code>: a{" "}
+            <code>clientSide</code> table gives it all the matching rows, with
+            server data it should act on the <code>query</code> it gets rather
+            than on the loaded rows. With <code>autoResetSelectedRows</code>{" "}
+            only the rows the action got are deselected - rows picked while it
+            ran stay selected. A refetch keeps the selected rows that are still
+            there.
           </p>
         }
         name="data-table/selection"
@@ -131,6 +139,156 @@ export default function DataTablePage() {
         name="data-table/url-state"
         title="State in the URL"
       />
+      <Example
+        collapsed
+        description={
+          <p>
+            Drag the edge of a column header to resize the column - also by
+            touch - or focus the handle and use the arrow keys (Shift for bigger
+            steps), Home and End for the limits; a double-click or Enter brings
+            back the column&apos;s own <code>width</code>. <code>minWidth</code>{" "}
+            / <code>maxWidth</code> limit the resizing,{" "}
+            <code>resizable: false</code> turns it off for a column and{" "}
+            <code>resizableColumns={"{false}"}</code> for the table.{" "}
+            <code>pinned: "left"</code> or <code>"right"</code> sticks a column
+            to an edge while the table scrolls sideways, and users pin and unpin
+            columns in the column menu. Pinned columns stick after the
+            selection, expand and actions columns and cast a shadow over the
+            columns scrolled under them; on a narrow screen, where they would
+            cover more than half of the table, they scroll along - a pinned
+            column is resized only as far as they still stick. Widths and pins
+            are remembered under <code>tableId</code> - "Reset columns" forgets
+            them.
+          </p>
+        }
+        name="data-table/column-layout"
+        title="Column widths and pinning"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            <code>density</code> sets the height of the rows -{" "}
+            <code>compact</code>, <code>normal</code> (the default) or{" "}
+            <code>comfortable</code>. Users switch it with the rows icon in the
+            toolbar, and the choice is remembered under <code>tableId</code>;{" "}
+            <code>densityControl={"{false}"}</code> leaves the control out.
+          </p>
+        }
+        name="data-table/density"
+        title="Row density"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            The cells of <code>editable</code> columns are edited in place - all
+            of them, or those of the rows a function accepts. The field follows
+            the value: a text field, a number field, a select for columns with{" "}
+            <code>editorOptions</code> (or a <code>select</code> filter), a date
+            picker for dates and a checkbox for booleans - <code>editor</code>{" "}
+            picks one, <code>renderEditor</code> builds your own.{" "}
+            <code>validate</code> keeps an invalid value in the field with its
+            message. <code>onCellEdit(row, columnKey, value)</code> saves the
+            value: while its promise is pending the cell shows the new value
+            with a spinner, and when it rejects the cell shows its old value
+            with the message of the error - try a name with "error" in it, also
+            after an optimistic update of <code>data</code>. Update{" "}
+            <code>data</code> with the saved value. While a cell is edited the
+            rows keep their places: sort by name and rename a person - the row
+            moves once the editing ends, not while its next cell is edited.
+            Another page, sorting or filter ends the editing. A field left as it
+            was saves nothing - also when a refetch changed the cell meanwhile,
+            so another user&apos;s change is not overwritten. A number field
+            refuses text that is no number instead of emptying the cell. An
+            empty cell is edited in the field the other values of its column
+            need; set <code>editor</code> for a column that may be all empty.
+          </p>
+        }
+        name="data-table/inline-editing"
+        title="Inline editing"
+      />
+      <Callout title="Keyboard and screen readers">
+        <p>
+          Editable cells are tab stops, described as editable. Enter or F2 - or
+          a double-click, on a touch screen a tap on the focused cell - starts
+          editing, Enter saves, Escape cancels, Tab saves and edits the next
+          editable cell (Shift + Tab the previous one), and moving the focus
+          elsewhere saves too. Enter and Escape in an open date picker are the
+          picker&apos;s. Messages of validation and of failed saves are
+          announced. Column resize handles are separators with their width in
+          pixels: the arrow keys resize, Home / End go to the limits, Enter
+          brings back the column&apos;s width. The focus moving into the
+          toolbar, a sort button or a filter field does not scroll the rows, and
+          another page, sorting or filter shows them from the top. "Clear
+          filters", "Reset columns" and the paging buttons keep the focus when
+          pressing them leaves nothing more to do.
+        </p>
+      </Callout>
+      <Example
+        collapsed
+        description={
+          <p>
+            <code>summary</code> adds a column to the summary row:{" "}
+            <code>sum</code>, <code>avg</code>, <code>min</code> and{" "}
+            <code>max</code> of the numbers (<code>min</code> / <code>max</code>{" "}
+            also of dates), <code>count</code> of the rows, or a function of the
+            rows rendering anything. A <code>clientSide</code> table sums up all
+            rows matching the filters, not just the page. With server data pass
+            the server&apos;s values in <code>summaryValues</code>, as the{" "}
+            <Link to="/guides/data-fetching">REST &amp; GraphQL</Link> tables do
+            - without them the loaded rows are summed up. Numbers and dates are
+            written by the locale, and the row sticks to the bottom of a table
+            that scrolls.
+          </p>
+        }
+        name="data-table/summary"
+        title="Summary row"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            <code>enableCsvExport</code> adds a download button to the toolbar.
+            It exports every page of what the user sees: the rows matching the
+            filters in their order, the visible columns in theirs, the values as
+            the cells show them without a <code>render</code> - dates and
+            booleans by the locale; <code>exportValue</code> gives a column
+            another value, e.g. the text of a chip. The file is UTF-8 with a BOM
+            and separated by <code>;</code> for languages writing a decimal
+            comma, so that a Czech Excel opens it in columns, and by{" "}
+            <code>,</code> otherwise (<code>csvSeparator</code>). Texts with
+            either separator are quoted, and a text a spreadsheet would take for
+            a formula (also after spaces) gets a leading <code>&apos;</code>.
+            With server data <code>onExport(query)</code> returns all rows of
+            the query (see the REST &amp; GraphQL tables) - the button shows a
+            spinner meanwhile. <code>createCsv</code> and{" "}
+            <code>downloadCsv</code> export rows of your choice - here the
+            selected ones.
+          </p>
+        }
+        name="data-table/csv-export"
+        title="CSV export"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            <code>virtualized</code> renders only the rows in view of the
+            scrolling table (<code>maxHeight</code>) and some above and below
+            them - here 10 000 rows without pagination. Rows are measured, so
+            expanded details may have any height; the header and the summary row
+            stick, selection, sorting, the filters and the search cover all
+            rows, the row with the focus stays rendered while it is scrolled
+            away, and screen readers learn the number and position of the rows (
+            <code>aria-rowcount</code>, <code>aria-rowindex</code>). The columns
+            take their widths from the rows shown first and keep them while the
+            table scrolls - resize a column whose values do not fit.
+          </p>
+        }
+        name="data-table/virtualized"
+        title="10 000 rows"
+      />
 
       <Section title="Server-side data">
         <CodeBlock code={serverSide} />
@@ -148,9 +306,37 @@ export default function DataTablePage() {
             </code>
             . Pass <code>loading</code> while a page loads: the pagination waits
             for it (and in cursor mode for the new <code>pageInfo</code>
-            ), so a quick second click does not page from the old cursors.
+            ), so a quick second click does not page from the old cursors. End
+            it when a request fails too - the tables on the{" "}
+            <Link to="/guides/data-fetching">REST &amp; GraphQL</Link> page show
+            the error with a retry.
           </p>
         </Callout>
+      </Section>
+
+      <Section title="Filters the user can see">
+        <Prose>
+          <p>
+            Rows must not go missing because of a filter the user cannot see:
+          </p>
+          <ul>
+            <li>
+              Hiding a column in the column settings clears the filter of its
+              field.
+            </li>
+            <li>
+              A filter of a column that is hidden anyway - from the URL,{" "}
+              <code>defaultQuery</code> or the saved settings - is cleared by
+              "Clear filters", which then shows even without a visible filter
+              field.
+            </li>
+            <li>
+              Without <code>enableGlobalSearch</code> a <code>clientSide</code>{" "}
+              table ignores <code>query.search</code>. A server applies it all
+              the same, so "Clear filters" clears it there.
+            </li>
+          </ul>
+        </Prose>
       </Section>
 
       <Section title="The query">
@@ -191,6 +377,12 @@ export default function DataTablePage() {
               <code>resetPagination(query, changes)</code> - the changes the
               table makes, for filters and sorting of your own outside it
             </li>
+            <li>
+              <code>createCsv(rows, columns, {"{ locale }"})</code> and{" "}
+              <code>downloadCsv(csv, filename)</code> - the CSV export, for rows
+              of your choice; <code>getCsvSeparator(localeCode)</code> - the
+              separator a spreadsheet of the language expects
+            </li>
           </ul>
         </Prose>
       </Section>
@@ -198,8 +390,14 @@ export default function DataTablePage() {
       <Section title="Props">
         <PropsTable of="DataTable" />
         <PropsTable of="Column" />
+        <PropsTable
+          of="CellEditorProps"
+          title="CellEditorProps (renderEditor)"
+        />
         <PropsTable of="GroupAction" />
+        <PropsTable of="GroupActionSelection" />
         <PropsTable of="FilteredSelectionConfig" />
+        <PropsTable of="CsvOptions" title="createCsv options" />
         <PropsTable
           of="UseDataTableQueryOptions"
           title="useDataTableQuery options"

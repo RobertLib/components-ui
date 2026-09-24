@@ -1,72 +1,281 @@
-import { Fragment, isValidElement, useId } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import cn from "../../utils/cn";
-import HighlightedText from "./highlight";
-import IconButton from "../icon-button";
-import Popover from "../popover";
+import EdgeShadow from "./edge-shadow";
 import Spinner from "../spinner";
 import useIsMobile from "../../hooks/use-is-mobile";
-import { formatCellValue } from "./format-value";
-import { getColumnValue } from "./query";
+import useVirtualRows from "./use-virtual-rows";
+import {
+  DEFAULT_CELL_LAYOUT,
+  DENSITY_CLASSES,
+  ESTIMATED_ROW_HEIGHTS,
+  getCellStyle,
+  isSticky,
+  type CellLayout,
+} from "./cell-layout";
+import { getTabbableElements } from "../../utils/tabbable";
+import { TableRow } from "./table-row";
 import { useLocale } from "../../providers/ui-context";
-import type { Column, GroupAction, RowId } from "./types";
-
-const MAX_CELL_TEXT_LENGTH = 80;
+import type { CellChange, CellEditState } from "./editing";
+import type { Column, DataTableDensity, GroupAction, RowId } from "./types";
 
 // Fixed so the placeholder rows do not change width on every render
 const SKELETON_WIDTHS = [72, 45, 60, 38, 80, 52, 66, 30, 58, 47];
 
 interface TableBodyProps<T extends { id: RowId }> {
+  /** Content of the sticky actions cell of a row. */
   actions?: (row: T) => React.ReactNode;
-  calculatePosition: (columnKey: string, position: "left" | "right") => string;
+  /** Layouts by column key - also of `expand`, `selection` and `actions`. */
+  cellLayouts: Record<string, CellLayout>;
+  /** The changes of cells - being saved, saved or refused. */
+  cellStates: ReadonlyMap<string, CellEditState<T>>;
+  /** The rows to show. */
   data: T[];
+  /** Height of the rows. */
+  density: DataTableDensity;
+  /** Id of the text describing editable cells to screen readers. */
+  editHintId: string;
+  /** The cell being edited. */
+  editingCell: { columnKey: string; rowId: RowId } | null;
+  /** Text shown instead of the rows when there are none. */
   emptyMessage?: string;
+  /** Ids of the rows whose `renderSubRow` detail is shown. */
   expandedRows: Set<RowId>;
+  /** Column filters by column key - their terms are highlighted. */
   filters: Record<string, string>;
+  /** Background of a row (any CSS color). */
   getRowBackgroundColor?: (row: T) => string | undefined;
+  /** Extra classes of a row. */
   getRowClassName?: (row: T) => string | undefined;
+  /** A value of a column from any row - it picks the field of an empty cell. */
+  getColumnSample: (column: Column<T>) => unknown;
+  /** Group actions - each row gets a checkbox when there are some. */
   groupActions?: GroupAction<T>[];
+  /** Rows of the table header - virtualized rows count from them. */
+  headerRowCount: number;
+  /** Whether a cell can be edited. */
+  isEditable: (column: Column<T>, row: T) => boolean;
+  /** The rows are loading - placeholder rows without data, dimmed rows otherwise. */
   loading?: boolean;
-  pinnedColumns: { left: string[]; right: string[] };
+  /** Ends the editing without a change. */
+  onCancelEdit: () => void;
+  /** Ends the editing - saves a changed value. */
+  onCommitEdit: (
+    row: T,
+    column: Column<T>,
+    change: CellChange,
+    move: -1 | 0 | 1,
+  ) => boolean;
+  /** Starts editing a cell. */
+  onStartEdit: (rowId: RowId, columnKey: string) => void;
+  /** Expandable detail of a row. */
   renderSubRow?: (row: T) => React.ReactNode;
+  /** The element that scrolls the table - virtualization follows it. */
+  scrollRef: React.RefObject<HTMLElement | null>;
+  /** Term of the global search - highlighted where no column filter is. */
   search: string;
-  selectedRows: T[];
+  /** Ids of the rows whose checkbox is checked. */
+  selectedIds: ReadonlySet<RowId>;
+  /** The visible columns in the order they are shown. */
   sortedVisibleColumns: Column<T>[];
+  /** Expands or collapses the detail of a row. */
   toggleRowExpansion: (rowId: RowId) => void;
+  /** Selects or deselects a row. */
   toggleRowSelection: (row: T) => void;
+  /** Renders only the rows in view of `scrollRef`. */
+  virtualized: boolean;
 }
 
 export function TableBody<T extends { id: RowId }>({
   actions,
-  calculatePosition,
+  cellLayouts,
+  cellStates,
   data,
+  density,
+  editHintId,
+  editingCell,
   emptyMessage,
   expandedRows,
   filters,
+  getColumnSample,
   getRowBackgroundColor,
   getRowClassName,
   groupActions,
+  headerRowCount,
+  isEditable,
   loading,
-  pinnedColumns,
+  onCancelEdit,
+  onCommitEdit,
+  onStartEdit,
   renderSubRow,
+  scrollRef,
   search,
-  selectedRows,
+  selectedIds,
   sortedVisibleColumns,
   toggleRowExpansion,
   toggleRowSelection,
+  virtualized,
 }: TableBodyProps<T>) {
   const locale = useLocale();
   const { messages } = locale;
   const idPrefix = useId();
+  const bodyRef = useRef<HTMLTableSectionElement>(null);
 
   // Touch devices have no hover - long texts open on tap there
   const isMobile = useIsMobile();
 
+  const hasSelection = !!groupActions && groupActions.length > 0;
   const columnCount =
     sortedVisibleColumns.length +
     (actions ? 1 : 0) +
-    (groupActions && groupActions.length > 0 ? 1 : 0) +
+    (hasSelection ? 1 : 0) +
     (renderSubRow ? 1 : 0);
+  const densityClass = DENSITY_CLASSES[density];
+
+  // The column filter wins over the global search
+  const highlightTerms = useMemo(
+    () =>
+      Object.fromEntries(
+        sortedVisibleColumns.map((column) => [
+          column.key,
+          filters[column.key] || search,
+        ]),
+      ),
+    [filters, search, sortedVisibleColumns],
+  );
+
+  // The row with the focus stays rendered while it is scrolled out of view,
+  // so that the focus - a checkbox, a cell being edited - is not lost
+  const [focusedRowId, setFocusedRowId] = useState<RowId | null>(null);
+  const keepIndex =
+    virtualized && focusedRowId !== null
+      ? data.findIndex((row) => row.id === focusedRowId)
+      : -1;
+
+  // Where the focus is in the rows. When its row goes away - it sorted
+  // onto another page once its edit was saved, a refetch left it out - the
+  // focus moves to the same place among the rows that are there, not to the
+  // page.
+  const focusRef = useRef<{
+    cellIndex: number;
+    element: Element;
+    rowIndex: number;
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    const focus = focusRef.current;
+    const body = bodyRef.current;
+    const active = document.activeElement;
+    if (
+      !focus ||
+      !body ||
+      focus.element.isConnected ||
+      (active && active !== document.body)
+    ) {
+      return;
+    }
+
+    focusRef.current = null;
+    const rows = body.querySelectorAll<HTMLElement>("tr[data-row-index]");
+    const row =
+      body.querySelector<HTMLElement>(
+        `tr[data-row-index="${focus.rowIndex}"]`,
+      ) ?? rows[rows.length - 1];
+    const cell = row?.children[focus.cellIndex];
+    const target =
+      cell instanceof HTMLElement && cell.tabIndex >= 0
+        ? cell
+        : getTabbableElements(cell ?? row)[0];
+    target?.focus();
+  });
+
+  const { measureRef, segments, tableRowsBefore } = useVirtualRows({
+    bodyRef,
+    data,
+    enabled: virtualized,
+    estimatedHeight: ESTIMATED_ROW_HEIGHTS[density],
+    expandedRows,
+    hasSubRows: !!renderSubRow,
+    keepIndex,
+    scrollRef,
+  });
+
+  const leadingLayout = (key: string) =>
+    cellLayouts[key] ?? DEFAULT_CELL_LAYOUT;
+
+  const renderSkeletonRows = () => (
+    <>
+      <tr>
+        {/* Over the placeholder rows, positioned in the table - the toolbar
+            and the pagination stay usable, and the sticky header row paints
+            above it */}
+        <td
+          className="absolute inset-0 z-1 animate-fade-in"
+          colSpan={columnCount}
+        >
+          <div className="flex h-full w-full items-center justify-center bg-surface/30 dark:bg-surface-dark/30">
+            <Spinner className="mx-auto" />
+          </div>
+        </td>
+      </tr>
+      {Array.from({ length: 10 }).map((_, index) => (
+        <tr className="animate-fade-in" key={`skeleton-${index}`}>
+          {renderSubRow && (
+            <td
+              className="sticky w-10 bg-surface text-center dark:bg-surface-dark"
+              style={getCellStyle(null, leadingLayout("expand"), false)}
+            >
+              <div className="mx-auto h-5 w-5 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
+            </td>
+          )}
+          {hasSelection && (
+            <td
+              className={cn(
+                "sticky bg-surface px-2 dark:bg-surface-dark",
+                densityClass,
+              )}
+              style={getCellStyle(null, leadingLayout("selection"), false)}
+            >
+              <div className="h-4 w-4 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
+            </td>
+          )}
+          {actions && (
+            <td
+              className={cn(
+                "sticky z-1 bg-surface px-2 dark:bg-surface-dark",
+                densityClass,
+              )}
+              style={getCellStyle(null, leadingLayout("actions"), false)}
+            >
+              <div className="h-6 w-16 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
+            </td>
+          )}
+          {sortedVisibleColumns.map((column, colIndex) => {
+            const layout = cellLayouts[column.key] ?? DEFAULT_CELL_LAYOUT;
+
+            return (
+              <td
+                className={cn(
+                  "px-2",
+                  densityClass,
+                  isSticky(layout) && "sticky bg-surface dark:bg-surface-dark",
+                )}
+                key={`skeleton-${index}-${colIndex}`}
+                style={getCellStyle(column, layout, false)}
+              >
+                <EdgeShadow side={layout.shadow} />
+                <div
+                  className="h-5 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700"
+                  style={{
+                    width: `${SKELETON_WIDTHS[(index + colIndex * 3) % SKELETON_WIDTHS.length]}%`,
+                  }}
+                />
+              </td>
+            );
+          })}
+        </tr>
+      ))}
+    </>
+  );
 
   return (
     <tbody
@@ -75,56 +284,32 @@ export function TableBody<T extends { id: RowId }>({
         // New rows are on their way - dim the old ones meanwhile
         loading && data.length > 0 && "opacity-60",
       )}
+      onBlur={(event) => {
+        // Gone to another element - a row taking the focus away with it
+        // leaves a disconnected target, whose place is kept
+        if (event.target.isConnected) focusRef.current = null;
+      }}
+      onFocus={(event) => {
+        // Focus in a popup of a row (a portal) keeps the row it came from
+        const target = event.target as Element;
+        const rowElement = target.closest("[data-row-index]");
+        const index = rowElement?.getAttribute("data-row-index");
+        const row = index === undefined ? undefined : data[Number(index)];
+        if (!row || !rowElement) return;
+
+        const cell = target.closest("td");
+        focusRef.current = {
+          cellIndex: cell ? Array.from(rowElement.children).indexOf(cell) : 0,
+          element: target,
+          rowIndex: Number(index),
+        };
+        if (row.id !== focusedRowId) setFocusedRowId(row.id);
+      }}
+      ref={bodyRef}
     >
       {data.length === 0 ? (
         loading ? (
-          <>
-            <tr>
-              <td
-                className="absolute inset-0 z-10 animate-fade-in"
-                colSpan={columnCount}
-              >
-                <div className="flex h-full w-full items-center justify-center bg-surface/30 dark:bg-surface-dark/30">
-                  <Spinner className="mx-auto" />
-                </div>
-              </td>
-            </tr>
-            {Array.from({ length: 10 }).map((_, index) => (
-              <tr className="animate-fade-in" key={`skeleton-${index}`}>
-                {renderSubRow && (
-                  <td className="w-10 text-center">
-                    <div className="mx-auto h-5 w-5 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
-                  </td>
-                )}
-                {groupActions && groupActions.length > 0 && (
-                  <td className="sticky left-0 bg-surface px-2 py-1 dark:bg-surface-dark">
-                    <div className="h-4 w-4 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
-                  </td>
-                )}
-                {actions && (
-                  <td
-                    className="sticky z-1 bg-surface px-2 py-1 text-sm dark:bg-surface-dark"
-                    style={{ left: calculatePosition("actions", "left") }}
-                  >
-                    <div className="h-6 w-16 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
-                  </td>
-                )}
-                {sortedVisibleColumns.map((_, colIndex) => (
-                  <td
-                    className="px-2 py-1"
-                    key={`skeleton-${index}-${colIndex}`}
-                  >
-                    <div
-                      className="h-5 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700"
-                      style={{
-                        width: `${SKELETON_WIDTHS[(index + colIndex * 3) % SKELETON_WIDTHS.length]}%`,
-                      }}
-                    />
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </>
+          renderSkeletonRows()
         ) : (
           <tr>
             <td className="px-2 py-1 text-sm" colSpan={columnCount}>
@@ -135,219 +320,64 @@ export function TableBody<T extends { id: RowId }>({
           </tr>
         )
       ) : (
-        data.map((row, rowIndex) => {
-          // "Select row" alone does not tell the rows apart - the controls
-          // of a row add its first cell to their names
-          const rowLabelId = sortedVisibleColumns.length
-            ? `${idPrefix}-row-${rowIndex}`
-            : undefined;
-          const labelledBy = (controlId: string) =>
-            rowLabelId ? `${controlId} ${rowLabelId}` : undefined;
-          const expandId = `${idPrefix}-expand-${rowIndex}`;
-          const selectId = `${idPrefix}-select-${rowIndex}`;
-          const backgroundColor = getRowBackgroundColor?.(row);
-          const rowStyle = backgroundColor ? { backgroundColor } : undefined;
-          const extraClassName = getRowClassName?.(row);
-          const isExpanded = expandedRows.has(row.id);
-          const expandLabel = isExpanded
-            ? messages.dataTable.collapseRow
-            : messages.dataTable.expandRow;
+        segments.map((segment) => {
+          if (segment.type === "spacer") {
+            // The room of the rows left out - nothing for screen readers,
+            // which count the rows by `aria-rowindex`
+            return (
+              <tr aria-hidden="true" className="border-0" key={segment.key}>
+                <td
+                  className="p-0"
+                  colSpan={columnCount}
+                  style={{ height: segment.height }}
+                />
+              </tr>
+            );
+          }
+
+          const { index } = segment;
+          const row = data[index];
+          const rowsBefore = tableRowsBefore(index);
 
           return (
-            <Fragment key={row.id}>
-              <tr
-                aria-selected={
-                  groupActions?.length
-                    ? selectedRows.some((r) => r.id === row.id)
-                    : undefined
-                }
-                className={cn(
-                  "group transition-colors duration-150 hover:bg-neutral-100/80 dark:hover:bg-neutral-800/80",
-                  extraClassName,
-                )}
-                style={rowStyle}
-              >
-                {renderSubRow && (
-                  <td className="w-10 text-center">
-                    <IconButton
-                      aria-expanded={isExpanded}
-                      aria-label={expandLabel}
-                      aria-labelledby={labelledBy(expandId)}
-                      className="mt-0.75"
-                      id={expandId}
-                      onClick={() => toggleRowExpansion(row.id)}
-                      title={expandLabel}
-                    >
-                      {isExpanded ? (
-                        <ChevronDown size={16} />
-                      ) : (
-                        <ChevronRight size={16} />
-                      )}
-                    </IconButton>
-                  </td>
-                )}
-                {groupActions && groupActions.length > 0 && (
-                  <td
-                    className={cn(
-                      "sticky left-0 px-2 py-1",
-                      !backgroundColor && "bg-surface dark:bg-surface-dark",
-                    )}
-                    style={rowStyle}
-                  >
-                    <input
-                      aria-label={messages.dataTable.selectRow}
-                      aria-labelledby={labelledBy(selectId)}
-                      checked={selectedRows.some((r) => r.id === row.id)}
-                      className="accent-primary-500"
-                      id={selectId}
-                      onChange={() => toggleRowSelection(row)}
-                      type="checkbox"
-                    />
-                  </td>
-                )}
-                {actions && (
-                  <td
-                    className={cn(
-                      "sticky z-1 px-2 py-1 text-sm transition-colors duration-150",
-                      !backgroundColor &&
-                        "bg-surface group-hover:bg-neutral-50 dark:bg-surface-dark dark:group-hover:bg-neutral-800",
-                    )}
-                    data-column-key="actions"
-                    style={{
-                      ...rowStyle,
-                      left: calculatePosition("actions", "left"),
-                    }}
-                  >
-                    <div className="absolute top-0 -right-px h-full border-r border-neutral-200 shadow dark:border-neutral-800" />
-                    {actions(row)}
-                  </td>
-                )}
-                {sortedVisibleColumns.map((column, columnIndex) => {
-                  const cellId = columnIndex === 0 ? rowLabelId : undefined;
-                  const isPinnedLeft = pinnedColumns.left.includes(column.key);
-                  const isPinnedRight = pinnedColumns.right.includes(
-                    column.key,
-                  );
-
-                  const leftPosition = isPinnedLeft
-                    ? calculatePosition(column.key, "left")
-                    : "auto";
-                  const rightPosition = isPinnedRight
-                    ? calculatePosition(column.key, "right")
-                    : "auto";
-
-                  const cellStyle: React.CSSProperties = {
-                    left: leftPosition,
-                    right: rightPosition,
-                    ...(backgroundColor && { backgroundColor }),
-                  };
-
-                  if (column.minWidth !== undefined) {
-                    cellStyle.minWidth = `${column.minWidth}px`;
-                  }
-                  if (column.maxWidth !== undefined) {
-                    cellStyle.maxWidth = `${column.maxWidth}px`;
-                  }
-
-                  const cellClassName = cn(
-                    "px-2 py-1 text-sm",
-                    (isPinnedLeft || isPinnedRight) &&
-                      !backgroundColor &&
-                      "bg-surface group-hover:bg-neutral-50 dark:bg-surface-dark dark:group-hover:bg-neutral-800",
-                    (isPinnedLeft || isPinnedRight) &&
-                      "sticky z-1 transition-colors duration-150",
-                    column.maxWidth &&
-                      !column.disableOverflow &&
-                      "overflow-hidden",
-                  );
-
-                  // Without `render` the value is shown as text - dates and
-                  // booleans formatted by the locale
-                  const value = column.render
-                    ? undefined
-                    : getColumnValue(row, column);
-                  const cellContent = (
-                    column.render
-                      ? column.render(row)
-                      : (formatCellValue(value, locale) ?? value)
-                  ) as React.ReactNode;
-
-                  // The column filter wins over the global search
-                  const highlightTerm = filters[column.key] || search;
-
-                  if (
-                    typeof cellContent === "string" ||
-                    typeof cellContent === "number"
-                  ) {
-                    const stringContent = String(cellContent);
-
-                    if (stringContent.length > MAX_CELL_TEXT_LENGTH) {
-                      return (
-                        <td
-                          className={cellClassName}
-                          id={cellId}
-                          key={column.key}
-                          style={cellStyle}
-                        >
-                          <Popover
-                            contentClassName="p-2"
-                            position="bottom"
-                            // Reachable from the keyboard, where it opens on focus
-                            tabIndex={0}
-                            trigger={
-                              <div>
-                                <HighlightedText
-                                  term={highlightTerm}
-                                  text={`${stringContent.substring(0, MAX_CELL_TEXT_LENGTH)}...`}
-                                />
-                              </div>
-                            }
-                            triggerType={isMobile ? "click" : "hover"}
-                            width="320px"
-                          >
-                            {stringContent}
-                          </Popover>
-                        </td>
-                      );
-                    }
-
-                    return (
-                      <td
-                        className={cellClassName}
-                        id={cellId}
-                        key={column.key}
-                        style={cellStyle}
-                      >
-                        <HighlightedText
-                          term={highlightTerm}
-                          text={stringContent}
-                        />
-                      </td>
-                    );
-                  }
-
-                  return (
-                    <td
-                      className={cellClassName}
-                      id={cellId}
-                      key={column.key}
-                      style={cellStyle}
-                    >
-                      {isValidElement(cellContent) || Array.isArray(cellContent)
-                        ? cellContent
-                        : null}
-                    </td>
-                  );
-                })}
-              </tr>
-              {renderSubRow && isExpanded && (
-                <tr className="bg-neutral-50 dark:bg-neutral-900">
-                  <td colSpan={columnCount} className="p-4">
-                    {renderSubRow(row)}
-                  </td>
-                </tr>
-              )}
-            </Fragment>
+            <TableRow
+              actions={actions}
+              ariaRowIndex={
+                rowsBefore === undefined
+                  ? undefined
+                  : headerRowCount + rowsBefore + 1
+              }
+              cellLayouts={cellLayouts}
+              cellStates={cellStates}
+              columnCount={columnCount}
+              columns={sortedVisibleColumns}
+              density={density}
+              editHintId={editHintId}
+              editingColumnKey={
+                editingCell?.rowId === row.id ? editingCell.columnKey : null
+              }
+              getColumnSample={getColumnSample}
+              getRowBackgroundColor={getRowBackgroundColor}
+              getRowClassName={getRowClassName}
+              hasSelection={hasSelection}
+              highlightTerms={highlightTerms}
+              idPrefix={idPrefix}
+              isEditable={isEditable}
+              isExpanded={expandedRows.has(row.id)}
+              isMobile={isMobile}
+              isSelected={selectedIds.has(row.id)}
+              key={row.id}
+              locale={locale}
+              measureRef={measureRef}
+              onCancelEdit={onCancelEdit}
+              onCommitEdit={onCommitEdit}
+              onStartEdit={onStartEdit}
+              renderSubRow={renderSubRow}
+              row={row}
+              rowIndex={index}
+              toggleRowExpansion={toggleRowExpansion}
+              toggleRowSelection={toggleRowSelection}
+            />
           );
         })
       )}

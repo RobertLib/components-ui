@@ -19,6 +19,7 @@ const de = createLocale(en, {
     date: "DD.MM.YYYY",
     dateTime: "DD.MM.YYYY HH:mm",
     month: "MM.YYYY",
+    time: "HH:mm",
     week: "[KW] WW YYYY",
   },
   messages: {

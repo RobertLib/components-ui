@@ -8,7 +8,17 @@ export default function PaginationPage() {
       <Prose>
         <p>
           <code>DataTable</code> renders it for you; use it on its own for other
-          paged lists. It supports both ways APIs page their results.
+          paged lists. It supports both ways APIs page their results. Other
+          props (<code>className</code>, <code>id</code>, an{" "}
+          <code>aria-label</code> replacing the default one) go to its{" "}
+          <code>&lt;nav&gt;</code> landmark.
+        </p>
+        <p>
+          The range is written as the language writes numbers (
+          <code>1–20 of 1,234</code>, <code>1–20 z 1 234</code>). A button that
+          becomes unavailable while it has the focus - Last page, or Next onto
+          the last page - keeps the focus, announced as unavailable, until the
+          focus moves on; the others are disabled.
         </p>
       </Prose>
       <Example
