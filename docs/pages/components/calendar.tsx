@@ -76,8 +76,10 @@ export default function CalendarPage() {
         description={
           <p>
             <code>dayStartHour</code> / <code>dayEndHour</code> set the hours of
-            the week and day views (7 – 22 by default); <code>viewOptions</code>{" "}
-            limits the views.
+            the week and day views (7 – 22 by default); an event wholly out of
+            them has no row there - the header of its day offers it as "+N
+            earlier" or "+N later", which opens the list of them.{" "}
+            <code>viewOptions</code> limits the views.
           </p>
         }
         name="calendar/hours"
@@ -166,6 +168,20 @@ export default function CalendarPage() {
                 skipped. <code>exdates</code> leaves occurrences out.
               </p>
               <p>
+                The clock is the one of the browser's time zone - the calendar
+                knows no other. A series planned at 9:00 in Prague is 3:00 in
+                New York and stays 3:00 there, also in the weeks the two zones
+                change to summer time on different days (it is 8:00 in Prague
+                then). A series that must keep the clock of its own time zone
+                everywhere is expanded on the server, as events of their own.{" "}
+                <code>until</code> given as a UTC midnight (
+                <code>new Date("2026-12-31")</code>) includes that day - unless
+                it is at the clock time of the event, the start of the last
+                occurrence as iCalendar gives <code>UNTIL</code>; a local
+                midnight (<code>new Date(2026, 11, 31)</code>) always means the
+                whole day.
+              </p>
+              <p>
                 An occurrence is shown like an event, with an <code>id</code> of
                 its own, <code>recurringEventId</code> (the <code>id</code> of
                 the event) and <code>occurrenceStart</code> - so a click, a drop
@@ -221,14 +237,19 @@ export default function CalendarPage() {
           slots of the week and day views (with <code>onDateClick</code> or{" "}
           <code>onSlotDragEnd</code>) are one tab stop each: the arrow keys move
           between them - left and right also between the resources - and Enter
-          picks the day or time. With <code>onSlotDragEnd</code>, Shift + arrow
-          up / down select slots from the focused one and Enter or Space create
-          the range, Escape drops the selection; without{" "}
-          <code>onDateClick</code>, Enter or Space on a slot create a range of
-          that slot. The agenda is a list of days, each a list of its events
-          named by the heading of the day. The header announces the period
-          Previous, Next and Today move to - in the day view, whose day the date
-          field shows, to screen readers only.
+          picks the day or time. The month is a grid of its weekdays and days (a
+          table without <code>onDateClick</code>); Home / End go to the first
+          and the last day of the week, Page Up / Down to the same day of the
+          previous or next month - with Shift of the year. "+N more" and "+N
+          earlier / later" are named with their day. Today is marked (
+          <code>aria-current</code>) in the month and week views and in the
+          agenda. With <code>onSlotDragEnd</code>, Shift + arrow up / down
+          select slots from the focused one and Enter or Space create the range,
+          Escape drops the selection; without <code>onDateClick</code>, Enter or
+          Space on a slot create a range of that slot. The agenda is a list of
+          days, each a list of its events named by the heading of the day. The
+          header announces the period Previous, Next and Today move to - in the
+          day view, whose day the date field shows, to screen readers only.
         </p>
       </Callout>
 
@@ -242,12 +263,17 @@ export default function CalendarPage() {
 
       <Callout title="Server rendering">
         <p>
-          Without <code>initialDate</code> (or <code>currentDate</code>) the
-          calendar opens on today - and "today" of the server and of the browser
-          may differ (another time zone, a page rendered before midnight), so
-          the hydrated page would not match. Pass <code>initialDate</code> when
-          the page is rendered on the server (e.g. Next.js), with the date the
-          browser will use too.
+          The calendar puts events on the days and hours of the browser's time
+          zone, which the server does not know - so a page rendered on the
+          server (e.g. Next.js) shows the view without its events, and they
+          follow right after the hydration, in any time zone; so does the mark
+          of today. The view itself is rendered on the server: pass{" "}
+          <code>initialDate</code> (or <code>currentDate</code>) - without it
+          the calendar opens on today, and "today" of the server and of the
+          browser may differ. Make it a date of the same day in both, e.g.{" "}
+          <code>new Date(2026, 8, 24)</code> built where the component renders,
+          or noon of the day - a midnight made in the time zone of the server
+          may be the day before in the browser.
         </p>
       </Callout>
 

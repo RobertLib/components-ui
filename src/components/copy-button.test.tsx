@@ -121,3 +121,27 @@ describe("CopyButton", () => {
     expect(await navigator.clipboard.readText()).toBe("42");
   });
 });
+
+describe("CopyButton for screen readers", () => {
+  it("tells the outcome in a status that is there before it", async () => {
+    userEvent.setup();
+    vi.useFakeTimers();
+    render(<CopyButton value="CZ65" />);
+
+    // Empty at first - a status that appears filled is often not read
+    const status = screen.getByRole("status");
+    expect(status).toBeEmptyDOMElement();
+
+    await click(screen.getByRole("button", { name: "Copy" }));
+    expect(status).toHaveTextContent("Copied");
+
+    act(() => vi.advanceTimersByTime(2000));
+    expect(status).toBeEmptyDOMElement();
+
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(
+      new DOMException("Write permission denied.", "NotAllowedError"),
+    );
+    await click(screen.getByRole("button", { name: "Copy" }));
+    expect(status).toHaveTextContent("Copying failed");
+  });
+});

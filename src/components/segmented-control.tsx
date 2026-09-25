@@ -1,6 +1,6 @@
 import { attachRef, useFormControl } from "../hooks/use-form-control";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { useMessages } from "../providers/ui-context";
@@ -251,6 +251,8 @@ export default function SegmentedControl<
         // A ring marks the error - a border would change the size
         error && "ring-1 ring-danger-500",
         disabled && "opacity-60",
+        // Also in a disabled fieldset around, which no prop tells
+        "[fieldset:disabled_&]:opacity-60",
         className,
       )}
       ref={barRef}
@@ -283,12 +285,13 @@ export default function SegmentedControl<
                 : "text-neutral-600 dark:text-neutral-300",
               !checked &&
                 !optionDisabled &&
-                "hover:text-neutral-900 dark:hover:text-white",
+                "hover:text-neutral-900 has-disabled:hover:text-neutral-600 dark:hover:text-white dark:has-disabled:hover:text-neutral-300",
               // Until the indicator is measured
               checked &&
                 !indicator &&
                 "bg-surface shadow-sm dark:bg-neutral-600",
               optionDisabled ? "cursor-not-allowed" : "cursor-pointer",
+              "has-disabled:cursor-not-allowed",
               // A disabled control is dimmed as a whole
               option.disabled && !disabled && "opacity-50",
             )}
@@ -326,7 +329,7 @@ export default function SegmentedControl<
   // The group carries the error and `required` - the radios keep `required`
   // for the browser's validation
   const groupProps = {
-    "aria-describedby": cn(errorId, descriptionId, ariaDescribedBy),
+    "aria-describedby": joinTokens(errorId, descriptionId, ariaDescribedBy),
     "aria-invalid": error ? ("true" as const) : undefined,
     "aria-required": required ? ("true" as const) : undefined,
     id,

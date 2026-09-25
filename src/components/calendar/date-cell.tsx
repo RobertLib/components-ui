@@ -41,6 +41,8 @@ export interface DateCellProps {
   renderEventActions?: (event: CalendarEvent) => React.ReactNode;
   /** Icon rendered before the title of a tile. */
   renderEventIcon?: (event: CalendarEvent) => React.ReactNode;
+  /** A cell of the grid of the month, or of its table without day buttons. */
+  role?: "cell" | "gridcell";
 }
 
 const MAX_VISIBLE_EVENTS = 3;
@@ -120,6 +122,7 @@ export default function DateCell({
   onEventClick,
   renderEventActions,
   renderEventIcon,
+  role = "gridcell",
 }: DateCellProps) {
   const dayNumber = date.getDate();
 
@@ -187,6 +190,7 @@ export default function DateCell({
           "cursor-pointer hover:bg-neutral-100/30 dark:hover:bg-neutral-700/30",
       )}
       onClick={handleDateClick}
+      role={role}
     >
       <div className="flex items-start justify-between">
         {onDateClick ? (

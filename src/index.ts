@@ -357,7 +357,7 @@ export {
   type UIProviderProps,
 } from "./providers/ui-provider";
 export { useLocale, useMessages, useRouter } from "./providers/ui-context";
-export { isActivePath } from "./providers/active-path";
+export { findActiveLink, isActivePath } from "./providers/active-path";
 export {
   type LinkComponent,
   type LinkComponentProps,
@@ -396,6 +396,7 @@ export { en } from "./i18n/en";
 export { createLocale, formatMessage, formatPlural } from "./i18n/format";
 export type {
   DateFormats,
+  DatePatternToken,
   DeepPartial,
   Locale,
   Messages,
@@ -433,6 +434,8 @@ export {
   type HotkeyOptions,
   type UseHotkeysOptions,
 } from "./hooks/use-hotkeys";
+export { default as useIsApplePlatform } from "./hooks/use-is-apple-platform";
+export { default as useIsHydrated } from "./hooks/use-is-hydrated";
 export { default as useIsMobile } from "./hooks/use-is-mobile";
 export {
   default as useLocalStorage,
@@ -450,7 +453,7 @@ export {
   type UseOverlayOptions,
   type UseOverlayResult,
 } from "./components/overlay-stack";
-export { default as cn } from "./utils/cn";
+export { default as cn, joinTokens } from "./utils/cn";
 export { default as removeDiacritics } from "./utils/remove-diacritics";
 export {
   default as sanitizeRichText,
@@ -472,6 +475,7 @@ export {
   formatShortcut,
   matchesShortcut,
   parseShortcut,
+  toAriaKeyShortcuts,
   type Shortcut,
   type ShortcutEvent,
 } from "./utils/shortcut";

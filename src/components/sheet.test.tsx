@@ -131,6 +131,44 @@ describe("Sheet", () => {
     expect(sheet).not.toHaveClass("pointer-events-none");
   });
 
+  it("gives the focus back to the button it was opened again from while sliding out", async () => {
+    const user = userEvent.setup();
+
+    function Customers() {
+      const [open, setOpen] = useState<string | null>(null);
+      return (
+        <>
+          {["Jana", "Petr"].map((name) => (
+            <button key={name} onClick={() => setOpen(name)} type="button">
+              {name}
+            </button>
+          ))}
+          <Sheet
+            onClose={() => setOpen(null)}
+            open={open !== null}
+            title="Customer"
+          >
+            <input aria-label="Note" />
+          </Sheet>
+        </>
+      );
+    }
+
+    render(<Customers />);
+    await user.click(screen.getByRole("button", { name: "Jana" }));
+    await act(() => sleep(20));
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: "Jana" })).toHaveFocus();
+
+    // Still sliding out - the next customer opens it again
+    await user.click(screen.getByRole("button", { name: "Petr" }));
+    await act(() => sleep(20));
+    expect(screen.getByRole("textbox", { name: "Note" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+
+    expect(screen.getByRole("button", { name: "Petr" })).toHaveFocus();
+  });
+
   it.each([
     ["right", "right-0", "translate-x-full"],
     ["left", "left-0", "-translate-x-full"],
@@ -173,7 +211,9 @@ describe("Sheet", () => {
     expect(screen.getByRole("button", { name: "Close dialog" })).toHaveFocus();
     await user.tab();
     expect(name).toHaveFocus();
-    act(() => screen.getByRole("button", { name: "Behind" }).focus());
+    act(() =>
+      screen.getByRole("button", { hidden: true, name: "Behind" }).focus(),
+    );
     expect(name).toHaveFocus();
 
     // Back on the trigger as soon as it starts sliding out

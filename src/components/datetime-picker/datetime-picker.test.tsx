@@ -1237,3 +1237,140 @@ describe("DateTimePicker texts of the locale", () => {
     expect(warn).toHaveBeenCalled();
   });
 });
+
+describe("DateTimePicker placeholders", () => {
+  it("writes the tokens of the patterns as the locale does", () => {
+    render(
+      <UIProvider locale={cs}>
+        <DateTimePicker label="Den" type="date" />
+        <DateTimePicker label="Termín" type="datetime-local" />
+        <DateTimePicker label="Měsíc" type="month" />
+        <DateTimePicker label="Týden" type="week" />
+        <DateTimePicker label="Čas" type="time" />
+        <DateTimePicker label="Nativní" mode="native" type="date" />
+      </UIProvider>,
+    );
+
+    const placeholder = (name: RegExp) =>
+      screen.getByLabelText(name).getAttribute("placeholder");
+    expect(placeholder(/Den/)).toBe("DD.MM.RRRR");
+    expect(placeholder(/Termín/)).toBe("DD.MM.RRRR HH:mm");
+    expect(placeholder(/Měsíc/)).toBe("MM.RRRR");
+    expect(placeholder(/Týden/)).toBe("TT.RRRR");
+    expect(placeholder(/Čas/)).toBe("HH:mm");
+    expect(placeholder(/Nativní/)).toBe("DD.MM.RRRR");
+  });
+
+  it("names AM / PM in English, and keeps a placeholder of the app", () => {
+    render(
+      <>
+        <DateTimePicker label="Time" type="time" />
+        <DateTimePicker label="Start" type="datetime-local" />
+        <DateTimePicker label="Due" placeholder="When?" type="date" />
+      </>,
+    );
+
+    expect(screen.getByLabelText(/Time/)).toHaveAttribute(
+      "placeholder",
+      "h:mm AM/PM",
+    );
+    expect(screen.getByLabelText(/Start/)).toHaveAttribute(
+      "placeholder",
+      "MM/DD/YYYY h:mm AM/PM",
+    );
+    expect(screen.getByLabelText(/Due/)).toHaveAttribute(
+      "placeholder",
+      "When?",
+    );
+  });
+});
+
+describe("DateTimePicker texts that give no value", () => {
+  const renderCzech = (
+    props: React.ComponentProps<typeof DateTimePicker> = {},
+  ) => {
+    const onChange = vi.fn();
+    render(
+      <UIProvider locale={cs}>
+        <DateTimePicker
+          label="Datum"
+          onChange={(event) => onChange(event.target.value)}
+          type="date"
+          {...props}
+        />
+      </UIProvider>,
+    );
+    return {
+      input: screen.getByRole("combobox", { name: /Datum/ }),
+      onChange,
+      user: userEvent.setup(),
+    };
+  };
+
+  it("says why a typed text was dropped, until the typing goes on", async () => {
+    const { input, onChange, user } = renderCzech({
+      defaultValue: "2026-09-24",
+      max: "2026-12-31",
+    });
+
+    await user.clear(input);
+    await user.type(input, "31.02.2026{Enter}");
+    // The value stays - the message says why
+    expect(input).toHaveValue("24.09.2026");
+    const message = screen.getByRole("alert");
+    expect(message).toHaveTextContent(
+      "„31.02.2026“ není platná hodnota. Použijte formát DD.MM.RRRR.",
+    );
+    expect(input).toHaveAccessibleDescription(message.textContent!);
+
+    await user.type(input, "1");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.clear(input);
+    await user.type(input, "1.1.2027");
+    await user.tab();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "„1.1.2027“ je mimo povolený rozsah.",
+    );
+
+    // A value picked or typed takes the message away
+    await user.clear(input);
+    await user.type(input, "1.10.2026{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("2026-10-01");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("takes a pasted ISO date", async () => {
+    const { input, onChange, user } = renderCzech();
+
+    await user.click(input);
+    await user.paste("2026-09-24");
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("2026-09-24");
+    expect(input).toHaveValue("24.09.2026");
+  });
+
+  it("takes a day alone into a date-time field, with the time it had", async () => {
+    const { input, onChange, user } = renderCzech({
+      defaultValue: "2026-09-24T14:30",
+      type: "datetime-local",
+    });
+
+    await user.clear(input);
+    await user.type(input, "1.10.2026{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("2026-10-01T14:30");
+    expect(input).toHaveValue("01.10.2026 14:30");
+
+    await user.clear(input);
+    await user.paste("2026-11-02T08:15");
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("2026-11-02T08:15");
+  });
+
+  it("takes a day alone at midnight into an empty date-time field", async () => {
+    const { input, onChange, user } = renderCzech({ type: "datetime-local" });
+
+    await user.type(input, "1.10.2026{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("2026-10-01T00:00");
+  });
+});

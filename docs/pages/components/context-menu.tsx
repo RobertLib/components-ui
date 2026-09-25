@@ -43,6 +43,11 @@ export default function ContextMenuPage() {
               as if it were not there, Shift + Tab goes back to that element.
             </li>
             <li>
+              Right to left - the page, or a part of it with{" "}
+              <code>dir=&quot;rtl&quot;</code> - it opens from the pointer to
+              the left, and ArrowLeft opens its submenus.
+            </li>
+            <li>
               The browser's own menu shows while <code>disabled</code>, without
               items, and over the menu itself no second menu opens. Of nested
               context menus - a cell in a row - the innermost one opens.

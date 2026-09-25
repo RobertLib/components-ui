@@ -17,11 +17,13 @@ import { useCallback, useMemo, useRef } from "react";
 import cn from "../../utils/cn";
 import EventTile from "./event-tile";
 import EventTitle from "./event-title";
+import HiddenEvents from "./hidden-events";
 import MoreEvents from "./more-events";
 import Spinner from "../spinner";
 import TimedEvents from "./timed-events";
 import useEventDrag, { type DragColumn } from "./use-event-drag";
 import useSlotDrag, { toTimeRange, type SlotRange } from "./use-slot-drag";
+import useIsHydrated from "../../hooks/use-is-hydrated";
 import useSlotFocus from "./use-slot-focus";
 import {
   formatPattern,
@@ -336,6 +338,12 @@ export default function TimeGrid({
       return isOnDay({ end, start }, column.date);
     });
 
+  // Unknown on the server and while a server-rendered page hydrates - its
+  // clock and time zone may differ from the browser's
+  const isHydrated = useIsHydrated();
+  const today = isHydrated ? new Date() : null;
+  const isToday = (date: Date) => today !== null && isSameDay(date, today);
+
   // Like the month view: on each day the event spans
   const getAllDayEvents = (column: GridColumn) =>
     eventsOf(column).filter(
@@ -364,36 +372,57 @@ export default function TimeGrid({
   );
 
   // The all-day events of a column - a crowded one gets "+N more", the
-  // header stays low
+  // header stays low - and the timed events out of the hours shown
   const allDayTiles = (column: GridColumn, label: string) => {
     const allDayEvents = getAllDayEvents(column);
-    if (allDayEvents.length === 0) return null;
     const hiddenCount = allDayEvents.length - MAX_ALL_DAY_EVENTS;
 
     return (
-      <div className="mt-1 space-y-1 text-left">
-        {(hiddenCount > 0
-          ? allDayEvents.slice(0, MAX_ALL_DAY_EVENTS)
-          : allDayEvents
-        ).map(allDayTile)}
-        {hiddenCount > 0 && (
-          <MoreEvents count={hiddenCount} label={label}>
-            {allDayEvents.map((event) => (
-              <div key={event.id}>{allDayTile(event)}</div>
-            ))}
-          </MoreEvents>
+      <>
+        {allDayEvents.length > 0 && (
+          <div className="mt-1 space-y-1 text-left">
+            {(hiddenCount > 0
+              ? allDayEvents.slice(0, MAX_ALL_DAY_EVENTS)
+              : allDayEvents
+            ).map(allDayTile)}
+            {hiddenCount > 0 && (
+              <MoreEvents count={hiddenCount} label={label}>
+                {allDayEvents.map((event) => (
+                  <div key={event.id}>{allDayTile(event)}</div>
+                ))}
+              </MoreEvents>
+            )}
+          </div>
         )}
-      </div>
+        <HiddenEvents
+          day={column.date}
+          endHour={END_HOUR}
+          events={getColumnEvents(column)}
+          getDisplayTimes={getEventDisplayTimes}
+          getEventColor={getEventColor}
+          getEventLabel={getEventLabel}
+          isClickable={isClickable}
+          label={label}
+          onEventOpen={handleEventClick}
+          renderEventActions={renderEventActions}
+          renderEventIcon={renderEventIcon}
+          startHour={START_HOUR}
+        />
+      </>
     );
   };
 
   // The weekday, date and month of a day in the header - in a line over
   // the resources of the day
   const dayHeading = (day: GridDay, inline: boolean) => {
+    const isDayToday = isToday(day.date);
     const dateClassName = cn(
       "inline-flex items-center justify-center rounded-full",
       inline ? "h-7 w-7" : "h-8 w-8",
-      day.isSelected && "bg-primary-600 text-white",
+      day.isSelected
+        ? "bg-primary-600 text-white"
+        : isDayToday &&
+            "font-bold text-primary-600 ring-1 ring-primary-600 dark:text-primary-400 dark:ring-primary-400",
     );
     const Line = inline ? "span" : "div";
 
@@ -403,6 +432,7 @@ export default function TimeGrid({
         {onDateClick && !day.disabled ? (
           // The keyboard way to the day - its click reaches the header
           <button
+            aria-current={isDayToday ? "date" : undefined}
             aria-label={dayLabelFormat.format(day.date)}
             className={cn(
               dateClassName,
@@ -413,7 +443,12 @@ export default function TimeGrid({
             {day.date.getDate()}
           </button>
         ) : (
-          <Line className={dateClassName}>{day.date.getDate()}</Line>
+          <Line
+            aria-current={isDayToday ? "date" : undefined}
+            className={dateClassName}
+          >
+            {day.date.getDate()}
+          </Line>
         )}
         <Line className="text-xs text-neutral-600 dark:text-neutral-400">
           {day.date.toLocaleString(toIntlLocale(locale.code), {

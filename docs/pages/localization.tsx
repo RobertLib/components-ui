@@ -117,7 +117,13 @@ export default function Localization() {
             picker labels its weeks with the week format without the year (W39).
             The user types dates in the same format - any separators and missing
             zeros are fine, a time without its minutes is the full hour, and{" "}
-            <code>am</code> / <code>pm</code> are understood in any language.
+            <code>am</code> / <code>pm</code> are understood in any language, as
+            are values pasted in ISO 8601 (<code>2026-09-24</code>). The
+            placeholders show the patterns with the tokens written by{" "}
+            <code>messages.dateTimePicker.placeholderTokens</code> -{" "}
+            <code>{`{ YYYY: "RRRR" }`}</code> makes <code>DD.MM.YYYY</code> the
+            Czech <code>DD.MM.RRRR</code>, <code>{`{ A: "AM/PM" }`}</code> the
+            English <code>h:mm AM/PM</code>.
           </p>
         </Callout>
       </Section>

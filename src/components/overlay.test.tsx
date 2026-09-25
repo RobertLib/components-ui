@@ -136,7 +136,9 @@ describe("useOverlay", () => {
     expect(screen.getByRole("button", { name: "Sort" })).toHaveFocus();
     await user.tab();
     expect(search).toHaveFocus();
-    act(() => screen.getByRole("button", { name: "Behind" }).focus());
+    act(() =>
+      screen.getByRole("button", { hidden: true, name: "Behind" }).focus(),
+    );
     expect(search).toHaveFocus();
 
     await user.keyboard("{Escape}");

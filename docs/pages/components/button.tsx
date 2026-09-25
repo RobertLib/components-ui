@@ -54,8 +54,10 @@ export default function ButtonPage() {
       <Example
         description={
           <p>
-            <code>loading</code> shows a spinner and disables the button, so a
-            form cannot be submitted twice.
+            <code>loading</code> shows a spinner and makes the button do
+            nothing, so a form cannot be submitted twice. Unlike{" "}
+            <code>disabled</code> it keeps the focus - the keyboard stays on the
+            button just pressed.
           </p>
         }
         name="button/loading"

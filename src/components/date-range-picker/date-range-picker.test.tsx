@@ -389,7 +389,7 @@ describe("DateRangePicker typing", () => {
   it("takes a range typed in the date format of the locale", async () => {
     const { input, onChange, user } = renderCzech();
 
-    expect(input).toHaveAttribute("placeholder", "DD.MM.YYYY – DD.MM.YYYY");
+    expect(input).toHaveAttribute("placeholder", "DD.MM.RRRR – DD.MM.RRRR");
     await user.type(input, "1.9.2026 – 30.9.2026{Enter}");
     expect(onChange).toHaveBeenLastCalledWith(september);
     expect(input).toHaveValue("01.09.2026 – 30.09.2026");
@@ -458,6 +458,37 @@ describe("DateRangePicker typing", () => {
     await user.clear(input);
     await user.tab();
     expect(onChange).toHaveBeenCalledWith(null);
+  });
+
+  it("says why a typed range was dropped", async () => {
+    const { input, user } = renderCzech({
+      defaultValue: september,
+      maxDays: 31,
+    });
+
+    await user.clear(input);
+    await user.type(input, "next week{Enter}");
+    expect(input).toHaveValue("01.09.2026 – 30.09.2026");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "„next week“ není platná hodnota. Použijte formát DD.MM.RRRR – DD.MM.RRRR.",
+    );
+
+    await user.clear(input);
+    await user.type(input, "1.9.2026 – 31.10.2026{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "„1.9.2026 – 31.10.2026“ je mimo povolený rozsah.",
+    );
+  });
+
+  it("takes a range over the new year typed without its years", async () => {
+    const { input, onChange, user } = renderCzech();
+
+    await user.type(input, "28.12. – 3.1.{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith({
+      end: "2027-01-03",
+      start: "2026-12-28",
+    });
+    expect(input).toHaveValue("28.12.2026 – 03.01.2027");
   });
 
   it("opens the calendar on a typed range", async () => {

@@ -5,12 +5,17 @@ import DocPage, { Callout, Prose, Section } from "../../components/doc-page";
 import Example from "../../components/example";
 import PropsTable from "../../components/props-table";
 
-const classNames = `import { cn } from "components-ui";
+const classNames = `import { cn, joinTokens } from "components-ui";
 
 cn("px-2", isActive && "bg-primary-500", { "opacity-50": isDisabled });
 // active and enabled: "px-2 bg-primary-500" - falsy values are skipped
 
-cn(undefined, false); // undefined - className={cn(…)} renders no attribute`;
+cn("rounded-md px-3 py-1", className); // className "p-0 rounded-full":
+// "p-0 rounded-full" - the later of two conflicting classes stays
+
+cn(undefined, false); // undefined - className={cn(…)} renders no attribute
+
+joinTokens(errorId, descriptionId); // "email-error email-hint" - ids, kept as they are`;
 
 const isMobile = `import { useIsMobile, useMediaQuery } from "components-ui";
 
@@ -22,11 +27,46 @@ function Filters() {
 // A server-rendered page for phones first: phones do not switch after hydration
 const isDesktop = useMediaQuery("(min-width: 1024px)", { serverValue: false });`;
 
+const checkedLocalStorage = `// Only a list of column ids counts - anything else is the default
+const [columns, setColumns] = useLocalStorage<string[]>("orders-columns", [], {
+  deserialize: (text) => {
+    const value: unknown = JSON.parse(text);
+    if (!Array.isArray(value) || !value.every((id) => typeof id === "string")) {
+      throw new Error("No list of column ids");
+    }
+    return value;
+  },
+});`;
+
 const hotkeysSyntax = `useHotkeys([
   ["mod+k", openSearch, { allowInFields: true }], // ⌘K / Ctrl+K, also while typing
   ["?", showHelp],                                // not while typing into a field
   ["escape", closePanel, { preventDefault: false }],
 ], { enabled: !saving });`;
+
+const ariaShortcuts = `import { formatShortcut, toAriaKeyShortcuts, useIsApplePlatform } from "components-ui";
+
+// The shortcut of a button, also for screen readers - "Meta+S" on a Mac. The
+// hook says no on the server and while the page hydrates, so both write the
+// same, then the browser corrects it.
+const isApple = useIsApplePlatform();
+<Button aria-keyshortcuts={toAriaKeyShortcuts("mod+s", isApple)} onClick={save}>
+  Save <Kbd shortcut="mod+s" />
+</Button>
+<Tooltip title={\`Save (\${formatShortcut("mod+s", isApple)})\`}>…</Tooltip>`;
+
+const hydrated = `import { useIsHydrated } from "components-ui";
+
+// A relative time only in the browser - the server's clock and time zone differ
+const isHydrated = useIsHydrated();
+<span>{isHydrated ? formatRelative(date) : formatDate(date)}</span>`;
+
+const activeLink = `import { findActiveLink, useRouter } from "components-ui";
+
+// The item of a navigation of your own that is the current page - the most
+// specific: "/users/new" over "/users" on /users/new
+const { pathname, search } = useRouter();
+const active = findActiveLink(items, (item) => item.href, pathname, search);`;
 
 const diacritics = `import { removeDiacritics } from "components-ui";
 
@@ -104,8 +144,14 @@ export default function UtilitiesGuide() {
           <p>
             <code>cn(...values)</code> joins class names: strings, numbers,
             arrays and objects whose keys are included when their value is
-            truthy. It does not resolve conflicting Tailwind classes - the later
-            one in the stylesheet wins, see <Link to="/theming">Theming</Link>.
+            truthy. Of two Tailwind classes that set the same property - under
+            the same variants - the later one stays, so a <code>className</code>{" "}
+            passed last overrides the defaults before it. It merges only classes
+            it is sure about: a custom class, a plugin's class or a value it
+            does not know is always kept (see <Link to="/theming">Theming</Link>
+            ). For lists that are not classes - the ids of{" "}
+            <code>aria-describedby</code>, the values of <code>rel</code> - use{" "}
+            <code>joinTokens</code>, which keeps every one.
           </p>
         </Prose>
         <CodeBlock code={classNames} />
@@ -127,6 +173,16 @@ export default function UtilitiesGuide() {
         <Example name="utilities/media-query" />
         <CodeBlock code={isMobile} />
         <PropsTable of="UseMediaQueryOptions" />
+        <Prose>
+          <p>
+            <code>useIsHydrated()</code> is <code>false</code> on the server and
+            while a server-rendered page hydrates, <code>true</code> right after
+            - and from the first render of a page rendered in the browser only.
+            It lets a component render what only the browser knows without a
+            hydration mismatch.
+          </p>
+        </Prose>
+        <CodeBlock code={hydrated} />
       </Section>
 
       <Section title="Open state">
@@ -173,6 +229,17 @@ export default function UtilitiesGuide() {
         </Prose>
         <Example name="utilities/hotkeys" />
         <CodeBlock code={hotkeysSyntax} />
+        <Prose>
+          <p>
+            <code>toAriaKeyShortcuts(shortcut, isApple)</code> writes a shortcut
+            as the value of <code>aria-keyshortcuts</code>, which tells screen
+            readers the shortcut of a button, and{" "}
+            <code>formatShortcut(shortcut, isApple)</code> as text.{" "}
+            <code>useIsApplePlatform()</code> gives them the platform - the same
+            on the server and while the page hydrates.
+          </p>
+        </Prose>
+        <CodeBlock code={ariaShortcuts} />
         <PropsTable of="HotkeyOptions" title="Options of a shortcut" />
         <PropsTable of="UseHotkeysOptions" title="useHotkeys options" />
       </Section>
@@ -187,9 +254,13 @@ export default function UtilitiesGuide() {
             and the hooks with the same key share it - also across the browser
             tabs of the app. <code>defaultValue</code> stands in while nothing
             is stored, and also for a stored text that cannot be read (data of
-            an older version of the app).
+            an older version of the app). Readable JSON of another shape -{" "}
+            <code>null</code>, an object where the app wants a list - comes back
+            as it is; to be sure of the shape, check it in a{" "}
+            <code>deserialize</code> that throws when it does not fit.
           </p>
         </Prose>
+        <CodeBlock code={checkedLocalStorage} />
         <Example name="utilities/local-storage" />
         <Callout>
           <p>
@@ -276,8 +347,15 @@ export default function UtilitiesGuide() {
             <code>mailto:</code>), is never active. It uses no React, so a
             server component can call it too.
           </p>
+          <p>
+            <code>findActiveLink(items, getHref, pathname, search)</code> picks
+            the item of the current page of several, as those components do: the
+            one with the longest path, then the one whose query parameters the
+            page has - the most of them.
+          </p>
         </Prose>
         <CodeBlock code={router} />
+        <CodeBlock className="mt-4" code={activeLink} />
       </Section>
 
       <Section title="Results of loadOptions">

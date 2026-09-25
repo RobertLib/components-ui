@@ -351,7 +351,10 @@ describe("DataTable in client-side mode", () => {
     vi.stubGlobal("ResizeObserver", MeasuringObserver);
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
       function (this: Element) {
-        const key = this.getAttribute("data-column-key") ?? "";
+        const key =
+          this.getAttribute("data-column-key") ??
+          this.getAttribute("data-leading-column") ??
+          "";
         return { width: widths[key] ?? 0 } as DOMRect;
       },
     );
@@ -376,8 +379,9 @@ describe("DataTable in client-side mode", () => {
       />
     );
     const left = (key: string) =>
-      document.querySelector<HTMLElement>(`th[data-column-key="${key}"]`)?.style
-        .left;
+      document.querySelector<HTMLElement>(
+        `th[data-column-key="${key}"], th[data-leading-column="${key}"]`,
+      )?.style.left;
 
     try {
       pin({});
@@ -420,6 +424,7 @@ describe("DataTable in client-side mode", () => {
     expect(onClick).toHaveBeenCalledWith([rows[1], rows[2]], {
       allFiltered: true,
       count: 2,
+      excludedRows: [],
       query: expect.objectContaining({
         filters: { team: "A" },
         page: 1,

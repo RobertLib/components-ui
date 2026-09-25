@@ -22,4 +22,25 @@ describe("removeDiacritics", () => {
     // Letters that would expand stay
     expect(removeDiacritics("Straße Æsir")).toBe("Straße Æsir");
   });
+
+  it("leaves the letters of other scripts whole", () => {
+    // Korean syllables and Japanese kana with a voicing mark decompose into
+    // pieces without an accent to remove - they come back composed
+    expect(removeDiacritics("한국어")).toBe("한국어");
+    expect(removeDiacritics("がぎ ダ")).toBe("がぎ ダ");
+    expect(removeDiacritics("한국어 Čeština")).toHaveLength(11);
+    // Written decomposed, they stay so
+    const decomposed = "한국어 が".normalize("NFD");
+    expect(removeDiacritics(decomposed)).toBe(decomposed);
+    // Accents written as combining marks go all the same
+    expect(removeDiacritics("Cafe\u0301")).toBe("Cafe");
+  });
+
+  it("folds a text as its letters fold one by one", () => {
+    const text = "Příliš Łódź 한국어 がぎ Cafe\u0301 😀 Ωμέγα";
+
+    expect(removeDiacritics(text)).toBe(
+      Array.from(text, (char) => removeDiacritics(char)).join(""),
+    );
+  });
 });

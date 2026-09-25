@@ -134,43 +134,58 @@ function unwrapIn(nodes: Node[], tags: ReadonlySet<string>): Node[] {
   });
 }
 
-const CODE = new Set(["CODE"]);
-
-/** Joins a code element with the code elements right next to it. */
-function joinCode(code: Element) {
-  const previous = code.previousSibling;
-  if (isElement(previous) && previous.tagName === "CODE") {
-    previous.append(...Array.from(code.childNodes));
-    code.remove();
-    code = previous;
+/** Joins an element with the elements of its tag right next to it. */
+function joinSiblings(element: Element) {
+  const { tagName } = element;
+  const previous = element.previousSibling;
+  if (isElement(previous) && previous.tagName === tagName) {
+    previous.append(...Array.from(element.childNodes));
+    element.remove();
+    element = previous;
   }
-  const next = code.nextSibling;
-  if (isElement(next) && next.tagName === "CODE") {
-    code.append(...Array.from(next.childNodes));
+  const next = element.nextSibling;
+  if (isElement(next) && next.tagName === tagName) {
+    element.append(...Array.from(next.childNodes));
     next.remove();
   }
-  return code;
+  return element;
+}
+
+/**
+ * Wraps the selected text in `tag` - or unwraps it, when all of it is in
+ * one. Returns the selection around the changed text.
+ */
+function toggleMark(editor: HTMLElement, range: Range, tag: "code" | "u") {
+  const removes = isAllIn(editor, range, tag);
+  const tags = new Set([tag.toUpperCase()]);
+
+  return changeSegments(editor, range, (line, nodes) => {
+    const plain = unwrapIn(nodes, tags);
+    if (removes || plain.length === 0) return plain;
+
+    const mark = line.ownerDocument.createElement(tag);
+    line.insertBefore(mark, plain[0]);
+    mark.append(...plain);
+    // A run of a mark is one element - the background of code is not
+    // broken up
+    return [joinSiblings(mark)];
+  });
 }
 
 /**
  * Makes the selected text inline code - or plain text again, when all of
  * it is code. Returns the selection around the changed text.
  */
-export function toggleCode(editor: HTMLElement, range: Range) {
-  const removes = isAllIn(editor, range, "code");
+export const toggleCode = (editor: HTMLElement, range: Range) =>
+  toggleMark(editor, range, "code");
 
-  return changeSegments(editor, range, (line, nodes) => {
-    const plain = unwrapIn(nodes, CODE);
-    if (removes || plain.length === 0) return plain;
-
-    const code = line.ownerDocument.createElement("code");
-    line.insertBefore(code, plain[0]);
-    code.append(...plain);
-    // A run of code is one element, so its background is not broken up
-    const joined = joinCode(code);
-    return [joined];
-  });
-}
+/**
+ * Underlines the selected text - or removes its underline, when all of it
+ * is underlined. For a selection with links: the browser takes a link for
+ * underlined by its style and does nothing, its `<u>` is what counts.
+ */
+export const toggleUnderline = (editor: HTMLElement, range: Range) =>
+  toggleMark(editor, range, "u");
 
 /**
  * Removes bold, italic, underline, strikethrough, code and the styles other
@@ -239,6 +254,13 @@ export function insertTextWithCode(
   }
 
   return node;
+}
+
+/** Whether the selection is in a link or has text of one. */
+export function hasLink(editor: HTMLElement, range: Range) {
+  return range.collapsed
+    ? !!closestIn(editor, range.startContainer, "a")
+    : selectedTexts(editor, range).some((text) => closestIn(editor, text, "a"));
 }
 
 /** The link the selection is in - `null` when it spans more or none. */

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   EditHistory,
+  MAX_HISTORY_SIZE,
   restoreSelection,
   saveSelection,
   type SavedSelection,
@@ -34,6 +35,25 @@ describe("EditHistory", () => {
     history.record(snapshot("<p>ab</p>"), null, 20);
     expect(history.canRedo).toBe(false);
     expect(history.undo()?.html).toBe("<p>a</p>");
+  });
+
+  it("keeps fewer steps of a long document", () => {
+    const history = new EditHistory(snapshot(""));
+    // Each a little over a fifth of the size - four of them fit
+    const long = "x".repeat(MAX_HISTORY_SIZE / 5);
+
+    for (let step = 0; step < 20; step += 1) {
+      history.record(snapshot(`<p>${step}${long}</p>`), null, step * 2000);
+    }
+
+    let undone = 0;
+    while (history.undo()) undone += 1;
+    expect(undone).toBe(3);
+    // The current step stays, however long it is
+    const huge = new EditHistory(snapshot(""));
+    huge.record(snapshot("x".repeat(MAX_HISTORY_SIZE + 1)), null, 0);
+    expect(huge.canUndo).toBe(false);
+    expect(huge.undo()).toBeNull();
   });
 
   it("joins a run of typing, but not after a pause or a move of the caret", () => {

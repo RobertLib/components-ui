@@ -21,7 +21,11 @@ export interface ButtonProps extends React.ComponentProps<"button"> {
    * configured in `UIProvider`.
    */
   link?: string;
-  /** Shows a spinner - in place of `startIcon` - and disables the button. */
+  /**
+   * Shows a spinner - in place of `startIcon` - and makes the button do
+   * nothing (`aria-disabled`): no `onClick`, no form submit. Unlike
+   * `disabled` it keeps the focus, so the keyboard stays where it was.
+   */
   loading?: boolean;
   /**
    * `icon` - a square button for a single icon. A `ButtonGroup` around
@@ -45,6 +49,17 @@ export interface ButtonProps extends React.ComponentProps<"button"> {
 /** Whether a node renders anything - `cond && icon` leaves out an icon. */
 const hasContent = (node: React.ReactNode) =>
   node !== undefined && node !== null && node !== false && node !== "";
+
+/**
+ * The click of a loading button or link: it does nothing - no `onClick`, no
+ * submit of the form (also the one Enter in a field of the form makes with
+ * a click on its submit button), no navigation - and, like the click of a
+ * disabled button, reaches no `onClick` around it (a clickable row).
+ */
+const preventActivation = (event: React.MouseEvent) => {
+  event.preventDefault();
+  event.stopPropagation();
+};
 
 /** A button - or a link looking like one, with `link`. */
 export default function Button({
@@ -140,6 +155,9 @@ export default function Button({
 
   const disabledStyles = "opacity-60 cursor-not-allowed";
   const isDisabled = disabled || loading;
+  // Loading, it looks disabled but stays focusable - a native `disabled`
+  // would drop the focus of the button just pressed to the page
+  const isBusy = loading && !disabled;
 
   // In a group only the outer corners are round, and each button overlaps
   // the border of the one before. The hovered and the focused one come to
@@ -158,12 +176,13 @@ export default function Button({
             group.last && "rounded-b-md",
           ]
         : [
+            // The start and the end - the right in a right-to-left page
             group.first
-              ? "rounded-l-md"
+              ? "rounded-s-md"
               : variant === "outline"
-                ? "-ml-[1.5px]"
-                : "-ml-px",
-            group.last && "rounded-r-md",
+                ? "-ms-[1.5px]"
+                : "-ms-px",
+            group.last && "rounded-e-md",
           ],
     );
 
@@ -260,7 +279,7 @@ export default function Button({
       ...linkProps
     } = props;
 
-    if (isDisabled) {
+    if (disabled) {
       // Without an `href` nothing can open a disabled link - no click, no
       // middle click, no dragging it into a tab, no "Open in new tab" of
       // the context menu - and it is not in the tab order
@@ -278,16 +297,24 @@ export default function Button({
       );
     }
 
+    // A loading link keeps its `href` - rendered as the same element, it
+    // keeps the focus - but a click or a middle click does nothing
     return (
       <Link
         {...(linkProps as Omit<LinkComponentProps, "href">)}
+        aria-busy={isBusy || undefined}
+        aria-disabled={isBusy || linkProps["aria-disabled"]}
         className={commonClassNames}
         href={link}
         onAuxClick={
-          onAuxClick as unknown as React.MouseEventHandler<HTMLAnchorElement>
+          isBusy
+            ? preventActivation
+            : (onAuxClick as unknown as React.MouseEventHandler<HTMLAnchorElement>)
         }
         onClick={
-          onClick as unknown as React.MouseEventHandler<HTMLAnchorElement>
+          isBusy
+            ? preventActivation
+            : (onClick as unknown as React.MouseEventHandler<HTMLAnchorElement>)
         }
       >
         {content}
@@ -299,8 +326,10 @@ export default function Button({
     <button
       {...props}
       aria-busy={loading || undefined}
+      aria-disabled={isBusy || props["aria-disabled"]}
       className={commonClassNames}
-      disabled={isDisabled}
+      disabled={disabled}
+      onClick={isBusy ? preventActivation : props.onClick}
       type={type ?? "button"}
     >
       {content}

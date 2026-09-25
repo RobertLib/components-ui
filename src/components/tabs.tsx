@@ -494,7 +494,7 @@ export default function Tabs({
   const tabClassName = cn(
     "flex items-center rounded-md font-medium",
     isVertical
-      ? ["w-full text-left", sizeClasses.verticalTab]
+      ? ["w-full text-start", sizeClasses.verticalTab]
       : sizeClasses.tab,
   );
   const focusClassName =
@@ -527,8 +527,10 @@ export default function Tabs({
       }
     >
       <ul
-        aria-orientation={isLinkList ? undefined : orientation}
-        role={isLinkList ? undefined : "tablist"}
+        // Placeholders are no tabs - a tablist without any is none yet
+        aria-busy={loading || undefined}
+        aria-orientation={isLinkList || loading ? undefined : orientation}
+        role={isLinkList || loading ? undefined : "tablist"}
         {...props}
         className={cn(
           "relative rounded-md bg-background dark:bg-background-dark",
@@ -556,6 +558,7 @@ export default function Tabs({
           ? // Loading skeleton tabs
             Array.from({ length: loadingTabsCount }).map((_, index) => (
               <li
+                aria-hidden="true"
                 className={cn("rounded-md", sizeClasses.skeleton)}
                 key={`skeleton-${index}`}
               >

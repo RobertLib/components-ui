@@ -66,6 +66,13 @@ export interface ToastProps extends Omit<React.ComponentProps<"div">, "title"> {
   variant?: ToastVariant;
 }
 
+/**
+ * How long a live region is in the page before its text is - screen readers
+ * announce what changes in a region they know, not a region that appears
+ * with its text.
+ */
+export const LIVE_REGION_DELAY = 100;
+
 const subscribeToVisibility = (onChange: () => void) => {
   document.addEventListener("visibilitychange", onChange);
   return () => document.removeEventListener("visibilitychange", onChange);
@@ -120,6 +127,9 @@ export default function Toast({
   const callbacksRef = useRef({ onClose, onHide });
   // The region of the last render, for the timers and the Escape handler
   const regionRef = useRef(region);
+  // Rendered on its own, the toast is a live region itself - its text shows
+  // a moment after the region is in the page, so it is announced
+  const [isAnnounced, setIsAnnounced] = useState(inRegion);
 
   useLayoutEffect(() => {
     callbacksRef.current = { onClose, onHide };
@@ -137,6 +147,13 @@ export default function Toast({
   // Hidden by its timer or by the parent (`open`)
   const isShown = visible && open;
   const isPaused = isHovered || hasFocus || pageHidden;
+
+  useEffect(() => {
+    if (isAnnounced) return;
+
+    const timer = setTimeout(() => setIsAnnounced(true), LIVE_REGION_DELAY);
+    return () => clearTimeout(timer);
+  }, [isAnnounced]);
 
   useEffect(() => {
     remainingTime.current = timeOnScreen;
@@ -256,7 +273,12 @@ export default function Toast({
       {...props}
       {...liveRegionProps}
       className={cn(
-        isShown ? "animate-slide-down" : "animate-slide-up",
+        // Transparent until its text is there, then it slides in
+        isShown
+          ? isAnnounced
+            ? "animate-slide-down"
+            : "opacity-0"
+          : "animate-slide-up",
         "pointer-events-auto rounded-md border p-4 shadow-md focus:outline-none focus-visible:ring-2",
         variantStyles[variant],
         className,
@@ -294,7 +316,9 @@ export default function Toast({
       ref={toastRef}
       tabIndex={0}
     >
-      <div className="flex items-center gap-3">
+      <div
+        className={cn("flex items-center gap-3", !isAnnounced && "invisible")}
+      >
         {loading && (
           // The message tells what runs - screen readers skip the spinner
           <svg

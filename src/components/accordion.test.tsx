@@ -118,4 +118,46 @@ describe("Accordion", () => {
     );
     expect(content).toHaveTextContent("Details");
   });
+
+  it("stops pointing at the content once it is gone", async () => {
+    const user = userEvent.setup();
+    render(
+      <Accordion defaultOpen={false} header="Shipping">
+        Details
+      </Accordion>,
+    );
+
+    const toggle = screen.getByRole("button", { name: "Shipping" });
+    expect(toggle).not.toHaveAttribute("aria-controls");
+
+    await user.click(toggle);
+    expect(
+      document.getElementById(toggle.getAttribute("aria-controls") ?? ""),
+    ).toHaveTextContent("Details");
+  });
+
+  it("makes the header a heading of the level given", () => {
+    render(
+      <>
+        <Accordion header="Shipping">Details</Accordion>
+        <Accordion header="Billing" headingLevel={2}>
+          Details
+        </Accordion>
+        {/* A heading of its own is not wrapped in another one */}
+        <Accordion header={<h4>Payment</h4>}>Details</Accordion>
+      </>,
+    );
+
+    expect(
+      screen.getByRole("heading", { level: 3, name: "Shipping" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Billing" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { name: "Payment" })).toHaveLength(1);
+    // The toggle is named by the heading
+    expect(
+      screen.getByRole("button", { expanded: true, name: "Shipping" }),
+    ).toBeInTheDocument();
+  });
 });

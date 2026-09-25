@@ -1,14 +1,14 @@
 import { File as FileIcon, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Button from "./button";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import IconButton from "./icon-button";
 import logger from "../utils/logger";
 import Progress from "./progress";
 import Tooltip from "./tooltip";
-import { formatMessage, formatNumber } from "../i18n/format";
+import { formatMessage, formatNumber, formatPlural } from "../i18n/format";
 import { useFieldsetDisabled, useFormReset } from "../hooks/use-form-control";
 import { useLocale } from "../providers/ui-context";
 
@@ -245,7 +245,9 @@ export interface FileUploadProps<TResult extends UploadedFile = UploadedFile> {
   /**
    * Files attached before, e.g. when editing a record. Attachments arriving
    * later (loaded data) replace the list as long as the user has not changed
-   * it; a reset of the form brings them back.
+   * it. A reset of the form brings them back and drops the files uploaded
+   * since - without `onRemove`: the reset React does after a form action
+   * follows a save, which has kept them.
    */
   defaultAttachments?: UploadedFile[];
   /** Help text under the field, e.g. the accepted types and sizes. */
@@ -262,6 +264,11 @@ export interface FileUploadProps<TResult extends UploadedFile = UploadedFile> {
   label?: string;
   /** In megabytes. */
   maxFileSize?: number;
+  /**
+   * With `multiple`: the most files the list holds, the attached ones
+   * included. Further picked or dropped files are refused with a message.
+   */
+  maxFiles?: number;
   /**
    * Several files can be picked or dropped at once - they are uploaded one
    * after another. Without it the field holds one file: a new one replaces
@@ -282,7 +289,8 @@ export interface FileUploadProps<TResult extends UploadedFile = UploadedFile> {
   onError?: (error: unknown, file: File) => void;
   /**
    * Called when the user removes a file from the list - or replaces it with
-   * a new one, without `multiple`.
+   * a new one, without `multiple`. Not for the files a form reset drops (see
+   * `defaultAttachments`).
    */
   onRemove?: (file: UploadedFile) => void;
   /** Called with the result of `upload` once a file is stored. */
@@ -331,6 +339,7 @@ export default function FileUpload<
   form,
   label,
   maxFileSize = MAX_FILE_SIZE,
+  maxFiles,
   multiple = false,
   name,
   onError,
@@ -480,25 +489,40 @@ export default function FileUpload<
     onError?.(new Error(message), file);
   };
 
+  // Why a file cannot be added - null when it can. `room` is the number of
+  // files the list takes still.
+  const refusal = (file: File, room: number) =>
+    !isAccepted(file, accept)
+      ? messages.fileUpload.fileTypeNotAccepted
+      : file.size > Math.pow(1024, 2) * maxFileSize
+        ? formatMessage(messages.fileUpload.maxFileSizeExceeded, {
+            size: formatNumber(locale.code, maxFileSize),
+          })
+        : room <= 0 && maxFiles !== undefined
+          ? formatPlural(locale.code, messages.fileUpload.maxFiles, maxFiles)
+          : null;
+
   const uploadFiles = async (picked: File[]) => {
     setUploadError(null);
 
+    // All files are checked before the first one uploads - a refused one is
+    // said at once, not after the uploads before it
+    const room =
+      multiple && maxFiles !== undefined
+        ? maxFiles - filesRef.current.length
+        : Infinity;
+    const accepted: File[] = [];
+
     for (const file of picked) {
-      if (!isAccepted(file, accept)) {
-        reject(file, messages.fileUpload.fileTypeNotAccepted);
-        continue;
+      const problem = refusal(file, room - accepted.length);
+      if (problem) {
+        reject(file, problem);
+      } else {
+        accepted.push(file);
       }
+    }
 
-      if (file.size > Math.pow(1024, 2) * maxFileSize) {
-        reject(
-          file,
-          formatMessage(messages.fileUpload.maxFileSizeExceeded, {
-            size: formatNumber(locale.code, maxFileSize),
-          }),
-        );
-        continue;
-      }
-
+    for (const file of accepted) {
       const controller = new AbortController();
       uploadController.current = controller;
       moveFocusFrom(buttonRef.current, "cancel");
@@ -606,7 +630,7 @@ export default function FileUpload<
 
   const shownError = error || uploadError;
   // The error first, then the help text, then what the page adds
-  const describedBy = cn(
+  const describedBy = joinTokens(
     shownError ? errorId : undefined,
     description ? descriptionId : undefined,
     ariaDescribedBy,
@@ -679,7 +703,7 @@ export default function FileUpload<
               <div className="flex-1 truncate">
                 {file.url ? (
                   <a
-                    className="link text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                    className="cui-link text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
                     href={file.url}
                     rel="noopener noreferrer"
                     target="_blank"

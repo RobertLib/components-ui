@@ -36,9 +36,10 @@ interface Rule {
   setPos?: number[];
   /**
    * The last moment an occurrence may start - with `wholeDay` any time of
-   * the day of `date`.
+   * the day of `date`. `moment` is the UTC midnight a whole day was read
+   * from - it may also be meant as the moment itself (see `untilOf`).
    */
-  until?: { date: Date; wholeDay: boolean };
+  until?: { date: Date; moment?: Date; wholeDay: boolean };
   weekStart: WeekDay;
   weekdays?: WeekdayRule[];
 }
@@ -106,8 +107,12 @@ function ruleOf(recurrence: CalendarRecurrence): Rule | null {
 
   let untilRule: Rule["until"];
   if (isValidDate(until)) {
-    const wholeDay = isLocalMidnight(until) || isUTCMidnight(until);
-    untilRule = { date: wholeDay ? calendarDay(until) : until, wholeDay };
+    untilRule = isLocalMidnight(until)
+      ? { date: until, wholeDay: true }
+      : isUTCMidnight(until)
+        ? // `new Date("2026-12-31")` - or a moment that is a UTC midnight
+          { date: calendarDay(until), moment: until, wholeDay: true }
+        : { date: until, wholeDay: false };
   }
 
   return {
@@ -520,6 +525,28 @@ function atClockOf(date: Date, time: Date) {
   return result;
 }
 
+const isSameClockTime = (a: Date, b: Date) =>
+  a.getHours() === b.getHours() &&
+  a.getMinutes() === b.getMinutes() &&
+  a.getSeconds() === b.getSeconds() &&
+  a.getMilliseconds() === b.getMilliseconds();
+
+/**
+ * The moment the occurrences start before (exclusive) by `until`. A UTC
+ * midnight counts as the day of a `YYYY-MM-DD` string - unless it is at the
+ * clock time of a timed event (`start`): then it is the start of the last
+ * occurrence, the way iCalendar gives `UNTIL`. 19:00 in New York is a UTC
+ * midnight, and as a day it would add the occurrence of the next one.
+ */
+function untilOf(until: NonNullable<Rule["until"]>, start: Date | null) {
+  if (until.moment && start && isSameClockTime(until.moment, start)) {
+    return until.moment.getTime() + 1;
+  }
+  return until.wholeDay
+    ? addCalendarDays(until.date, 1).getTime()
+    : until.date.getTime() + 1;
+}
+
 /**
  * The occurrences of one recurring event overlapping `range`. `replaced` are
  * the starts of occurrences the app stored as events of their own.
@@ -555,9 +582,12 @@ function expandEvent<T extends CalendarEvent>(
   const endOf = (start: Date) => {
     if (allDay) return addCalendarDays(start, days);
     // An occurrence ending at 10:00 ends at 10:00 also after a daylight
-    // saving change - not at 9:00 or 11:00
+    // saving change - not at 9:00 or 11:00. One the gap of the change moved
+    // up to its end (2:30 - 3:30 to 3:30 - 3:30) keeps its length instead.
     const end = atClockOf(addCalendarDays(start, endDays), eventEnd);
-    return end >= start ? end : new Date(start.getTime() + length);
+    return end > start || length === 0
+      ? end
+      : new Date(start.getTime() + length);
   };
 
   // The occurrences left out - an all-day event by their days
@@ -574,9 +604,7 @@ function expandEvent<T extends CalendarEvent>(
 
   // Occurrences start before it (exclusive)
   const until = rule.until
-    ? rule.until.wholeDay
-      ? addCalendarDays(rule.until.date, 1).getTime()
-      : rule.until.date.getTime() + 1
+    ? untilOf(rule.until, allDay ? null : eventStart)
     : Infinity;
 
   const occurrences: T[] = [];

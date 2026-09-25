@@ -201,6 +201,39 @@ describe("ContextMenu with the pointer", () => {
   });
 });
 
+describe("ContextMenu right to left", () => {
+  it("takes the direction of its target, and opens its submenus with ArrowLeft", async () => {
+    const user = userEvent.setup();
+    render(
+      <div dir="rtl">
+        <ContextMenu
+          aria-label="Actions"
+          items={[
+            { items: [{ label: "Archive" }], label: "Move to" },
+            { label: "Delete" },
+          ]}
+        >
+          <div tabIndex={0}>report.pdf</div>
+        </ContextMenu>
+      </div>,
+    );
+    const row = screen.getByText("report.pdf");
+    layOut(row);
+
+    act(() => row.focus());
+    await user.keyboard("{Shift>}{F10}{/Shift}");
+    const menu = screen.getByRole("menu", { name: "Actions" });
+    // A portal in the body, which is left to right
+    expect(menu.closest("[dir]")).toHaveAttribute("dir", "rtl");
+
+    await user.keyboard("{ArrowLeft}");
+    expect(screen.getByRole("menu", { name: "Move to" })).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.queryByRole("menu", { name: "Move to" })).toBeNull();
+    expect(menu).toHaveFocus();
+  });
+});
+
 describe("ContextMenu from the keyboard", () => {
   it.each([
     ["Shift+F10", "{Shift>}{F10}{/Shift}"],

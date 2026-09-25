@@ -1,6 +1,7 @@
 import { cn } from "../utils/cn";
 import { Fragment, useId, useLayoutEffect, useRef } from "react";
 import CollapsibleContent from "./collapsible-content";
+import Tooltip from "./tooltip";
 import useIsMobile from "../hooks/use-is-mobile";
 import { useMessages } from "../providers/ui-context";
 
@@ -97,19 +98,23 @@ interface StepState {
   isCompleted: boolean;
 }
 
-/** The circle of a step - its color tells the state. */
+/**
+ * The circle of a step - its color tells the state. The number in it
+ * stands out by at least 4.5:1: white on the shades 600, the gray of a step
+ * to come on the surface.
+ */
 const circleClassName = ({ hasError, isActive, isCompleted }: StepState) =>
   cn(
     "relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 text-sm font-semibold transition-all duration-300 motion-reduce:transition-none",
     {
       "scale-110 border-primary-600 bg-primary-600 text-white shadow-lg":
         isActive && !hasError,
-      "scale-110 border-danger-500 bg-danger-500 text-white shadow-lg":
+      "scale-110 border-danger-600 bg-danger-600 text-white shadow-lg":
         isActive && hasError,
       "border-primary-600 bg-primary-600 text-white":
         isCompleted && !isActive && !hasError,
-      "border-danger-500 bg-danger-500 text-white": hasError && !isActive,
-      "border-neutral-300 bg-surface text-neutral-400 dark:border-neutral-600 dark:bg-neutral-800":
+      "border-danger-600 bg-danger-600 text-white": hasError && !isActive,
+      "border-neutral-300 bg-surface text-neutral-500 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-400":
         !isActive && !isCompleted && !hasError,
     },
   );
@@ -296,9 +301,19 @@ export default function Stepper({
       <ol className="mb-4 flex items-center justify-between">
         {steps.map((step, index) => {
           const info = describeStep(step, index);
-          const title = step.description
-            ? `${step.title}\n${step.description}`
-            : step.title;
+          // The name of the step for the eye - on hover, keyboard focus and
+          // a tap. Screen readers hear the step itself, which says the same
+          // (its label and description), so the tooltip adds nothing to it.
+          const tooltip = (
+            <span aria-hidden="true" className="block">
+              {step.title}
+              {step.description && (
+                <span className="block font-normal text-neutral-300">
+                  {step.description}
+                </span>
+              )}
+            </span>
+          );
           const stepClassName = cn(circleClassName(info), {
             "cursor-pointer hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500":
               info.isClickable,
@@ -317,46 +332,52 @@ export default function Stepper({
           return (
             <Fragment key={step.id}>
               <li className="flex flex-col items-center">
-                {isNavigable ? (
-                  <button
-                    aria-current={info.isActive ? "step" : undefined}
-                    aria-describedby={info.describedBy}
-                    aria-label={info.label}
-                    className={stepClassName}
-                    disabled={!info.isClickable}
-                    id={info.buttonId}
-                    onClick={() => handleStepClick(step.id)}
-                    title={title}
-                    type="button"
-                  >
-                    {stepContent}
-                    {step.description && (
-                      <span className="sr-only" id={info.descriptionId}>
-                        {step.description}
-                      </span>
-                    )}
-                    {info.state && (
-                      <span className="sr-only" id={info.stateId}>
-                        {info.state}
-                      </span>
-                    )}
-                  </button>
-                ) : (
-                  <div
-                    aria-current={info.isActive ? "step" : undefined}
-                    className={stepClassName}
-                    title={title}
-                  >
-                    {stepContent}
-                    <span className="sr-only">{info.label}</span>
-                    {info.state && (
-                      <span className="sr-only">, {info.state}</span>
-                    )}
-                    {step.description && (
-                      <span className="sr-only">, {step.description}</span>
-                    )}
-                  </div>
-                )}
+                <Tooltip
+                  delay={300}
+                  // Without a button to focus, a tap shows the name
+                  openOnClick={!isNavigable}
+                  position="top"
+                  title={tooltip}
+                >
+                  {isNavigable ? (
+                    <button
+                      aria-current={info.isActive ? "step" : undefined}
+                      aria-describedby={info.describedBy}
+                      aria-label={info.label}
+                      className={stepClassName}
+                      disabled={!info.isClickable}
+                      id={info.buttonId}
+                      onClick={() => handleStepClick(step.id)}
+                      type="button"
+                    >
+                      {stepContent}
+                      {step.description && (
+                        <span className="sr-only" id={info.descriptionId}>
+                          {step.description}
+                        </span>
+                      )}
+                      {info.state && (
+                        <span className="sr-only" id={info.stateId}>
+                          {info.state}
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    <div
+                      aria-current={info.isActive ? "step" : undefined}
+                      className={stepClassName}
+                    >
+                      {stepContent}
+                      <span className="sr-only">{info.label}</span>
+                      {info.state && (
+                        <span className="sr-only">, {info.state}</span>
+                      )}
+                      {step.description && (
+                        <span className="sr-only">, {step.description}</span>
+                      )}
+                    </div>
+                  )}
+                </Tooltip>
               </li>
 
               {/* Connecting line - narrower gaps on phones, so that more
@@ -422,7 +443,7 @@ export default function Stepper({
               <div
                 aria-hidden="true"
                 className={cn(
-                  "absolute top-11 bottom-2 left-[17px] border-l-2",
+                  "absolute start-[17px] top-11 bottom-2 border-s-2",
                   connectorClassName(info),
                 )}
               />
@@ -434,7 +455,7 @@ export default function Stepper({
                 aria-describedby={info.describedBy}
                 aria-label={info.label}
                 className={cn(
-                  "group -m-1 flex items-start gap-3 rounded-lg p-1 pr-2 text-left",
+                  "group -m-1 flex items-start gap-3 rounded-lg p-1 pe-2 text-start",
                   info.isClickable
                     ? "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
                     : "cursor-not-allowed",
@@ -476,7 +497,7 @@ export default function Stepper({
 
             {hasContent(step.content) && (
               <CollapsibleContent isOpen={info.isActive}>
-                {renderContent(step, index, "pt-3 pl-12 focus:outline-none")}
+                {renderContent(step, index, "ps-12 pt-3 focus:outline-none")}
               </CollapsibleContent>
             )}
           </li>

@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { cn } from "../utils/cn";
+import { cn, joinTokens } from "../utils/cn";
 import { toIntlLocale } from "../i18n/format";
 import { useLocale } from "../providers/ui-context";
 
@@ -169,7 +169,7 @@ export default function Progress({
         role="progressbar"
         {...valueAttributes(isIndeterminate, clamped, max)}
         {...props}
-        aria-describedby={cn(
+        aria-describedby={joinTokens(
           description ? descriptionId : undefined,
           ariaDescribedBy,
         )}

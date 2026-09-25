@@ -1,6 +1,6 @@
 import { attachRef, useFormReset } from "../hooks/use-form-control";
 import { useCallback, useId, useRef, useState } from "react";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { formatMessage } from "../i18n/format";
@@ -376,7 +376,7 @@ export default function PinInput({
             // On the cells, which take the focus - not on the group, whose
             // description would be read once more on entering it
             aria-describedby={
-              cn(errorId, descriptionId, ariaDescribedBy) || undefined
+              joinTokens(errorId, descriptionId, ariaDescribedBy) || undefined
             }
             aria-invalid={error ? "true" : undefined}
             aria-label={formatMessage(cellName, { index: index + 1, length })}
@@ -390,7 +390,8 @@ export default function PinInput({
               "w-full min-w-0 rounded-md border border-neutral-300 bg-surface p-0 text-center font-medium transition-colors placeholder:text-neutral-500 focus:ring-2 focus:ring-primary-500 focus:outline-none motion-reduce:transition-none dark:border-neutral-700 dark:bg-surface-dark dark:placeholder:text-neutral-400",
               cellSizeStyles[dim],
               error && "border-danger-500! focus:ring-danger-500!",
-              disabled && "cursor-not-allowed opacity-50",
+              // Also for a disabled fieldset around, which no prop tells
+              "disabled:cursor-not-allowed disabled:opacity-50",
             )}
             disabled={disabled}
             form={form}

@@ -3,7 +3,7 @@ import CodeBlock from "../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 
 const installGit = `# a tagged version from your git host - npm builds dist/ on install
-npm install git+https://github.com/RobertLib/components-ui.git#v0.2.0
+npm install git+https://github.com/RobertLib/components-ui.git#v0.2.1
 
 # the latest commit of a branch
 npm install git+https://github.com/RobertLib/components-ui.git#main
@@ -30,8 +30,8 @@ resolve: {
 },`;
 
 const installTarball = `# a copy instead of a link - like an install from a registry
-cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.2.0.tgz
-cd ../my-app && npm install ../components-ui/components-ui-0.2.0.tgz`;
+cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.2.1.tgz
+cd ../my-app && npm install ../components-ui/components-ui-0.2.1.tgz`;
 
 const installRegistry = `# in the library: set a scoped name, remove "private": true, then
 npm publish --registry https://npm.your-company.com
@@ -114,8 +114,11 @@ export default function Installation() {
               <code>use()</code> and refs as props).
             </li>
             <li>
-              <strong>Tailwind CSS 4</strong> - the components are styled with
-              its classes, which your build generates.
+              <strong>Tailwind CSS 4.1 or newer</strong> - the components are
+              styled with its classes, which your build generates. The
+              stylesheet of the library uses features of 4.1 (
+              <code>@source not</code>, the <code>pointer-coarse:</code>{" "}
+              variant), which 4.0 does not compile.
             </li>
             <li>
               A bundler that sets <code>process.env.NODE_ENV</code> - Vite,

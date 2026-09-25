@@ -1,4 +1,4 @@
-import removeDiacritics from "../../utils/remove-diacritics";
+import { foldSearchText } from "../../utils/remove-diacritics";
 import { toIntlLocale } from "../../i18n/format";
 import { formatCellValue } from "./format-value";
 import { toISODate, toISOTime } from "../../utils/date";
@@ -203,10 +203,17 @@ export interface DataTableUrlOptions {
   prefix?: string;
 }
 
+// Digits only - `2abc`, `1e3` or `0x10` are no page of a hand-edited URL
+const POSITIVE_INT = /^\d+$/;
+
+/**
+ * A whole number from 1 up to the safe integers - larger ones would lose
+ * their digits, and a page of `1e23` rows makes an offset no API takes.
+ */
 const parsePositiveInt = (value: string | null) => {
-  if (value === null) return null;
-  const number = Number.parseInt(value, 10);
-  return Number.isNaN(number) || number < 1 ? null : number;
+  if (value === null || !POSITIVE_INT.test(value)) return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 1 ? number : null;
 };
 
 const isStringRecord = (value: unknown): value is Record<string, unknown> =>
@@ -235,8 +242,12 @@ export function readQueryFromSearch(
     try {
       const parsed: unknown = JSON.parse(rawFilters);
       if (isStringRecord(parsed)) {
+        // Only texts, as the table writes them - a hand-edited `null` or
+        // object would become the filter "null" or "[object Object]"
         filters = Object.fromEntries(
-          Object.entries(parsed).map(([key, value]) => [key, String(value)]),
+          Object.entries(parsed).filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string",
+          ),
         );
       }
     } catch {
@@ -316,7 +327,7 @@ export function writeQueryToSearch(
   return result ? `?${result}` : "";
 }
 
-const normalizeText = (text: string) => removeDiacritics(text).toLowerCase();
+const normalizeText = foldSearchText;
 
 const toLocalDateTime = (date: Date) =>
   Number.isNaN(date.getTime()) ? "" : `${toISODate(date)}T${toISOTime(date)}`;
@@ -335,11 +346,18 @@ function toText(value: unknown): string {
   return String(value);
 }
 
-/** Nothing to show, also an empty list - sorted last in both directions. */
+/**
+ * Nothing to show, also an empty list - sorted last in both directions. So
+ * are `NaN` and an invalid date (`getValue: (row) => parseFloat(row.price)`
+ * of a row without a price): they compare to nothing, and a comparison that
+ * gives `NaN` would leave all the rows out of order, not just them.
+ */
 const isEmptyValue = (value: unknown) =>
   value === null ||
   value === undefined ||
   value === "" ||
+  (typeof value === "number" && Number.isNaN(value)) ||
+  (value instanceof Date && Number.isNaN(value.getTime())) ||
   (Array.isArray(value) && toText(value) === "");
 
 /**
@@ -392,9 +410,12 @@ function matchesFilter(
 // `-3` before `-20`.
 const NUMERIC_TEXT = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
 
-/** The number a value stands for - also one stored as a string - or `null`. */
+/**
+ * The number a value stands for - also one stored as a string - or `null`,
+ * also for `NaN`, which stands for no number.
+ */
 export const toNumber = (value: unknown) => {
-  if (typeof value === "number") return value;
+  if (typeof value === "number") return Number.isNaN(value) ? null : value;
   if (typeof value === "string" && NUMERIC_TEXT.test(value.trim())) {
     return Number(value);
   }

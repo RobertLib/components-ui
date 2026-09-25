@@ -1,7 +1,8 @@
 import { isValidElement, useId, useRef, useState } from "react";
 import MenuList, { type MenuListHandle } from "./menu/menu-list";
 import Popover from "./popover";
-import { getNextTabbable, getTabbableElements } from "../utils/tabbable";
+import { getNextTabStop } from "./overlay-stack";
+import { getTabbableElements } from "../utils/tabbable";
 import type { DropdownEntry } from "./menu/types";
 
 export type {
@@ -53,8 +54,12 @@ export default function Dropdown({
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
   // Opened from the keyboard, the menu highlights its first (or last) item
-  // once it is in the page - opened with the mouse, none
-  const [highlight, setHighlight] = useState<"first" | "last" | null>(null);
+  // once it is in the page - opened with the mouse (or by a screen reader
+  // clicking the trigger), it takes the focus with none highlighted, so the
+  // arrow keys and a screen reader go on in it
+  const [highlight, setHighlight] = useState<"first" | "last" | "menu" | null>(
+    null,
+  );
   const menuRef = useRef<MenuListHandle>(null);
 
   const generatedId = useId();
@@ -70,7 +75,7 @@ export default function Dropdown({
   // The popover gives the focus in the closing menu back to the trigger
   const changeOpen = (
     next: boolean,
-    highlightOnOpen: "first" | "last" | null,
+    highlightOnOpen: "first" | "last" | "menu" | null,
   ) => {
     setOpen(next);
     setHighlight(highlightOnOpen);
@@ -116,7 +121,7 @@ export default function Dropdown({
         // popover does not move the focus into the closing menu
         event.preventDefault();
         (
-          getNextTabbable(wrapper, document.getElementById(menuId)) ??
+          getNextTabStop(wrapper, document.getElementById(menuId)) ??
           triggerElement
         )?.focus();
       } else if (!onTrigger) {
@@ -146,7 +151,7 @@ export default function Dropdown({
       // Up to 24rem before it scrolls - held to the room on its side
       contentClassName="mt-2.5 max-h-96"
       id={triggerId}
-      onOpenChange={(next) => changeOpen(next, null)}
+      onOpenChange={(next) => changeOpen(next, next ? "menu" : null)}
       open={open}
       // The menu itself is the popup - no unnamed dialog around it
       popupRole="menu"

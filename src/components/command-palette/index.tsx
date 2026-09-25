@@ -33,6 +33,7 @@ import {
   type MatchRange,
   type SearchableText,
 } from "./match";
+import usePointerMoved from "../../hooks/use-pointer-moved";
 
 /** A command of `CommandPalette` - an action (`onSelect`), a page (`href`) or both. */
 export interface CommandPaletteItem {
@@ -342,8 +343,7 @@ function PaletteContent({
   } | null>(null);
   const [failedQuery, setFailedQuery] = useState<string | null>(null);
 
-  // The pointer position of the last hover - see `handleHover`
-  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const pointerMoved = usePointerMoved();
 
   // Callers pass the callbacks inline - the loading reacts to the search,
   // not to their identity
@@ -488,14 +488,10 @@ function PaletteContent({
     }
   };
 
-  // Chrome moves the mouse after the list scrolled from the keyboard -
-  // only a real move of the pointer highlights the option under it
+  // Only a real move of the pointer highlights the option under it, not the
+  // list scrolling beneath it from the keyboard
   const handleHover = (event: React.MouseEvent, key: string) => {
-    const { clientX: x, clientY: y } = event;
-    const last = pointerRef.current;
-    if (last && last.x === x && last.y === y) return;
-
-    pointerRef.current = { x, y };
+    if (!pointerMoved(event)) return;
     // Moves within the highlighted option render nothing
     setChosen((current) =>
       current?.key === key && current.query === query

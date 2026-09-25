@@ -2,6 +2,11 @@ import { AlertTriangle, CheckCircle, Info, XCircle } from "lucide-react";
 import cn from "../utils/cn";
 
 export interface AlertProps extends Omit<React.ComponentProps<"div">, "title"> {
+  /**
+   * Level of the heading of `title` - the level below the headings around.
+   * @default 3
+   */
+  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   /** Hides the icon on the left. */
   noIcon?: boolean;
   /** Bold heading above the message. */
@@ -25,6 +30,7 @@ export interface AlertProps extends Omit<React.ComponentProps<"div">, "title"> {
 export default function Alert({
   className,
   children,
+  headingLevel = 3,
   noIcon = false,
   title,
   type = "info",
@@ -85,6 +91,7 @@ export default function Alert({
   };
 
   const styles = getTypeStyles();
+  const Heading = `h${headingLevel}` as const;
   // An alert interrupts the screen reader, a status waits for a pause - the
   // explicit `aria-live` only repeats the role for older screen readers
   const isAlert = type === "danger" || type === "warning";
@@ -116,7 +123,9 @@ export default function Alert({
         )}
         <div>
           {title && (
-            <h3 className={cn("font-medium", styles.title)}>{title}</h3>
+            <Heading className={cn("font-medium", styles.title)}>
+              {title}
+            </Heading>
           )}
           <div className={cn("text-sm", styles.content, !!title && "mt-1")}>
             {children}

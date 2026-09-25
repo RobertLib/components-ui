@@ -20,4 +20,22 @@ describe("Alert", () => {
 
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("titles itself with a heading of the level given", () => {
+    render(
+      <>
+        <Alert title="Saved">The order was saved.</Alert>
+        <Alert headingLevel={4} title="Careful" type="warning">
+          The price changed.
+        </Alert>
+      </>,
+    );
+
+    expect(
+      screen.getByRole("heading", { level: 3, name: "Saved" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 4, name: "Careful" }),
+    ).toBeInTheDocument();
+  });
 });

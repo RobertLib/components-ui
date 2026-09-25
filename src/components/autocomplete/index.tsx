@@ -8,14 +8,16 @@ import {
   useState,
 } from "react";
 import Chip from "../chip";
-import cn from "../../utils/cn";
+import cn, { joinTokens } from "../../utils/cn";
 import debounce from "../../utils/debounce";
 import FormDescription from "../form-description";
 import FormError from "../form-error";
 import logger from "../../utils/logger";
 import Popover from "../popover";
-import removeDiacritics from "../../utils/remove-diacritics";
+import { foldSearchText } from "../../utils/remove-diacritics";
+import usePointerMoved from "../../hooks/use-pointer-moved";
 import Spinner from "../spinner";
+import useDebouncedValue from "../../hooks/use-debounced-value";
 import { formatMessage, formatPlural } from "../../i18n/format";
 import {
   useFieldsetDisabled,
@@ -37,8 +39,21 @@ export type {
 
 const DEFAULT_PAGE_SIZE = 100;
 const SEARCH_DEBOUNCE = 300;
+// The state of the list is announced once it has not changed for this long
+// (ms) - after typing pauses, not at every key
+const ANNOUNCE_DELAY = 500;
 // Letters typed into a select within this time (ms) are one search
 const TYPE_AHEAD_TIMEOUT = 500;
+// Keys that move the highlight or pick - they end a search of typed letters
+const NAVIGATION_KEYS = new Set([
+  "ArrowDown",
+  "ArrowUp",
+  "End",
+  "Enter",
+  "Escape",
+  "Home",
+  "Tab",
+]);
 
 export type AutocompleteValue = string | number;
 
@@ -282,7 +297,7 @@ const valueKey = (value: AutocompleteValue) => String(value);
 const sameValue = (a: AutocompleteValue, b: AutocompleteValue) =>
   valueKey(a) === valueKey(b);
 
-const normalizeText = (text: string) => removeDiacritics(text).toLowerCase();
+const normalizeText = foldSearchText;
 
 function createOption<TItem extends object>(
   item: TItem,
@@ -324,7 +339,7 @@ interface OptionRowProps {
   disabled: boolean;
   id: string;
   index: number;
-  onHover: (index: number) => void;
+  onHover: (event: React.MouseEvent, index: number) => void;
   onSelect: (option: AutocompleteOption) => void;
   option: AutocompleteOption;
   renderOption?: BaseAutocompleteProps["renderOption"];
@@ -369,7 +384,8 @@ function OptionRow({
       )}
       id={id}
       onClick={disabled ? undefined : () => onSelect(option)}
-      onMouseEnter={disabled ? undefined : () => onHover(index)}
+      // A move, not an enter - see `handleHover`
+      onMouseMove={disabled ? undefined : (event) => onHover(event, index)}
       role="option"
     >
       {renderOption ? renderOption(option, { active, selected }) : option.label}
@@ -450,6 +466,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   const [loadingMore, setLoadingMore] = useState(false);
   // The list whose loading failed - it shows an error while it stays open
   const [failedKey, setFailedKey] = useState<string | null>(null);
+  // Set as the list opens: the loaded list is from an earlier opening - it
+  // is loaded again, and shown until the new one arrives
+  const [listOutdated, setListOutdated] = useState(false);
 
   // Options whose labels stay known after they drop out of the list - the
   // picked ones and the selected ones a loaded page delivered
@@ -540,7 +559,6 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     setOpen(false);
     setActiveKey(null);
     if (!multiple) setSearch(null);
-    if (asSelect && isAsync) setListKey(null);
   }
 
   // Uncontrolled: a `defaultValue` arriving later (data of an edit form) is
@@ -682,8 +700,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
   // In single mode the input shows the selection unless the user is typing -
   // its label must not be searched on, otherwise reopening the list would
-  // narrow it down to the already selected option.
-  const searchTerm = asSelect ? "" : (search ?? "");
+  // narrow it down to the already selected option. Spaces around the term
+  // are no part of it - a phone keyboard adds one after a word it completes.
+  const searchTerm = asSelect ? "" : (search ?? "").trim();
   const depsKey = JSON.stringify(loadOptionsDeps ?? []);
   const requestKey = `${depsKey}\u0000${searchTerm}`;
 
@@ -692,13 +711,10 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
   // A list that failed to load shows an error while the list stays open -
   // retrying then would repeat the failure in a loop. The next opening loads
-  // it again.
+  // it again, as it loads every list again.
   const loadFailed = !isStale && failedKey !== null && failedKey === listKey;
 
-  if (!open && failedKey !== null) {
-    setFailedKey(null);
-    if (listKey === failedKey) setListKey(null);
-  }
+  if (!open && failedKey !== null) setFailedKey(null);
 
   const generatedId = useId();
   const inputId = id ?? generatedId;
@@ -717,13 +733,15 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   const loadedValues = useRef(new Set<string>());
 
   // Loads a page of options - the first one replaces the list, the next ones
-  // are appended to it.
+  // are appended to it. `keep` loads the first page of the list on screen
+  // again: its options stay until the new ones arrive.
   const loadPage = useCallback(
     (
       key: string,
       searchValue: string,
       append: boolean,
       pageCursor: string | null,
+      keep: boolean,
     ) => {
       const { loadOptions: load } = callbacksRef.current;
 
@@ -741,10 +759,13 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
         loadedPages.current = 0;
         loadedValues.current = new Set();
         setListKey(key);
-        setLoadedOptions([]);
+        if (!keep) setLoadedOptions([]);
         setCursor(null);
         setHasMore(false);
         setLoadingFirstPage(true);
+        setListOutdated(false);
+        // A failure of an earlier load of this list is no longer the news
+        setFailedKey(null);
       }
 
       const offset = receivedCount.current;
@@ -814,7 +835,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   const [debouncedLoadPage] = useState(() =>
     debounce(
       (load: typeof loadPage, key: string, searchValue: string) =>
-        load(key, searchValue, false, null),
+        load(key, searchValue, false, null, false),
       SEARCH_DEBOUNCE,
     ),
   );
@@ -828,16 +849,20 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   );
 
   // The search term owns the fetching: an empty one loads the unfiltered list
-  // right away, typing reloads it from the server (debounced).
+  // right away, typing reloads it from the server (debounced). Every opening
+  // loads the list on screen again - the data may have changed since - and
+  // shows it until the new one arrives.
   useEffect(() => {
-    if (!open || !isAsync || listKey === requestKey) {
+    const isCurrent = listKey === requestKey;
+
+    if (!open || !isAsync || (isCurrent && !listOutdated)) {
       // A search still waiting for its debounce is outdated - the list
       // closed, or the term went back to the one on screen
       debouncedLoadPage.cancel();
       return;
     }
 
-    if (searchTerm) {
+    if (searchTerm && !isCurrent) {
       debouncedLoadPage(loadPage, requestKey, searchTerm);
       return;
     }
@@ -849,7 +874,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     // field unmounts, or the list closes or changes, before it runs.
     let cancelled = false;
     queueMicrotask(() => {
-      if (!cancelled) loadPage(requestKey, "", false, null);
+      if (!cancelled) loadPage(requestKey, searchTerm, false, null, isCurrent);
     });
 
     return () => {
@@ -859,6 +884,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     debouncedLoadPage,
     isAsync,
     listKey,
+    listOutdated,
     loadPage,
     open,
     requestKey,
@@ -892,6 +918,37 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   const selectionLimit = multiple && maxSelections ? maxSelections : undefined;
   const limitReached =
     selectionLimit !== undefined && selectedValues.length >= selectionLimit;
+
+  const limitMessage = limitReached
+    ? formatPlural(
+        locale.code,
+        messages.autocomplete.maxSelections,
+        selectionLimit,
+      )
+    : "";
+
+  // What the live region beside the field tells screen readers about the
+  // open list: that it loads, or how many options it found - also none -
+  // after the reached `maxSelections`, a sentence. A failure is an alert of
+  // its own.
+  const listStatus =
+    open && !loadFailed
+      ? [
+          limitMessage,
+          isLoadingList && filteredOptions.length === 0
+            ? messages.autocomplete.loading
+            : filteredOptions.length === 0
+              ? messages.autocomplete.noResults
+              : formatPlural(
+                  locale.code,
+                  messages.autocomplete.resultCount,
+                  filteredOptions.length,
+                ),
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : "";
+  const announcedStatus = useDebouncedValue(listStatus, ANNOUNCE_DELAY);
 
   const isDisabled = (option: AutocompleteOption) =>
     !!option.disabled ||
@@ -928,6 +985,14 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     setActiveKey(rowKeys[index] ?? null);
   };
 
+  const pointerMoved = usePointerMoved();
+
+  // Only a real move of the pointer highlights the option under it, not the
+  // list scrolling beneath it from the keyboard
+  const handleHover = (event: React.MouseEvent, index: number) => {
+    if (pointerMoved(event)) setActiveIndex(index);
+  };
+
   // The first option from `index` on (towards the end with `step` 1, the
   // start with -1) the highlight can move to - -1 for none
   const findEnabled = (index: number, step: 1 | -1) => {
@@ -959,6 +1024,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     );
     revealActive.current = asSelect;
     setOpen(true);
+    if (isAsync) setListOutdated(true);
 
     // The labels whose loading failed are asked for again - once per opening
     if (failedValues.size > 0) {
@@ -975,8 +1041,6 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     revealActive.current = false;
     // Back to showing the selection
     if (!multiple) setSearch(null);
-    // A select shows a fresh list every time it is opened
-    if (asSelect && isAsync) setListKey(null);
   };
 
   const commit = (
@@ -1037,7 +1101,6 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       setOpen(false);
       setActiveIndex(-1);
       revealActive.current = false;
-      if (asSelect && isAsync) setListKey(null);
     }
   };
 
@@ -1055,6 +1118,30 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     focusingInput.current = true;
     inputRef.current?.focus();
     focusingInput.current = false;
+  };
+
+  // Set when the window loses the focus while it is in the combobox - the
+  // combobox stays the active element then, and the popover closes the list.
+  // The focus coming back with the window is no focus the user moves into
+  // the field: it brings the list back as it was, open or closed.
+  const leftWindow = useRef<{ open: boolean } | null>(null);
+
+  const handleComboboxBlur = (event: React.FocusEvent) => {
+    leftWindow.current =
+      document.activeElement === event.currentTarget ? { open } : null;
+  };
+
+  const handleComboboxFocus = (event: React.FocusEvent) => {
+    if (event.target !== inputRef.current) return;
+
+    const returning = leftWindow.current;
+    leftWindow.current = null;
+
+    if (returning) {
+      if (returning.open) openList();
+    } else if (!asSelect && !focusingInput.current) {
+      openList();
+    }
   };
 
   // The focus moves on to the chip taking the place of the removed one, or
@@ -1084,7 +1171,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     if (loadingMore || isLoadingList || !canLoadMore) return;
 
     if (isAsync) {
-      loadPage(requestKey, searchTerm, true, cursor);
+      loadPage(requestKey, searchTerm, true, cursor, false);
     } else if (loadMore) {
       setLoadingMore(true);
       loadMore()
@@ -1211,6 +1298,14 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     if (findEnabled(index + 1, 1) === -1) loadNextPage();
   };
 
+  // Opens a select with the option at `index` highlighted (none for -1) -
+  // brought into view once the list shows it. The list is not there yet to
+  // scroll or to load its next page, as `moveActive` does.
+  const openListOn = (index: number) => {
+    openList();
+    if (index >= 0) setActiveIndex(index);
+  };
+
   // A select picks the highlighted option with Enter or Space, like a
   // native one - or just closes without one
   const pickActive = () => {
@@ -1236,24 +1331,28 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       normalizeText(letter);
     typeAhead.current = { text, time };
 
-    // From the option after the highlighted one, around the end of the list
+    // The search goes on from the highlighted option - from the selected one
+    // in a closed select, as in a native one - around the end of the list
+    const current = open ? activeIndex : displayedOptions.findIndex(isSelected);
     const count = displayedOptions.length;
-    const order = Array.from(
-      { length: count },
-      (_, offset) => (activeIndex + 1 + offset) % count,
-    );
-    const startsWith = (prefix: string) =>
-      order.find((index) => {
+    const startsWith = (prefix: string, start: number) =>
+      Array.from(
+        { length: count },
+        (_, offset) => (start + offset) % count,
+      ).find((index) => {
         const option = displayedOptions[index];
         return (
           !isDisabled(option) && normalizeText(option.label).startsWith(prefix)
         );
       });
 
-    // The same letter again moves on to the next option starting with it
+    // A letter - also the same one again - moves on to the next option
+    // starting with it. Further letters narrow the search down from the
+    // highlighted option itself: "br" stays on "Brno" that "b" moved to.
     const repeated = [...text].every((char) => char === text[0]);
-    const match =
-      startsWith(text) ?? (repeated ? startsWith(text[0]) : undefined);
+    const match = repeated
+      ? (startsWith(text, current + 1) ?? startsWith(text[0], current + 1))
+      : startsWith(text, Math.max(current, 0));
 
     if (match === undefined) {
       // Nothing starts so - the next letter starts a new search
@@ -1261,8 +1360,11 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       return;
     }
 
-    openList();
-    moveActive(match);
+    if (open) {
+      moveActive(match);
+    } else {
+      openListOn(match);
+    }
   };
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -1290,10 +1392,17 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       return;
     }
 
+    // A space typed while a search of a select is going on is part of it -
+    // "New Y" goes on to "New York" - as in a native select; otherwise it
+    // picks the highlighted option
+    const typingAhead =
+      typeAhead.current.text !== "" &&
+      event.timeStamp - typeAhead.current.time < TYPE_AHEAD_TIMEOUT;
+
     if (
       asSelect &&
       event.key.length === 1 &&
-      event.key !== " " &&
+      (event.key !== " " || typingAhead) &&
       !event.altKey &&
       !event.ctrlKey &&
       !event.metaKey
@@ -1303,15 +1412,33 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       return;
     }
 
+    // A Space after them picks again
+    if (NAVIGATION_KEYS.has(event.key))
+      typeAhead.current = { text: "", time: 0 };
+
     // Enter in a closed typing field submits the form, as in a text input -
-    // a select opens on it (the select-only combobox)
+    // a select opens on it (the select-only combobox), on the arrow keys on
+    // its selection, on Home / End on its first / last option
     if (!open) {
       if (
         event.key === "ArrowDown" ||
-        (asSelect && (event.key === "Enter" || event.key === " "))
+        (asSelect &&
+          (event.key === "ArrowUp" ||
+            event.key === "Enter" ||
+            event.key === " "))
       ) {
         event.preventDefault();
         openList();
+        return;
+      }
+
+      if (asSelect && (event.key === "Home" || event.key === "End")) {
+        event.preventDefault();
+        openListOn(
+          event.key === "Home"
+            ? findEnabled(0, 1)
+            : findEnabled(displayedOptions.length - 1, -1),
+        );
         return;
       }
     }
@@ -1369,6 +1496,16 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
           handleSelect(displayedOptions[activeIndex]);
         }
         break;
+      case "Tab": {
+        // Tab takes the highlighted option of a select as the focus moves
+        // on (the select-only combobox) - one to pick, not a toggle of one
+        // of several
+        const option = displayedOptions[activeIndex];
+        if (asSelect && !multiple && open && option && !isDisabled(option)) {
+          handleSelect(option);
+        }
+        break;
+      }
       case "Backspace":
         // Multiple mode: backspace in the empty input removes the last chip -
         // not while the chips are still loading, it would remove a value
@@ -1448,7 +1585,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     "aria-activedescendant":
       open && activeIndex >= 0 ? optionId(activeIndex) : undefined,
     "aria-controls": open ? listboxId : undefined,
-    "aria-describedby": cn(errorId, descriptionId, ariaDescribedBy),
+    "aria-describedby": joinTokens(errorId, descriptionId, ariaDescribedBy),
     "aria-expanded": open,
     // Also those of `Field` or a form library - on the combobox, not on the
     // element around it
@@ -1459,6 +1596,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       ariaLabelledBy ?? (asSelect && label ? labelId : undefined),
     "aria-required": required ? ("true" as const) : ariaRequired,
     id: inputId,
+    onBlur: handleComboboxBlur,
     ref: inputCallbackRef,
     role: "combobox",
     // Not focusable while disabled, like a native field
@@ -1575,16 +1713,8 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
         interactiveTrigger
         // The focus the user moves into the input of a typing field opens the
         // list - not the one of a chip or the clear button, nor the one the
-        // field moves there itself
-        onFocus={(event) => {
-          if (
-            !asSelect &&
-            event.target === inputRef.current &&
-            !focusingInput.current
-          ) {
-            openList();
-          }
-        }}
+        // field moves there itself, nor the one the window brings back
+        onFocus={handleComboboxFocus}
         onKeyDown={disabled ? undefined : handleKeyDown}
         onOpenChange={(isOpen) => (isOpen ? openList() : closeList())}
         open={open}
@@ -1751,7 +1881,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
               id={optionId(index)}
               index={index}
               key={rowKeys[index]}
-              onHover={setActiveIndex}
+              onHover={handleHover}
               onSelect={handleSelect}
               option={option}
               renderOption={renderOption}
@@ -1759,12 +1889,13 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
             />
           ))}
         </ul>
-        {/* The state of the list is no option - it is announced from a live
-            region beside the listbox, which stays in view under a long list */}
+        {/* The state of the list is no option - it shows beside the listbox,
+            in view under a long list. The live region next to the field
+            announces it: this one comes and goes with the list, and a live
+            region added with its text already in it is not read out. */}
         <div
           className="sticky bottom-0 bg-surface dark:bg-surface-dark"
           onMouseDown={(event) => event.preventDefault()}
-          role="status"
         >
           {/* The empty option of a select is no result */}
           {filteredOptions.length === 0 && !isLoadingList && !loadFailed && (
@@ -1781,11 +1912,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
           )}
           {limitReached && (
             <p className="border-t border-neutral-200 px-2 py-1 text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
-              {formatPlural(
-                locale.code,
-                messages.autocomplete.maxSelections,
-                selectionLimit,
-              )}
+              {limitMessage}
             </p>
           )}
         </div>
@@ -1799,6 +1926,15 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
           </p>
         )}
       </Popover>
+
+      {/* There while the list is open - empty as it opens, the state comes
+          after a pause, so it is read out (a region added with its text in
+          it would not be) - and not in a page of closed fields */}
+      {open && (
+        <div className="sr-only" role="status">
+          {announcedStatus}
+        </div>
+      )}
 
       <FormDescription className="mt-1.5" id={descriptionId}>
         {description}

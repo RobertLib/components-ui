@@ -363,6 +363,21 @@ describe("Drawer slid in on a phone", () => {
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 
+  it("hides the page next to it from assistive technology - not its backdrop", async () => {
+    const user = userEvent.setup();
+    renderOnPhone();
+
+    const toggle = screen.getByRole("button", { name: "Menu" });
+    await user.click(toggle);
+    // A screen reader on a touch screen closes it with the backdrop
+    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Menu" })).toBeNull();
+    expect(toggle).toHaveAttribute("aria-hidden", "true");
+
+    await user.keyboard("{Escape}");
+    expect(toggle).not.toHaveAttribute("aria-hidden");
+  });
+
   it("stays closed while a server-rendered page hydrates on a phone", async () => {
     const ui = (
       <UIProvider router={{ pathname: "/", search: "" }}>
@@ -402,7 +417,7 @@ describe("Drawer slid in on a phone", () => {
       });
       await act(() => sleep(0));
 
-      expect(container.querySelector(".drawer")).toHaveAttribute("inert");
+      expect(container.querySelector(".cui-drawer")).toHaveAttribute("inert");
       // Never slid in on the way: no scroll lock, no focus moved in
       expect(styles).not.toContain("hidden");
       expect(focused).toEqual([]);

@@ -211,7 +211,7 @@ export default function ModalDialog({
       if (isControlled) return;
 
       focusReturnedRef.current = true;
-      returnFocus(returnFocusRef.current);
+      returnFocus(returnFocusRef.current, dialogRef.current);
       onCloseRef.current?.();
     }, duration);
     return () => clearTimeout(timer);
@@ -235,13 +235,16 @@ export default function ModalDialog({
   // Where the focus was before the dialog opened - it goes back there on
   // close, or to the trigger of the popover it was in when that has closed
   // meanwhile - also when the popover closed in this same commit, taking the
-  // focus with its panel. Insertion effects run before the layout phase, in
-  // which an `autoFocus` field of the dialog takes the focus.
+  // focus with its panel - or, when that is gone too (the row the dialog
+  // deleted), to the Tab stop next to it. Insertion effects run before the
+  // layout phase, in which an `autoFocus` field of the dialog takes the
+  // focus. Read at every opening - also when it opens again while it is
+  // animating out, from another button (the next row of a list).
   useInsertionEffect(() => {
-    if (isRendered) {
+    if (isRequestedOpen) {
       returnFocusRef.current = getActiveFocusReturnTargets();
     }
-  }, [isRendered]);
+  }, [isRequestedOpen]);
 
   // While open: lock the page scroll
   useEffect(() => {
@@ -321,7 +324,9 @@ export default function ModalDialog({
     if (!isControlled) return;
 
     const targets = returnFocusRef.current;
-    return () => returnFocus(targets);
+    return () => {
+      returnFocus(targets, dialog);
+    };
   }, [isControlled, isOpen]);
 
   // The height of the DialogFooter in it, which the body leaves free

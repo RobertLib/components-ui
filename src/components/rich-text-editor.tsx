@@ -32,12 +32,14 @@ import {
   useSyncExternalStore,
 } from "react";
 import Button from "./button";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import sanitizeRichText, {
   isSafeHref,
+  sanitizeEditorContent,
   sanitizeRichTextLines,
+  sanitizeRichTextParagraphs,
   type RichTextFormat,
 } from "../utils/sanitize-rich-text";
 import { useFormReset } from "../hooks/use-form-control";
@@ -57,7 +59,10 @@ import {
   closestIn,
   createBookmark,
   createEmptyParagraph,
+  isBlockNode,
+  isListElement,
   isWhitespace,
+  lineOf,
   placeCaret,
   resolveBookmark,
   select,
@@ -83,11 +88,13 @@ import {
 } from "./rich-text/icons";
 import {
   clearFormatting,
+  hasLink,
   insertTextWithCode,
   isAllIn,
   linkAt,
   removeLink,
   toggleCode,
+  toggleUnderline,
 } from "./rich-text/inline";
 import {
   addColumn,
@@ -101,8 +108,10 @@ import {
   hasHeaderRow,
   insertBlock,
   isAtEdgeOf,
+  lastCellOf,
   MAX_TABLE_SIZE,
   siblingCell,
+  tableBefore,
   toggleHeaderRow,
 } from "./rich-text/tables";
 import {
@@ -127,18 +136,26 @@ const HAS_SCHEME =
   /^((?:mailto|tel):|[a-z][a-z\d+\-.]*:(?!\d+(?:[/?#]|$))|\/\/)/i;
 const EMAIL = /^[^\s@/:]+@[^\s@/:]+\.[^\s@/:]+$/;
 const PHONE = /^\+?[\d\s().-]+$/;
+// An IPv4 address - the host of a device in the network, not a phone
+// number written with dots
+const IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 
 /**
  * The link of what the user typed into the link field - an e-mail address
  * links with `mailto:`, a phone number with `tel:` (also one typed with
  * it), and an address without a scheme gets `https://` (the browser would
- * resolve it against the app, which gives a dead route).
+ * resolve it against the app, which gives a dead route) - also an IP
+ * address, whose digits and dots are no phone number.
  */
 function toHref(text: string) {
   if (EMAIL.test(text)) return `mailto:${text}`;
 
   const phone = text.replace(/^tel:/i, "");
-  if (PHONE.test(phone) && phone.replace(/\D/g, "").length >= 6) {
+  if (
+    !IPV4.test(text) &&
+    PHONE.test(phone) &&
+    phone.replace(/\D/g, "").length >= 6
+  ) {
     return `tel:${phone.replace(/[^\d+]/g, "")}`;
   }
 
@@ -327,8 +344,7 @@ function rangeIn(editor: HTMLElement) {
   return range && editor.contains(range.commonAncestorContainer) ? range : null;
 }
 
-// The lines pasted content goes into as lines of text - cells and headings
-const LINE_SELECTOR = "td, th, h1, h2, h3, h4, h5, h6";
+const HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
 
 /**
  * Whether a selection takes an element along as a whole - it starts at the
@@ -359,15 +375,86 @@ const hiddenValidationStyle: React.CSSProperties = {
  * The value of HTML in the editor - reduced to the formatting of its tools
  * (typing and the toolbar leave `<span style>` and `<font>` behind in some
  * browsers), and empty without text, whatever `<p><br></p>` it still holds.
+ * The inline styles of a value from outside are read like those of pasted
+ * content; those of the editor's own content are the browser's (`isOwn`).
  */
-function normalize(html: string, formats: readonly RichTextFormat[]) {
+function normalize(
+  html: string,
+  formats: readonly RichTextFormat[],
+  isOwn: boolean,
+) {
   // Nothing to sanitize with on the server - and nothing unsanitized goes out
   if (!html || typeof document === "undefined") return "";
 
-  const template = document.createElement("template");
-  template.innerHTML = sanitizeRichText(html, { formats });
+  const content = sanitizeEditorContent(html, formats, !isOwn);
+  return content.hasText ? content.html : "";
+}
 
-  return template.content.textContent?.trim() ? template.innerHTML : "";
+/**
+ * Whether the editor shows nothing but where the placeholder goes - no text
+ * and at most one empty paragraph or heading. An empty list item, quote,
+ * table or rule has no text either, but the placeholder would cover it.
+ */
+function isBlank(editor: HTMLElement) {
+  if (editor.textContent?.trim()) return false;
+
+  const nodes = Array.from(editor.childNodes).filter(
+    (node) => !isWhitespace(node),
+  );
+  if (nodes.length > 1) return false;
+
+  const [line] = nodes;
+  return (
+    !line ||
+    line.nodeName === "BR" ||
+    (/^(P|DIV|H[1-6])$/.test(line.nodeName) &&
+      !Array.from((line as Element).querySelectorAll("*")).some(
+        (element) => isBlockNode(element) || element.tagName === "IMG",
+      ))
+  );
+}
+
+/**
+ * The kind of sanitized content - a line of text (inline content, or one
+ * paragraph of it), a single list, or blocks.
+ */
+function contentKind(html: string): "blocks" | "line" | "list" {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const nodes = Array.from(template.content.childNodes);
+  const [first] = nodes;
+
+  if (!nodes.some(isBlockNode)) return "line";
+  if (nodes.length > 1) return "blocks";
+  if (isListElement(first)) return "list";
+  return first.nodeName === "P" || first.nodeName === "DIV" ? "line" : "blocks";
+}
+
+/**
+ * The line of text pasted content lands in - a heading, a list item or a
+ * quoted line (cells are asked for before). `null` elsewhere.
+ */
+function textLineAt(editor: HTMLElement, node: Node) {
+  const line =
+    closestIn(editor, node, HEADING_SELECTOR) ?? closestIn(editor, node, "li");
+  if (line) return { kind: line.tagName === "LI" ? "item" : "heading", line };
+
+  return closestIn(editor, node, "blockquote")
+    ? { kind: "quote", line: lineOf(editor, node) }
+    : null;
+}
+
+/**
+ * Makes the line a selection starts in a paragraph - a heading, list item
+ * or quoted line, which pasted blocks replace or fill. The selection stays.
+ */
+function makeParagraphAt(editor: HTMLElement, range: Range) {
+  const bookmark = createBookmark(range);
+  const start = range.cloneRange();
+  start.collapse(true);
+
+  applyLineCommand(editor, start, (lines) => setLineType(lines, "p"));
+  select(resolveBookmark(bookmark, editor));
 }
 
 const subscribeToNothing = () => () => {};
@@ -483,7 +570,7 @@ function readToolState(
       paragraph: block.type === "p",
       strikethrough: isMarkActive(editor, range, "strikeThrough", "s"),
       // A link is underlined by its style - the browser tells it underlined
-      underline: inLink
+      underline: hasLink(editor, range)
         ? range.collapsed
           ? !!closestIn(editor, range.startContainer, "u")
           : isAllIn(editor, range, "u")
@@ -654,8 +741,9 @@ export interface RichTextEditorProps {
   /** Called with the HTML after every change. */
   onChange?: (html: string) => void;
   /**
-   * Shown while the editor is empty - screen readers get it as the
-   * placeholder (`aria-placeholder`), not as the text of the editor.
+   * Shown while the editor is empty - over an empty line, not over an empty
+   * list, table or rule. Screen readers get it as the placeholder
+   * (`aria-placeholder`), not as the text of the editor.
    */
   placeholder?: string;
   /**
@@ -689,8 +777,8 @@ export interface RichTextEditorProps {
  * of its tools. The output is user input - sanitize it on the server, and
  * render stored HTML sanitized again, inside an element with the
  * `rich-text` class: `<div className="rich-text" dangerouslySetInnerHTML={{
- * __html: sanitizeRichText(html) }} />` (on a page rendered on the server,
- * once it is hydrated - `sanitizeRichText` needs the browser's DOM).
+ * __html: sanitizeRichText(html) }} />` (on a page rendered on a server
+ * without a `DOMParser`, once it is hydrated - `sanitizeRichText` needs one).
  */
 export default function RichTextEditor({
   "aria-describedby": ariaDescribedBy,
@@ -801,7 +889,7 @@ export default function RichTextEditor({
   const normalizedHtml = useMemo(
     () =>
       canSanitize && !isReported
-        ? normalize(passedHtml, formatsByKey(formatKey))
+        ? normalize(passedHtml, formatsByKey(formatKey), false)
         : "",
     [canSanitize, formatKey, isReported, passedHtml],
   );
@@ -831,16 +919,19 @@ export default function RichTextEditor({
   // An IME composition changes its text until it ends - one step of the
   // undo history
   const isComposing = useRef(false);
+  // The editor shows nothing but an empty line - its placeholder shows. An
+  // empty list, table or rule has no text either, but it shows.
+  const [blank, setBlank] = useState(true);
+  const showsPlaceholder = !content && blank;
 
   useImperativeHandle(ref, () => editorRef.current as HTMLDivElement, []);
 
   /** The value of the content of the editor - normalized once for each change. */
-  const normalizeEditor = (editor: HTMLElement, key: string) => {
-    const html = editor.innerHTML;
+  const normalizeEditor = (html: string, key: string) => {
     const last = normalized.current;
     if (last?.html === html && last.formatKey === key) return last.value;
 
-    const next = normalize(html, formatsByKey(key));
+    const next = normalize(html, formatsByKey(key), true);
     normalized.current = { formatKey: key, html, value: next };
     return next;
   };
@@ -858,10 +949,11 @@ export default function RichTextEditor({
     const toolsChanged = shownFormatKey.current !== formatKey;
     shownFormatKey.current = formatKey;
     const replaces =
-      toolsChanged || content !== normalizeEditor(editor, formatKey);
+      toolsChanged || content !== normalizeEditor(editor.innerHTML, formatKey);
     if (replaces) {
       editor.innerHTML = content;
       pendingCode.current = null;
+      setBlank(isBlank(editor));
     }
     if (replaces || !historyRef.current) {
       historyRef.current = new EditHistory({
@@ -935,20 +1027,20 @@ export default function RichTextEditor({
     const editor = editorRef.current;
     if (!editor) return;
 
+    // Read once - it is the whole content
+    const html = editor.innerHTML;
     const history = getHistory(editor);
     // A composition becomes a step of its own when it ends
     if (record && !isComposing.current) {
       history.record(
-        {
-          html: editor.innerHTML,
-          selection: saveSelection(editor, rangeIn(editor)),
-        },
+        { html, selection: saveSelection(editor, rangeIn(editor)) },
         kind,
       );
     }
     syncHistoryState(history);
+    setBlank(isBlank(editor));
 
-    const nextHtml = normalizeEditor(editor, formatKey);
+    const nextHtml = normalizeEditor(html, formatKey);
     setEntered({ formatKey, html: nextHtml });
     if (value !== undefined) setInputCount((count) => count + 1);
 
@@ -1063,6 +1155,19 @@ export default function RichTextEditor({
       return true;
     });
 
+  // A link is underlined by its style - the browser takes selected link
+  // text for underlined and does nothing. Its `<u>` is toggled instead.
+  const toggleUnderlineTool = () =>
+    runCommand((editor, range) => {
+      if (range.collapsed || !hasLink(editor, range)) {
+        execCommand("underline");
+        return true;
+      }
+      const changed = toggleUnderline(editor, range);
+      if (changed) select(changed);
+      return !!changed;
+    });
+
   // At a caret, code is switched for the text typed next
   const toggleCodeTool = () =>
     runCommand((editor, range) => {
@@ -1106,6 +1211,7 @@ export default function RichTextEditor({
 
   const openLinkForm = () => {
     const editor = editorRef.current;
+    if (disabled) return;
     const range = getEditorRange();
     const link = editor && range ? linkAt(editor, range) : null;
 
@@ -1169,6 +1275,7 @@ export default function RichTextEditor({
   };
 
   const openTableForm = () => {
+    if (disabled) return;
     tableRange.current = getEditorRange();
     setTableForm({ columns: "3", header: true, rows: "3" });
   };
@@ -1273,8 +1380,10 @@ export default function RichTextEditor({
         break;
       case "bold":
       case "italic":
-      case "underline":
         executeCommand(tool);
+        break;
+      case "underline":
+        toggleUnderlineTool();
         break;
       case "strikethrough":
         toggleStrikethrough();
@@ -1416,8 +1525,43 @@ export default function RichTextEditor({
     });
   };
 
+  // Backspace at the start of the line after a table - also by a word or
+  // a line - would pull the line into the last cell of the table (Chrome).
+  // The caret goes there instead, and a line without text goes.
+  const handleBackspace = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const editor = editorRef.current;
+    const range = editor && rangeIn(editor);
+    const target = editor && range ? tableBefore(editor, range) : null;
+    if (!editor || !target) return;
+
+    // A list or a quote has a Backspace of its own - it lifts the item or
+    // the line out of it
+    const { block, table } = target;
+    if (!/^(?:P|H[1-6])$/.test(block.tagName)) return;
+
+    event.preventDefault();
+    const cell = lastCellOf(table);
+    // An empty line goes - unless it is the last one, the only place to
+    // write after the table
+    if (
+      block.textContent?.trim() ||
+      block.querySelector("hr, img, table") ||
+      !block.nextElementSibling
+    ) {
+      if (cell) placeCaret(cell, true);
+      return;
+    }
+
+    runCommand(() => {
+      block.remove();
+      if (cell) placeCaret(cell, true);
+      return true;
+    });
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    // A disabled editor takes no commands - it may have the focus of a click
+    if (event.nativeEvent.isComposing || disabled) return;
 
     // To the toolbar - the shortcut of TinyMCE and CKEditor
     if (event.altKey && event.key === "F10") {
@@ -1448,6 +1592,11 @@ export default function RichTextEditor({
       // Also when the tool is not there - Ctrl+U underlines in every browser
       event.preventDefault();
       if (canRun(tool as RichTextTool)) runTool(tool as RichTextTool);
+      return;
+    }
+
+    if (event.key === "Backspace") {
+      handleBackspace(event);
       return;
     }
 
@@ -1598,10 +1747,11 @@ export default function RichTextEditor({
     // the editor too, so it shows what is submitted
     const editor = editorRef.current;
     if (editor && linkUrl === null && tableForm === null) {
-      const sanitized = sanitizeRichText(editor.innerHTML, { formats });
+      const sanitized = sanitizeEditorContent(editor.innerHTML, formats).html;
       if (sanitized !== editor.innerHTML) {
         editor.innerHTML = sanitized;
         historyRef.current?.replaceCurrent(sanitized);
+        setBlank(isBlank(editor));
       }
       pendingCode.current = null;
       const hasTable = !!editor.querySelector("table");
@@ -1616,40 +1766,54 @@ export default function RichTextEditor({
   };
 
   /**
-   * Pasted or dropped HTML reduced to what the value keeps where it goes: a
-   * cell or a heading holds lines of text. But a selection from the start
-   * of a heading or a table to beyond it (select all) replaces it as a
-   * whole, and a heading without text is a line to fill - it becomes a
-   * paragraph first, so the content keeps its blocks.
+   * Pasted or dropped HTML reduced to what the value keeps where it goes -
+   * so the editor shows what it submits. A cell or a heading holds lines of
+   * text, a list item too (a pasted list gives it items next to it), a
+   * quote paragraphs. But blocks keep their kinds where they replace a
+   * heading, list item, quoted line or table as a whole (select all), or
+   * fill an empty line: the line becomes a paragraph for them first. Inline
+   * content stays in the line, like typed text.
    */
   const sanitizeInserted = (html: string, range: Range | null) => {
     const editor = editorRef.current;
-    const line =
-      editor && range
-        ? closestIn(editor, range.startContainer, LINE_SELECTOR)
-        : null;
-    if (!editor || !range || !line) return sanitizeRichText(html, { formats });
+    const blocks = sanitizeRichText(html, { formats });
+    if (!editor || !range) return blocks;
 
-    const table = line.closest("table");
-    const isReplaced = table
-      ? isReplacedWhole(table, range)
-      : !line.textContent?.trim() || isReplacedWhole(line, range);
-    if (!isReplaced) return sanitizeRichTextLines(html, formats);
-
-    if (!table) {
-      const bookmark = createBookmark(range);
-      changeTag(line, "p");
-      select(resolveBookmark(bookmark, editor));
+    const cell = cellOf(editor, range.startContainer);
+    if (cell) {
+      const table = cell.closest("table") as HTMLElement;
+      return isReplacedWhole(table, range)
+        ? blocks
+        : sanitizeRichTextLines(html, formats);
     }
-    return sanitizeRichText(html, { formats });
+
+    const target = textLineAt(editor, range.startContainer);
+    if (!target) return blocks;
+
+    const kind = contentKind(blocks);
+    // The browser inserts the items of a list as items of the list
+    if (kind === "list" && target.kind === "item") return blocks;
+
+    const { line } = target;
+    const replaces =
+      kind !== "line" &&
+      (!line.textContent?.trim() || isReplacedWhole(line, range));
+    if (replaces) {
+      makeParagraphAt(editor, range);
+      return blocks;
+    }
+
+    return target.kind === "quote" && kind !== "line"
+      ? sanitizeRichTextParagraphs(html, formats)
+      : sanitizeRichTextLines(html, formats);
   };
 
   // Pasted pages and documents keep only the formatting of the editor, plain
   // text is inserted as text - and images alone have no place in the text
   const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
-    event.preventDefault();
     const editor = editorRef.current;
-    if (!editor) return;
+    if (!editor || disabled) return;
+    event.preventDefault();
 
     const pastedHtml = event.clipboardData.getData("text/html");
     const pastedText = event.clipboardData.getData("text/plain");
@@ -1661,6 +1825,19 @@ export default function RichTextEditor({
     if (pastedHtml) {
       execCommand("insertHTML", sanitizeInserted(pastedHtml, range));
     } else {
+      // Lines replacing a heading, list item or quoted line as a whole are
+      // paragraphs, like pasted blocks - the browser would give the first
+      // of them its kind. A single line stays in it, like typed text.
+      const target = range && textLineAt(editor, range.startContainer);
+      if (
+        range &&
+        target &&
+        /[\r\n]/.test(pastedText.trim()) &&
+        !cellOf(editor, range.startContainer) &&
+        isReplacedWhole(target.line, range)
+      ) {
+        makeParagraphAt(editor, range);
+      }
       execCommand("insertText", pastedText);
     }
     reportChange(null, true);
@@ -1705,7 +1882,7 @@ export default function RichTextEditor({
 
     const droppedHtml = event.dataTransfer.getData("text/html");
     const editor = editorRef.current;
-    if (!droppedHtml || !editor) return;
+    if (!droppedHtml || !editor || disabled) return;
 
     event.preventDefault();
     editor.focus();
@@ -1904,7 +2081,7 @@ export default function RichTextEditor({
           </div>
         )}
 
-        {linkUrl !== null && (
+        {linkUrl !== null && !disabled && (
           <div className="flex flex-wrap items-center gap-2 border-b border-neutral-300 p-2 dark:border-neutral-700">
             <label className="text-sm" htmlFor={linkInputId}>
               {texts.linkPrompt}
@@ -1960,7 +2137,7 @@ export default function RichTextEditor({
           </div>
         )}
 
-        {tableForm !== null && (
+        {tableForm !== null && !disabled && (
           <div
             aria-label={texts.insertTable}
             className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-neutral-300 p-2 dark:border-neutral-700"
@@ -2021,7 +2198,7 @@ export default function RichTextEditor({
 
         <div
           aria-describedby={
-            cn(errorId, descriptionId, ariaDescribedBy) || undefined
+            joinTokens(errorId, descriptionId, ariaDescribedBy) || undefined
           }
           aria-disabled={disabled || undefined}
           aria-invalid={error ? "true" : undefined}
@@ -2029,11 +2206,11 @@ export default function RichTextEditor({
           aria-labelledby={textboxLabelledBy}
           aria-multiline="true"
           // Screen readers get the placeholder here - not from the CSS
-          aria-placeholder={content ? undefined : placeholder}
+          aria-placeholder={showsPlaceholder ? placeholder : undefined}
           aria-required={required || undefined}
           className="rich-text-editor rich-text min-h-50 p-3 text-sm focus:outline-none"
           contentEditable={!disabled}
-          data-empty={content ? undefined : ""}
+          data-empty={showsPlaceholder ? "" : undefined}
           data-placeholder={placeholder}
           id={id}
           onBlur={rememberSelection}

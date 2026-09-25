@@ -16,6 +16,7 @@ import { expandRecurringEvents } from "./recurrence";
 import { getVisibleRange, normalizeAgendaPeriod } from "./date-utils";
 import logger from "../../utils/logger";
 import MonthView from "./month-view";
+import useIsHydrated from "../../hooks/use-is-hydrated";
 import {
   createEventColorResolver,
   createEventLabeler,
@@ -49,9 +50,16 @@ export interface CalendarProps {
    * navigation cannot change it.
    */
   currentDate?: Date;
-  /** Hour the week and day views end with (1 - 24). Default 22. */
+  /**
+   * Hour the week and day views end with (1 - 24). Default 22. Events
+   * starting at it or later are offered by "+N later" in the header of
+   * their day.
+   */
   dayEndHour?: number;
-  /** First hour of the week and day views (0 - 23). Default 7. */
+  /**
+   * First hour of the week and day views (0 - 23). Default 7. Events over
+   * by then are offered by "+N earlier" in the header of their day.
+   */
   dayStartHour?: number;
   /**
    * Events to show - fetch those of
@@ -59,14 +67,17 @@ export interface CalendarProps {
    * views list all-day events first, then by start, the longer of events
    * starting together first. A recurring event (with `recurrence`) shows its
    * occurrences in the visible range - fetch the recurring events whose
-   * occurrences may fall in it.
+   * occurrences may fall in it. Days and hours are those of the browser's
+   * time zone: a page rendered on the server shows the events once it is
+   * hydrated.
    */
   events?: CalendarEvent[];
   /**
    * Date shown first by an uncontrolled calendar - today by default. Pass it
    * (or `currentDate`) when the page is rendered on the server: "today" of
    * the server and of the browser may differ, and the hydration would not
-   * match.
+   * match - a date of the same day in both, like `new Date(2026, 8, 24)`
+   * made where the component renders, or noon of the day.
    */
   initialDate?: Date;
   /**
@@ -271,10 +282,17 @@ export default function Calendar({
     [rangeEnd, rangeStart],
   );
 
+  // The events go on the days and hours of the browser's time zone, which
+  // the server does not know - they show once the page is hydrated, so the
+  // markup of the server always matches (see "Server rendering" in the
+  // docs). A page rendered in the browser shows them from the start.
+  const isHydrated = useIsHydrated();
+
   // The order of the tiles of a day and of the Tab key
   const sortedEvents = useMemo(
-    () => sortEvents(expandRecurringEvents(events, visibleRange)),
-    [events, visibleRange],
+    () =>
+      isHydrated ? sortEvents(expandRecurringEvents(events, visibleRange)) : [],
+    [events, isHydrated, visibleRange],
   );
 
   const getEventLabel = useMemo(
@@ -302,6 +320,7 @@ export default function Calendar({
     onEventClick,
     onEventDrop,
     onEventResize,
+    onNavigate: changeDate,
     onSlotDragEnd,
     renderEventActions,
     renderEventIcon,

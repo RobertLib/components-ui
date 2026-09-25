@@ -137,7 +137,7 @@ describe("Link", () => {
 
     const link = screen.getByRole("link", { name: "Orders" });
     expect(link).toHaveAttribute("aria-current", "page");
-    expect(link).toHaveClass("font-bold", "link");
+    expect(link).toHaveClass("font-bold", "cui-link");
     expect(ref.current).toBe(link);
   });
 });

@@ -186,6 +186,42 @@ describe("URL state", () => {
     ).toEqual(createDataTableQuery());
   });
 
+  it("reads only safe whole page numbers from the URL", () => {
+    expect(readQueryFromSearch("?page=3").page).toBe(3);
+    // Trailing garbage, exponents, hex and signs are no page numbers
+    expect(readQueryFromSearch("?page=2abc").page).toBe(1);
+    expect(readQueryFromSearch("?page=1e3").page).toBe(1);
+    expect(readQueryFromSearch("?page=0x10").page).toBe(1);
+    expect(readQueryFromSearch("?page=%2B2").page).toBe(1);
+    expect(readQueryFromSearch("?page=0").page).toBe(1);
+    // Past the safe integers - `offset` would become `2e+24`
+    expect(readQueryFromSearch("?page=99999999999999999999999").page).toBe(1);
+    expect(readQueryFromSearch(`?page=${Number.MAX_SAFE_INTEGER}`).page).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
+    expect(readQueryFromSearch("?page=7", { defaults: { page: 2 } }).page).toBe(
+      7,
+    );
+    expect(readQueryFromSearch("?page=x", { defaults: { page: 2 } }).page).toBe(
+      2,
+    );
+    expect(readQueryFromSearch("?pageSize=50abc").pageSize).toBe(20);
+  });
+
+  it("ignores filter values of the URL that are no texts", () => {
+    const filters = JSON.stringify({
+      a: null,
+      b: { c: 1 },
+      d: 5,
+      e: ["x"],
+      f: "kept",
+    });
+
+    expect(
+      readQueryFromSearch(`?filters=${encodeURIComponent(filters)}`).filters,
+    ).toEqual({ f: "kept" });
+  });
+
   it("accepts only the offered page sizes from the URL", () => {
     expect(readQueryFromSearch("?pageSize=50").pageSize).toBe(50);
     expect(readQueryFromSearch("?pageSize=1000000").pageSize).toBe(20);
@@ -395,6 +431,44 @@ describe("applyDataTableQuery", () => {
       "-3",
       "-20",
       "",
+    ]);
+  });
+
+  it("sorts NaN and invalid dates last, the other rows in order", () => {
+    // `parseFloat` / `new Date` of a missing value - a comparison giving
+    // NaN left every row out of order
+    const sortValues = (values: unknown[], order: "asc" | "desc") =>
+      applyDataTableQuery(
+        values.map((value, id) => ({ id, value })),
+        createDataTableQuery({ order, sortBy: "value" }),
+        [{ key: "value", label: "Value", sortable: true }],
+      ).rows.map((row) => row.value);
+
+    expect(sortValues([3, NaN, 1, 5, NaN, 2, 0, 4], "asc")).toEqual([
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      NaN,
+      NaN,
+    ]);
+    expect(sortValues([3, NaN, 1, 5, 2], "desc")).toEqual([5, 3, 2, 1, NaN]);
+
+    const march = new Date(2026, 2, 1);
+    const january = new Date(2026, 0, 1);
+    const may = new Date(2026, 4, 1);
+    const february = new Date(2026, 1, 1);
+    const invalid = new Date("not a date");
+    expect(sortValues([march, invalid, january, may, february], "asc")).toEqual(
+      [january, february, march, may, invalid],
+    );
+    expect(sortValues([march, invalid, january, may], "desc")).toEqual([
+      may,
+      march,
+      january,
+      invalid,
     ]);
   });
 

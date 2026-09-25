@@ -1,13 +1,22 @@
 import { Calendar, Clock, X } from "lucide-react";
 import { useId, useImperativeHandle, useRef, useState } from "react";
-import cn from "../../utils/cn";
+import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "../form-description";
 import FormError from "../form-error";
 import Popover from "../popover";
 import useIsMobile from "../../hooks/use-is-mobile";
-import { getNextTabbable, getTabbableElements } from "../../utils/tabbable";
+import { formatMessage } from "../../i18n/format";
+import { getTabbableElements } from "../../utils/tabbable";
+import { getNextTabStop } from "../overlay-stack";
 import { useMessages } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
+
+/**
+ * What a picker makes of a typed text: the value, or why the text gives
+ * none - it is no date or time (`format`), or one out of the limits
+ * (`range`).
+ */
+export type ParsedText = { value: string } | { error: "format" | "range" };
 
 const dimStyles = {
   sm: "px-1 py-0 text-sm",
@@ -37,6 +46,12 @@ interface PickerFieldProps extends Omit<
   /** The value as the field shows it, in the display format of the locale. */
   displayValue: string;
   /**
+   * The format to type the value in, as the placeholder of the locale
+   * writes it (`DD.MM.RRRR`) - for the message under a text that is no
+   * value.
+   */
+  format: string;
+  /**
    * More hidden inputs for the form, besides the one of `name` - e.g. the
    * first and the last day of a range. Those without a name are left out.
    */
@@ -54,10 +69,10 @@ interface PickerFieldProps extends Omit<
   /** Classes of the popup panel - its width. */
   panelClassName?: string;
   /**
-   * The value of a text typed in the display format - `null` for a text
-   * that is no allowed value, which is then dropped.
+   * The value of a text typed in the display format - or why it gives none.
+   * Such a text is dropped, and a message under the field says why.
    */
-  parseText: (text: string) => string | null;
+  parseText: (text: string) => ParsedText;
   /** Accessible name of the popup, e.g. "Select date". */
   popupLabel: string;
 }
@@ -81,6 +96,7 @@ export default function PickerField({
   error,
   errorId,
   fieldRef,
+  format,
   hiddenFields,
   icon,
   inputId,
@@ -118,10 +134,18 @@ export default function PickerField({
   // value (a pick in the popup, a reset) replaces it.
   const [text, setText] = useState<string | null>(null);
   const [textValue, setTextValue] = useState(value);
+  // The last typed text that gave no value - said under the field until
+  // the typing goes on or the value changes
+  const [rejected, setRejected] = useState<{
+    error: "format" | "range";
+    text: string;
+  } | null>(null);
+  const rejectedId = `${inputId}-rejected`;
 
   if (value !== textValue) {
     setTextValue(value);
     setText(null);
+    setRejected(null);
   }
 
   useImperativeHandle(fieldRef, () => inputRef.current as HTMLInputElement, [
@@ -160,7 +184,11 @@ export default function PickerField({
     }
 
     const parsed = parseText(typed);
-    if (parsed !== null && parsed !== value) onValueChange(parsed);
+    if ("error" in parsed) {
+      setRejected({ error: parsed.error, text: typed });
+    } else if (parsed.value !== value) {
+      onValueChange(parsed.value);
+    }
   };
 
   // Tab moves between the field and the popup as if the popup followed the
@@ -186,11 +214,11 @@ export default function PickerField({
     }
 
     // Past the end of the popup - on to what follows the picker, which
-    // closes the popup
+    // closes the popup (round to the first control of a dialog it is in)
     if (hasTabbable(Node.DOCUMENT_POSITION_FOLLOWING)) return;
     event.preventDefault();
     const next = triggerRef.current
-      ? getNextTabbable(triggerRef.current, contentRef.current)
+      ? getNextTabStop(triggerRef.current, contentRef.current)
       : undefined;
     (next ?? inputRef.current)?.focus();
     onOpenChange(false, true);
@@ -269,15 +297,17 @@ export default function PickerField({
               {...inputProps}
               ref={inputRef}
               className={cn(
-                "form-control w-full pr-8",
-                hasClearButton && "pr-14",
+                "form-control w-full",
                 dimStyles[dim],
                 error && "border-danger-500! focus:ring-danger-500!",
                 disabled && "cursor-not-allowed opacity-60",
                 className,
+                // Last - the room for the buttons stays with any padding
+                hasClearButton ? "pr-14" : "pr-8",
               )}
               aria-controls={isOpen && canOpen ? popupId : undefined}
-              aria-describedby={cn(
+              aria-describedby={joinTokens(
+                rejected && rejectedId,
                 errorId,
                 descriptionId,
                 inputProps["aria-describedby"],
@@ -295,7 +325,10 @@ export default function PickerField({
               // The typed text is taken also when the focus moves on into
               // the popup - it could leave the picker from there
               onBlur={commitText}
-              onChange={(event) => setText(event.target.value)}
+              onChange={(event) => {
+                setText(event.target.value);
+                setRejected(null);
+              }}
               onClick={(event) => {
                 inputProps.onClick?.(event);
                 // A click places the caret - it opens the popup, but does
@@ -420,6 +453,16 @@ export default function PickerField({
 
       <FormDescription id={descriptionId}>{description}</FormDescription>
       {error && <FormError id={errorId}>{error}</FormError>}
+      {/* Announced as the field shows its value again */}
+      <FormError id={rejectedId}>
+        {rejected &&
+          formatMessage(
+            rejected.error === "range"
+              ? messages.dateTimePicker.outOfRangeText
+              : messages.dateTimePicker.invalidText,
+            { format, text: rejected.text },
+          )}
+      </FormError>
     </div>
   );
 }

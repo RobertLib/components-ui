@@ -12,6 +12,8 @@ import {
 } from "react";
 import cn from "../utils/cn";
 import {
+  getDirection,
+  getNextTabStop,
   isEscapeKey,
   isInOverlayTree,
   isTopmostOverlay,
@@ -19,7 +21,7 @@ import {
   OverlayContext,
   useOverlayLayer,
 } from "./overlay-stack";
-import { getNextTabbable, getTabbableElements } from "../utils/tabbable";
+import { getTabbableElements } from "../utils/tabbable";
 import useIsMobile from "../hooks/use-is-mobile";
 import { ButtonGroupContext } from "./button-group-context";
 
@@ -180,7 +182,7 @@ export interface PopoverProps extends Omit<
 /**
  * A floating panel attached to a trigger, opened on hover or click. It is
  * rendered in a portal, so no `overflow` container clips it. Tab moves from
- * a click trigger into the open panel and out of it to what follows the
+ * the trigger into the open panel and out of it to what follows the
  * trigger; Escape closes it and gives the focus back to the trigger.
  */
 export default function Popover({
@@ -196,6 +198,7 @@ export default function Popover({
   onClick,
   onFocus,
   onKeyDown,
+  onMouseDown,
   onMouseEnter,
   onMouseLeave,
   onOpenChange,
@@ -224,7 +227,12 @@ export default function Popover({
   const popoverRef = useRef<HTMLDivElement>(null);
   const internalContentRef = useRef<HTMLDivElement>(null);
   const bridgeRef = useRef<HTMLDivElement>(null);
-  const mouseDownInContentRef = useRef(false);
+  // A press in the trigger or the panel - also in an overlay opened from
+  // the panel, whose events bubble through it - that has not ended yet
+  const pressedInsideRef = useRef(false);
+  // The writing direction of the trigger, for the panel - a portal in the
+  // body - when it differs from the page's (`dir="rtl"` on a part of it)
+  const [direction, setDirection] = useState<"ltr" | "rtl">();
   // Hover mode: the pending close after the pointer left the trigger
   const hoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The popover gives the focus back to its trigger - which does not open a
@@ -353,7 +361,12 @@ export default function Popover({
   // measured for this opening is reset - also when a controlled `open`
   // closes it (a pick in a list).
   useLayoutEffect(() => {
-    if (openState) updateTriggerRect();
+    if (!openState) return;
+    updateTriggerRect();
+
+    const wrapper = popoverRef.current;
+    const own = wrapper ? getDirection(wrapper) : undefined;
+    setDirection(own === getDirection(document.body) ? undefined : own);
   }, [openState, updateTriggerRect]);
 
   // Reset on closing only - not when the trigger changes while it is open
@@ -511,19 +524,23 @@ export default function Popover({
   useEffect(() => {
     if (triggerType === "click" && openState) {
       const handleClickOutside = (event: MouseEvent) => {
-        // A press in the panel - also in a popover nested in it (the list of
-        // an Autocomplete), which is a portal of its own outside the panel,
-        // but whose events bubble through the panel before reaching here
-        if (mouseDownInContentRef.current) return;
+        // A press in the trigger or the panel - also in a popover nested in
+        // it (the list of an Autocomplete), which is a portal of its own
+        // outside the panel, but whose events bubble through the panel
+        // before reaching here
+        if (pressedInsideRef.current) return;
 
         // The path, not the target: in a shadow root the target seen here is
-        // its host, outside the trigger
+        // its host, outside the trigger. In an overlay opened from the panel
+        // but rendered elsewhere - the ConfirmDialog of `useConfirm()` - a
+        // press is not outside either.
         const path = event.composedPath();
         const contentElement =
           contentRef?.current || internalContentRef.current;
-        const isInside = [popoverRef.current, contentElement].some(
-          (element) => !!element && path.includes(element),
-        );
+        const isInside =
+          [popoverRef.current, contentElement].some(
+            (element) => !!element && path.includes(element),
+          ) || isInOverlayTree(layerId, path[0] as Node | undefined);
 
         if (!isInside) {
           handleOpenChange(false);
@@ -534,19 +551,19 @@ export default function Popover({
       return () =>
         document.removeEventListener("mousedown", handleClickOutside);
     }
-  }, [contentRef, handleOpenChange, openState, triggerType]);
+  }, [contentRef, handleOpenChange, layerId, openState, triggerType]);
 
   // The press flag lasts until the button is released anywhere - a press in
   // the panel may end outside it (dragging its scrollbar), and a stuck flag
   // would keep the popover open when the focus leaves
   useEffect(() => {
     if (!openState) {
-      mouseDownInContentRef.current = false;
+      pressedInsideRef.current = false;
       return;
     }
 
     const handleMouseUp = () => {
-      mouseDownInContentRef.current = false;
+      pressedInsideRef.current = false;
     };
 
     document.addEventListener("mouseup", handleMouseUp, true);
@@ -692,15 +709,19 @@ export default function Popover({
   // trigger in the page - it is a portal at the end of it
   const moveTabFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const contentElement = contentRef?.current || internalContentRef.current;
-    if (!openState || !contentElement) return;
+    // Moved already - by a list in the panel that handles Tab itself
+    if (!openState || !contentElement || event.defaultPrevented) return;
 
     const wrapper = event.currentTarget;
     const target = event.target as Node;
     const tabbables = getTabbableElements(contentElement);
 
     if (wrapper.contains(target)) {
-      // From the trigger into the panel
+      // From the trigger into the panel - from its last Tab stop, so Tab
+      // still reaches every control of a trigger with several
       if (event.shiftKey || tabbables.length === 0) return;
+      const triggerStops = getTabbableElements(wrapper);
+      if (triggerStops.length > 0 && target !== triggerStops.at(-1)) return;
       event.preventDefault();
       tabbables[0].focus();
       return;
@@ -717,11 +738,12 @@ export default function Popover({
       return;
     }
 
-    // Past the end of the panel - on to what follows the trigger
+    // Past the end of the panel - on to what follows the trigger, round to
+    // the first control of a Dialog the popover is the last one of
     if (tabbables.length > 0 && target !== tabbables.at(-1)) return;
     event.preventDefault();
     handleOpenChange(false);
-    const next = getNextTabbable(wrapper, contentElement);
+    const next = getNextTabStop(wrapper, contentElement);
     if (next) next.focus();
     else focusTrigger();
   };
@@ -786,7 +808,13 @@ export default function Popover({
             }
           },
         }
-      : {};
+      : {
+          // Tab reaches the controls of an open hover panel too - it opens
+          // on keyboard focus, right after its trigger
+          onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+            if (event.key === "Tab") moveTabFocus(event);
+          },
+        };
 
   // Hover mode. For React's enter / leave events the panel (a portal) is
   // part of the trigger, so moving between the two fires neither - only
@@ -842,8 +870,10 @@ export default function Popover({
         (event.currentTarget.contains(next) || isInOverlayTree(layerId, next));
 
       // Safari doesn't focus <button> on click, so relatedTarget is null.
-      // If mousedown happened inside the portal content, ignore this blur.
-      if (openState && !staysInside && !mouseDownInContentRef.current) {
+      // If the press is in the panel or on the trigger, ignore this blur - a
+      // click on the trigger toggles the popover itself, and closed by the
+      // blur it would open again.
+      if (openState && !staysInside && !pressedInsideRef.current) {
         handleOpenChange(false);
       }
       onBlur?.(event);
@@ -901,6 +931,12 @@ export default function Popover({
       onKeyDown={(event) =>
         callHandlers(event, onKeyDown, handleClick.onKeyDown)
       }
+      onMouseDown={(event) => {
+        // Also a press in the panel, through the portal. Released, the flag
+        // is reset by a listener only the open popover has.
+        if (openState) pressedInsideRef.current = true;
+        onMouseDown?.(event);
+      }}
       onMouseEnter={(event) =>
         callHandlers(event, onMouseEnter, handleMouseEvents.onMouseEnter)
       }
@@ -935,6 +971,7 @@ export default function Popover({
                 through to the trigger, only the panel and the bridge take it */}
             <div
               className="pointer-events-none relative inline-flex"
+              dir={direction}
               style={getAbsoluteStyles().content}
             >
               <div
@@ -968,9 +1005,6 @@ export default function Popover({
                 // the `onClick` of the popover). Bubbling `document` listeners
                 // miss it too; a capture listener sees it.
                 onClick={(event) => event.stopPropagation()}
-                onMouseDown={() => {
-                  mouseDownInContentRef.current = true;
-                }}
                 onMouseEnter={() => {
                   if (triggerType === "hover") openOnHover();
                 }}

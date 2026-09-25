@@ -46,9 +46,11 @@ export default function ToastPage() {
             <code>persist</code> is set - the time does not run while it is
             hovered or focused, nor while the page is hidden behind another tab.
             The same message with the same variant is not stacked twice while
-            visible. Screen readers announce the toasts, errors right away.
-            Escape or the close button dismisses the focused toast, and the
-            focus goes back to where it was before.
+            visible. Screen readers announce the toasts, errors right away -
+            also one enqueued while a server-rendered page hydrates, which shows
+            a moment after the live regions are in the page. Escape or the close
+            button dismisses the focused toast, and the focus goes back to where
+            it was before.
           </p>
         }
         name="toast/snackbar"
@@ -105,9 +107,11 @@ export default function ToastPage() {
         description={
           <p>
             <code>Toast</code> can also be rendered on its own, wherever you
-            need it. It renders nothing once it has hidden itself or was
-            dismissed - <code>onClose</code> tells the parent;{" "}
-            <code>open={"{false}"}</code> slides it out.
+            need it. It is a live region of its own then, and shows its text a
+            moment (0.1 s) after it is in the page, so screen readers announce
+            it. It renders nothing once it has hidden itself or was dismissed -{" "}
+            <code>onClose</code> tells the parent; <code>open={"{false}"}</code>{" "}
+            slides it out.
           </p>
         }
         name="toast/standalone"

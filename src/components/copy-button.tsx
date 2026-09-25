@@ -28,8 +28,9 @@ export interface CopyButtonProps extends Omit<
 /**
  * An icon button that copies `value` to the clipboard. Its icon turns into
  * a check mark, and its name and tooltip say "Copied" for a moment - or
- * that copying failed. The click does not bubble past the button: a copy
- * button in a clickable row or card does not also click that.
+ * that copying failed, which screen readers hear from a status. The click
+ * does not bubble past the button: a copy button in a clickable row or card
+ * does not also click that.
  */
 export default function CopyButton({
   className,
@@ -62,37 +63,49 @@ export default function CopyButton({
   const iconClassName = "h-4 w-4";
 
   return (
-    // A shorter delay than usual - after a quick click the tooltip comes
-    // soon enough to say "Copied"
-    <Tooltip delay={300} position={tooltipPosition} title={text}>
-      <IconButton
-        {...props}
-        aria-label={text}
-        className={cn(
-          copied && "text-success-600 dark:text-success-400",
-          className,
-        )}
-        onClick={(event) => {
-          // A click reaching the tooltip would hide it - it stays and says
-          // "Copied". Nor does the click select a row the button is in.
-          event.stopPropagation();
-          onClick?.(event);
-          if (event.defaultPrevented) return;
+    <>
+      {/* A shorter delay than usual - after a quick click the tooltip comes
+        soon enough to say "Copied" */}
+      <Tooltip delay={300} position={tooltipPosition} title={text}>
+        <IconButton
+          {...props}
+          aria-label={text}
+          className={cn(
+            copied && "text-success-600 dark:text-success-400",
+            className,
+          )}
+          onClick={(event) => {
+            // A click reaching the tooltip would hide it - it stays and says
+            // "Copied". Nor does the click select a row the button is in.
+            event.stopPropagation();
+            onClick?.(event);
+            if (event.defaultPrevented) return;
 
-          void copy(value).then((success) => {
-            if (success) onCopied?.(value);
-          });
-        }}
-        variant={error ? "danger" : variant}
-      >
-        {copied ? (
-          <Check aria-hidden="true" className={iconClassName} />
-        ) : error ? (
-          <X aria-hidden="true" className={iconClassName} />
-        ) : (
-          <Copy aria-hidden="true" className={iconClassName} />
-        )}
-      </IconButton>
-    </Tooltip>
+            void copy(value).then((success) => {
+              if (success) onCopied?.(value);
+            });
+          }}
+          variant={error ? "danger" : variant}
+        >
+          {copied ? (
+            <Check aria-hidden="true" className={iconClassName} />
+          ) : error ? (
+            <X aria-hidden="true" className={iconClassName} />
+          ) : (
+            <Copy aria-hidden="true" className={iconClassName} />
+          )}
+        </IconButton>
+      </Tooltip>
+      {/* Screen readers do not announce the new name of the focused button -
+        the outcome is told by a status, there before it has anything to
+        say, so that its change is heard */}
+      <span className="sr-only" role="status">
+        {copied
+          ? messages.copyButton.copied
+          : error
+            ? messages.copyButton.error
+            : ""}
+      </span>
+    </>
   );
 }

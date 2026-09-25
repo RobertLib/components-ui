@@ -9,6 +9,7 @@ import {
   type ConfirmFunction,
   type ConfirmOptions,
 } from "./confirm-context";
+import Popover from "../components/popover";
 import Sheet from "../components/sheet";
 
 /** A delete button that asks first and shows the answer. */
@@ -133,13 +134,16 @@ describe("useConfirm", () => {
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
     const remove = screen.getByRole("button", { name: "Remove" });
-    expect(remove).toBeDisabled();
+    // Busy, the pressed button keeps the focus - `aria-disabled`
+    expect(remove).toHaveAttribute("aria-disabled", "true");
     expect(remove).toHaveAttribute("aria-busy", "true");
     // Cannot be cancelled meanwhile
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
     await user.keyboard("{Escape}");
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("none");
+    expect(screen.getByRole("status", { hidden: true })).toHaveTextContent(
+      "none",
+    );
 
     await act(async () => request.resolve());
     expect(screen.queryByRole("alertdialog")).toBeNull();
@@ -155,7 +159,9 @@ describe("useConfirm", () => {
 
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove" })).toBeEnabled();
-    expect(screen.getByRole("status")).toHaveTextContent("none");
+    expect(screen.getByRole("status", { hidden: true })).toHaveTextContent(
+      "none",
+    );
   });
 
   it("stays open when onConfirm rejects, so the user can try again", async () => {
@@ -200,7 +206,9 @@ describe("useConfirm", () => {
     await user.click(screen.getByRole("button", { name: "Remove" }));
 
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("none");
+    expect(screen.getByRole("status", { hidden: true })).toHaveTextContent(
+      "none",
+    );
   });
 
   it("asks one question at a time, in order", async () => {
@@ -322,6 +330,57 @@ describe("useConfirm", () => {
 
     expect(() => render(<DeleteButton />)).toThrow(
       /useConfirm\(\) needs a <ConfirmProvider> above it/,
+    );
+  });
+});
+
+describe("useConfirm from a popover", () => {
+  it("keeps the popover open under the question, with what is typed in it", async () => {
+    const user = userEvent.setup();
+
+    function Note() {
+      const confirm = useConfirm();
+      return (
+        <>
+          <input aria-label="Note" />
+          <button
+            onClick={() => confirm({ title: "Discard the note?" })}
+            type="button"
+          >
+            Discard
+          </button>
+        </>
+      );
+    }
+
+    render(
+      <ConfirmProvider>
+        <Popover
+          buttonTrigger
+          trigger={<button type="button">Note</button>}
+          triggerType="click"
+        >
+          <Note />
+        </Popover>
+      </ConfirmProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Note" }));
+    await user.type(screen.getByRole("textbox", { name: "Note" }), "Call back");
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+
+    // The dialog took the focus, and a press in it is not outside the
+    // popover either
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    await waitFor(() => expect(cancel).toHaveFocus());
+    await user.click(screen.getByRole("alertdialog"));
+    await user.click(cancel);
+
+    // Back in the panel, with the note
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Discard" })).toHaveFocus();
+    expect(screen.getByRole("textbox", { name: "Note" })).toHaveValue(
+      "Call back",
     );
   });
 });
@@ -507,9 +566,10 @@ describe("useConfirm from onConfirm", () => {
     expect(
       screen.getByRole("alertdialog", { name: "Delete its payments too?" }),
     ).toBeInTheDocument();
+    // Under it, hidden from assistive technology meanwhile
     expect(
-      screen.getByRole("alertdialog", { name: "Delete the invoice?" }),
-    ).toBeInTheDocument();
+      screen.getByText("Delete the invoice?").closest("[role='alertdialog']"),
+    ).toHaveAttribute("aria-hidden", "true");
 
     await user.click(screen.getByRole("button", { name: "Delete payments" }));
 

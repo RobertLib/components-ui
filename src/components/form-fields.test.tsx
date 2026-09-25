@@ -11,10 +11,14 @@ import { createRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import Autocomplete from "./autocomplete";
 import Checkbox from "./checkbox";
+import CheckboxGroup from "./checkbox-group";
 import DateTimePicker from "./datetime-picker";
 import FormDescription from "./form-description";
 import Input from "./input";
+import NumberInput from "./number-input";
+import PinInput from "./pin-input";
 import RadioGroup from "./radio-group";
+import SegmentedControl from "./segmented-control";
 import Select from "./select";
 import Switch from "./switch";
 import Textarea from "./textarea";
@@ -444,6 +448,241 @@ describe("Uncontrolled fields", () => {
 
     await waitFor(() => expect(name).toHaveValue("Ada"));
     expect(action.mock.calls[0][0].get("name")).toBe("Grace");
+  });
+});
+
+type ScriptedElement =
+  HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+
+/**
+ * What React Hook Form does with the native fields it registers: the `ref`
+ * of `register()` writes the default value into the element, `setValue()`
+ * and `reset(values)` write its `value`, and `reset()` resets the form
+ * around, then writes the defaults again - none of it fires an event.
+ */
+function createScriptedForm(defaults: Record<string, string>) {
+  const elements = new Map<string, ScriptedElement>();
+  const values: Record<string, string> = { ...defaults };
+
+  return {
+    register: (name: string) => ({
+      name,
+      onChange: (event: { target: { value: string } }) => {
+        values[name] = event.target.value;
+      },
+      ref: (element: ScriptedElement | null) => {
+        if (!element || elements.get(name) === element) return;
+        elements.set(name, element);
+        element.value = values[name] ?? "";
+      },
+    }),
+    reset: (next?: Record<string, string>) => {
+      if (!next) elements.values().next().value?.form?.reset();
+      Object.assign(values, next ?? defaults);
+      for (const [name, element] of elements) element.value = values[name];
+    },
+    setValue: (name: string, value: string) => {
+      values[name] = value;
+      const element = elements.get(name);
+      if (element) element.value = value;
+    },
+    values,
+  };
+}
+
+describe("Values written by a script", () => {
+  it("stay in an uncontrolled Input - register(), setValue(), reset()", async () => {
+    const user = userEvent.setup();
+    const form = createScriptedForm({ name: "Ada" });
+    render(
+      <form>
+        <Input clearable label="Name" {...form.register("name")} />
+      </form>,
+    );
+
+    const input = screen.getByRole<HTMLInputElement>("textbox", {
+      name: /Name/,
+    });
+    expect(input).toHaveValue("Ada");
+    // The focus renders the field anew - the value stays
+    await user.click(input);
+    expect(input).toHaveValue("Ada");
+    expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
+
+    await user.type(input, "!");
+    expect(form.values.name).toBe("Ada!");
+
+    act(() => form.setValue("name", "Grace"));
+    await user.tab();
+    expect(input).toHaveValue("Grace");
+
+    act(() => form.reset({ name: "" }));
+    expect(input).toHaveValue("");
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+
+    act(() => form.reset());
+    await user.click(input);
+    expect(input).toHaveValue("Ada");
+  });
+
+  it("keep the UI of a field in step - a counter, a floating label", () => {
+    const form = createScriptedForm({ note: "", title: "" });
+    render(
+      <>
+        <Input floating label="Title" {...form.register("title")} />
+        <Textarea
+          label="Note"
+          maxLength={20}
+          showCount
+          {...form.register("note")}
+        />
+      </>,
+    );
+
+    act(() => {
+      form.setValue("title", "Offer");
+      form.setValue("note", "Hello");
+    });
+
+    expect(screen.getByText("Title")).toHaveClass("text-xs");
+    expect(screen.getByRole("textbox", { name: /Note/ })).toHaveValue("Hello");
+    expect(screen.getByText("5 / 20")).toBeInTheDocument();
+  });
+
+  it("stay in an uncontrolled Select and a native DateTimePicker", () => {
+    const form = createScriptedForm({ day: "2026-03-01", size: "m" });
+    const fields = (description?: string) => (
+      <>
+        <Select
+          description={description}
+          label="Size"
+          options={sizes}
+          {...form.register("size")}
+        />
+        <DateTimePicker
+          description={description}
+          label="Day"
+          mode="native"
+          {...form.register("day")}
+          onChange={(event) => (form.values.day = event.target.value)}
+        />
+      </>
+    );
+    const { rerender } = render(fields());
+
+    const select = screen.getByRole("combobox", { name: /Size/ });
+    const day = screen.getByLabelText(/Day/);
+    // A render of the fields keeps what `register()` wrote
+    rerender(fields("Pick one"));
+    expect(select).toHaveValue("m");
+    expect(day).toHaveValue("2026-03-01");
+
+    act(() => form.setValue("size", "l"));
+    rerender(fields("Pick another"));
+    expect(select).toHaveValue("l");
+  });
+
+  it("leave a Checkbox and a Switch checked as a script set them", () => {
+    // `register()` sets `checked` of a checkbox - no event either
+    const fields = (description?: string) => (
+      <>
+        <Checkbox description={description} label="Newsletter" />
+        <Switch description={description} label="Notify" />
+      </>
+    );
+    const { rerender } = render(fields());
+
+    const checkbox = screen.getByRole<HTMLInputElement>("checkbox");
+    const toggle = screen.getByRole<HTMLInputElement>("switch");
+    checkbox.checked = true;
+    toggle.checked = true;
+    rerender(fields("Once a month"));
+    expect(checkbox).toBeChecked();
+    expect(toggle).toBeChecked();
+  });
+
+  it("are replaced by the value of a controlled field at its next render", async () => {
+    const user = userEvent.setup();
+    const ref = createRef<HTMLInputElement>();
+    render(<Input label="Name" onChange={() => {}} ref={ref} value="Ada" />);
+
+    ref.current!.value = "Grace";
+    await user.click(ref.current!);
+    expect(ref.current).toHaveValue("Ada");
+  });
+
+  it("leave the form reset and a late defaultValue working", async () => {
+    const user = userEvent.setup();
+    const ref = createRef<HTMLInputElement>();
+    const field = (defaultValue?: string) => (
+      <form>
+        <Input defaultValue={defaultValue} label="Name" ref={ref} />
+        <button type="reset">Reset</button>
+      </form>
+    );
+    const { rerender } = render(field());
+
+    // A defaultValue that arrives later - and changes again
+    rerender(field("Ada"));
+    expect(ref.current).toHaveValue("Ada");
+    rerender(field("Grace"));
+    expect(ref.current).toHaveValue("Grace");
+
+    ref.current!.value = "Linus";
+    await user.click(ref.current!);
+    expect(ref.current).toHaveValue("Linus");
+
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    expect(ref.current).toHaveValue("Grace");
+    rerender(field("Ada"));
+    expect(ref.current).toHaveValue("Ada");
+  });
+});
+
+describe("A disabled fieldset around", () => {
+  // The CSS of the look is not loaded here - the tests pin the selectors
+  // that give it: `:disabled` of the elements, not a `disabled` prop
+  it("gives the fields the disabled look without a disabled prop", () => {
+    render(
+      <fieldset disabled>
+        <Input label="Name" />
+        <Input label="Price" suffix="Kč" />
+        <NumberInput label="Quantity" />
+        <PinInput label="Code" length={2} />
+        <RadioGroup label="Plan" options={sizes} />
+        <CheckboxGroup label="Sizes" options={sizes} />
+        <SegmentedControl aria-label="View" options={sizes} />
+      </fieldset>,
+    );
+
+    // A field without a frame has the look of `form-control:disabled`
+    expect(screen.getByRole("textbox", { name: /Name/ })).toHaveClass(
+      "form-control",
+    );
+    const price = screen.getByRole("textbox", { name: /Price/ });
+    expect(price.parentElement).toHaveClass("has-[input:disabled]:opacity-50");
+    expect(
+      screen.getByRole("spinbutton", { name: /Quantity/ }).parentElement,
+    ).toHaveClass("has-[input:disabled]:opacity-50");
+    expect(screen.getByRole("button", { name: "Increase" })).toHaveClass(
+      "disabled:cursor-not-allowed",
+    );
+    for (const cell of screen.getAllByRole("textbox", { name: /Digit/ })) {
+      expect(cell).toHaveClass("disabled:opacity-50");
+    }
+    const radioLabel = screen.getAllByRole("radio")[0].closest("label");
+    expect(radioLabel).toHaveClass("has-disabled:opacity-60");
+    const checkboxRow = screen.getAllByRole("checkbox")[0].closest("div");
+    expect(checkboxRow).toHaveClass("has-disabled:opacity-60");
+    const segment = within(
+      screen.getByRole("radiogroup", { name: "View" }),
+    ).getAllByRole("radio")[0];
+    expect(segment.closest("label")).toHaveClass(
+      "has-disabled:cursor-not-allowed",
+    );
+    expect(segment.closest("label")?.parentElement).toHaveClass(
+      "[fieldset:disabled_&]:opacity-60",
+    );
   });
 });
 
@@ -1165,5 +1404,22 @@ describe("RadioGroup options", () => {
         .closest("label")!.parentElement;
     expect(optionsOf(/Row/)).toHaveClass("flex-row", "flex-wrap");
     expect(optionsOf(/Column/)).toHaveClass("flex-col");
+  });
+});
+
+describe("Structural padding and className", () => {
+  it("keeps the room for icons and labels when className sets the padding", () => {
+    const select = render(
+      <Select className="px-3" options={[{ label: "A", value: "a" }]} />,
+    );
+    expect(screen.getByRole("combobox")).toHaveClass("px-3", "pr-8");
+    select.unmount();
+
+    const input = render(<Input className="py-3" floating label="Name" />);
+    expect(screen.getByLabelText("Name")).toHaveClass("py-3", "pt-2");
+    input.unmount();
+
+    render(<DateTimePicker className="px-3" />);
+    expect(screen.getByRole("combobox")).toHaveClass("px-3", "pr-8");
   });
 });

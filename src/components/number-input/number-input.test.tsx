@@ -445,6 +445,150 @@ describe("NumberInput", () => {
     expect(input).toHaveAttribute("aria-valuenow", "4");
   });
 
+  it("steps on from a fast wheel's every event", () => {
+    render(<NumberInput changeOnWheel defaultValue={5} label="Quantity" />);
+
+    const input = spinbutton();
+    act(() => input.focus());
+    // Two events before React would render - each steps on from the last
+    act(() => {
+      input.dispatchEvent(
+        new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          deltaY: -100,
+        }),
+      );
+      input.dispatchEvent(
+        new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          deltaY: -100,
+        }),
+      );
+    });
+    expect(input).toHaveAttribute("aria-valuenow", "7");
+  });
+
+  it("steps large values in small steps", async () => {
+    const user = userEvent.setup();
+    render(
+      <NumberInput defaultValue={1000000.19} label="Quantity" step={0.01} />,
+    );
+
+    await user.click(spinbutton());
+    await user.keyboard("{ArrowUp}{ArrowUp}");
+    expect(spinbutton()).toHaveAttribute("aria-valuenow", "1000000.21");
+    await user.keyboard("{ArrowDown}");
+    expect(spinbutton()).toHaveAttribute("aria-valuenow", "1000000.2");
+  });
+
+  it("never steps down going up - at a max off the grid of the steps", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <NumberInput
+        defaultValue={10}
+        label="Quantity"
+        max={10}
+        min={0}
+        onChange={onChange}
+        step={3}
+      />,
+    );
+
+    const increase = screen.getByRole("button", { name: "Increase" });
+    expect(increase).toHaveAttribute("aria-disabled", "true");
+    await user.click(spinbutton());
+    await user.keyboard("{ArrowUp}");
+    await user.click(increase);
+    fireEvent.click(increase);
+    expect(spinbutton()).toHaveAttribute("aria-valuenow", "10");
+    expect(onChange).not.toHaveBeenCalled();
+
+    // 9 is the last step within max - a step up changes nothing there
+    await user.keyboard("{ArrowDown}");
+    expect(spinbutton()).toHaveAttribute("aria-valuenow", "9");
+    expect(increase).toHaveAttribute("aria-disabled", "true");
+    await user.click(increase);
+    expect(spinbutton()).toHaveAttribute("aria-valuenow", "9");
+  });
+
+  it("steps a percentage by one percent", async () => {
+    const user = userEvent.setup();
+    render(
+      <NumberInput
+        defaultValue={0.21}
+        formatOptions={{ style: "percent" }}
+        label="Quantity"
+      />,
+    );
+
+    await user.click(spinbutton());
+    await user.keyboard("{ArrowUp}");
+    expect(spinbutton()).toHaveAttribute("aria-valuenow", "0.22");
+    await user.keyboard("{PageDown}");
+    expect(spinbutton()).toHaveAttribute("aria-valuenow", "0.12");
+  });
+
+  it("makes the form invalid with a value out of min - max", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <form aria-label="Order">
+        <NumberInput label="Quantity" max={100} min={1} name="quantity" />
+      </form>,
+    );
+
+    const form = screen.getByRole<HTMLFormElement>("form");
+    const input = spinbutton();
+    await user.click(input);
+    await user.keyboard("150");
+    // A submit from a script while the field has the focus - the browser
+    // refuses it, as for a native number input
+    expect(form.checkValidity()).toBe(false);
+    expect(input.validationMessage).toBe("Enter a value of 100 or less.");
+
+    await user.tab();
+    expect(input).toHaveAttribute("aria-valuenow", "100");
+    expect(form.checkValidity()).toBe(true);
+
+    rerender(
+      <UIProvider locale={cs}>
+        <form aria-label="Order">
+          <NumberInput
+            label="Quantity"
+            max={100}
+            min={1}
+            onChange={() => {}}
+            value={0.5}
+          />
+        </form>
+      </UIProvider>,
+    );
+    expect(spinbutton().validationMessage).toBe(
+      "Zadejte hodnotu 1 nebo vyšší.",
+    );
+  });
+
+  it("leaves a validity message of the page alone", () => {
+    const ref = createRef<HTMLInputElement>();
+    const { rerender } = render(
+      <NumberInput defaultValue={5} label="Quantity" max={10} ref={ref} />,
+    );
+
+    ref.current!.setCustomValidity("Not in stock");
+    rerender(
+      <NumberInput
+        defaultValue={5}
+        description="Up to 10"
+        label="Quantity"
+        max={10}
+        ref={ref}
+      />,
+    );
+    expect(ref.current!.validationMessage).toBe("Not in stock");
+  });
+
   it("describes itself with its error and description", () => {
     render(
       <NumberInput

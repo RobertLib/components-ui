@@ -397,7 +397,7 @@ describe("Dropdown semantics", () => {
 
       // From the trigger, Shift+Tab goes on backwards as usual
       await user.click(trigger);
-      expect(trigger).toHaveFocus();
+      act(() => trigger.focus());
       await user.tab({ shift: true });
       expect(screen.queryByRole("menu")).toBeNull();
       expect(screen.getByRole("button", { name: "Before" })).toHaveFocus();

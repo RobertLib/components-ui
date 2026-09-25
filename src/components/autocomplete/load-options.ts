@@ -1,3 +1,5 @@
+import logger from "../../utils/logger";
+
 /**
  * What `loadOptions` is called with. The same request is described in the
  * terms of every common pagination style - use whichever your API has:
@@ -8,7 +10,10 @@
  * - GraphQL (Relay): `users(search: $search, first: $first, after: $after)`
  */
 export interface LoadOptionsParams {
-  /** The typed term, empty for the unfiltered list. */
+  /**
+   * The typed term without the spaces around it, empty for the unfiltered
+   * list.
+   */
   search: string;
   /** Aborted once a newer request supersedes this one - pass it to `fetch`. */
   signal: AbortSignal;
@@ -63,6 +68,9 @@ export interface RelayConnection<TItem> {
  * - an array - the complete list, no further pages are requested,
  * - a page - `{ items, hasMore?, total?, nextCursor? }`,
  * - a Relay connection - `{ nodes | edges, pageInfo }`, returned as it is.
+ *
+ * Another shape lists no options - development builds warn about it. Map it
+ * to a page, e.g. `{ items: body.results, total: body.count }`.
  */
 export type LoadOptionsResult<TItem> =
   TItem[] | LoadOptionsPage<TItem> | RelayConnection<TItem>;
@@ -75,6 +83,11 @@ export interface NormalizedPage<TItem> {
 
 const isPresent = <T>(value: T | null | undefined): value is T =>
   value !== null && value !== undefined;
+
+const formatKeys = (value: object) => {
+  const keys = Object.keys(value);
+  return keys.length ? keys.map((key) => `\`${key}\``).join(", ") : "no keys";
+};
 
 /**
  * Brings every supported result shape to `{ items, hasMore, nextCursor }`.
@@ -100,6 +113,14 @@ export function normalizeLoadOptionsResult<TItem>(
       items,
       nextCursor: nextCursor ?? null,
     };
+  }
+
+  // Another shape - `{ results }`, `{ data }` - would list nothing without a
+  // word: say what the list reads
+  if (!("items" in result) && !("nodes" in result) && !("edges" in result)) {
+    logger.warn(
+      `Autocomplete: loadOptions resolved with an object of neither \`items\`, \`nodes\` nor \`edges\` (it has ${formatKeys(result)}) - the list shows no options. Return an array, a page \`{ items, total | hasMore | nextCursor }\` or a Relay connection \`{ nodes | edges, pageInfo }\`, e.g. \`{ items: body.results, total: body.count }\`.`,
+    );
   }
 
   const connection = result as RelayConnection<TItem>;

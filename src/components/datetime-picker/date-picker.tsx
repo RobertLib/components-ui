@@ -2,7 +2,12 @@ import DayGrid from "./day-grid";
 import PickerField from "./picker-field";
 import { isInRange, parseDisplayValue } from "./parse";
 import usePickerPopup from "./use-picker-popup";
-import { formatDate, parseISODate, toISODate } from "../../utils/date";
+import {
+  formatDate,
+  formatPlaceholder,
+  parseISODate,
+  toISODate,
+} from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
 
@@ -37,6 +42,10 @@ export default function DatePicker({
       displayValue={
         selectedDate ? formatDate(selectedDate, locale.formats.date) : ""
       }
+      format={formatPlaceholder(
+        locale.formats.date,
+        messages.placeholderTokens,
+      )}
       icon="calendar"
       inputRef={inputRef}
       isOpen={isOpen}
@@ -46,7 +55,10 @@ export default function DatePicker({
       panelClassName="w-72"
       parseText={(text) => {
         const typed = parseDisplayValue(text, locale.formats.date, "date");
-        return typed && isInRange(typed, min, max) ? typed : null;
+        if (!typed) return { error: "format" };
+        return isInRange(typed, min, max)
+          ? { value: typed }
+          : { error: "range" };
       }}
       placeholder={placeholder}
       popupLabel={messages.selectDate}

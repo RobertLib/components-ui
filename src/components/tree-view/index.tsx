@@ -1064,7 +1064,7 @@ function renderRows<T extends TreeItem>(
                     {context.loadError}
                   </span>
                   <button
-                    className="link font-medium text-primary-600 hover:underline dark:text-primary-400"
+                    className="cui-link font-medium text-primary-600 hover:underline dark:text-primary-400"
                     onClick={() => context.handlers.onRetry(row.id)}
                     type="button"
                   >

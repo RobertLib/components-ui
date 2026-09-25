@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import debounce from "../../utils/debounce";
 
 // An owner that ignores the commits must not make the list grow forever
@@ -13,14 +13,28 @@ const MAX_PENDING = 20;
  * The owner may show the commits late (a router applying navigations
  * later): a commit it shows while a newer one is on its way does not bring
  * the older text back into the field.
+ *
+ * A new `resetKey` ("Clear filters" pressed) shows `value` again at once and
+ * drops the text still waiting to be committed.
  */
 export default function useDebouncedField(
   value: string,
   onCommit: (value: string) => void,
   delay = 300,
+  resetKey = 0,
 ) {
   const [fieldValue, setFieldValue] = useState(value);
   const [isTyping, setIsTyping] = useState(false);
+
+  // A text typed but not committed yet leaves `value` as it was - clearing
+  // the filters changes nothing the field could follow, so the key tells it
+  const [seenResetKey, setSeenResetKey] = useState(resetKey);
+
+  if (resetKey !== seenResetKey) {
+    setSeenResetKey(resetKey);
+    setIsTyping(false);
+    setFieldValue(value);
+  }
   // What the owner showed last, and the values committed here that it has
   // not shown yet, oldest first
   const [owner, setOwner] = useState({ pending: [] as string[], seen: value });
@@ -61,6 +75,12 @@ export default function useDebouncedField(
   );
 
   useEffect(() => () => debouncedCommit.cancel(), [debouncedCommit]);
+
+  // The commit of the text typed before the reset must not bring it back -
+  // dropped as the reset renders, before a timer can run
+  useLayoutEffect(() => {
+    debouncedCommit.cancel();
+  }, [debouncedCommit, resetKey]);
 
   const change = (next: string) => {
     setFieldValue(next);

@@ -23,6 +23,22 @@ export type PluralMessage = Partial<Record<Intl.LDMLPluralRule, string>> & {
 /** Day of the week as returned by `Date#getDay()`: 0 = Sunday … 6 = Saturday. */
 export type WeekDay = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
+/** A token of the patterns of `DateFormats`. */
+export type DatePatternToken =
+  | "A"
+  | "D"
+  | "DD"
+  | "H"
+  | "HH"
+  | "M"
+  | "MM"
+  | "W"
+  | "WW"
+  | "YYYY"
+  | "h"
+  | "hh"
+  | "mm";
+
 /**
  * Display patterns of the date and time pickers - they are also what the
  * user types into them. Tokens: `YYYY` year, `MM` / `M` month, `DD` / `D`
@@ -76,6 +92,8 @@ export interface Messages {
     /** Shown in the list once `maxSelections` options are selected. */
     maxSelections: PluralMessage;
     noResults: string;
+    /** Announced to screen readers - the number of options the open list shows. */
+    resultCount: PluralMessage;
   };
   /** `Avatar` and `AvatarGroup`. */
   avatar: {
@@ -112,6 +130,11 @@ export interface Messages {
      */
     dayOf: string;
     /**
+     * Opens the events of the week and day views that end before the first
+     * hour shown (`dayStartHour`) - "+2 earlier".
+     */
+    earlier: PluralMessage;
+    /**
      * Accessible name of an event tile - `{title}` of the event and `{time}`,
      * when it takes place.
      */
@@ -119,9 +142,19 @@ export interface Messages {
     /** The first day of an event over several days in the agenda, `{time}` its start. */
     from: string;
     goToDate: string;
+    /**
+     * Opens the events of the week and day views that start at the end hour
+     * (`dayEndHour`) or after it - "+1 later".
+     */
+    later: PluralMessage;
     month: string;
     /** Opens the events a crowded day of the month view has no room for. */
     more: PluralMessage;
+    /**
+     * Accessible name of "+N more", "+N earlier" and "+N later" - `{more}`
+     * is their text, `{day}` the day (and resource) they belong to.
+     */
+    moreLabel: string;
     next: string;
     /** The agenda of a period without events. */
     noEvents: string;
@@ -244,6 +277,7 @@ export interface Messages {
     /** Texts of the "select all rows matching the filter" bar. */
     selection: {
       all: PluralMessage;
+      allExcept: PluralMessage;
       clear: string;
       page: PluralMessage;
       selectAll: PluralMessage;
@@ -288,6 +322,12 @@ export interface Messages {
     clear: string;
     /** Heading and name of the hour list. */
     hours: string;
+    /**
+     * Under a field whose typed text is no date or time - `{text}` is the
+     * text, `{format}` the format to type it in (see `placeholderTokens`).
+     * The field shows its value again.
+     */
+    invalidText: string;
     /** Heading and name of the minute list. */
     minutes: string;
     /** The month select of the date popup. */
@@ -296,6 +336,18 @@ export interface Messages {
     nextYear: string;
     /** Name of a date or date-time field without a label. */
     openCalendar: string;
+    /**
+     * Under a field whose typed date or time is out of `min` / `max` (for a
+     * range also of `minDays` / `maxDays`) - `{text}` is the text.
+     */
+    outOfRangeText: string;
+    /**
+     * How the tokens of `DateFormats` are written in the placeholders of
+     * the fields - e.g. `{ YYYY: "RRRR" }` makes `DD.MM.YYYY` the Czech
+     * `DD.MM.RRRR`. The tokens left out stay as they are; the bracketed
+     * text of a pattern is left out.
+     */
+    placeholderTokens: Partial<Record<DatePatternToken, string>>;
     previousMonth: string;
     previousYear: string;
     /** The date popup, and its day grid in the date-time popup. */
@@ -336,6 +388,8 @@ export interface Messages {
     /** A dropped file of a type the field does not `accept`. */
     fileTypeNotAccepted: string;
     maxFileSizeExceeded: string;
+    /** A file refused because `maxFiles` files are in the list. */
+    maxFiles: PluralMessage;
     remove: string;
     upload: string;
     uploadFailed: string;
@@ -374,6 +428,16 @@ export interface Messages {
     decrement: string;
     /** Accessible name of the button that raises the value by a step. */
     increment: string;
+    /**
+     * Validity message of a value above `max` - `{max}` is the bound in the
+     * format of the field.
+     */
+    rangeOverflow: string;
+    /**
+     * Validity message of a value below `min` - `{min}` is the bound in the
+     * format of the field.
+     */
+    rangeUnderflow: string;
   };
   pagination: {
     first: string;

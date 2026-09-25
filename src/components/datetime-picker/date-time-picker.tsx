@@ -12,6 +12,7 @@ import {
 import usePickerPopup from "./use-picker-popup";
 import {
   formatPattern,
+  formatPlaceholder,
   getDayPeriods,
   parseISODate,
   toISODate,
@@ -19,6 +20,10 @@ import {
 } from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
+
+/** `date` (`YYYY-MM-DD`) at `hours:minutes` - `null` without a date. */
+const withTime = (date: string | null, hours: string, minutes: string) =>
+  date && `${date}T${hours}:${minutes}`;
 
 /** `type="datetime-local"` - value `YYYY-MM-DDTHH:mm`. */
 export default function DateTimePanelPicker({
@@ -98,6 +103,10 @@ export default function DateTimePanelPicker({
       ariaLabel={props.ariaLabel ?? messages.openCalendar}
       contentRef={contentRef}
       displayValue={displayValue}
+      format={formatPlaceholder(
+        locale.formats.dateTime,
+        messages.placeholderTokens,
+      )}
       icon="calendar"
       inputRef={inputRef}
       isOpen={isOpen}
@@ -105,16 +114,24 @@ export default function DateTimePanelPicker({
       onOpenChange={onOpenChange}
       onValueChange={onValueChange}
       parseText={(text) => {
-        const typed = parseDisplayValue(
-          text,
-          locale.formats.dateTime,
-          "datetime-local",
-          dayPeriods,
-        );
+        const typed =
+          parseDisplayValue(
+            text,
+            locale.formats.dateTime,
+            "datetime-local",
+            dayPeriods,
+          ) ??
+          // A day alone keeps the time - like a day picked in the popup
+          withTime(
+            parseDisplayValue(text, locale.formats.date, "date"),
+            hours,
+            minutes,
+          );
+        if (!typed) return { error: "format" };
         // An allowed date-time goes onto the minute step
-        return typed && isInRange(typed, minValue, maxValue)
-          ? snapDateTime(typed, minuteStep, minValue, maxValue)
-          : null;
+        return isInRange(typed, minValue, maxValue)
+          ? { value: snapDateTime(typed, minuteStep, minValue, maxValue) }
+          : { error: "range" };
       }}
       placeholder={placeholder}
       popupLabel={messages.selectDateTime}

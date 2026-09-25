@@ -1,5 +1,5 @@
 import { useId } from "react";
-import cn from "../../utils/cn";
+import cn, { joinTokens } from "../../utils/cn";
 import DatePicker from "./date-picker";
 import DateTimePanelPicker from "./date-time-picker";
 import FormDescription from "../form-description";
@@ -8,8 +8,10 @@ import MonthPicker from "./month-picker";
 import TimePicker from "./time-picker";
 import WeekPicker from "./week-picker";
 import { useFormControl } from "../../hooks/use-form-control";
+import { formatPlaceholder } from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
+import type { Locale } from "../../i18n/types";
 
 export type DateTimePickerType =
   "date" | "time" | "datetime-local" | "month" | "week";
@@ -25,10 +27,10 @@ export interface DateTimePickerChangeTarget {
 /**
  * What `onChange` gets: the picker's `name` and new value in `target` (and
  * `currentTarget`), like from a native input - so `event.target.value`
- * works, and so do form libraries that read it (React Hook Form's
- * `register()` and `Controller`, Formik's `handleChange`). No DOM element
- * or DOM event stands behind it. In `native` mode it is the input's own
- * change event.
+ * works, and so do form libraries that read it (the `onChange` of React Hook
+ * Form's `register()` and `Controller`, Formik's `handleChange`). No DOM
+ * element or DOM event stands behind it. In `native` mode it is the input's
+ * own change event.
  */
 export interface DateTimePickerChangeEvent {
   /** The same as `target`. */
@@ -107,6 +109,16 @@ export interface DateTimePickerProps extends Omit<
   type?: DateTimePickerType;
 }
 
+/** The display pattern of the locale for a type of picker. */
+const getPattern = (locale: Locale, type: DateTimePickerType) =>
+  ({
+    date: locale.formats.date,
+    "datetime-local": locale.formats.dateTime,
+    month: locale.formats.month,
+    time: locale.formats.time,
+    week: locale.formats.week,
+  })[type];
+
 /** A whole number of minutes from 1 to 60. */
 const toMinuteStep = (step: number) =>
   Number.isFinite(step) ? Math.min(60, Math.max(1, Math.round(step))) : 1;
@@ -151,6 +163,9 @@ export default function DateTimePicker({
   const locale = useLocale();
   const { fieldRef, handleChange, value } = useFormControl({
     defaultValue,
+    // A value a script writes into the native input stays - `register()`.
+    // The custom pickers' `fieldRef` is on a field showing formatted text.
+    followScriptWrites: mode === "native",
     onChange,
     ref,
     value: valueProp,
@@ -164,21 +179,13 @@ export default function DateTimePicker({
     minuteStep ?? (quarterMinutesOnly ? 15 : 1),
   );
 
-  // Placeholder based on the display pattern of the locale
-  const getPlaceholder = () => {
-    if (placeholder) return placeholder;
-
-    const pattern = {
-      date: locale.formats.date,
-      "datetime-local": locale.formats.dateTime,
-      month: locale.formats.month,
-      time: locale.formats.time,
-      week: locale.formats.week,
-    }[type];
-
-    // "[W]WW.YYYY" -> "WW.YYYY"
-    return pattern.replace(/\[[^\]]*]/g, "");
-  };
+  // Placeholder based on the display pattern of the locale - "DD.MM.RRRR"
+  const getPlaceholder = () =>
+    placeholder ||
+    formatPlaceholder(
+      getPattern(locale, type),
+      locale.messages.dateTimePicker.placeholderTokens,
+    );
 
   if (mode === "native") {
     const dimStyles = {
@@ -221,7 +228,7 @@ export default function DateTimePicker({
             disabled && "cursor-not-allowed opacity-60",
             className,
           )}
-          aria-describedby={cn(
+          aria-describedby={joinTokens(
             errorId,
             descriptionId,
             inputProps["aria-describedby"],

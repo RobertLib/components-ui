@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import SnackbarProvider from "../providers/snackbar-provider";
-import Toast from "./toast";
+import Toast, { LIVE_REGION_DELAY } from "./toast";
 import { useSnackbar } from "../providers/snackbar-context";
 
 function Notify() {
@@ -121,6 +121,23 @@ describe("Toast", () => {
     render(<Toast message="Saved" />);
 
     expect(screen.getByRole("status")).toHaveTextContent("Saved");
+  });
+
+  it("shows its text a moment after its live region is in the page", () => {
+    vi.useFakeTimers();
+    render(<Toast message="Saved" />);
+
+    // Screen readers announce a change in a region they know - not a region
+    // that appears with its text
+    const toast = screen.getByRole("status");
+    const content = screen.getByText("Saved").parentElement!.parentElement!;
+    expect(toast).toHaveClass("opacity-0");
+    expect(content).toHaveClass("invisible");
+
+    act(() => vi.advanceTimersByTime(LIVE_REGION_DELAY));
+    expect(toast).toHaveClass("animate-slide-down");
+    expect(toast).not.toHaveClass("opacity-0");
+    expect(content).not.toHaveClass("invisible");
   });
 
   it("waits while it is hovered or focused", () => {

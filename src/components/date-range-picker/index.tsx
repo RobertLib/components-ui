@@ -6,7 +6,7 @@ import usePickerPopup from "../datetime-picker/use-picker-popup";
 import useIsMobile from "../../hooks/use-is-mobile";
 import { useFormControl } from "../../hooks/use-form-control";
 import { useLocale } from "../../providers/ui-context";
-import { parseISODate } from "../../utils/date";
+import { formatPlaceholder, parseISODate } from "../../utils/date";
 import {
   decodeRange,
   encodeRange,
@@ -243,8 +243,12 @@ export default function DateRangePicker({
     close();
   };
 
-  // "DD.MM.YYYY – DD.MM.YYYY" - the bracketed text of a pattern left out
-  const datePlaceholder = pattern.replace(/\[[^\]]*]/g, "");
+  // "DD.MM.RRRR – DD.MM.RRRR" - as the locale writes the tokens
+  const datePlaceholder = formatPlaceholder(
+    pattern,
+    locale.messages.dateTimePicker.placeholderTokens,
+  );
+  const rangePlaceholder = `${datePlaceholder}${RANGE_SEPARATOR}${datePlaceholder}`;
 
   return (
     <PickerField
@@ -260,6 +264,7 @@ export default function DateRangePicker({
       error={error}
       errorId={errorId}
       fieldRef={fieldRef}
+      format={rangePlaceholder}
       hiddenFields={[
         { name: startName, value: days?.start ?? "" },
         { name: endName, value: days?.end ?? "" },
@@ -280,13 +285,12 @@ export default function DateRangePicker({
       panelClassName={isMobile ? "w-72" : undefined}
       parseText={(text) => {
         const typed = toDayRange(parseDisplayRange(text, pattern));
-        return typed && isAllowedRange(typed, limits)
-          ? encodeRange(toDateRange(typed))
-          : null;
+        if (!typed) return { error: "format" };
+        return isAllowedRange(typed, limits)
+          ? { value: encodeRange(toDateRange(typed)) }
+          : { error: "range" };
       }}
-      placeholder={
-        placeholder ?? `${datePlaceholder}${RANGE_SEPARATOR}${datePlaceholder}`
-      }
+      placeholder={placeholder ?? rangePlaceholder}
       popupLabel={messages.selectRange}
       readOnly={readOnly}
       required={required}

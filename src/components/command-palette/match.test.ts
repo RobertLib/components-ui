@@ -27,6 +27,20 @@ describe("rankMatch", () => {
     expect(rank("Customers", "invoice")).toBeNull();
   });
 
+  it("matches a Greek label in capitals with a search typed in lower case", () => {
+    // Lowercased letter by letter the last "Σ" is "σ", typed it is "ς"
+    expect(rank("ΟΔΟΣ ΑΘΗΝΑΣ", "οδος")).not.toBeNull();
+    expect(rank("Οδός Αθηνάς", "ΑΘΗΝΑΣ")).not.toBeNull();
+  });
+
+  it("matches Korean text written composed or decomposed", () => {
+    const composed = "한국어";
+    const decomposed = composed.normalize("NFD");
+
+    expect(rank(composed, decomposed)).not.toBeNull();
+    expect(rank(decomposed, composed)).not.toBeNull();
+  });
+
   it("needs every word, in the label or the other texts", () => {
     expect(rank("New invoice", "invoice new")).not.toBeNull();
     expect(rank("New invoice", "new bill", "bill receipt")).not.toBeNull();
@@ -68,6 +82,12 @@ describe("findMatchRanges", () => {
     // "é" written as "e" and a combining acute accent
     const text = "Café order";
     expect(ranges(text, "cafe")).toEqual([[0, 5]]);
+  });
+
+  it("keeps the voicing mark with its kana", () => {
+    // "ガ" written as "カ" and a combining voicing mark
+    expect(ranges("\u30ab\u3099ス", "カ")).toEqual([[0, 2]]);
+    expect(ranges("ガス 한국", "한")).toEqual([[3, 4]]);
   });
 
   it("finds nothing without words", () => {

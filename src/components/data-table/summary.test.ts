@@ -41,6 +41,39 @@ describe("computeSummary", () => {
     );
   });
 
+  it("takes the dates of an API - ISO texts - as they are", () => {
+    const texts = [
+      { id: 1, value: "2026-05-01" },
+      { id: 2, value: "2026-01-15" },
+      { id: 3, value: null },
+      { id: 4, value: "2026-12-31T09:00:00+02:00" },
+      { id: 5, value: "no date" },
+    ];
+    const column: Column<(typeof texts)[number]> = {
+      key: "value",
+      label: "Value",
+    };
+
+    expect(computeSummary("min", column, texts)).toBe("2026-01-15");
+    expect(computeSummary("max", column, texts)).toBe(
+      "2026-12-31T09:00:00+02:00",
+    );
+    // A day starts at the local midnight - midnight in UTC is after 1 AM
+    // east of Greenwich
+    const days = [
+      { id: 1, value: "2026-09-24T01:00" },
+      { id: 2, value: "2026-09-24" },
+    ];
+    expect(computeSummary("max", column, days)).toBe("2026-09-24T01:00");
+    expect(computeSummary("min", column, days)).toBe("2026-09-24");
+    // Invalid dates are no dates
+    expect(
+      computeSummary("min", shipped, [
+        { amount: null, id: 1, shipped: new Date("x") },
+      ]),
+    ).toBeNull();
+  });
+
   it("has a sum of nothing, and no average of it", () => {
     expect(computeSummary("sum", amount, [])).toBe(0);
     expect(computeSummary("avg", amount, [])).toBeNull();

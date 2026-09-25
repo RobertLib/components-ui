@@ -15,6 +15,12 @@ export interface HeaderProps extends Omit<
   afterTitle?: React.ReactNode;
   /** Shows a back arrow before the title. */
   back?: boolean;
+  /**
+   * Level of the heading of the title - a page has one `h1`, a header in a
+   * section or a dialog takes a lower one.
+   * @default 1
+   */
+  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   /** What the back arrow does - goes back in the history by default. */
   onBack?: () => void;
   /**
@@ -30,12 +36,14 @@ export default function Header({
   afterTitle,
   back,
   className,
+  headingLevel = 1,
   onBack,
   title,
   ...props
 }: HeaderProps) {
   const router = useRouter();
   const messages = useMessages();
+  const Heading = `h${headingLevel}` as const;
 
   return (
     <div
@@ -49,12 +57,14 @@ export default function Header({
         {back && (
           <IconButton
             aria-label={messages.header.back}
-            onClick={onBack ?? router.back}
+            // Not with the click - `back` and `onBack` take no arguments,
+            // and a router's may read one as where to go
+            onClick={() => (onBack ? onBack() : router.back())}
           >
             <ArrowLeft size={24} />
           </IconButton>
         )}
-        <h1 className="text-3xl font-medium">
+        <Heading className="text-3xl font-medium">
           {title ?? (
             <>
               <Skeleton
@@ -66,7 +76,7 @@ export default function Header({
               <VisuallyHidden>{messages.common.loading}</VisuallyHidden>
             </>
           )}
-        </h1>
+        </Heading>
         {afterTitle}
       </div>
       <div className="flex flex-wrap gap-2">{actions}</div>

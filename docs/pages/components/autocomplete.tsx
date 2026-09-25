@@ -15,7 +15,11 @@ return { items, hasMore: items.length === pageSize };
 return { items, nextCursor: body.next }; // cursor-based REST
 
 // 3. A GraphQL (Relay) connection, as the server returns it
-return data.users; // { nodes | edges, pageInfo: { endCursor, hasNextPage } }`;
+return data.users; // { nodes | edges, pageInfo: { endCursor, hasNextPage } }
+
+// Other shapes list nothing (development builds warn) - map them to a page:
+return { items: body.results, total: body.count }; // Django REST Framework
+return { items: body.data, total: body.meta.total }; // Laravel`;
 
 const apollo = `import { gql } from "@apollo/client";
 import { useApolloClient } from "@apollo/client/react";
@@ -105,11 +109,14 @@ export default function AutocompletePage() {
         <Prose>
           <p>
             Pass <code>loadOptions</code> instead of <code>options</code>. It is
-            called when the list opens, again (debounced) as the user types and
-            for the next page once the list is scrolled to its end. It receives
-            the search term and the page in the terms of every common pagination
-            style, and may return a plain array, a REST page or a GraphQL
-            connection - so it fits any backend.
+            called whenever the list opens, again (debounced) as the user types
+            and for the next page once the list is scrolled to its end. It
+            receives the search term (without the spaces around it) and the page
+            in the terms of every common pagination style, and may return a
+            plain array, a REST page or a GraphQL connection - so it fits any
+            backend. Every opening loads the list again, as the data may have
+            changed meanwhile - the options of the last opening stay until the
+            new ones arrive.
           </p>
         </Prose>
 
@@ -220,10 +227,22 @@ export default function AutocompletePage() {
               and Escape closes. Enter in a closed typing field submits the
               form, as in a text input. Home / End move the highlight in an{" "}
               <code>asSelect</code> field and the caret in a typing one. An{" "}
-              <code>asSelect</code> field is a select-only combobox: Enter and
-              Space open it on the selected option and pick, and letters
-              highlight the options starting with them. Keys of an input method
-              (IME) composing text are left to it.
+              <code>asSelect</code> field is a select-only combobox: Enter,
+              Space and the arrow keys open it on the selected option, Home and
+              End on the first and last one; Enter and Space pick, and so does
+              Tab as the focus moves on (in single mode). Letters highlight the
+              next option starting with them - from the selection on, as in a
+              native select, and a space typed among them is part of the search
+              ("New Y" finds "New York"). Keys of an input method (IME)
+              composing text are left to it.
+            </li>
+            <li>
+              Screen readers hear how many options the open list shows (or that
+              it loads, or found nothing) from a live region next to the field -
+              once typing pauses, not at every key. The typed text is matched
+              without the spaces around it. The focus the user moves into a
+              typing field opens its list; the focus the window gets back leaves
+              the list as it was.
             </li>
             <li>
               <code>description</code> puts help text under the field. It,{" "}
@@ -246,7 +265,8 @@ export default function AutocompletePage() {
             <li>
               Loading errors are logged in development and passed to{" "}
               <code>onLoadError</code>, e.g. to show a toast. The list then
-              shows an error, and its next opening loads it again. Labels{" "}
+              shows an error until a load succeeds - another search, or the next
+              opening, which loads it again. Labels{" "}
               <code>loadSelectedOptions</code> failed to load show the values as
               they are and are asked for again when the list next opens.
             </li>

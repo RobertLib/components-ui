@@ -17,6 +17,32 @@ error.errors[0].extensions   error.graphQLErrors[0].extensions
 // GraphQL "user errors" in the mutation payload
 { "userErrors": [{ "field": ["input", "email"], "message": "…" }] }`;
 
+const registerForm = `import { useForm } from "react-hook-form";
+import { Button, Checkbox, Input, Select, Textarea } from "components-ui";
+
+function ProfileForm({ profile }) {
+  const { formState, handleSubmit, register, reset } = useForm({
+    defaultValues: profile, // { name, bio, role, newsletter }
+  });
+
+  return (
+    <form onSubmit={handleSubmit(save)}>
+      <Input
+        {...register("name", { required: "Enter a name" })}
+        clearable
+        error={formState.errors.name?.message}
+        label="Name"
+      />
+      <Textarea {...register("bio")} label="Bio" maxLength={200} showCount />
+      <Select {...register("role")} label="Role" options={roles} />
+      <Checkbox {...register("newsletter")} label="Newsletter" />
+      <Button onClick={() => reset()} variant="outline">
+        Reset
+      </Button>
+    </form>
+  );
+}`;
+
 const hookForm = `import { Controller, useForm } from "react-hook-form";
 import { Autocomplete, DateTimePicker, Input, NumberInput } from "components-ui";
 
@@ -201,19 +227,43 @@ export default function FormsGuide() {
       <Section title="React Hook Form">
         <Prose>
           <p>
-            Use <code>Controller</code> - it drives the fields as controlled
-            components, which keeps <code>reset()</code> and default values in
-            sync:
+            <code>register()</code> suits the fields that render one native
+            element and call <code>onChange</code> with its event:{" "}
+            <code>Input</code>, <code>Textarea</code>, <code>Select</code>,{" "}
+            <code>Checkbox</code>, <code>Switch</code> and a{" "}
+            <code>DateTimePicker</code> with{" "}
+            <code>mode=&quot;native&quot;</code>. They pass <code>ref</code>,{" "}
+            <code>onBlur</code> and every other native attribute on to that
+            element, and keep the value React Hook Form writes into it - the{" "}
+            <code>defaultValues</code>, <code>setValue()</code>,{" "}
+            <code>reset()</code> - as a native field does, with the clear
+            button, the character count and a floating label following it:
+          </p>
+        </Prose>
+        <CodeBlock code={registerForm} />
+        <Prose>
+          <p>
+            The other fields - <code>NumberInput</code>,{" "}
+            <code>Autocomplete</code>, the custom pickers, a multiple{" "}
+            <code>Select</code>, <code>CheckboxGroup</code>,{" "}
+            <code>RadioGroup</code>, <code>SegmentedControl</code>,{" "}
+            <code>Slider</code>, <code>PinInput</code> and the like - report
+            their value rather than hold it in one native element. Use{" "}
+            <code>Controller</code> for them - it drives the fields as
+            controlled components, which keeps <code>reset()</code> and default
+            values in sync:
           </p>
         </Prose>
         <CodeBlock code={hookForm} />
         <Callout>
           <p>
-            <code>Input</code>, <code>Textarea</code>, <code>Select</code>,{" "}
-            <code>Checkbox</code> and <code>Switch</code> pass <code>ref</code>,{" "}
-            <code>onBlur</code> and every other native attribute on to the
-            element they render; the <code>ref</code> of{" "}
-            <code>NumberInput</code> is its visible text field.
+            A field keeps a value a script writes through the element&apos;s{" "}
+            <code>value</code> property. Options of a multiple select picked one
+            by one, or a <code>value</code> attribute set, show only after the
+            next change - hence <code>Controller</code> for a multiple{" "}
+            <code>Select</code>. The <code>ref</code> of{" "}
+            <code>NumberInput</code> is its visible text field - for{" "}
+            <code>Controller</code> to focus it on an error.
           </p>
         </Callout>
       </Section>

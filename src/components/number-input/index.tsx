@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -10,6 +11,7 @@ import {
 import { attachRef, useFormReset } from "../../hooks/use-form-control";
 import cn from "../../utils/cn";
 import { flushSync } from "react-dom";
+import { formatMessage } from "../../i18n/format";
 import { getNumberFormat, stepValue, toCanonical } from "./number-format";
 import { InputBase } from "../input";
 import { useLocale, useMessages } from "../../providers/ui-context";
@@ -111,7 +113,10 @@ export interface NumberInputProps extends Omit<
   label?: string;
   /**
    * The largest value - End sets it, and a larger typed value is lowered to
-   * it when the field loses the focus.
+   * it when the field loses the focus. A larger value the field holds
+   * meanwhile (typed, or from the parent) makes the form invalid, as it
+   * does a native number input: the browser refuses to submit it and says
+   * why.
    */
   max?: number;
   /**
@@ -121,8 +126,9 @@ export interface NumberInputProps extends Omit<
   maximumFractionDigits?: number;
   /**
    * The smallest value - Home sets it, and a smaller typed value is raised
-   * to it when the field loses the focus. With a `min` of 0 or more no minus
-   * sign can be typed.
+   * to it when the field loses the focus (a smaller value meanwhile makes
+   * the form invalid, see `max`). With a `min` of 0 or more no minus sign
+   * can be typed.
    */
   min?: number;
   /**
@@ -141,7 +147,8 @@ export interface NumberInputProps extends Omit<
    * What the arrow keys, the step buttons and the wheel add or take away -
    * Page Up and Page Down ten times as much. The steps count from `min` (or
    * 0), as those of a native number input: a value between two steps moves
-   * to the next one.
+   * to the next one. 1 by default - 0.01 (one percent) for
+   * `formatOptions={{ style: "percent" }}`, whose value is the fraction.
    */
   step?: number;
   /**
@@ -188,7 +195,7 @@ export default function NumberInput({
   readOnly,
   ref,
   required,
-  step = 1,
+  step,
   suffix,
   value: controlledValue,
   ...props
@@ -207,7 +214,12 @@ export default function NumberInput({
       ? formatOptions
       : { ...formatOptions, maximumFractionDigits },
   );
-  const stepSize = Number.isFinite(step) && step > 0 ? step : 1;
+  // The value of a percentage is the fraction - a step of 1 would be 100 %
+  const defaultStep = formatOptions?.style === "percent" ? 0.01 : 1;
+  const stepSize =
+    step !== undefined && Number.isFinite(step) && step > 0
+      ? step
+      : defaultStep;
   const allowsNegative = min === undefined || min < 0;
 
   // What the user entered into an uncontrolled field - until then, and
@@ -243,6 +255,33 @@ export default function NumberInput({
   // one from the keyboard selects the text, as in a native field
   const pointerFocus = useRef(false);
 
+  // A value out of `min` - `max` makes the form invalid, as in a native
+  // number input: a typed one not yet moved into them (a form submitted
+  // from a script while the field has the focus), or one of the parent
+  const rangeMessage =
+    value !== null && max !== undefined && value > max
+      ? formatMessage(messages.numberInput.rangeOverflow, {
+          max: numberFormat.format(max),
+        })
+      : value !== null && min !== undefined && value < min
+        ? formatMessage(messages.numberInput.rangeUnderflow, {
+            min: numberFormat.format(min),
+          })
+        : "";
+  // The message the field set last - one the page set stays
+  const rangeMessageRef = useRef("");
+
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+
+    if (rangeMessage) input.setCustomValidity(rangeMessage);
+    else if (input.validationMessage === rangeMessageRef.current) {
+      input.setCustomValidity("");
+    }
+    rangeMessageRef.current = rangeMessage;
+  }, [rangeMessage]);
+
   const generatedId = useId();
   const inputId = id ?? generatedId;
 
@@ -262,12 +301,15 @@ export default function NumberInput({
     commitValue(parsed === null ? null : clamp(parsed, min, max));
   };
 
-  /** Steps the value - returns whether it changed. */
-  const stepBy = (direction: 1 | -1, count: number) => {
-    if (disabled || readOnly) return false;
-
-    // A typed text is where the step starts
-    const current = text === null ? value : numberFormat.parse(text);
+  /**
+   * The value `count` steps from `current`, rounded as the format rounds -
+   * a step up never lowers it, one down never raises it.
+   */
+  const stepFrom = (
+    current: number | null,
+    direction: 1 | -1,
+    count: number,
+  ) => {
     const next = clamp(
       numberFormat.round(
         stepValue(current, direction, count, { max, min, step: stepSize }),
@@ -275,6 +317,18 @@ export default function NumberInput({
       min,
       max,
     );
+    const backwards =
+      current !== null && (direction > 0 ? next < current : next > current);
+    return backwards ? current : next;
+  };
+
+  /** Steps the value - returns whether it changed. */
+  const stepBy = (direction: 1 | -1, count: number) => {
+    if (disabled || readOnly) return false;
+
+    // A typed text is where the step starts
+    const current = text === null ? value : numberFormat.parse(text);
+    const next = stepFrom(current, direction, count);
 
     setText(null);
     commitValue(next);
@@ -294,12 +348,12 @@ export default function NumberInput({
   }, form);
 
   // The latest state for the listeners of the wheel and the step buttons,
-  // which outlive a render
+  // which outlive a render - updated as the render commits
   const stepRef = useRef(stepBy);
   const wheelEnabled = changeOnWheel && !disabled && !readOnly;
   const wheelEnabledRef = useRef(wheelEnabled);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     stepRef.current = stepBy;
     wheelEnabledRef.current = wheelEnabled;
   });
@@ -324,7 +378,9 @@ export default function NumberInput({
         }
 
         event.preventDefault();
-        stepRef.current(event.deltaY < 0 ? 1 : -1, 1);
+        // Rendered at once - the next event of a fast wheel steps on from
+        // this value, not again from the one before
+        flushSync(() => stepRef.current(event.deltaY < 0 ? 1 : -1, 1));
       };
 
       input?.addEventListener("wheel", handleWheel, { passive: false });
@@ -351,13 +407,18 @@ export default function NumberInput({
   const pressStep = (
     event: React.PointerEvent<HTMLButtonElement>,
     direction: 1 | -1,
+    canStep: boolean,
   ) => {
     if (event.button !== 0) return;
 
-    pressed.current = true;
     // A mouse moves the focus into the field - a finger does not, the
     // on-screen keyboard would cover the page
     if (event.pointerType !== "touch") inputRef.current?.focus();
+    // A button at a bound only looks disabled - it keeps the focus, and
+    // steps no further (its click neither)
+    if (!canStep) return;
+
+    pressed.current = true;
     stepRef.current(direction, 1);
 
     const repeat = (delay: number) => {
@@ -384,11 +445,11 @@ export default function NumberInput({
   };
 
   // At a bound a button only looks disabled - a `disabled` one would let
-  // the press that reached the bound move the focus out of the field
-  const canIncrement =
-    !readOnly && (max === undefined || value === null || value < max);
-  const canDecrement =
-    !readOnly && (min === undefined || value === null || value > min);
+  // the press that reached the bound move the focus out of the field. The
+  // bound is where a step changes nothing - also the last step below a
+  // `max` off the grid of the steps.
+  const canIncrement = !readOnly && stepFrom(value, 1, 1) !== value;
+  const canDecrement = !readOnly && stepFrom(value, -1, 1) !== value;
 
   const stepButton = (direction: 1 | -1) => {
     const isUp = direction > 0;
@@ -403,8 +464,9 @@ export default function NumberInput({
         aria-disabled={!canStep || undefined}
         className={cn(
           "flex flex-1 items-center justify-center px-1 text-neutral-500 transition-colors motion-reduce:transition-none dark:text-neutral-400 pointer-coarse:px-2.5",
+          // `enabled:` - a disabled fieldset around disables the buttons too
           canStep && !disabled
-            ? "cursor-pointer hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+            ? "cursor-pointer enabled:hover:bg-neutral-100 enabled:hover:text-neutral-700 disabled:cursor-not-allowed dark:enabled:hover:bg-neutral-800 dark:enabled:hover:text-neutral-200"
             : "cursor-not-allowed",
           // A disabled field fades as a whole
           !canStep && !disabled && "opacity-40",
@@ -415,11 +477,11 @@ export default function NumberInput({
         // From the keyboard or assistive technology - the buttons are out of
         // the tab order, the arrow keys of the field step
         onClick={() => {
-          if (!pressed.current) stepBy(direction, 1);
+          if (!pressed.current && canStep) stepBy(direction, 1);
         }}
         // A press keeps the focus where it is
         onMouseDown={(event) => event.preventDefault()}
-        onPointerDown={(event) => pressStep(event, direction)}
+        onPointerDown={(event) => pressStep(event, direction, canStep)}
         onPointerLeave={stopRepeat}
         tabIndex={-1}
         type="button"

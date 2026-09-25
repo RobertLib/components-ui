@@ -14,7 +14,11 @@ export default function AccordionPage() {
             <code>defaultOpen</code> sets whether the section starts expanded -
             or control it with <code>open</code> and <code>onOpenChange</code>.
             A click anywhere on the header toggles it - except on links, buttons
-            and fields in it; from the keyboard, the button at its end does.
+            and fields in it; from the keyboard, the button at its end does. The
+            header is a heading for screen readers, who move between the
+            sections by their headings - of level 3, or{" "}
+            <code>headingLevel</code>; a header that is a heading element itself
+            (<code>&lt;h2&gt;</code>) keeps its own.
           </p>
         }
         name="accordion/basic"

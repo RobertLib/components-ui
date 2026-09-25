@@ -101,10 +101,13 @@ export default function DataTablePage() {
             action then gets <code>allFiltered: true</code>: a{" "}
             <code>clientSide</code> table gives it all the matching rows, with
             server data it should act on the <code>query</code> it gets rather
-            than on the loaded rows. With <code>autoResetSelectedRows</code>{" "}
-            only the rows the action got are deselected - rows picked while it
-            ran stay selected. A refetch keeps the selected rows that are still
-            there.
+            than on the loaded rows. Rows unchecked after that stay out of it -
+            "24 matching rows are selected" - and the action gets them as{" "}
+            <code>excludedRows</code> (act on all rows of the <code>query</code>{" "}
+            but these). With <code>autoResetSelectedRows</code> only the rows
+            the action got are deselected - rows picked while it ran stay
+            selected. A refetch keeps the selected rows that are still there; a
+            row selected on its own leaves the selection with its page.
           </p>
         }
         name="data-table/selection"
@@ -210,8 +213,12 @@ export default function DataTablePage() {
       />
       <Callout title="Keyboard and screen readers">
         <p>
-          Editable cells are tab stops, described as editable. Enter or F2 - or
-          a double-click, on a touch screen a tap on the focused cell - starts
+          The editable cells are one tab stop, described as editable - the cell
+          edited last, or the first one in view. The arrow keys move between
+          them (up and down in the column, skipping cells that cannot be
+          edited), Home / End to the first / last one of the row and Ctrl + Home
+          / End to the first / last one of the table. Enter or F2 - or a
+          double-click, on a touch screen a tap on the focused cell - starts
           editing, Enter saves, Escape cancels, Tab saves and edits the next
           editable cell (Shift + Tab the previous one), and moving the focus
           elsewhere saves too. Enter and Escape in an open date picker are the
@@ -220,9 +227,11 @@ export default function DataTablePage() {
           pixels: the arrow keys resize, Home / End go to the limits, Enter
           brings back the column&apos;s width. The focus moving into the
           toolbar, a sort button or a filter field does not scroll the rows, and
-          another page, sorting or filter shows them from the top. "Clear
-          filters", "Reset columns" and the paging buttons keep the focus when
-          pressing them leaves nothing more to do.
+          another page, sorting or filter shows them from the top. Escape
+          empties a text filter - in an empty one it leaves the full screen. The
+          number of selected rows is announced. "Clear filters", "Reset columns"
+          and the paging buttons keep the focus when pressing them leaves
+          nothing more to do.
         </p>
       </Callout>
       <Example
@@ -232,10 +241,12 @@ export default function DataTablePage() {
             <code>summary</code> adds a column to the summary row:{" "}
             <code>sum</code>, <code>avg</code>, <code>min</code> and{" "}
             <code>max</code> of the numbers (<code>min</code> / <code>max</code>{" "}
-            also of dates), <code>count</code> of the rows, or a function of the
-            rows rendering anything. A <code>clientSide</code> table sums up all
-            rows matching the filters, not just the page. With server data pass
-            the server&apos;s values in <code>summaryValues</code>, as the{" "}
+            also of dates - <code>Date</code>s or ISO texts like{" "}
+            <code>2026-09-24</code>, shown as the cells show them),{" "}
+            <code>count</code> of the rows, or a function of the rows rendering
+            anything. A <code>clientSide</code> table sums up all rows matching
+            the filters, not just the page. With server data pass the
+            server&apos;s values in <code>summaryValues</code>, as the{" "}
             <Link to="/guides/data-fetching">REST &amp; GraphQL</Link> tables do
             - without them the loaded rows are summed up. Numbers and dates are
             written by the locale, and the row sticks to the bottom of a table
@@ -312,6 +323,37 @@ export default function DataTablePage() {
             the error with a retry.
           </p>
         </Callout>
+      </Section>
+
+      <Section title="Dates and server rendering">
+        <Prose>
+          <p>
+            A <code>Date</code> is shown in the time zone of whatever renders it
+            - with server rendering first the server&apos;s, then the
+            browser&apos;s. In different zones the texts differ (another day
+            near midnight, another hour), React reports a hydration mismatch and
+            renders the browser&apos;s text. So:
+          </p>
+          <ul>
+            <li>
+              A day - a birthday, a due date: build the <code>Date</code> from
+              its parts on both sides (
+              <code>new Date(year, month - 1, day)</code>, as the examples do in{" "}
+              <code>getValue</code>), which is that day in every zone - or keep
+              the ISO text <code>2026-09-24</code>, shown, filtered and sorted
+              as it is. <code>new Date("2026-09-24")</code> is midnight in UTC,
+              the day before west of Greenwich.
+            </li>
+            <li>
+              A moment - a date-time with a zone: render it yourself in a fixed
+              zone (<code>render</code> with{" "}
+              <code>toLocaleString(…, {"{ timeZone }"})</code>) when the server
+              renders the table, or render the table in the browser only. The
+              date filters of a <code>clientSide</code> table read ISO texts
+              with a zone in the local time too.
+            </li>
+          </ul>
+        </Prose>
       </Section>
 
       <Section title="Filters the user can see">

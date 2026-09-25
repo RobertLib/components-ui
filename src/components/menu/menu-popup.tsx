@@ -10,6 +10,12 @@ import { ButtonGroupContext } from "../button-group-context";
 
 interface MenuPopupProps {
   children: React.ReactNode;
+  /**
+   * The writing direction of what the menu belongs to - a portal in the
+   * body does not inherit it from there. Right to left, a submenu opens to
+   * the left and a context menu from the right edge of its anchor.
+   */
+  dir?: "ltr" | "rtl";
   /** Space between the anchor and a menu placed at it. */
   gap?: number;
   /**
@@ -39,6 +45,7 @@ const isSamePosition = (a: MenuPosition, b: MenuPosition) =>
  */
 export default function MenuPopup({
   children,
+  dir,
   gap = 0,
   getAnchor,
   id,
@@ -74,10 +81,11 @@ export default function MenuPopup({
         width: panel.offsetWidth,
       };
       const viewport = { height: window.innerHeight, width: window.innerWidth };
+      const rtl = dir === "rtl";
       const next =
         placement === "submenu"
-          ? placeSubmenu(anchor, size, viewport)
-          : placeAtAnchor(anchor, size, viewport, gap);
+          ? placeSubmenu(anchor, size, viewport, rtl)
+          : placeAtAnchor(anchor, size, viewport, gap, rtl);
 
       setPosition((current) =>
         current && isSamePosition(current, next) ? current : next,
@@ -101,12 +109,13 @@ export default function MenuPopup({
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [gap, placement, ref]);
+  }, [dir, gap, placement, ref]);
 
   return createPortal(
     <ButtonGroupContext value={null}>
       <div
         className="fixed z-50 max-w-[calc(100vw-1rem)] animate-fade-in overflow-y-auto rounded-md border border-neutral-100 bg-surface shadow-md dark:border-neutral-900 dark:bg-surface-dark"
+        dir={dir}
         id={id}
         // A click in the menu stays in it - through the portal it would reach
         // the parents of the menu, e.g. a clickable row around a context menu

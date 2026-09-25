@@ -42,7 +42,9 @@ export default function PaginationPage() {
             previous button stays enabled after the first page. After a move the
             buttons wait for the next <code>pageInfo</code> (and while{" "}
             <code>loading</code>), so a double click does not request a page
-            from the old cursors twice.
+            from the old cursors twice. Pass <code>loading</code> too: its end
+            also ends the wait after a failed load, which leaves the old{" "}
+            <code>pageInfo</code> - without it the buttons wait 10 seconds.
           </p>
         }
         name="pagination/cursor"

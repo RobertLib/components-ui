@@ -27,8 +27,8 @@ describe("AppShell", () => {
 
     // The layout CSS moves the navbar and main aside for the drawer
     const [drawer, navbar, main] = Array.from(container.children);
-    expect(drawer).toHaveClass("drawer");
-    expect(navbar).toHaveClass("navbar");
+    expect(drawer).toHaveClass("cui-drawer");
+    expect(navbar).toHaveClass("cui-navbar");
     expect(main.tagName).toBe("MAIN");
     expect(main).toHaveClass("min-w-0", "p-6");
     expect(main).toHaveAttribute("aria-label", "Content");
@@ -47,7 +47,7 @@ describe("AppShell", () => {
     await user.click(screen.getByRole("button", { name: "Toggle sidebar" }));
     expect(
       screen.getByRole("navigation", { name: "Main navigation" }),
-    ).toHaveClass("drawer-collapsed");
+    ).toHaveClass("cui-drawer-collapsed");
     expect(localStorage.getItem("drawer-collapsed")).toBe("true");
   });
 
@@ -58,7 +58,7 @@ describe("AppShell", () => {
     await user.click(screen.getByRole("button", { name: "Toggle sidebar" }));
     expect(
       screen.getByRole("navigation", { name: "Main navigation" }),
-    ).toHaveClass("drawer-collapsed");
+    ).toHaveClass("cui-drawer-collapsed");
     expect(localStorage.length).toBe(0);
   });
 });

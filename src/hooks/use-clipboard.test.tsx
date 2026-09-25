@@ -161,4 +161,33 @@ describe("useClipboard", () => {
     expect(result.current.error).toBeInstanceOf(Error);
     expect(result.current.copied).toBe(false);
   });
+
+  it("copies with the old command where the Clipboard API refuses", async () => {
+    // A frame without the `clipboard-write` permission
+    const denied = new DOMException(
+      "Write permission denied.",
+      "NotAllowedError",
+    );
+    setClipboard({ writeText: vi.fn(() => Promise.reject(denied)) });
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    const { result } = renderHook(() => useClipboard());
+
+    let copied: boolean | undefined;
+    await act(async () => {
+      copied = await result.current.copy("text");
+    });
+
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(copied).toBe(true);
+    expect(result.current.error).toBeNull();
+
+    // Refused there too - the error of the Clipboard API tells why
+    document.execCommand = vi.fn(() => false);
+    await act(async () => {
+      copied = await result.current.copy("text");
+    });
+    expect(copied).toBe(false);
+    expect(result.current.error).toBe(denied);
+  });
 });

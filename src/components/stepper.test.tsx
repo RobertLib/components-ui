@@ -199,7 +199,8 @@ describe("Horizontal Stepper", () => {
     );
   });
 
-  it("puts the description into the tooltip and the description", () => {
+  it("shows the name of a step in a tooltip - also on keyboard focus", async () => {
+    const user = userEvent.setup();
     render(
       <Stepper
         currentStepId="details"
@@ -208,9 +209,28 @@ describe("Horizontal Stepper", () => {
       />,
     );
 
-    const shipping = screen.getByRole("button", { name: "2. Shipping" });
-    expect(shipping).toHaveAttribute("title", "Shipping\nWhere the order goes");
-    expect(shipping).toHaveAccessibleDescription("Where the order goes");
+    const details = screen.getByRole("button", { name: "1. Details" });
+    // No native title - it shows only to a mouse, after a long wait
+    expect(details).not.toHaveAttribute("title");
+
+    await user.tab();
+    expect(details).toHaveFocus();
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "DetailsCompany and contact",
+    );
+    // The step says it already - the tooltip is not read once more (it
+    // adds only a space)
+    expect(details).toHaveAccessibleDescription(/^Company and contact\s*$/);
+  });
+
+  it("shows the name of a step of a read-only stepper on a tap", async () => {
+    const user = userEvent.setup();
+    render(<Stepper currentStepId={1} steps={steps} />);
+
+    const review = screen.getByText("3. Review").parentElement!;
+    expect(review).not.toHaveAttribute("title");
+    await user.click(review);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Review");
   });
 
   it("is used from the md breakpoint with the responsive orientation", () => {

@@ -73,11 +73,15 @@ export default function DateRangePickerPage() {
             two digits (<code>1.9. – 30.9.</code>, <code>1.9.26 – 30.9.26</code>
             ), and anything but digits between the days - a dash, <code>-</code>
             , <code>~</code>, <code>..</code>, a word or a space (
-            <code>1.9.2026 30.9.2026</code>). A reversed pair is swapped, and
-            one day alone is a range of that day. Enter or leaving the field
-            takes the text; one that is no allowed range (a day that does not
-            exist, out of <code>min</code> / <code>max</code>, too short or too
-            long) is dropped and the field shows the range again.
+            <code>1.9.2026 30.9.2026</code>) - also days in ISO 8601 (
+            <code>2026-09-01/2026-09-30</code>). A year left out comes from the
+            other day: <code>28.12. – 3.1.</code> ends in the next year,{" "}
+            <code>28.12. – 3.1.2027</code> starts in the one before. A reversed
+            pair is swapped, and one day alone is a range of that day. Enter or
+            leaving the field takes the text; one that is no allowed range (a
+            day that does not exist, out of <code>min</code> / <code>max</code>,
+            too short or too long) is dropped - the field shows the range again,
+            and a message under it says why.
           </p>
         </Prose>
       </Section>
@@ -98,7 +102,7 @@ export default function DateRangePickerPage() {
             <li>
               The arrow keys move by a day and a week, on from one month into
               the other - past the second month the months move along. Home /
-              End go to the first and the last day of the month, Page Up / Down
+              End go to the first and the last day of the week, Page Up / Down
               by a month, with Shift by a year.
             </li>
             <li>

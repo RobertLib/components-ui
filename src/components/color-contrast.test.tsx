@@ -6,6 +6,7 @@ import Button, { type ButtonProps } from "./button";
 import Chip, { type ChipColor, type ChipVariant } from "./chip";
 import Link from "./link";
 import Progress, { CircularProgress, type ProgressProps } from "./progress";
+import Stepper from "./stepper";
 import Timeline, { type TimelineColor } from "./timeline";
 import { colorOf, contrast, pageBackgrounds } from "../test/contrast";
 
@@ -340,5 +341,53 @@ describe("Avatar", () => {
     }
 
     expect(lowContrast(pairs, GRAPHIC)).toEqual([]);
+  });
+});
+
+describe("Stepper", () => {
+  it("writes the numbers of the steps at 4.5:1 on their circles", () => {
+    const steps = [
+      { id: 1, title: "Cart" },
+      { hasError: true, id: 2, title: "Address" },
+      { id: 3, title: "Payment" },
+      { id: 4, title: "Summary" },
+    ];
+    const pairs: [string, string, string][] = [];
+
+    // Done, failed, current (also failed) and to come - with buttons or not,
+    // in a row or a column
+    for (const currentStepId of [3, 2]) {
+      for (const orientation of ["horizontal", "vertical"] as const) {
+        for (const onStepClick of [undefined, () => {}]) {
+          const { container, unmount } = render(
+            <Stepper
+              currentStepId={currentStepId}
+              onStepClick={onStepClick}
+              orientation={orientation}
+              steps={steps}
+            />,
+          );
+          const circles = Array.from(
+            container.querySelectorAll<HTMLElement>(
+              ".rounded-full.border-2:not(.absolute)",
+            ),
+          );
+          unmount();
+          expect(circles).toHaveLength(steps.length);
+
+          circles.forEach((circle, index) => {
+            for (const dark of MODES) {
+              pairs.push([
+                `step ${index + 1} of ${currentStepId}${dark ? " dark" : ""}`,
+                colorOf(circle.className, "text", { dark })!,
+                colorOf(circle.className, "bg", { dark })!,
+              ]);
+            }
+          });
+        }
+      }
+    }
+
+    expect(lowContrast(pairs, TEXT)).toEqual([]);
   });
 });

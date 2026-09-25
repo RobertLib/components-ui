@@ -170,6 +170,31 @@ describe("Splitter keyboard", () => {
     expect(handle("Orders")).toHaveAttribute("aria-valuemin", "20");
   });
 
+  it("leaves the arrow keys with Alt, Ctrl or ⌘ to the browser", async () => {
+    const user = userEvent.setup();
+    const onSizesChange = vi.fn();
+    renderSplitter({ onSizesChange });
+
+    await user.tab();
+    const keys = [
+      "{Alt>}{ArrowLeft}{/Alt}",
+      "{Meta>}{ArrowLeft}{/Meta}",
+      "{Control>}{ArrowRight}{/Control}",
+      "{Alt>}{Enter}{/Alt}",
+    ];
+    for (const key of keys) {
+      const event = vi.fn();
+      document.addEventListener("keydown", event);
+      await user.keyboard(key);
+      document.removeEventListener("keydown", event);
+      // Alt + ArrowLeft goes back - the handle does not stop it
+      expect(
+        event.mock.calls.some(([pressed]) => pressed.defaultPrevented),
+      ).toBe(false);
+    }
+    expect(onSizesChange).not.toHaveBeenCalled();
+  });
+
   it("moves a handle towards the first pane with Right in a right-to-left page", async () => {
     const user = userEvent.setup();
     mockRightToLeft();

@@ -161,7 +161,7 @@ export default function Avatar({
           // A decorative avatar still tells the status
           aria-label={isNamedImage ? undefined : statusText}
           className={cn(
-            "absolute right-0 bottom-0 rounded-full ring-2 ring-surface dark:ring-surface-dark",
+            "absolute end-0 bottom-0 rounded-full ring-2 ring-surface dark:ring-surface-dark",
             statusSizeClasses[size],
             statusClasses[status],
           )}

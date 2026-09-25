@@ -172,6 +172,8 @@
  * fade, placeholders stop pulsing, and the spinner turns slower - it still
  * shows that something is going on. The components drop their transitions
  * (`motion-reduce:`) and CollapsibleContent its height animation themselves.
+ * These are Tailwind's tokens - the `animate-pulse` / `animate-spin` of the
+ * page follow as well, as those users asked (Theming shows how to keep one).
  */
 @media (prefers-reduced-motion: reduce) {
   :root {
@@ -183,8 +185,8 @@
   }
 
   /* The page makes room for the Drawer at once */
-  .drawer ~ .navbar,
-  .drawer ~ main {
+  .cui-drawer ~ .cui-navbar,
+  .cui-drawer ~ main {
     transition: none;
   }
 }
@@ -200,19 +202,18 @@
     @apply flex;
 
     & > * {
-      @apply rounded-none! first:rounded-l-md! last:rounded-r-md!;
+      @apply rounded-none! first:rounded-s-md! last:rounded-e-md!;
 
       &:not(:first-child) {
-        @apply -ml-px;
+        @apply -ms-px;
       }
     }
   }
 
-  .icon-btn {
-    @apply -m-1 cursor-pointer rounded-md p-1 leading-none transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-neutral-800;
-  }
-
-  .link {
+  /* The focus ring of the links of the components. The classes the
+     components alone use are prefixed - they do not meet the classes of
+     the page (`.link`, `.drawer`, `.navbar` of other libraries). */
+  .cui-link {
     @apply cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500;
   }
 
@@ -249,42 +250,42 @@
   }
 
   /* App layout - the navbar and main content make room for the Drawer */
-  .drawer {
+  .cui-drawer {
     width: var(--drawer-width, 240px);
   }
 
-  .drawer-collapsed {
+  .cui-drawer-collapsed {
     width: var(--drawer-collapsed-width, 64px);
   }
 
-  .drawer ~ .navbar,
-  .drawer ~ main {
+  .cui-drawer ~ .cui-navbar,
+  .cui-drawer ~ main {
     transition:
       margin-left 0.3s ease,
       width 0.3s ease;
   }
 
-  .drawer.drawer-open ~ .navbar,
-  .drawer.drawer-open ~ main {
+  .cui-drawer.cui-drawer-open ~ .cui-navbar,
+  .cui-drawer.cui-drawer-open ~ main {
     margin-left: var(--drawer-width, 240px);
     width: calc(100% - var(--drawer-width, 240px));
   }
 
-  .drawer.drawer-collapsed ~ .navbar,
-  .drawer.drawer-collapsed ~ main {
+  .cui-drawer.cui-drawer-collapsed ~ .cui-navbar,
+  .cui-drawer.cui-drawer-collapsed ~ main {
     margin-left: var(--drawer-collapsed-width, 64px);
     width: calc(100% - var(--drawer-collapsed-width, 64px));
   }
 
-  .drawer.drawer-closed ~ .navbar,
-  .drawer.drawer-closed ~ main {
+  .cui-drawer.cui-drawer-closed ~ .cui-navbar,
+  .cui-drawer.cui-drawer-closed ~ main {
     margin-left: 0;
     width: 100%;
   }
 
   @media (max-width: 767.98px) {
-    .drawer ~ .navbar,
-    .drawer ~ main {
+    .cui-drawer ~ .cui-navbar,
+    .cui-drawer ~ main {
       margin-left: 0 !important;
       width: 100% !important;
     }
@@ -307,6 +308,13 @@
     & :is(input, textarea)::placeholder {
       color: var(--color-neutral-400);
     }
+  }
+
+  /* Disabled - also by a disabled <fieldset> around, which no `disabled`
+     prop of the field tells */
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 50%;
   }
 }
 

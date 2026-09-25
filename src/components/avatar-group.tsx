@@ -34,10 +34,10 @@ const overlapClasses: Record<AvatarSize, string> = {
 // A pill rather than a circle once the number gets long ("+128"). The last
 // avatar covers its left side - the number keeps clear of it.
 const restSizeClasses: Record<AvatarSize, string> = {
-  sm: "h-6 min-w-6 pr-1 pl-1.5 text-[10px]",
-  md: "h-8 min-w-8 pr-1.5 pl-2.5 text-xs",
-  lg: "h-12 min-w-12 pr-2 pl-3.5 text-base",
-  xl: "h-16 min-w-16 pr-2.5 pl-4.5 text-xl",
+  sm: "h-6 min-w-6 ps-1.5 pe-1 text-[10px]",
+  md: "h-8 min-w-8 ps-2.5 pe-1.5 text-xs",
+  lg: "h-12 min-w-12 ps-3.5 pe-2 text-base",
+  xl: "h-16 min-w-16 ps-4.5 pe-2.5 text-xl",
 };
 
 // Separates the overlapping circles - in the color of the surface under them

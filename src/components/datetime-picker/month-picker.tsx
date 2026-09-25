@@ -4,7 +4,13 @@ import cn from "../../utils/cn";
 import { isInRange, parseDisplayValue } from "./parse";
 import PickerField from "./picker-field";
 import usePickerPopup from "./use-picker-popup";
-import { formatPattern, getMonthNames, pad2, padYear } from "../../utils/date";
+import {
+  formatPattern,
+  formatPlaceholder,
+  getMonthNames,
+  pad2,
+  padYear,
+} from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
 
@@ -260,6 +266,10 @@ export default function MonthPicker({
       displayValue={
         selected ? formatPattern(locale.formats.month, selected) : ""
       }
+      format={formatPlaceholder(
+        locale.formats.month,
+        messages.placeholderTokens,
+      )}
       icon="calendar"
       inputRef={inputRef}
       isOpen={isOpen}
@@ -269,7 +279,10 @@ export default function MonthPicker({
       panelClassName="w-64"
       parseText={(text) => {
         const typed = parseDisplayValue(text, locale.formats.month, "month");
-        return typed && isInRange(typed, min, max) ? typed : null;
+        if (!typed) return { error: "format" };
+        return isInRange(typed, min, max)
+          ? { value: typed }
+          : { error: "range" };
       }}
       placeholder={placeholder}
       popupLabel={messages.selectMonth}

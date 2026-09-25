@@ -60,12 +60,25 @@ export default function PopoverPage() {
             </li>
             <li>
               It closes once the focus leaves trigger and panel - not when it
-              moves into a Dialog or popover opened from the panel. Such a
-              Dialog paints above the panel and gets Escape first: one Escape
-              closes one overlay, the topmost. Escape, or the panel closing with
-              the focus in it, gives the focus back to the trigger - also after
-              a Dialog opened from the panel closes, even when the same click
-              closed the panel.
+              moves into a Dialog or popover opened from the panel, also one
+              rendered elsewhere (the question of <code>useConfirm()</code>),
+              and not on a press in them. Such a Dialog paints above the panel
+              and gets Escape first: one Escape closes one overlay, the topmost.
+              Escape, or the panel closing with the focus in it, gives the focus
+              back to the trigger - also after a Dialog opened from the panel
+              closes, even when the same click closed the panel.
+            </li>
+            <li>
+              Tab moves from the trigger into the open panel and past its end on
+              to what follows the trigger - also into the panel of a hover
+              popover, which opens on keyboard focus, so its links can be
+              reached. As the last control of a Dialog, Tab past the panel goes
+              round to the first control of the dialog.
+            </li>
+            <li>
+              The panel takes the writing direction of its trigger - in a part
+              of the page with <code>dir=&quot;rtl&quot;</code> it is right to
+              left too, though it is rendered into the body.
             </li>
             <li>
               A control in the panel that handles Escape itself and calls{" "}

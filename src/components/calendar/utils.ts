@@ -197,6 +197,23 @@ export function getVisibleMinutes(
 }
 
 /**
+ * Where a timed event of `day` is when no part of it lies in the hours
+ * shown: `"earlier"` - over by the first hour (also one running into the
+ * day from the one before), `"later"` - starting at the end hour or after
+ * it. `null` when a part of it is shown.
+ */
+export function getHiddenSide(
+  start: Date,
+  end: Date,
+  day: Date,
+  startHour: number,
+  endHour: number,
+): "earlier" | "later" | null {
+  if (getVisibleMinutes(start, end, day, startHour, endHour)) return null;
+  return minutesIntoDay(day, start) >= endHour * 60 ? "later" : "earlier";
+}
+
+/**
  * The full day, e.g. "Thursday, September 24, 2026". A locale code `Intl`
  * does not understand ("en_GB") falls back, like in the pickers.
  */

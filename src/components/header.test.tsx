@@ -47,6 +47,8 @@ describe("Header", () => {
 
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(back).toHaveBeenCalledOnce();
+    // Not with the click event - a router's `back` may read an argument
+    expect(back).toHaveBeenCalledWith();
 
     const onBack = vi.fn();
     rerender(
@@ -56,6 +58,23 @@ describe("Header", () => {
     );
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(onBack).toHaveBeenCalledOnce();
+    expect(onBack).toHaveBeenCalledWith();
     expect(back).toHaveBeenCalledOnce();
+  });
+
+  it("titles a section or a dialog with the heading level given", () => {
+    render(
+      <>
+        <Header title="Orders" />
+        <Header headingLevel={2} title="Items" />
+      </>,
+    );
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Orders" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Items" }),
+    ).toBeInTheDocument();
   });
 });

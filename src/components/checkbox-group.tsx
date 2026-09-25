@@ -4,7 +4,7 @@ import {
   useFormReset,
 } from "../hooks/use-form-control";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { formatPlural } from "../i18n/format";
@@ -70,12 +70,15 @@ export interface CheckboxGroupProps<
   /**
    * The most options that can be picked. Once reached, the other options
    * are disabled and the group says so. More of them in `value` make the
-   * form invalid, with a message the browser shows on submit.
+   * form invalid, with a message the browser shows on submit. Only the
+   * values of `options` count - see `onChange`.
    */
   max?: number;
   /**
    * The fewest options that must be picked - the browser refuses to submit
-   * the form with fewer, and says so. `required` is `min={1}`.
+   * the form with fewer, and says so. `required` is `min={1}`. Only the
+   * values of `options` count: a value no option has (one of a deleted
+   * record) is not submitted, so it picks nothing.
    */
   min?: number;
   /**
@@ -194,13 +197,20 @@ function CheckboxRow({
   }, [validationMessage]);
 
   return (
-    <div className={cn(disabled && "opacity-60")}>
+    <div
+      className={cn(
+        disabled && "opacity-60",
+        // Disabled by a disabled fieldset around, which no prop tells
+        "has-disabled:opacity-60",
+      )}
+    >
       <label
         className={cn(
           "flex items-center rounded p-1 transition-colors",
           disabled
             ? "cursor-not-allowed"
             : "cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800",
+          "has-disabled:cursor-not-allowed has-disabled:hover:bg-transparent dark:has-disabled:hover:bg-transparent",
         )}
       >
         <input
@@ -301,7 +311,10 @@ export default function CheckboxGroup<
     [ref],
   );
 
-  const limitReached = max !== undefined && selectedKeys.size >= max;
+  // The values the options have - the form submits no other, so no other
+  // counts for `min` and `max`
+  const pickedCount = options.filter(isPicked).length;
+  const limitReached = max !== undefined && pickedCount >= max;
   const isOptionDisabled = (option: CheckboxOption<T>) =>
     disabled || !!option.disabled || (limitReached && !isPicked(option));
 
@@ -310,9 +323,9 @@ export default function CheckboxGroup<
   // validated)
   const minCount = min ?? (required ? 1 : 0);
   const validationMessage =
-    selectedKeys.size < minCount
+    pickedCount < minCount
       ? formatPlural(locale.code, messages.checkboxGroup.min, minCount)
-      : max !== undefined && selectedKeys.size > max
+      : max !== undefined && pickedCount > max
         ? formatPlural(locale.code, messages.checkboxGroup.max, max)
         : "";
   const validationIndex = options.findIndex(
@@ -344,15 +357,16 @@ export default function CheckboxGroup<
   const changeableOptions = options.filter(
     (option) => !disabled && !option.disabled,
   );
-  const pickedCount = changeableOptions.filter(isPicked).length;
+  const changeablePicked = changeableOptions.filter(isPicked).length;
   const allPicked =
-    changeableOptions.length > 0 && pickedCount === changeableOptions.length;
-  const keysWithAll = new Set([
-    ...selectedKeys,
-    ...changeableOptions.map((option) => String(option.value)),
-  ]);
+    changeableOptions.length > 0 &&
+    changeablePicked === changeableOptions.length;
+  // All changeable options picked, with the picked ones that cannot change
+  const countWithAll = options.filter(
+    (option) => isPicked(option) || changeableOptions.includes(option),
+  ).length;
   const showSelectAll =
-    selectAll !== false && (max === undefined || keysWithAll.size <= max);
+    selectAll !== false && (max === undefined || countWithAll <= max);
 
   const toggleAll = (checked: boolean) => {
     const nextKeys = new Set(selectedKeys);
@@ -378,7 +392,7 @@ export default function CheckboxGroup<
           {...rowProps}
           checked={allPicked}
           disabled={changeableOptions.length === 0}
-          indeterminate={pickedCount > 0 && !allPicked}
+          indeterminate={changeablePicked > 0 && !allPicked}
           label={
             typeof selectAll === "string"
               ? selectAll
@@ -438,7 +452,7 @@ export default function CheckboxGroup<
   // A fieldset is a `group`, which has no invalid or required state - the
   // checkboxes are marked invalid, the browser tells what is missing
   const groupProps = {
-    "aria-describedby": cn(errorId, descriptionId, ariaDescribedBy),
+    "aria-describedby": joinTokens(errorId, descriptionId, ariaDescribedBy),
     id,
     ref: groupElementRef,
   };

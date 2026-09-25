@@ -432,6 +432,10 @@ export default function Splitter({
     event: React.KeyboardEvent<HTMLDivElement>,
     handle: number,
   ) => {
+    // Alt + ArrowLeft / ⌘ + ArrowLeft go back in the browser history, Ctrl
+    // + arrows move by words - they are not the handle's (Shift is)
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+
     const range = getPairRange(sizes, handle, limits);
     const step = event.shiftKey ? LARGE_KEY_STEP : KEY_STEP;
     // The arrows that move the handle towards the first pane and away from

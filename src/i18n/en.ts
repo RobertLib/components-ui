@@ -36,6 +36,10 @@ export const en: Locale = {
         other: "You can select up to {count} options.",
       },
       noResults: "No results",
+      resultCount: {
+        one: "{count} result",
+        other: "{count} results",
+      },
     },
     avatar: {
       more: { other: "+{count} more" },
@@ -56,11 +60,14 @@ export const en: Locale = {
       allDay: "all day",
       day: "Day",
       dayOf: "Day {day}/{count}",
+      earlier: { other: "+{count} earlier" },
       eventLabel: "{title}, {time}",
       from: "from {time}",
       goToDate: "Go to date",
+      later: { other: "+{count} later" },
       month: "Month",
       more: { other: "+{count} more" },
+      moreLabel: "{more}, {day}",
       next: "Next",
       noEvents: "No events",
       previous: "Previous",
@@ -152,6 +159,10 @@ export const en: Locale = {
           one: "{count} row is selected.",
           other: "All {count} rows are selected.",
         },
+        allExcept: {
+          one: "{count} matching row is selected.",
+          other: "{count} matching rows are selected.",
+        },
         clear: "Clear selection",
         page: {
           one: "{count} row on this page is selected.",
@@ -194,11 +205,14 @@ export const en: Locale = {
     dateTimePicker: {
       clear: "Clear value",
       hours: "Hours",
+      invalidText: "“{text}” is not a valid value. Use the format {format}.",
       minutes: "Minutes",
       month: "Month",
       nextMonth: "Next month",
       nextYear: "Next year",
       openCalendar: "Open calendar",
+      outOfRangeText: "“{text}” is outside the allowed range.",
+      placeholderTokens: { A: "AM/PM" },
       previousMonth: "Previous month",
       previousYear: "Previous year",
       selectDate: "Select date",
@@ -226,6 +240,10 @@ export const en: Locale = {
       dropHint: "or drag and drop here",
       fileTypeNotAccepted: "Files of this type cannot be uploaded here.",
       maxFileSizeExceeded: "The file exceeds the maximum size of {size} MB.",
+      maxFiles: {
+        one: "You can attach only one file.",
+        other: "You can attach up to {count} files.",
+      },
       remove: "Remove",
       upload: "Upload",
       uploadFailed: "The upload failed.",
@@ -251,6 +269,8 @@ export const en: Locale = {
     numberInput: {
       decrement: "Decrease",
       increment: "Increase",
+      rangeOverflow: "Enter a value of {max} or less.",
+      rangeUnderflow: "Enter a value of {min} or more.",
     },
     pagination: {
       first: "First page",

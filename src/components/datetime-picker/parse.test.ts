@@ -83,6 +83,56 @@ describe("parseDisplayValue", () => {
     expect(parseDisplayValue("W00.2027", "[W]WW.YYYY", "week")).toBeNull();
   });
 
+  it("reads values pasted in ISO 8601 in any locale", () => {
+    const value = (text: string, type: "date" | "datetime-local") =>
+      parseDisplayValue(
+        text,
+        type === "date" ? "DD.MM.YYYY" : "MM/DD/YYYY h:mm A",
+        type,
+      );
+
+    expect(value("2026-09-24", "date")).toBe("2026-09-24");
+    expect(value(" 2026-09-24 ", "date")).toBe("2026-09-24");
+    expect(value("2026-09-24T14:30", "datetime-local")).toBe(
+      "2026-09-24T14:30",
+    );
+    expect(value("2026-09-24 14:30:59.123", "datetime-local")).toBe(
+      "2026-09-24T14:30",
+    );
+    // A date-time into a date field gives its day
+    expect(value("2026-09-24T14:30", "date")).toBe("2026-09-24");
+    // A day the month does not have, or no date-time without its time
+    expect(value("2026-02-31", "date")).toBeNull();
+    expect(value("2026-09-24", "datetime-local")).toBeNull();
+    expect(value("2026-09-24T24:00", "datetime-local")).toBeNull();
+
+    expect(parseDisplayValue("2026-09", "MM.YYYY", "month")).toBe("2026-09");
+    expect(parseDisplayValue("2026-13", "MM.YYYY", "month")).toBeNull();
+    expect(parseDisplayValue("2026-W39", "[W]WW.YYYY", "week")).toBe(
+      "2026-W39",
+    );
+    expect(parseDisplayValue("2027-W53", "[W]WW.YYYY", "week")).toBeNull();
+    expect(parseDisplayValue("14:30:00", "h:mm A", "time")).toBe("14:30");
+  });
+
+  it("reads an ISO date-time with a zone on the local clock", () => {
+    const local = (date: Date) =>
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+
+    for (const [text, moment] of [
+      ["2026-09-24T12:30:00Z", "2026-09-24T12:30:00Z"],
+      ["2026-09-24T12:30:00.000Z", "2026-09-24T12:30:00Z"],
+      ["2026-09-24T12:30+02:00", "2026-09-24T10:30:00Z"],
+      ["2026-09-24T12:30+0200", "2026-09-24T10:30:00Z"],
+      ["2026-09-24T12:30-05", "2026-09-24T17:30:00Z"],
+    ]) {
+      expect(
+        parseDisplayValue(text, "DD.MM.YYYY HH:mm", "datetime-local"),
+        text,
+      ).toBe(local(new Date(moment)));
+    }
+  });
+
   it("refuses texts of another shape", () => {
     expect(parseDisplayValue("tomorrow", "DD.MM.YYYY", "date")).toBeNull();
     expect(parseDisplayValue("", "DD.MM.YYYY", "date")).toBeNull();
@@ -322,6 +372,44 @@ describe("parseDisplayRange", () => {
     expect(parseDisplayRange("9/1 - 9/30/26", "MM/DD/YYYY", today)).toEqual(
       september,
     );
+  });
+
+  it("fills in the years left out over the new year", () => {
+    const today = new Date(2026, 11, 20);
+    const range = (text: string, pattern = "DD.MM.YYYY") =>
+      parseDisplayRange(text, pattern, today);
+    const holidays = { end: "2027-01-03", start: "2026-12-28" };
+
+    // The second day is in the next year - not all of 2026 swapped
+    expect(range("28.12. – 3.1.")).toEqual(holidays);
+    expect(range("28.12.2026 – 3.1.")).toEqual(holidays);
+    expect(range("12/28 - 1/3", "MM/DD/YYYY")).toEqual(holidays);
+    // The first day takes the year of the second
+    expect(range("28.12. – 3.1.2027")).toEqual(holidays);
+    expect(range("1.2. – 3.2.2027")).toEqual({
+      end: "2027-02-03",
+      start: "2027-02-01",
+    });
+    // A reversed pair of one year is still swapped - the shorter range
+    expect(range("30.9. – 1.9.")).toEqual({
+      end: "2026-09-30",
+      start: "2026-09-01",
+    });
+    // February 29 of the year it goes into
+    expect(range("28.12.2027 – 29.2.")).toEqual({
+      end: "2028-02-29",
+      start: "2027-12-28",
+    });
+  });
+
+  it("reads days pasted in ISO 8601", () => {
+    for (const text of [
+      "2026-09-01/2026-09-30",
+      "2026-09-01 – 2026-09-30",
+      "2026-09-01 30.9.2026",
+    ]) {
+      expect(parseDisplayRange(text, "DD.MM.YYYY"), text).toEqual(september);
+    }
   });
 
   it("refuses a text that is no range of real days", () => {

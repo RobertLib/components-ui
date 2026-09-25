@@ -364,16 +364,24 @@ describe("Dropdown typeahead", () => {
     expect(saveAs).not.toHaveBeenCalled();
   });
 
-  it("works from the trigger of a menu opened with the mouse", async () => {
+  it("works in a menu opened with the mouse, and from its trigger", async () => {
     const user = userEvent.setup();
     renderMenu(items);
 
     const trigger = screen.getByRole("button", { name: "Actions" });
     await user.click(trigger);
-    expect(trigger).toHaveFocus();
+    // The menu takes the focus, with nothing highlighted
+    const menu = screen.getByRole("menu");
+    expect(menu).toHaveFocus();
+    expect(menu).not.toHaveAttribute("aria-activedescendant");
     await user.keyboard("p");
-    expect(screen.getByRole("menu")).toHaveFocus();
     expect(activeItem()).toHaveTextContent("Paste");
+
+    // The trigger of the open menu passes the keys on to it
+    act(() => trigger.focus());
+    await user.keyboard("{ArrowUp}");
+    expect(menu).toHaveFocus();
+    expect(activeItem()).toHaveTextContent("Cut");
   });
 });
 

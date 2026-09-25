@@ -12,7 +12,9 @@ export default function AlertPage() {
           <p>
             An alert without children renders nothing, so an error message can
             be placed unconditionally:{" "}
-            <code>{'<Alert type="danger">{error}</Alert>'}</code>.
+            <code>{'<Alert type="danger">{error}</Alert>'}</code>. The{" "}
+            <code>title</code> is a heading of level 3 - set{" "}
+            <code>headingLevel</code> to the level below the headings around.
           </p>
         }
         name="alert/title"

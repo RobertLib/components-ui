@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import sanitizeRichText, {
+  sanitizeEditorContent,
   sanitizeInlineHtml,
   sanitizeRichTextLines,
+  sanitizeRichTextParagraphs,
   type RichTextFormat,
 } from "./sanitize-rich-text";
 
@@ -16,7 +18,7 @@ describe("sanitizeRichText", () => {
           '<a href="javascript:steal()">bad</a> <a href="/ok">ok</a></p>' +
           "<script>steal()</script><img src=x onerror=steal()>",
       ),
-    ).toBe('<p>Hi <b>bold</b> <u>under</u><a>bad</a> <a href="/ok">ok</a></p>');
+    ).toBe('<p>Hi <b>bold</b> <u>under</u>bad <a href="/ok">ok</a></p>');
   });
 
   it("removes SVG and MathML together with their content", () => {
@@ -45,7 +47,7 @@ describe("sanitizeRichText", () => {
     ).toBe("&lt;img src=x onerror=steal()&gt;");
   });
 
-  it("removes links whose scheme is hidden behind entities", () => {
+  it("keeps the text of links whose scheme is hidden behind entities", () => {
     expect(
       sanitizeRichText(
         '<a href="&#106;avascript:steal()">a</a>' +
@@ -55,9 +57,13 @@ describe("sanitizeRichText", () => {
           '<a href="data:text/html,<script>steal()</script>">e</a>' +
           '<a href="mailto:a@example.com">f</a>',
       ),
-    ).toBe(
-      '<a>a</a><a>b</a><a>c</a><a>d</a><a>e</a><a href="mailto:a@example.com">f</a>',
-    );
+    ).toBe('abcde<a href="mailto:a@example.com">f</a>');
+  });
+
+  it("keeps the text of links without an href", () => {
+    expect(
+      sanitizeRichText('<h2><a name="top">Title</a></h2><p><a>Text</a></p>'),
+    ).toBe("<h2>Title</h2><p>Text</p>");
   });
 
   it("strips handlers, styles, ids and names", () => {
@@ -367,7 +373,7 @@ describe("sanitizeRichText of pasted content", () => {
           "<script>steal()</script>Cell</td></tr></table>",
       ),
     ).toBe(
-      "<ul><li>Item<a>bad</a></li></ul>" +
+      "<ul><li>Itembad</li></ul>" +
         "<table><tbody><tr><td>Cell</td></tr></tbody></table>",
     );
   });
@@ -671,6 +677,45 @@ describe("sanitizeRichTextLines", () => {
   });
 });
 
+describe("sanitizeRichTextParagraphs", () => {
+  it("makes the blocks paragraphs, the text around them too", () => {
+    expect(
+      sanitizeRichTextParagraphs(
+        "Intro <b>now</b><h2>Title</h2><ul><li>One</li><li>Two</li></ul>" +
+          "<blockquote><p>Quoted</p></blockquote><table><tr><td>a</td><td>b</td></tr></table>",
+      ),
+    ).toBe(
+      "<p>Intro <b>now</b></p><p>Title</p><p>One</p><p>Two</p><p>Quoted</p><p>a\tb</p>",
+    );
+  });
+});
+
+describe("sanitizeEditorContent", () => {
+  it("leaves out the styles the browser's editing puts into the content", () => {
+    // What Chrome leaves of a heading merged into the paragraph before it
+    expect(
+      sanitizeEditorContent(
+        '<p>para<span style="font-size: 1.3em; font-weight: 600;">Head</span>' +
+          '<span style="font-style: italic; font-family: monospace">!</span></p>',
+        ["bold", "italic", "code"],
+      ),
+    ).toEqual({ hasText: true, html: "<p>paraHead!</p>" });
+    // Pasted content keeps them as marks
+    expect(
+      sanitizeRichText(
+        '<p>para<span style="font-weight: 600;">Head</span></p>',
+      ),
+    ).toBe("<p>para<b>Head</b></p>");
+  });
+
+  it("tells content without text", () => {
+    expect(
+      sanitizeEditorContent("<p><br></p><hr>", ["horizontalRule"]),
+    ).toEqual({ hasText: false, html: "<p><br></p><hr>" });
+    expect(sanitizeEditorContent("", [])).toEqual({ hasText: false, html: "" });
+  });
+});
+
 describe("sanitizeInlineHtml", () => {
   it("keeps inline formatting with classes, without scripts or styles", () => {
     expect(
@@ -709,6 +754,15 @@ describe("sanitizeInlineHtml", () => {
         '<span class="dark:hover:text-danger-300 focus:underline border-2 ' +
         'border-t border-danger-500 border-dashed rounded-md px-2 py-0.5">B</span>',
     );
+  });
+
+  it("keeps the text of links without a safe href", () => {
+    expect(
+      sanitizeInlineHtml(
+        '<a href="javascript:steal()">bad</a> <a name="top">anchor</a> ' +
+          '<a href="https://example.com">ok</a>',
+      ),
+    ).toBe('bad anchor <a href="https://example.com">ok</a>');
   });
 
   it("keeps no is attribute and no blocks", () => {

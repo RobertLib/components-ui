@@ -14,6 +14,7 @@ import {
   getCellStyle,
   isClipped,
   isSticky,
+  LEADING_KEYS,
   type CellLayout,
 } from "./cell-layout";
 import {
@@ -23,6 +24,7 @@ import {
   type CellChange,
   type CellEditState,
 } from "./editing";
+import { getCellMove, type CellMove } from "./cell-navigation";
 import { getColumnValue } from "./query";
 import { getMeasureKey } from "./use-virtual-rows";
 import type { Column, DataTableDensity, RowId } from "./types";
@@ -133,6 +135,10 @@ interface TableRowProps<T extends { id: RowId }> {
   measureRef?: (element: HTMLElement | null) => void | (() => void);
   /** Ends the editing without a change. */
   onCancelEdit: () => void;
+  /** The focus came into an editable cell - it is the tab stop now. */
+  onCellFocus: (rowId: RowId, columnKey: string) => void;
+  /** Moves the focus from an editable cell to another one (arrow keys). */
+  onCellMove: (row: T, column: Column<T>, move: CellMove) => void;
   /** Ends the editing - saves a changed value, see `CellEditor`. */
   onCommitEdit: (
     row: T,
@@ -148,6 +154,11 @@ interface TableRowProps<T extends { id: RowId }> {
   row: T;
   /** Position of the row in the rows of the table. */
   rowIndex: number;
+  /**
+   * The column of the editable cell of the row that is the tab stop of the
+   * editable cells - `null` for none of this row.
+   */
+  tabStopColumnKey: string | null;
   /** Expands or collapses the detail row. */
   toggleRowExpansion: (rowId: RowId) => void;
   /** Selects or deselects the row. */
@@ -178,11 +189,14 @@ export function TableRow<T extends { id: RowId }>({
   locale,
   measureRef,
   onCancelEdit,
+  onCellFocus,
+  onCellMove,
   onCommitEdit,
   onStartEdit,
   renderSubRow,
   row,
   rowIndex,
+  tabStopColumnKey,
   toggleRowExpansion,
   toggleRowSelection,
 }: TableRowProps<T>) {
@@ -237,10 +251,10 @@ export function TableRow<T extends { id: RowId }>({
             )}
             style={{
               ...rowStyle,
-              ...getCellStyle(null, leadingLayout("expand"), false),
+              ...getCellStyle(null, leadingLayout(LEADING_KEYS.expand), false),
             }}
           >
-            <EdgeShadow side={leadingLayout("expand").shadow} />
+            <EdgeShadow side={leadingLayout(LEADING_KEYS.expand).shadow} />
             <IconButton
               aria-expanded={isExpanded}
               aria-label={expandLabel}
@@ -267,10 +281,14 @@ export function TableRow<T extends { id: RowId }>({
             )}
             style={{
               ...rowStyle,
-              ...getCellStyle(null, leadingLayout("selection"), false),
+              ...getCellStyle(
+                null,
+                leadingLayout(LEADING_KEYS.selection),
+                false,
+              ),
             }}
           >
-            <EdgeShadow side={leadingLayout("selection").shadow} />
+            <EdgeShadow side={leadingLayout(LEADING_KEYS.selection).shadow} />
             <input
               aria-label={messages.dataTable.selectRow}
               aria-labelledby={labelledBy(selectId)}
@@ -289,14 +307,14 @@ export function TableRow<T extends { id: RowId }>({
               densityClass,
               stickyBackground,
             )}
-            data-column-key="actions"
+            data-leading-column="actions"
             style={{
               ...rowStyle,
-              ...getCellStyle(null, leadingLayout("actions"), false),
+              ...getCellStyle(null, leadingLayout(LEADING_KEYS.actions), false),
             }}
           >
             <div className="absolute top-0 -right-px h-full border-r border-neutral-200 shadow dark:border-neutral-800" />
-            <EdgeShadow side={leadingLayout("actions").shadow} />
+            <EdgeShadow side={leadingLayout(LEADING_KEYS.actions).shadow} />
             {actions(row)}
           </td>
         )}
@@ -430,6 +448,8 @@ export function TableRow<T extends { id: RowId }>({
                 isEditableCell &&
                   "cursor-default focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-400",
               )}
+              // The arrow keys find the cell of a column by it
+              data-column-key={column.key}
               id={cellId}
               key={column.key}
               onClick={
@@ -454,6 +474,8 @@ export function TableRow<T extends { id: RowId }>({
               onFocus={
                 isEditableCell
                   ? (event) => {
+                      // Also the field of the cell - the tab stop stays here
+                      onCellFocus(row.id, column.key);
                       if (event.target === event.currentTarget) {
                         revealCell(event.currentTarget, sticky);
                       }
@@ -461,13 +483,22 @@ export function TableRow<T extends { id: RowId }>({
                   : undefined
               }
               onKeyDown={
-                canEdit && !isEditing
+                isEditableCell && !isEditing
                   ? (event) => {
                       // Keys of the cell itself, not of a link in it
                       if (event.target !== event.currentTarget) return;
-                      if (event.key === "Enter" || event.key === "F2") {
+                      if (
+                        canEdit &&
+                        (event.key === "Enter" || event.key === "F2")
+                      ) {
                         event.preventDefault();
                         onStartEdit(row.id, column.key);
+                        return;
+                      }
+                      const move = getCellMove(event);
+                      if (move) {
+                        event.preventDefault();
+                        onCellMove(row, column, move);
                       }
                     }
                   : undefined
@@ -487,7 +518,15 @@ export function TableRow<T extends { id: RowId }>({
                 ...getCellStyle(column, layout, false),
                 ...(backgroundColor && { backgroundColor }),
               }}
-              tabIndex={isEditableCell ? (isEditing ? -1 : 0) : undefined}
+              // The editable cells are one tab stop - the arrow keys move
+              // between them; a cell being edited has its field instead
+              tabIndex={
+                isEditableCell
+                  ? !isEditing && tabStopColumnKey === column.key
+                    ? 0
+                    : -1
+                  : undefined
+              }
             >
               <EdgeShadow side={layout.shadow} />
               {/* A field being edited keeps its focus ring */}

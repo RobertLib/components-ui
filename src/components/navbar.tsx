@@ -62,7 +62,7 @@ export default function Navbar({
         size="md"
         src={user.avatarUrl}
       />
-      <div className="-my-1 text-left">
+      <div className="-my-1 text-start">
         <div>{user.name}</div>
         {user.description && (
           <div className="text-sm text-primary-600 dark:text-primary-400">
@@ -77,7 +77,7 @@ export default function Navbar({
     // The header is the landmark - the bar holds a toggle, a user menu and
     // the content of the app, not a navigation of its own (the Drawer and
     // the Breadcrumbs in it are named ones)
-    <header className="navbar sticky top-0 z-20 bg-surface dark:bg-surface-dark">
+    <header className="cui-navbar sticky top-0 z-20 bg-surface dark:bg-surface-dark">
       <div
         {...props}
         className={cn(

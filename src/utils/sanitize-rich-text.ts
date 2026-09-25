@@ -277,6 +277,15 @@ const SAFE_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 
+// The node types and tree walker flags by their values - a server with a
+// `DOMParser` of its own (jsdom) has no globals `Node` and `NodeFilter`
+const ELEMENT_NODE = 1;
+const TEXT_NODE = 3;
+const SHOW_ELEMENT = 0x1;
+const SHOW_TEXT = 0x4;
+const FILTER_ACCEPT = 1;
+const FILTER_REJECT = 2;
+
 // A table beyond these limits is too big to edit - one row of cells with
 // `colspan="50"` and many rows under it would make millions of cells. Its
 // spans are left out, and where it is still too big, its rows become lines
@@ -345,6 +354,12 @@ interface CopyState {
   /** The elements of the source that hold blocks, at any depth. */
   holdsBlocks: ReadonlySet<Element>;
   output: Document;
+  /**
+   * Inline styles are read as marks - those of other editors are. Those in
+   * RichTextEditor's own content are the browser's: a heading merged into a
+   * paragraph keeps its size and weight in a `<span style>`, no bold mark.
+   */
+  readsStyles: boolean;
 }
 
 /**
@@ -479,8 +494,17 @@ function readTextStyle(element: Element) {
   };
 }
 
+/** The text styles of an element whose inline styles are not read. */
+const NO_TEXT_STYLE: ReturnType<typeof readTextStyle> = {
+  bold: undefined,
+  code: undefined,
+  italic: undefined,
+  strike: undefined,
+  underline: undefined,
+};
+
 const isElement = (node: Node): node is Element =>
-  node.nodeType === Node.ELEMENT_NODE;
+  node.nodeType === ELEMENT_NODE;
 
 const isOutputBlock = (node: Node) =>
   isElement(node) && OUTPUT_BLOCKS.has(node.tagName);
@@ -503,7 +527,7 @@ function createElement(output: Document, tag: string, children: Node[] = []) {
 
 /** Text of HTML whitespace only - source formatting, nothing that shows. */
 const isBlank = (node: Node) =>
-  node.nodeType === Node.TEXT_NODE && BLANK.test(node.textContent ?? "");
+  node.nodeType === TEXT_NODE && BLANK.test(node.textContent ?? "");
 
 // The content of the paragraphs inside a line - apart from them, until the
 // line element they end up in makes lines of it (`toLines`)
@@ -535,20 +559,16 @@ const contentOf = (node: Node) =>
  * walked, not recursed, as the content is deeper than the copy goes.
  */
 function textOf(node: Node, output: Document) {
-  const walker = output.createTreeWalker(
-    node,
-    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-    {
-      acceptNode: (current) =>
-        isElement(current) && DROPPED_TAGS.has(current.tagName.toUpperCase())
-          ? NodeFilter.FILTER_REJECT
-          : NodeFilter.FILTER_ACCEPT,
-    },
-  );
+  const walker = output.createTreeWalker(node, SHOW_ELEMENT | SHOW_TEXT, {
+    acceptNode: (current) =>
+      isElement(current) && DROPPED_TAGS.has(current.tagName.toUpperCase())
+        ? FILTER_REJECT
+        : FILTER_ACCEPT,
+  });
 
   let text = "";
   for (let current = walker.nextNode(); current; current = walker.nextNode()) {
-    if (current.nodeType === Node.TEXT_NODE) text += current.textContent;
+    if (current.nodeType === TEXT_NODE) text += current.textContent;
   }
   return text;
 }
@@ -563,7 +583,7 @@ function toParagraphs(nodes: Node[], output: Document) {
 
   const flush = () => {
     const hasContent = run.some(
-      (node) => node.nodeType !== Node.TEXT_NODE || node.textContent?.trim(),
+      (node) => node.nodeType !== TEXT_NODE || node.textContent?.trim(),
     );
 
     if (hasContent) blocks.push(createElement(output, "p", run));
@@ -596,7 +616,7 @@ function toLines(nodes: Node[], output: Document, lines: Node[] = []) {
   let breaksLine = false;
 
   for (const node of nodes) {
-    if (node.nodeType === Node.TEXT_NODE && !node.textContent?.trim()) {
+    if (node.nodeType === TEXT_NODE && !node.textContent?.trim()) {
       lines.push(node);
       continue;
     }
@@ -645,7 +665,7 @@ function toItemContent(nodes: Node[], output: Document) {
 /** Whether a run is worth a mark - not whitespace or a lone line break. */
 const hasText = (nodes: Node[]) =>
   nodes.some((node) =>
-    node.nodeType === Node.TEXT_NODE
+    node.nodeType === TEXT_NODE
       ? !!node.textContent?.trim()
       : node.nodeName !== "BR",
   );
@@ -755,18 +775,21 @@ function formattingOf(
 ) {
   const { formats, output } = state;
   const own = MARK_TAGS[tag];
-  const style = readTextStyle(element);
+  const style = state.readsStyles ? readTextStyle(element) : NO_TEXT_STYLE;
   const allows = (mark: Mark) => formats.has(MARK_FORMATS[mark]);
+  const href = own?.mark === "link" ? element.getAttribute("href") : null;
 
   // A `<b>` of normal weight is none - the wrapper of Google Docs. A link
   // in a link (the parser nests them across a table) would split the outer
-  // one when the output is parsed again.
+  // one when the output is parsed again. A link without a safe `href` is
+  // its text - an `<a>` of none would look like a link that leads nowhere.
   const isKept =
     !!own &&
     allows(own.mark) &&
     !formatting[own.mark] &&
     !(own.mark === "bold" && (style.bold === false || boldBlock)) &&
-    !(own.mark === "italic" && style.italic === false);
+    !(own.mark === "italic" && style.italic === false) &&
+    !(own.mark === "link" && (href === null || !isSafeHref(href)));
 
   const inner: Formatting = {
     ...formatting,
@@ -799,10 +822,7 @@ function formattingOf(
       mark: own.mark,
       wrap: (run) => {
         const copy = createElement(output, own.tag, run);
-        const href = element.getAttribute("href");
-        if (own.mark === "link" && href !== null && isSafeHref(href)) {
-          copy.setAttribute("href", href);
-        }
+        if (href !== null) copy.setAttribute("href", href);
         return copy;
       },
     });
@@ -834,7 +854,7 @@ function copyNode(
   formatting: Formatting,
   context: Context,
 ): Node[] {
-  if (node.nodeType === Node.TEXT_NODE) {
+  if (node.nodeType === TEXT_NODE) {
     return copyText(node.textContent ?? "", formatting.pre, state.output);
   }
 
@@ -1023,7 +1043,7 @@ function copyList(
         copy.append(lastItem);
       }
       appendAll(lastItem, nested);
-    } else if (child.nodeType !== Node.TEXT_NODE || child.textContent?.trim()) {
+    } else if (child.nodeType !== TEXT_NODE || child.textContent?.trim()) {
       // Content outside of an item is an item of its own
       const content = copyNode(child, state, formatting, "item");
       if (hasText(content)) {
@@ -1307,20 +1327,25 @@ function toFormatSet(formats: readonly RichTextFormat[] = ALL_FORMATS) {
 const parse = (html: string) =>
   new DOMParser().parseFromString(`<!DOCTYPE html><body>${html}`, "text/html");
 
+/** The sanitized copy of HTML in an element of its own - `null` for none. */
 function sanitizeRich(
   html: string,
   formats: readonly RichTextFormat[] | undefined,
   context: Context,
+  readsStyles: boolean,
 ) {
-  if (!html) return "";
+  if (!html) return null;
 
   const document = parse(html);
-  if (html.includes("mso-list")) convertWordLists(document.body);
+  if (readsStyles && html.includes("mso-list")) {
+    convertWordLists(document.body);
+  }
   const state: CopyState = {
     depth: 0,
     formats: toFormatSet(formats),
     holdsBlocks: findBlockHolders(document.body),
     output: document,
+    readsStyles,
   };
   const content = copyChildren(document.body, state, NO_FORMATTING, context);
 
@@ -1329,9 +1354,11 @@ function sanitizeRich(
     container,
     context === "line"
       ? toLines(content, document)
-      : withoutBlankAroundBlocks(content),
+      : context === "quote"
+        ? toParagraphs(content, document)
+        : withoutBlankAroundBlocks(content),
   );
-  return container.innerHTML;
+  return container;
 }
 
 /**
@@ -1382,16 +1409,18 @@ function withoutBlankAroundBlocks(nodes: Node[]) {
  * `dangerouslySetInnerHTML={{ __html: sanitizeRichText(html) }}` inside an
  * element with the `rich-text` class.
  *
- * Needs `DOMParser` - it runs in the browser, or on a server with a DOM
- * like jsdom, and throws on a server without one (importing it is safe
- * anywhere). A page rendered on the server calls it once it is hydrated -
- * see the docs of RichTextEditor.
+ * Needs `DOMParser` - it runs in the browser, and on a server with a
+ * global `DOMParser` (e.g. jsdom's: `globalThis.DOMParser = new
+ * JSDOM().window.DOMParser`), which is all it takes of a DOM. It throws on
+ * a server without one (importing it is safe anywhere). A page rendered on
+ * the server without it calls it once it is hydrated - see the docs of
+ * RichTextEditor.
  */
 export default function sanitizeRichText(
   html: string,
   { formats }: SanitizeRichTextOptions = {},
 ) {
-  return sanitizeRich(html, formats, "flow");
+  return sanitizeRich(html, formats, "flow", true)?.innerHTML ?? "";
 }
 
 /**
@@ -1402,7 +1431,39 @@ export function sanitizeRichTextLines(
   html: string,
   formats?: readonly RichTextFormat[],
 ) {
-  return sanitizeRich(html, formats, "line");
+  return sanitizeRich(html, formats, "line", true)?.innerHTML ?? "";
+}
+
+/**
+ * `sanitizeRichText` for content that goes into a quote - its blocks
+ * become paragraphs, the only blocks a quote holds.
+ */
+export function sanitizeRichTextParagraphs(
+  html: string,
+  formats?: readonly RichTextFormat[],
+) {
+  return sanitizeRich(html, formats, "quote", true)?.innerHTML ?? "";
+}
+
+/**
+ * `sanitizeRichText` of the content of RichTextEditor - and whether it has
+ * any text. The inline styles of its own content are left out: the
+ * browser's editing puts them there (a heading merged into a paragraph
+ * keeps its size and weight in a `<span style>`), they are no formatting
+ * of the user. Those of a value loaded from outside are read (`readsStyles`)
+ * like those of pasted content.
+ */
+export function sanitizeEditorContent(
+  html: string,
+  formats: readonly RichTextFormat[],
+  readsStyles = false,
+) {
+  const container = sanitizeRich(html, formats, "flow", readsStyles);
+
+  return {
+    hasText: !!container?.textContent?.trim(),
+    html: container?.innerHTML ?? "",
+  };
 }
 
 function copyInlineNode(
@@ -1413,7 +1474,7 @@ function copyInlineNode(
   output: Document,
   depth: number,
 ): Node[] {
-  if (node.nodeType === Node.TEXT_NODE) {
+  if (node.nodeType === TEXT_NODE) {
     return copyText(node.textContent ?? "", pre, output);
   }
 
@@ -1424,11 +1485,13 @@ function copyInlineNode(
   if (depth >= MAX_DEPTH) return copyText(textOf(node, output), pre, output);
 
   // Only HTML elements - an `<a>` inside an SVG is no link. A link in a
-  // link would split the outer one when the output is parsed again.
+  // link would split the outer one when the output is parsed again, and a
+  // link without a safe `href` is its text.
+  const href = tag === "A" ? node.getAttribute("href") : null;
   const isKept =
     node.namespaceURI === HTML_NAMESPACE &&
     rules.tags.has(tag) &&
-    !(tag === "A" && inLink);
+    !(tag === "A" && (inLink || href === null || !isSafeHref(href)));
 
   const content = Array.from(node.childNodes).flatMap((child) =>
     copyInlineNode(
@@ -1482,7 +1545,8 @@ function cleanClasses(element: Element, rules: InlineRules) {
  * the classes of text styling (`text-*`, `font-*`, `bg-*`, `underline`,
  * `rounded`, `border`, small `px-*` / `py-*`, …) - also behind `dark:`,
  * `hover:`, `focus:` or `active:` - nothing that positions or sizes them,
- * nor variants that style other elements. Browser only.
+ * nor variants that style other elements. Links without a safe `href` are
+ * their text. Needs `DOMParser`, like `sanitizeRichText`.
  */
 export function sanitizeInlineHtml(html: string) {
   if (!html) return "";

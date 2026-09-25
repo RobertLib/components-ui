@@ -412,3 +412,93 @@ describe("Day grid where the time zone skips a day (Pacific/Apia)", () => {
     expect(onChange).toHaveBeenLastCalledWith("2011-12-29");
   });
 });
+
+describe("Home and End in the day grid", () => {
+  it("go to the first and the last day of the week of the locale", async () => {
+    // Thursday, September 24, 2026
+    const { user } = await openByKeyboard({
+      defaultValue: "2026-09-24",
+      type: "date",
+    });
+    const day = (date: number, month = "September") =>
+      screen.getByRole("button", { name: `${month} ${date}, 2026` });
+
+    // The week from Sunday in English
+    await press(user, "{Home}");
+    expect(day(20)).toHaveFocus();
+    await press(user, "{End}");
+    expect(day(26)).toHaveFocus();
+    // A week reaching into the next month - still its last day
+    await press(user, "{ArrowDown}{End}");
+    expect(day(3, "October")).toHaveFocus();
+  });
+
+  it("go by the week from Monday in Czech", async () => {
+    const user = userEvent.setup();
+    render(
+      <UIProvider locale={cs}>
+        <DateTimePicker defaultValue="2026-09-24" label="Pick" type="date" />
+      </UIProvider>,
+    );
+    act(() => screen.getByRole("combobox", { name: /Pick/ }).focus());
+    await press(user, "{Enter}");
+
+    await press(user, "{Home}");
+    expect(screen.getByRole("button", { name: "21. září 2026" })).toHaveFocus();
+    await press(user, "{End}");
+    expect(screen.getByRole("button", { name: "27. září 2026" })).toHaveFocus();
+  });
+});
+
+describe("Day grid months", () => {
+  it("announces the months the buttons and selects show", async () => {
+    const user = userEvent.setup();
+    render(
+      <UIProvider locale={cs}>
+        <DateTimePicker defaultValue="2026-01-31" label="Pick" type="date" />
+      </UIProvider>,
+    );
+    await user.click(screen.getByRole("combobox", { name: /Pick/ }));
+
+    const dialog = screen.getByRole("dialog");
+    const live = dialog.querySelector("[aria-live='polite']");
+    // Nothing said on opening - the dialog is named
+    expect(live).toHaveTextContent(/^$/);
+
+    await user.click(screen.getByRole("button", { name: "Následující měsíc" }));
+    expect(live).toHaveTextContent("Únor 2026");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Rok" }),
+      "1990",
+    );
+    expect(live).toHaveTextContent("Únor 1990");
+  });
+
+  it("offers at most a century of years on either side of the shown one", async () => {
+    const user = userEvent.setup();
+    render(
+      <DateTimePicker
+        defaultValue="2026-09-24"
+        label="Pick"
+        max="9999-12-31"
+        min="0001-01-01"
+        type="date"
+      />,
+    );
+    await user.click(screen.getByRole("combobox", { name: /Pick/ }));
+
+    const years = () =>
+      within(screen.getByRole("combobox", { name: "Year" }))
+        .getAllByRole("option")
+        .map((option) => Number(option.textContent));
+    expect(years()).toHaveLength(201);
+    expect([years()[0], years().at(-1)]).toEqual([1926, 2126]);
+
+    // Another year moves the window along
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Year" }),
+      "1926",
+    );
+    expect([years()[0], years().at(-1)]).toEqual([1826, 2026]);
+  });
+});

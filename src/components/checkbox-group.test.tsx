@@ -320,6 +320,35 @@ describe("CheckboxGroup", () => {
     );
   });
 
+  it("counts only the values of its options for required, min and max", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Settings">
+        <CheckboxGroup
+          // A channel that is gone - the form would submit nothing for it
+          defaultValue={["fax"]}
+          label="Channels"
+          max={1}
+          name="channels"
+          options={channels}
+          required
+        />
+      </form>,
+    );
+
+    expect(getForm().checkValidity()).toBe(false);
+    expect(checkbox("Email").validationMessage).toBe(
+      "Select at least one option.",
+    );
+    // The value no option has does not use up max
+    expect(checkbox("SMS")).toBeEnabled();
+
+    await user.click(checkbox("SMS"));
+    expect(getForm().checkValidity()).toBe(true);
+    expect(checkbox("Email")).toBeDisabled();
+    expect(new FormData(getForm()).getAll("channels")).toEqual(["sms"]);
+  });
+
   it("neither submits nor validates a disabled group", () => {
     render(
       <form aria-label="Settings">

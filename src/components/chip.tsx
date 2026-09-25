@@ -124,9 +124,9 @@ const sizeClasses: Record<ChipSize, string> = {
 
 // The remove button brings a padding of its own - less room on its side
 const removableSizeClasses: Record<ChipSize, string> = {
-  sm: "py-px pr-0.5 pl-1.5 text-xs",
-  md: "py-0.5 pr-1 pl-2 text-sm",
-  lg: "py-1 pr-1.5 pl-3 text-base",
+  sm: "py-px ps-1.5 pe-0.5 text-xs",
+  md: "py-0.5 ps-2 pe-1 text-sm",
+  lg: "py-1 ps-3 pe-1.5 text-base",
 };
 
 const gapClasses: Record<ChipSize, string> = {

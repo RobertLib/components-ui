@@ -78,6 +78,29 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   );
 }`;
 
+const tailwindNeutral = `@theme {
+  /* Tailwind's own neutral grays back - for your classes and the components */
+  --color-neutral-50: oklch(98.5% 0 0);
+  --color-neutral-100: oklch(97% 0 0);
+  --color-neutral-200: oklch(92.2% 0 0);
+  --color-neutral-300: oklch(87% 0 0);
+  --color-neutral-400: oklch(70.8% 0 0);
+  --color-neutral-500: oklch(55.6% 0 0);
+  --color-neutral-600: oklch(43.9% 0 0);
+  --color-neutral-700: oklch(37.1% 0 0);
+  --color-neutral-800: oklch(26.9% 0 0);
+  --color-neutral-900: oklch(20.5% 0 0);
+  --color-neutral-950: oklch(14.5% 0 0);
+}`;
+
+const reducedMotion = `/* Keep your own spinner turning at its speed for users who prefer
+   reduced motion - after the import of the library's stylesheet */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --animate-spin: spin 1s linear infinite;
+  }
+}`;
+
 const helpers = `<a className="btn" href="/signup">Sign up</a>   /* a link styled as the primary button */
 <div className="btn-group">…</div>              /* joins adjacent buttons / fields - ButtonGroup in React */
 <div className="rich-text" />                   /* renders the HTML of RichTextEditor */
@@ -102,6 +125,17 @@ export default function Theming() {
           </p>
         </Prose>
         <Example collapsed name="theming/tokens" title="The default palette" />
+        <Callout>
+          <p>
+            <code>neutral</code> of the library is the cool gray of Tailwind's{" "}
+            <code>gray</code> scale. It takes the place of Tailwind's own{" "}
+            <code>neutral</code> - also in your classes (
+            <code>text-neutral-500</code>). For Tailwind's pure neutral grays
+            everywhere, the components included, set the tokens back to its
+            values:
+          </p>
+        </Callout>
+        <CodeBlock className="mt-4" code={tailwindNeutral} />
       </Section>
 
       <Section title="Your brand colors">
@@ -217,11 +251,38 @@ export default function Theming() {
         </Prose>
       </Section>
 
+      <Section title="Reduced motion">
+        <Prose>
+          <p>
+            For users who ask their system for less motion the stylesheet
+            changes animation tokens on <code>:root</code>: the pulse of the
+            placeholders stops (<code>--animate-pulse</code>), spinners turn
+            slower (<code>--animate-spin</code>) and sliding in becomes a fade (
+            <code>--animate-slide-down</code>, <code>--animate-slide-up</code>
+            ). They are Tailwind's tokens, so your own{" "}
+            <code>animate-pulse</code> and <code>animate-spin</code> follow as
+            well - which is what those users asked for. To keep one of them, set
+            it again after the import:
+          </p>
+        </Prose>
+        <CodeBlock code={reducedMotion} />
+      </Section>
+
       <Section title="Helper classes">
         <Prose>
           <p>The stylesheet also defines a few classes for your own markup:</p>
         </Prose>
         <CodeBlock code={helpers} plain />
+        <Callout>
+          <p>
+            These four are global class names, and some other libraries have
+            classes of the same names - DaisyUI and Bootstrap <code>btn</code>,
+            Bootstrap <code>btn-group</code> and <code>form-control</code>. With
+            both stylesheets on a page an element gets the rules of both. The
+            classes the components use only for themselves are prefixed (
+            <code>cui-…</code>) and meet no class of the page.
+          </p>
+        </Callout>
       </Section>
 
       <Section title="Adjusting a single component">
@@ -230,8 +291,13 @@ export default function Theming() {
             Every component that renders an element of its own accepts{" "}
             <code>className</code>, merged after its own classes - only the
             providers and <code>ErrorBoundary</code>, which wrap your content,
-            take none. Where a conflicting utility does not win by the cascade,
-            use Tailwind's important modifier (<code>bg-red-500!</code>).
+            take none. A utility of yours replaces the component's own one of
+            the same property: <code>{'<Panel className="p-0">'}</code> drops
+            its padding, <code>{'<Button className="rounded-full">'}</code> its
+            corners. Classes <code>cn</code> does not recognize - your own, a
+            plugin's, a custom theme value like <code>p-header</code> - are
+            added without replacing anything; where such a class should win, use
+            Tailwind's important modifier (<code>p-header!</code>).
           </p>
         </Prose>
       </Section>

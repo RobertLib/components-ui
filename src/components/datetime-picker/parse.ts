@@ -8,6 +8,7 @@ import {
   parseISODate,
   parsePattern,
   toISODate,
+  toISOTime,
   type DayPeriods,
 } from "../../utils/date";
 import type { DateTimePickerType } from ".";
@@ -143,9 +144,80 @@ export function snapDateTime(
 const isTime = (hours: number, minutes: number) =>
   hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
 
+// ISO 8601 as other apps write it: `2026-09-24`, `2026-09-24T14:30` (also
+// with a space, seconds and a zone), `2026-09`, `2026-W39`, `14:30:00`
+const ISO_DATE_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?)?$/i;
+const ISO_MONTH = /^(\d{4})-(\d{2})$/;
+const ISO_WEEK = /^(\d{4})-?W(\d{2})$/i;
+const ISO_TIME = /^(\d{2}):(\d{2})(?::\d{2}(?:[.,]\d+)?)?$/;
+
+/** A zone of an ISO date-time as `Date` reads it - `Z`, `+02:00`. */
+const isoZone = (zone: string) =>
+  zone.toUpperCase() === "Z"
+    ? "Z"
+    : `${zone.slice(0, 3)}:${zone.slice(3).replace(":", "") || "00"}`;
+
+/**
+ * The value of a text in ISO 8601 - pasted from another app or a database -
+ * `undefined` for a text in another format, `null` for one of no real date
+ * or time (`2026-02-31`). A date-time with a zone (`…Z`, `…+02:00`) is
+ * taken on the local clock, the one the value is in; a date-time pasted
+ * into a date field gives its day. A date alone is no date-time.
+ */
+function parseISOText(
+  text: string,
+  type: DateTimePickerType,
+): string | null | undefined {
+  if (type === "time") {
+    const time = ISO_TIME.exec(text);
+    if (!time) return undefined;
+    return isTime(Number(time[1]), Number(time[2]))
+      ? `${time[1]}:${time[2]}`
+      : null;
+  }
+
+  if (type === "month") {
+    const month = ISO_MONTH.exec(text);
+    if (!month) return undefined;
+    return Number(month[2]) >= 1 && Number(month[2]) <= 12 ? text : null;
+  }
+
+  if (type === "week") {
+    const week = ISO_WEEK.exec(text);
+    if (!week) return undefined;
+    const number = Number(week[2]);
+    return number >= 1 && number <= getISOWeeksInYear(Number(week[1]))
+      ? `${week[1]}-W${week[2]}`
+      : null;
+  }
+
+  const match = ISO_DATE_TIME.exec(text);
+  if (!match) return undefined;
+
+  const [, year, month, day, hours, minutes, seconds = "00", zone] = match;
+  if (!isValidDay(Number(year), Number(month), Number(day))) return null;
+  if (hours === undefined) {
+    return type === "date" ? `${year}-${month}-${day}` : null;
+  }
+  if (!isTime(Number(hours), Number(minutes))) return null;
+
+  let local = `${year}-${month}-${day}T${hours}:${minutes}`;
+  if (zone) {
+    const date = new Date(
+      `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${isoZone(zone)}`,
+    );
+    if (Number.isNaN(date.getTime())) return null;
+    local = `${toISODate(date)}T${toISOTime(date)}`;
+  }
+
+  return type === "date" ? local.slice(0, 10) : local;
+}
+
 /**
  * The value - in the format of the native input - of a text typed in the
- * display `pattern` of the locale, e.g. `2026-09-24` for `24.9.2026`.
+ * display `pattern` of the locale, e.g. `2026-09-24` for `24.9.2026`, or in
+ * ISO 8601 (`2026-09-24`, `2026-09-24T14:30`, see `parseISOText`).
  * `dayPeriods` are the AM / PM of the locale. A year left out is the one of
  * `today` (of its ISO week for a week), two digits one of the 80 years
  * before it and the 19 after it: `24.9.` and `24.9.26` are `2026-09-24` in
@@ -159,6 +231,9 @@ export function parseDisplayValue(
   dayPeriods?: DayPeriods,
   today = new Date(),
 ): string | null {
+  const iso = parseISOText(text.trim(), type);
+  if (iso !== undefined) return iso;
+
   const parts = parsePattern(text, pattern, dayPeriods, today.getFullYear());
   if (!parts) return null;
 
@@ -193,15 +268,90 @@ export function parseDisplayValue(
   }
 }
 
+/** A day of a typed range - `year` is `undefined` when it was left out. */
+interface TypedDay {
+  day: number;
+  month: number;
+  year?: number;
+}
+
+/** A day typed in the date `pattern` or in ISO 8601 - `null` for no day. */
+function readDay(text: string, pattern: string, today: Date): TypedDay | null {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (iso) {
+    return { day: Number(iso[3]), month: Number(iso[2]), year: Number(iso[1]) };
+  }
+
+  const parts = parsePattern(text, pattern, undefined, today.getFullYear());
+  return parts?.day !== undefined && parts.month !== undefined
+    ? { day: parts.day, month: parts.month, year: parts.year }
+    : null;
+}
+
+/** Days since 1970 of a typed day in `year` - `null` for no real day. */
+function dayNumber(year: number, { day, month }: TypedDay) {
+  if (!isValidDay(year, month, day)) return null;
+  // In UTC, whose days are all as long - also the years 0 - 99
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date.getTime() / 86_400_000;
+}
+
+const toISODay = (year: number, { day, month }: TypedDay) =>
+  `${padYear(year)}-${pad2(month)}-${pad2(day)}`;
+
+/**
+ * The two days of a typed range in order, with the years left out filled
+ * in: from the other day, or from `today` when both are left out. A pair
+ * in reverse order then either goes over the new year or is swapped -
+ * whichever makes the shorter range: `28.12. – 3.1.` ends in the next year,
+ * `1.2. – 3.2.2027` starts in 2027, `30.9. – 1.9.` is September.
+ */
+function orderTypedDays(first: TypedDay, second: TypedDay, today: Date) {
+  const firstYear = first.year ?? second.year ?? today.getFullYear();
+  const candidates: [number, number][] = [
+    [firstYear, second.year ?? firstYear],
+  ];
+  if (first.year === undefined && second.year !== undefined) {
+    candidates.push([second.year - 1, second.year]);
+  } else if (second.year === undefined) {
+    candidates.push([firstYear, firstYear + 1]);
+  }
+
+  let best: { end: string; length: number; start: string } | null = null;
+  for (const [startYear, endYear] of candidates) {
+    const start = dayNumber(startYear, first);
+    const end = dayNumber(endYear, second);
+    if (start === null || end === null) continue;
+
+    const range =
+      start <= end
+        ? {
+            end: toISODay(endYear, second),
+            length: end - start,
+            start: toISODay(startYear, first),
+          }
+        : {
+            end: toISODay(startYear, first),
+            length: start - end,
+            start: toISODay(endYear, second),
+          };
+    if (!best || range.length < best.length) best = range;
+  }
+
+  return best && { end: best.end, start: best.start };
+}
+
 /**
  * The first and the last day - `YYYY-MM-DD`, in order - of a range typed in
  * the date `pattern` of the locale: `24.9.2026 – 30.9.2026`, with anything
  * that is no digit between the two days (a dash, `-`, `~`, `..`, a word or
  * just a space), or as digits only (`2409202630092026`). The days are read
- * as forgivingly as by `parseDisplayValue` - also with the year left out or
- * of two digits (`24.9. – 30.9.`, the year of `today`); a reversed pair is
- * swapped, and one day alone (`24.9.2026 –`) is a range of that day. `null`
- * when the text is no range of real days.
+ * as forgivingly as by `parseDisplayValue` - also in ISO 8601, with the year
+ * left out or of two digits (`24.9. – 30.9.`, see `orderTypedDays` for the
+ * years left out); a reversed pair is swapped, and one day alone
+ * (`24.9.2026 –`) is a range of that day. `null` when the text is no range
+ * of real days.
  */
 export function parseDisplayRange(
   text: string,
@@ -211,20 +361,27 @@ export function parseDisplayRange(
   // A dash typed after the first day without the second one is left out
   // - digits start and end the days of a date pattern
   const typed = text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
-  const parseDay = (part: string) =>
-    parseDisplayValue(part, pattern, "date", undefined, today);
 
-  const single = parseDay(typed);
+  const single = parseDisplayValue(typed, pattern, "date", undefined, today);
   if (single) return { end: single, start: single };
 
   // The first place the text splits at into two days - what stands between
   // them left out. Short texts, so trying every place costs nothing.
   for (let index = 1; index < typed.length; index++) {
-    const start = parseDay(typed.slice(0, index).replace(/\D+$/, ""));
-    if (!start) continue;
+    const first = readDay(
+      typed.slice(0, index).replace(/\D+$/, ""),
+      pattern,
+      today,
+    );
+    if (!first) continue;
 
-    const end = parseDay(typed.slice(index).replace(/^\D+/, ""));
-    if (end) return start <= end ? { end, start } : { end: start, start: end };
+    const second = readDay(
+      typed.slice(index).replace(/^\D+/, ""),
+      pattern,
+      today,
+    );
+    const range = second && orderTypedDays(first, second, today);
+    if (range) return range;
   }
 
   return null;

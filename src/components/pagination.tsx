@@ -5,7 +5,7 @@ import {
   ChevronsRight,
 } from "lucide-react";
 import Button from "./button";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatMessage, formatNumber } from "../i18n/format";
 import { useLocale } from "../providers/ui-context";
 
@@ -45,7 +45,9 @@ export interface PaginationProps extends Omit<
   /**
    * The requested page is loading - the buttons do nothing meanwhile (they
    * stay focusable). In cursor mode they also wait after a move until a new
-   * `pageInfo` arrives, since the old cursors would page from the old page.
+   * `pageInfo` arrives or the load ends (e.g. with an error), since the old
+   * cursors would page from the old page. Pass it there: without it a move
+   * whose load fails waits for a new `pageInfo` only 10 seconds.
    */
   loading?: boolean;
   /**
@@ -63,6 +65,15 @@ export interface PaginationProps extends Omit<
 }
 
 /**
+ * How long a move of a cursor connection waits for the page info of the
+ * requested page at most, when no `loading` state tells when its load ends.
+ */
+const MOVE_TIMEOUT = 10_000;
+
+// Previous points to the start - to the right in a right-to-left page
+const CHEVRON_CLASS = "rtl:-scale-x-100";
+
+/**
  * First / previous / next (/ last) buttons with the shown range. Works with
  * cursor pagination (GraphQL connections) and offset pagination (REST). A
  * button that becomes unavailable while it has the focus (Last page, Next
@@ -71,7 +82,7 @@ export interface PaginationProps extends Omit<
  */
 export default function Pagination({
   currentPage = 1,
-  loading = false,
+  loading: loadingProp,
   onChange,
   pageInfo,
   pageSize = 20,
@@ -82,6 +93,9 @@ export default function Pagination({
   const { messages } = locale;
 
   const isCursorMode = pageInfo !== undefined;
+  const loading = loadingProp ?? false;
+  // A parent that tells when a load ends also tells when it failed
+  const reportsLoading = loadingProp !== undefined;
 
   // The cursors a move started from - until `pageInfo` brings others (or a
   // load ends, e.g. with an error) they would repeat the same move
@@ -96,6 +110,15 @@ export default function Pagination({
     if (!loading) setMovedFrom(null);
   }
   if (movedFrom !== null && movedFrom !== cursorKey) setMovedFrom(null);
+
+  // Without a `loading` state nothing tells a failed load - the page info
+  // stays as it was. The move waits for a while, not for good.
+  useEffect(() => {
+    if (movedFrom === null || reportsLoading) return;
+
+    const timer = setTimeout(() => setMovedFrom(null), MOVE_TIMEOUT);
+    return () => clearTimeout(timer);
+  }, [movedFrom, reportsLoading]);
 
   const isBusy = loading || (movedFrom !== null && movedFrom === cursorKey);
 
@@ -168,7 +191,7 @@ export default function Pagination({
     <nav aria-label={messages.pagination.label} {...props}>
       <ul className="flex items-center gap-1.5">
         {range && (
-          <li className="mr-1.25 flex items-center text-sm">
+          <li className="me-1.25 flex items-center text-sm">
             <span aria-live="polite">{range}</span>
           </li>
         )}
@@ -180,7 +203,7 @@ export default function Pagination({
             {...buttonProps("first")}
             size="sm"
           >
-            <ChevronsLeft size={18} />
+            <ChevronsLeft className={CHEVRON_CLASS} size={18} />
           </Button>
         </li>
         <li className="flex items-center">
@@ -191,7 +214,7 @@ export default function Pagination({
             {...buttonProps("prev")}
             size="sm"
           >
-            <ChevronLeft size={18} />
+            <ChevronLeft className={CHEVRON_CLASS} size={18} />
           </Button>
         </li>
         <li className="flex items-center">
@@ -202,7 +225,7 @@ export default function Pagination({
             {...buttonProps("next")}
             size="sm"
           >
-            <ChevronRight size={18} />
+            <ChevronRight className={CHEVRON_CLASS} size={18} />
           </Button>
         </li>
         {/* A cursor connection cannot jump to its end */}
@@ -215,7 +238,7 @@ export default function Pagination({
               {...buttonProps("last")}
               size="sm"
             >
-              <ChevronsRight size={18} />
+              <ChevronsRight className={CHEVRON_CLASS} size={18} />
             </Button>
           </li>
         )}

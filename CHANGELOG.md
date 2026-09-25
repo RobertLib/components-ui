@@ -1,5 +1,238 @@
 # Changelog
 
+## 0.2.1
+
+A second review of the whole library, area by area - what it found is fixed
+and covered by tests, and checked in a browser. `cn` now merges conflicting
+Tailwind classes, so the `className` of a component overrides its own
+classes.
+
+### Upgrading
+
+- **Tailwind CSS 4.1** or newer - the peer dependency is `^4.1.0`. The
+  stylesheet uses `@source not` and the components `pointer-coarse:` and
+  `wrap-anywhere`; Tailwind 4.0 failed to build the stylesheet.
+- **cn** merges conflicting Tailwind classes: of two classes that set the
+  same property under the same variants, the later one stays -
+  `cn("p-6", "p-0")` is `"p-0"`. A `className` now replaces the component's
+  own class of the same property (`<Panel className="p-0">`,
+  `<Button className="rounded-full">`), where the order of the stylesheet
+  decided before. Classes it does not recognize - your own, a plugin's, a
+  custom theme value - are kept as they are. For lists that are not classes
+  (the ids of `aria-describedby`, `rel` values) use the new `joinTokens`.
+  The room a field keeps for its icons (the arrow of `Select`, the buttons
+  of the pickers) and the floating label of `Input` stay with any padding of
+  `className`.
+- The internal CSS classes have a prefix: `.drawer`, `.drawer-open`,
+  `.drawer-closed`, `.drawer-collapsed`, `.navbar` and `.link` are
+  `.cui-drawer`, `.cui-drawer-open`, `.cui-drawer-closed`,
+  `.cui-drawer-collapsed`, `.cui-navbar` and `.cui-link`; the unused
+  `.icon-btn` is gone. Styles for `aside.drawer` or `.navbar nav` use
+  `.cui-drawer` / `.cui-navbar`. The documented helpers `btn`, `btn-group`,
+  `form-control` and `rich-text` keep their names.
+- **Button** and **IconButton** with `loading` keep the focus: they are
+  `aria-disabled` and `aria-busy`, no longer `disabled`, and still run no
+  `onClick`, submit no form and pass no click on to an `onClick` around them.
+  Tests expecting `toBeDisabled()` on a loading button (also the main button
+  of `SplitButton`, the group actions of `DataTable`, the confirm button of
+  `ConfirmDialog`) check `aria-disabled`.
+- The page behind a modal - `Dialog`, `Sheet`, the drawer slid in on phones,
+  the full screen of `DataTable`, `useOverlay({ modal: true })` - is
+  `aria-hidden` while it is open, except the toasts and the overlays opened
+  from it. Tests that find elements behind an open modal by role need
+  `{ hidden: true }`.
+- **DataTable** - the built-in expand, selection and actions cells are
+  marked `data-leading-column`, no longer `data-column-key` (data columns
+  have `data-column-key`, now also in the body). The editable cells are one
+  Tab stop; the arrow keys move between them.
+- **Calendar** renders its events after hydration: a server-rendered page
+  has the frame, header and grid, the events follow in the browser in its
+  time zone (no hydration error when the server's zone differs).
+- A complete custom locale needs the new texts `autocomplete.resultCount`,
+  `calendar.earlier`, `calendar.later`, `dataTable.selection.allExcept` and
+  `fileUpload.maxFiles` (plural forms), `calendar.moreLabel`,
+  `dateTimePicker.invalidText`, `dateTimePicker.outOfRangeText`,
+  `dateTimePicker.placeholderTokens`, `numberInput.rangeOverflow` and
+  `numberInput.rangeUnderflow` (locales made with `createLocale` get them
+  from their base locale).
+- `getFieldError` matches a GraphQL user-error path to the field of the same
+  path, also below one argument (`["input", "address", "street"]` is
+  `address.street`). The old fallback - the last segment of any path
+  matching a field of that name - is gone, so a nested error no longer goes
+  to a top-level field of the same name. `items[0].name` and `items.0.name`
+  are the same field, and `userIDs` matches `user_ids`.
+- `sanitizeRichText`, `sanitizeInlineHtml` and the `htmlTitle` of Calendar
+  events turn a link without a safe `href` into its text instead of an `<a>`
+  without `href`.
+- **NumberInput** is invalid, like a native number input, while its value
+  is outside `min` - `max` (a submit is blocked; blur and Enter clamp it);
+  its default `step` is 0.01 for `style: "percent"`. `stepValue` never steps
+  backwards - a value past a bound stays on a step towards it.
+- An async **Autocomplete** loads its list again on every opening, showing
+  the previous options until the new ones arrive; `loadOptions` gets the
+  search without spaces around it.
+- Home and End in the day grids of `DateTimePicker` and `DateRangePicker` go
+  to the first and last day of the week, like in `Calendar`.
+- **Accordion** headers are headings (`role="heading"`, level 3 - see
+  `headingLevel`); a header that is a heading element is left as it is.
+- A **Dropdown** opened by a click moves the focus into its menu.
+
+### New features
+
+- `joinTokens`, and the exports `findActiveLink`, `useIsHydrated`,
+  `useIsApplePlatform`, `toAriaKeyShortcuts` and the type
+  `DatePatternToken`.
+- React Hook Form `register()` works with `Input`, `Textarea`, `Select` and
+  a `native` `DateTimePicker`: they keep a value a script writes into them
+  (default values, `setValue()`, `reset(values)`), and the clear button,
+  the character count and the floating label follow it.
+- `FileUpload` `maxFiles`.
+- `headingLevel` on `Accordion` (default 3), `Header` (default 1) and the
+  title of `Alert` (default 3).
+- **DataTable** - the arrow keys, Home / End and Ctrl + Home / End move
+  between the editable cells. Unchecking rows after "select all N matching"
+  keeps all the other matching rows selected: group actions get the
+  unchecked ones as `excludedRows`, and `FilteredSelectionConfig` has
+  `allExceptSelectionLabel`.
+- **Calendar** - events wholly outside `dayStartHour` - `dayEndHour` are
+  offered as "+N earlier" / "+N later" in the week and day views; the month
+  view is a grid (`role="grid"`, or a table without `onDateClick`) with Page
+  Up / Page Down (Shift: a year); the week view marks today.
+- The pickers read ISO 8601 dates and times too (pasted `2026-09-24`), show
+  placeholders in the words of the locale (`DD.MM.RRRR` in Czech -
+  `dateTimePicker.placeholderTokens`), say why a typed text gives no value,
+  and keep the time when a date alone is typed into a date-time field.
+- **Autocomplete** announces the number of results once typing pauses, and
+  development builds warn when `loadOptions` returns a shape the list cannot
+  read. With `asSelect`, a space typed during type-ahead continues it,
+  type-ahead on a closed select starts after the selection, ArrowUp, Home
+  and End open the list and Tab takes the highlighted option.
+- Menus, submenus and `ContextMenu` follow right-to-left direction (arrow
+  keys, the side of submenus, the chevron); the panel of a `Popover` takes
+  the direction of its trigger. ButtonGroup, Breadcrumbs, Pagination,
+  vertical Stepper, Timeline, Avatar, AvatarGroup and Chip use logical
+  sides.
+- Tab reaches the content of an open hover `Popover`, from the last control
+  of its trigger.
+
+### Fixed
+
+- **DataTable**:
+  - a `NaN` or an invalid `Date` in a column left every row out of order in
+    client-side sorting - such values sort last,
+  - columns keyed `actions`, `selection` or `expand` covered the built-in
+    columns and mixed up their widths,
+  - "Clear filters" pressed while a text filter was still being typed
+    brought the filter back after the typing delay,
+  - Escape in a text filter also left the full screen or closed a
+    surrounding dialog - it empties the field,
+  - the selection count and the "select all matching" bar were often not
+    announced on the first selection,
+  - summary `min` / `max` ignored dates sent as ISO texts,
+  - moving a column from the keyboard threw for keys with quotes or
+    backslashes,
+  - the search and its highlight matched Greek words with a final sigma, and
+    Korean or kana written decomposed, only in one form,
+  - `readQueryFromSearch` read `page=2abc`, took page numbers beyond safe
+    integers, and made filters "null" / "[object Object]" of values that
+    were no texts.
+- **Forms**:
+  - `NumberInput` steps large values in small steps (1 000 000,19 by 0.01),
+    never steps down on a step up (a `max` off the step grid, a value past a
+    bound), and a stepper button at a bound no longer steps,
+  - `NumberInput` reads accounting negatives "($1.00)", "0,234" as 0.234 and
+    native digits (Arabic, Persian, …), refuses numbers too long for a
+    double instead of making them 0, and a fast mouse wheel steps once per
+    event,
+  - `CheckboxGroup` counts only the values of its options for `required`,
+    `min` and `max`,
+  - `Slider` thumbs closer than `minDistance` no longer jump; it submits
+    "0.0000001" instead of "1e-7" and shows fine steps whole,
+  - inside a disabled `<fieldset>`, Input, Textarea, Select, NumberInput,
+    PinInput, RadioGroup, CheckboxGroup and SegmentedControl look disabled.
+- **Autocomplete** and **TagsInput** - a pointer resting on the list no
+  longer takes the highlight while the arrow keys scroll it. Autocomplete: a
+  load error no longer stays next to a list that later loaded fine, the
+  search ignores spaces around the term, and the list no longer opens when
+  the window gets the focus back. `CommandPalette` matches Greek capitals to
+  a search in lower case. `removeDiacritics` returns Korean syllables and
+  voiced kana whole.
+- **Overlays**:
+  - a `Popover` stays open, with its content, under a dialog opened from it -
+    also the question of `useConfirm()` - and the focus returns into it,
+  - the focus trap no longer jumps to the first or last control from a
+    `<summary>`, a frame, media controls, an editable region or an element
+    focused by a script,
+  - Safari: a click on the button trigger of an open Popover or Dropdown
+    with the focus in its panel closed and reopened it,
+  - a `Sheet` reopened while it slides out gives the focus back to the
+    button it was reopened from; when the element that opened a dialog is
+    gone (a deleted row), the focus goes to the next Tab stop, else the one
+    before, instead of the page,
+  - tooltips stay in the viewport; Tab past a Popover or Dropdown that is
+    the last control of a modal goes round to its first control; the scroll
+    lock also works when the root of the page scrolls
+    (`html { overflow-y: scroll }`); `Dialog` is at most `90dvh` high,
+  - toasts enqueued while a server-rendered page hydrates, and standalone
+    toasts, are announced.
+- **Calendar**:
+  - a recurrence `until` at a UTC midnight that is the clock time of the
+    event (19:00 in New York) added the next day's occurrence,
+  - an occurrence moved to the end of a DST gap had no length,
+  - events outside the shown hours disappeared from the week and day views
+    (see New features).
+- **Pickers** - a range typed without years across New Year
+  ("28.12. – 3.1.") is read correctly; the year select stays short with
+  far-apart `min` / `max`; month changes are announced.
+- **RichTextEditor**:
+  - merging a heading into a paragraph made its text bold,
+  - select all and paste over content starting with a list or a quote lost
+    the pasted headings and tables; blocks pasted into a list item or a
+    quote become what it holds at once, so the editor shows what it submits,
+  - a phrase pasted into an empty heading turned it into a paragraph, and
+    lines of plain text replacing a heading as a whole kept its kind,
+  - an IP address in the link field became a `tel:` link; underline did
+    nothing on links,
+  - the placeholder covered an empty list item, table or rule,
+  - Backspace at the start of the paragraph after a table pulled it into
+    the last cell,
+  - a focused disabled editor opened the link form and took shortcuts,
+    pastes and drops,
+  - `sanitizeRichText` on a server needed the globals `Node` and
+    `NodeFilter` - a `DOMParser` is enough.
+- **Stepper** step numbers meet 4.5:1, and the step names of a horizontal
+  one show in a tooltip on keyboard focus and on a tap. `Pagination` in
+  cursor mode no longer waits for good after a failed load without
+  `loading`. `CopyButton` announces the outcome. `Splitter` leaves Alt, Ctrl
+  and ⌘ + arrows to the browser. `Tabs` renders no empty tablist while
+  loading. `Accordion` points `aria-controls` only at shown content. The
+  back button of `Header` passes no click event to `onBack` /
+  `router.back`. `useClipboard` falls back to the copy command when the
+  Clipboard API refuses.
+
+### Documentation
+
+- Forms & validation: `register()` next to `Controller`, with the limits.
+  NumberInput: the stepping rule, range validity, the percent step, the
+  parsing. Autocomplete: result shapes (with the DRF and Laravel mappings),
+  the reload on opening, the keyboard of `asSelect`. FileUpload: why a form
+  reset calls no `onRemove`.
+- DataTable: `Date` cells with server rendering in another time zone; the
+  REST and GraphQL guides export every page and keep filters from replacing
+  request parameters. Calendar: the local-time model of events and
+  recurrences, server rendering. Pickers: typing, the keyboard, ISO input;
+  Localization: the placeholder tokens.
+- The pages of the overlays describe the focus, `aria-hidden` and
+  right-to-left behavior, with the testing note about `{ hidden: true }`.
+- Rich text: what `sanitizeRichText` needs on a server, the paste rules,
+  Backspace after a table, the size limit of the undo history.
+- Theming: `neutral` is Tailwind's `gray` (and how to get Tailwind's own
+  back), the reduced-motion tokens are global, the helper classes may clash
+  with DaisyUI or Bootstrap, and how a `className` overrides the classes of
+  a component. Hooks & utilities: `cn` and `joinTokens`, the new exports,
+  a `useLocalStorage` `deserialize` that checks the shape. Installation and
+  README: Tailwind 4.1.
+
 ## 0.2.0
 
 A review of the whole library: every component was audited and what the

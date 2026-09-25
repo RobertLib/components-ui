@@ -1,4 +1,4 @@
-import { Chip, DescriptionList } from "components-ui";
+import { Chip, DescriptionList, Link } from "components-ui";
 
 export default function Basic() {
   return (
@@ -6,11 +6,7 @@ export default function Basic() {
       items={[
         { desc: "Jana Nováková", term: "Name" },
         {
-          desc: (
-            <a className="link underline" href="mailto:jana@example.com">
-              jana@example.com
-            </a>
-          ),
+          desc: <Link href="mailto:jana@example.com">jana@example.com</Link>,
           term: "Email",
         },
         { desc: <Chip color="success">Active</Chip>, term: "Status" },

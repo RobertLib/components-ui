@@ -60,6 +60,40 @@ describe("placeAtAnchor", () => {
   });
 });
 
+describe("placeAtAnchor right to left", () => {
+  it("ends at the pointer, and starts there near the left edge", () => {
+    expect(
+      placeAtAnchor(pointRect({ x: 500, y: 50 }), menu, viewport, 2, true),
+    ).toEqual({ left: 320, top: 52 });
+    expect(
+      placeAtAnchor(pointRect({ x: 100, y: 50 }), menu, viewport, 2, true),
+    ).toEqual({ left: 100, top: 52 });
+  });
+});
+
+describe("placeSubmenu right to left", () => {
+  it("opens left of its item, and to the right near the left edge", () => {
+    const item = { bottom: 132, left: 405, right: 595, top: 100 };
+    expect(placeSubmenu(item, menu, viewport, true)).toEqual({
+      left: 221,
+      top: 95,
+    });
+
+    const nearEdge = { bottom: 132, left: 100, right: 290, top: 100 };
+    expect(placeSubmenu(nearEdge, menu, viewport, true)).toEqual({
+      left: 294,
+      top: 95,
+    });
+  });
+
+  it("opens below its item from its right with room on neither side", () => {
+    const phoneItem = { bottom: 132, left: 170, right: 360, top: 100 };
+    expect(
+      placeSubmenu(phoneItem, menu, { height: 800, width: 375 }, true),
+    ).toEqual({ left: 168, top: 134 });
+  });
+});
+
 describe("placeSubmenu", () => {
   const item = { bottom: 132, left: 405, right: 595, top: 100 };
 

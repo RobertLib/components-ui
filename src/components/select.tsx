@@ -1,6 +1,6 @@
 import { useFormControl } from "../hooks/use-form-control";
 import { useId } from "react";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { useMessages } from "../providers/ui-context";
@@ -75,6 +75,8 @@ export default function Select({
     ...props,
     // The value of a multiple select is an array - also an empty one
     defaultValue: defaultValue ?? (props.multiple ? [] : undefined),
+    // A value a script writes into the select stays - `register()`
+    followScriptWrites: true,
   });
 
   const dimStyles = {
@@ -112,14 +114,20 @@ export default function Select({
 
       <select
         {...props}
-        aria-describedby={cn(errorId, descriptionId, props["aria-describedby"])}
+        aria-describedby={joinTokens(
+          errorId,
+          descriptionId,
+          props["aria-describedby"],
+        )}
         aria-invalid={error ? "true" : props["aria-invalid"]}
         className={cn(
-          "form-control appearance-none pr-8",
+          "form-control appearance-none",
           dimStyles[dim],
           disabled && "cursor-not-allowed opacity-50",
           error && "border-danger-500! focus:ring-danger-500!",
           className,
+          // Last - the room for the arrow stays with any padding
+          "pr-8",
         )}
         disabled={disabled}
         id={selectId}

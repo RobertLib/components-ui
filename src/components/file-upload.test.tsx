@@ -148,6 +148,70 @@ describe("FileUpload", () => {
     expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
   });
 
+  it("holds no more than maxFiles files, the attached ones included", async () => {
+    const { pending, upload } = controllableUpload();
+    const onError = vi.fn();
+    render(
+      <FileUpload
+        accept=".pdf"
+        defaultAttachments={[{ filename: "a.pdf", value: "blob-a" }]}
+        maxFiles={2}
+        multiple
+        name="files"
+        onError={onError}
+        upload={upload}
+      />,
+    );
+
+    drop(screen.getByRole("group"), [
+      file("b.pdf"),
+      file("notes.txt", "text/plain"),
+      file("c.pdf"),
+    ]);
+
+    // Refused at once, before the upload of the one there is room for - a
+    // file refused for its type takes no room
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls.map(([, refused]) => refused.name)).toEqual([
+      "notes.txt",
+      "c.pdf",
+    ]);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "You can attach up to 2 files.",
+    );
+
+    await act(async () => pending[0].resolve({ value: "blob-b" }));
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("b.pdf")).toBeInTheDocument();
+
+    // Full - a removed file makes room again
+    drop(screen.getByRole("group"), [file("d.pdf")]);
+    expect(upload).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Remove a.pdf" }));
+    drop(screen.getByRole("group"), [file("d.pdf")]);
+    expect(upload).toHaveBeenCalledTimes(2);
+  });
+
+  it("says the most files as the language does", () => {
+    render(
+      <UIProvider locale={cs}>
+        <FileUpload
+          maxFiles={3}
+          multiple
+          upload={controllableUpload().upload}
+        />
+      </UIProvider>,
+    );
+
+    drop(
+      screen.getByRole("group"),
+      ["a", "b", "c", "d"].map((name) => file(`${name}.pdf`)),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Připojit lze nejvýše 3 soubory.",
+    );
+  });
+
   it("writes the largest size as the language does", () => {
     render(
       <UIProvider locale={cs}>
@@ -270,12 +334,14 @@ describe("FileUpload", () => {
   it("takes its defaultAttachments back when the form is reset", async () => {
     const user = userEvent.setup();
     const { pending, upload } = controllableUpload();
+    const onRemove = vi.fn();
     render(
       <form aria-label="Order">
         <FileUpload
           defaultAttachments={[{ filename: "a.pdf", value: "blob-a" }]}
           multiple
           name="files"
+          onRemove={onRemove}
           upload={upload}
         />
         <button type="reset">Reset</button>
@@ -297,6 +363,11 @@ describe("FileUpload", () => {
     );
     expect(screen.queryByText("b.pdf")).toBeNull();
     expect(screen.queryByText("c.pdf")).toBeNull();
+
+    // Only the file the user removed - the reset after a form action follows
+    // a save, which has kept the uploaded files
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(onRemove.mock.calls[0][0]).toMatchObject({ filename: "a.pdf" });
   });
 
   it("is reset after a form action", async () => {

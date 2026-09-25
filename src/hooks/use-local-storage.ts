@@ -12,7 +12,11 @@ export interface UseLocalStorageOptions<T> {
   /**
    * Turns the stored text into the value - `JSON.parse` by default. A text
    * it cannot read (it throws, e.g. on data of an older version of the app)
-   * counts as no value: the hook returns `defaultValue`.
+   * counts as no value: the hook returns `defaultValue`. `JSON.parse` takes
+   * any JSON - also `null`, or an object where the app wants an array. To
+   * be sure of the shape, check it here and throw when it does not fit:
+   * `(text) => { const value = JSON.parse(text); if (!Array.isArray(value))
+   * throw new Error("No list"); return value; }`.
    */
   deserialize?: (stored: string) => T;
   /** Turns the value into the stored text - `JSON.stringify` by default. */

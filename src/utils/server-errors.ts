@@ -37,11 +37,32 @@ const toCanonicalName = (name: string) =>
 const sameSegment = (segment: string, name: string) =>
   segment === name || toCanonicalName(segment) === toCanonicalName(name);
 
-/** The key of `record` naming the field `name`, in whatever case. */
-const findKey = (record: ErrorDetails, name: string) =>
-  Object.hasOwn(record, name)
-    ? name
-    : Object.keys(record).find((key) => sameSegment(key, name));
+/**
+ * The segments of a field name - dotted (`items.0.name`) or with brackets
+ * (`items[0].name`, `order[items][0][name]`), which name the same field.
+ */
+const toPath = (name: string) =>
+  name
+    .replace(/\[([^\]]*)\]/g, ".$1")
+    .split(".")
+    .filter(Boolean);
+
+const samePath = (path: string[], fieldPath: string[]) =>
+  path.length === fieldPath.length &&
+  path.every((segment, index) => sameSegment(segment, fieldPath[index]));
+
+/**
+ * The key of `record` naming the field `name`, in whatever case - also a
+ * dotted key of a name with brackets, and the other way round.
+ */
+const findKey = (record: ErrorDetails, name: string) => {
+  if (Object.hasOwn(record, name)) return name;
+
+  const path = toPath(name);
+  return Object.keys(record).find(
+    (key) => sameSegment(key, name) || samePath(toPath(key), path),
+  );
+};
 
 // Members that describe the error itself. With a text they are no field
 // messages (`code: "UNAUTHENTICATED"`, `detail: "Not found."`), while a list
@@ -233,7 +254,7 @@ const hasFieldMessages = ({ enveloped, fields }: Details) =>
 
 const getListedErrorPath = (item: ListedError): string[] | null => {
   if (Array.isArray(item.field)) return item.field.map(String);
-  if (typeof item.field === "string") return item.field.split(".");
+  if (typeof item.field === "string") return toPath(item.field);
 
   const pointer = item.source?.pointer ?? item.source?.parameter;
   if (pointer) {
@@ -252,23 +273,16 @@ const getListedErrorPath = (item: ListedError): string[] | null => {
   return null;
 };
 
-const matchesPath = (path: string[], fieldName: string) => {
-  const fieldPath = fieldName.split(".");
-
-  if (
-    path.length === fieldPath.length &&
-    path.every((segment, index) => sameSegment(segment, fieldPath[index]))
-  ) {
-    return true;
-  }
-
-  // `["input", "email"]` still belongs to the field "email"
-  return (
-    fieldPath.length === 1 &&
-    path.length > 1 &&
-    sameSegment(path[path.length - 1], fieldName)
-  );
-};
+/**
+ * Whether the path of a GraphQL user error is that of the field below the
+ * argument of the mutation: `["input", "email"]` is the field "email",
+ * `["input", "address", "street"]` the field "address.street" - but
+ * `["items", "0", "email"]` is no top-level "email".
+ */
+const matchesArgumentPath = (path: string[], fieldPath: string[]) =>
+  path.length === fieldPath.length + 1 &&
+  !/^\d+$/.test(path[0]) &&
+  samePath(path.slice(1), fieldPath);
 
 const getListedErrorMessage = (item: ListedError) =>
   item.message ?? item.detail ?? item.title;
@@ -285,8 +299,9 @@ const getListedErrorMessage = (item: ListedError) =>
  *   `source.pointer`.
  *
  * Field names are matched in camelCase, snake_case and any letter case, and
- * `address.street` addresses a nested field - also in nested objects
- * (`{ address: { street: [...] } }`). In a body without an `errors` map, a
+ * `address.street` (or `address[street]`, `items[0].name`) addresses a
+ * nested field - also in nested objects (`{ address: { street: [...] } }`)
+ * and in a user error below the argument (`["input", "address", "street"]`). In a body without an `errors` map, a
  * text in a member that describes the error itself (`message`, `code`,
  * `title`, `detail`, `status`, `type`, …) is no field message - a list there
  * is (`title: ["can't be blank"]`), and so is anything inside `errors`.
@@ -296,15 +311,17 @@ export const getFieldError = (
   fieldName: string,
 ): string | undefined => {
   const list = getErrorList(error);
+  const fieldPath = toPath(fieldName);
 
   if (list) {
-    for (const item of list) {
-      const path = getListedErrorPath(item);
-      if (path && matchesPath(path, fieldName)) {
-        return getListedErrorMessage(item);
-      }
-    }
-    return undefined;
+    const paths = list.map(getListedErrorPath);
+    // The field's own path first - then one below an argument
+    const index = paths.findIndex((path) => path && samePath(path, fieldPath));
+    const argumentIndex = paths.findIndex(
+      (path) => path && matchesArgumentPath(path, fieldPath),
+    );
+    const item = list[index >= 0 ? index : argumentIndex];
+    return item ? getListedErrorMessage(item) : undefined;
   }
 
   const details = getErrorDetails(error);
@@ -315,8 +332,6 @@ export const getFieldError = (
   const { problems } = details.fields;
 
   if (Array.isArray(problems)) {
-    const fieldPath = fieldName.split(".");
-
     for (const problem of problems) {
       if (
         Array.isArray(problem?.path) &&
@@ -334,8 +349,8 @@ export const getFieldError = (
   // A dotted key of its own (Rails' nested attributes), or nested objects
   return (
     getFirstMessage(getFieldValue(details, fieldName)) ??
-    (fieldName.includes(".")
-      ? getFirstMessage(getNestedValue(details, fieldName.split(".")))
+    (fieldPath.length > 1
+      ? getFirstMessage(getNestedValue(details, fieldPath))
       : undefined)
   );
 };

@@ -1,5 +1,5 @@
 import { findActiveLink } from "../../providers/active-path";
-import removeDiacritics from "../../utils/remove-diacritics";
+import { foldSearchText } from "../../utils/remove-diacritics";
 import type { TreeItem, TreeItemId } from "./types";
 
 /**
@@ -109,7 +109,7 @@ export function getAncestors(
   return ancestors;
 }
 
-const normalize = (text: string) => removeDiacritics(text).toLowerCase();
+const normalize = foldSearchText;
 
 /**
  * The ranges of `text` matching `term`, ignoring case and diacritics -

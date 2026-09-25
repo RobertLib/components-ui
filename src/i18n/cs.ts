@@ -38,6 +38,12 @@ export const cs: Locale = {
         other: "Vybrat lze nejvýše {count} možností.",
       },
       noResults: "Žádné výsledky",
+      resultCount: {
+        one: "{count} výsledek",
+        few: "{count} výsledky",
+        many: "{count} výsledku",
+        other: "{count} výsledků",
+      },
     },
     avatar: {
       more: {
@@ -63,9 +69,21 @@ export const cs: Locale = {
       allDay: "celý den",
       day: "Den",
       dayOf: "Den {day}/{count}",
+      earlier: {
+        one: "+{count} dřívější",
+        few: "+{count} dřívější",
+        many: "+{count} dřívějšího",
+        other: "+{count} dřívějších",
+      },
       eventLabel: "{title}, {time}",
       from: "od {time}",
       goToDate: "Přejít na datum",
+      later: {
+        one: "+{count} pozdější",
+        few: "+{count} pozdější",
+        many: "+{count} pozdějšího",
+        other: "+{count} pozdějších",
+      },
       month: "Měsíc",
       more: {
         one: "+{count} další",
@@ -73,6 +91,7 @@ export const cs: Locale = {
         many: "+{count} dalšího",
         other: "+{count} dalších",
       },
+      moreLabel: "{more}, {day}",
       next: "Další",
       noEvents: "Žádné události",
       previous: "Předchozí",
@@ -179,6 +198,12 @@ export const cs: Locale = {
           many: "Vybráno {count} řádku.",
           other: "Vybráno všech {count} řádků.",
         },
+        allExcept: {
+          one: "Vybrán {count} odpovídající řádek.",
+          few: "Vybrány {count} odpovídající řádky.",
+          many: "Vybráno {count} odpovídajícího řádku.",
+          other: "Vybráno {count} odpovídajících řádků.",
+        },
         clear: "Zrušit výběr",
         page: {
           one: "Na této stránce je vybrán {count} řádek.",
@@ -230,11 +255,14 @@ export const cs: Locale = {
     dateTimePicker: {
       clear: "Vymazat hodnotu",
       hours: "Hodiny",
+      invalidText: "„{text}“ není platná hodnota. Použijte formát {format}.",
       minutes: "Minuty",
       month: "Měsíc",
       nextMonth: "Následující měsíc",
       nextYear: "Následující rok",
       openCalendar: "Otevřít kalendář",
+      outOfRangeText: "„{text}“ je mimo povolený rozsah.",
+      placeholderTokens: { WW: "TT", YYYY: "RRRR" },
       previousMonth: "Předchozí měsíc",
       previousYear: "Předchozí rok",
       selectDate: "Vyberte datum",
@@ -263,6 +291,12 @@ export const cs: Locale = {
       fileTypeNotAccepted: "Soubory tohoto typu sem nelze nahrát.",
       maxFileSizeExceeded:
         "Maximální velikost souboru {size} MB byla překročena.",
+      maxFiles: {
+        one: "Připojit lze jen jeden soubor.",
+        few: "Připojit lze nejvýše {count} soubory.",
+        many: "Připojit lze nejvýše {count} souboru.",
+        other: "Připojit lze nejvýše {count} souborů.",
+      },
       remove: "Odebrat",
       upload: "Nahrát",
       uploadFailed: "Nahrávání se nezdařilo.",
@@ -288,6 +322,8 @@ export const cs: Locale = {
     numberInput: {
       decrement: "Snížit",
       increment: "Zvýšit",
+      rangeOverflow: "Zadejte hodnotu {max} nebo nižší.",
+      rangeUnderflow: "Zadejte hodnotu {min} nebo vyšší.",
     },
     pagination: {
       first: "První stránka",

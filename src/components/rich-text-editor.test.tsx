@@ -57,7 +57,7 @@ describe("RichTextEditor", () => {
     );
 
     expect(editor().innerHTML).toBe(
-      '<p>Hi <a>bad</a> <a href="https://example.com">ok</a>!</p>',
+      '<p>Hi bad <a href="https://example.com">ok</a>!</p>',
     );
   });
 
@@ -330,6 +330,17 @@ describe("RichTextEditor values", () => {
     expect(parse).not.toHaveBeenCalled();
   });
 
+  it("normalizes a change without parsing its content again", () => {
+    render(<RichTextEditor defaultValue="<p>X</p>" label="Note" />);
+    const createElement = vi.spyOn(document, "createElement");
+
+    (editor().querySelector("p") as HTMLElement).textContent = "XY";
+    fireEvent.input(editor());
+
+    expect(editor().innerHTML).toBe("<p>XY</p>");
+    expect(createElement).not.toHaveBeenCalledWith("template");
+  });
+
   it("keeps the headings and lists of pasted content", () => {
     const execCommand = vi.fn(() => true);
     document.execCommand = execCommand;
@@ -483,6 +494,159 @@ describe("RichTextEditor pastes over a selection", () => {
       "One<br>Two",
     );
   });
+
+  it.each([
+    ["a list", "<ul><li>Plan</li></ul><p>Text</p>"],
+    ["a quote", "<blockquote><p>Plan</p></blockquote><p>Text</p>"],
+  ])("keeps the blocks of content replacing %s as a whole", (_, html) => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor defaultValue={html} label="Note" toolbar={ALL_TOOLS} />,
+    );
+
+    // Select all - the browser would put the pasted blocks into the item
+    // or the quote, which hold no headings or tables
+    selectText("Plan", "Text");
+    const table = "<table><tbody><tr><td>a</td></tr></tbody></table>";
+    paste(`<h2>One</h2>${table}`);
+    expect(execCommand).toHaveBeenLastCalledWith(
+      "insertHTML",
+      false,
+      `<h2>One</h2>${table}`,
+    );
+    expect(editor().innerHTML).toBe("<p>Plan</p><p>Text</p>");
+    expect(document.getSelection()?.toString()).toBe("PlanText");
+  });
+
+  it("pastes what a list item or a quote holds into it", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor
+        defaultValue="<ul><li>Plan</li></ul><blockquote><p>Quote</p></blockquote>"
+        label="Note"
+        toolbar={ALL_TOOLS}
+      />,
+    );
+
+    // An item holds lines - the value would make them so anyway
+    selectText("Plan", undefined, 2);
+    paste("<h2>One</h2><p>Two</p>");
+    expect(execCommand).toHaveBeenLastCalledWith(
+      "insertHTML",
+      false,
+      "One<br>Two",
+    );
+    // A list gives it items next to it - the browser inserts them so
+    paste("<ol><li>One</li><li>Two</li></ol>");
+    expect(execCommand).toHaveBeenLastCalledWith(
+      "insertHTML",
+      false,
+      "<ol><li>One</li><li>Two</li></ol>",
+    );
+
+    // A quote holds paragraphs
+    selectText("Quote", undefined, 2);
+    paste("<h2>One</h2><ul><li>Two</li></ul>");
+    expect(execCommand).toHaveBeenLastCalledWith(
+      "insertHTML",
+      false,
+      "<p>One</p><p>Two</p>",
+    );
+    expect(editor().innerHTML).toBe(
+      "<ul><li>Plan</li></ul><blockquote><p>Quote</p></blockquote>",
+    );
+  });
+
+  it("fills an empty list item with the blocks of pasted content", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor
+        defaultValue="<ul><li>Plan</li></ul>"
+        label="Note"
+        toolbar={ALL_TOOLS}
+      />,
+    );
+
+    editor().innerHTML = "<ul><li>Plan</li><li><br></li></ul>";
+    fireEvent.input(editor());
+    caretIn(editor().querySelectorAll("li")[1]);
+
+    paste("<h2>One</h2><p>Two</p>");
+    expect(execCommand).toHaveBeenLastCalledWith(
+      "insertHTML",
+      false,
+      "<h2>One</h2><p>Two</p>",
+    );
+    expect(editor().innerHTML).toBe("<ul><li>Plan</li></ul><p><br></p>");
+  });
+
+  it("keeps an empty heading for pasted text of one line", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor
+        defaultValue="<p>Intro</p><h2>Plan</h2>"
+        label="Note"
+        toolbar={ALL_TOOLS}
+      />,
+    );
+
+    editor().innerHTML = "<p>Intro</p><h2><br></h2>";
+    fireEvent.input(editor());
+    caretIn(editor().querySelector("h2") as HTMLElement);
+
+    // A phrase copied from a page - and a paragraph of it
+    paste('<meta charset="utf-8"><span style="font-size: 16px">Chapter</span>');
+    expect(execCommand).toHaveBeenLastCalledWith(
+      "insertHTML",
+      false,
+      "Chapter",
+    );
+    paste("<p>Chapter <b>one</b></p>");
+    expect(execCommand).toHaveBeenLastCalledWith(
+      "insertHTML",
+      false,
+      "Chapter <b>one</b>",
+    );
+    expect(editor().innerHTML).toBe("<p>Intro</p><h2><br></h2>");
+  });
+
+  it("makes lines of plain text replacing a heading as a whole paragraphs", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor
+        defaultValue="<h2>Plan</h2><p>Text</p>"
+        label="Note"
+        toolbar={ALL_TOOLS}
+      />,
+    );
+    const pasteText = (text: string) =>
+      fireEvent.paste(editor(), {
+        clipboardData: {
+          getData: (type: string) => (type === "text/plain" ? text : ""),
+        },
+      });
+
+    // One line stays in the heading, like typed text
+    selectText("Plan", "Text");
+    pasteText("One");
+    expect(execCommand).toHaveBeenLastCalledWith("insertText", false, "One");
+    expect(editor().innerHTML).toBe("<h2>Plan</h2><p>Text</p>");
+
+    // Lines are paragraphs - the first one of the heading's kind no more
+    pasteText("One\nTwo");
+    expect(execCommand).toHaveBeenLastCalledWith(
+      "insertText",
+      false,
+      "One\nTwo",
+    );
+    expect(editor().innerHTML).toBe("<p>Plan</p><p>Text</p>");
+    expect(document.getSelection()?.toString()).toBe("PlanText");
+  });
 });
 
 describe("RichTextEditor on the server", () => {
@@ -589,6 +753,32 @@ describe("RichTextEditor props", () => {
     expect(editor()).not.toHaveAttribute("aria-placeholder");
   });
 
+  it("shows its placeholder only over an empty line", () => {
+    render(<RichTextEditor label="Note" placeholder="Write a note" />);
+    const showsPlaceholder = (html: string) => {
+      editor().innerHTML = html;
+      fireEvent.input(editor());
+      const shows = editor().hasAttribute("data-empty");
+      expect(editor().hasAttribute("aria-placeholder")).toBe(shows);
+      return shows;
+    };
+
+    expect(showsPlaceholder("<p><br></p>")).toBe(true);
+    expect(showsPlaceholder("<h2><br></h2>")).toBe(true);
+    // Without text, but the placeholder would cover a bullet, a table or
+    // another line
+    expect(showsPlaceholder("<ul><li><br></li></ul>")).toBe(false);
+    expect(
+      showsPlaceholder("<table><tbody><tr><td><br></td></tr></tbody></table>"),
+    ).toBe(false);
+    expect(showsPlaceholder("<hr><p><br></p>")).toBe(false);
+    expect(showsPlaceholder("<p><br></p><p><br></p>")).toBe(false);
+    expect(showsPlaceholder("<blockquote><p><br></p></blockquote>")).toBe(
+      false,
+    );
+    expect(showsPlaceholder("")).toBe(true);
+  });
+
   it("hides the required mark from screen readers", () => {
     render(<RichTextEditor label="Note" required />);
 
@@ -679,6 +869,43 @@ describe("RichTextEditor formatting", () => {
     expect(document.execCommand).toHaveBeenCalledWith("bold", false, undefined);
     expect(formatted).toBe("world");
     expect(editor()).toHaveFocus();
+  });
+
+  it("makes no marks of the styles the browser's editing leaves", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <>
+        <RichTextEditor
+          defaultValue="<p>para</p><h2>Head</h2>"
+          label="Note"
+          onChange={onChange}
+        />
+        <button type="button">After</button>
+      </>,
+    );
+
+    await user.click(editor());
+    // What Chrome makes of Backspace at the start of the heading - the text
+    // keeps its size and weight, it is no bold text of the user
+    editor().innerHTML =
+      '<p>para<span style="font-size: 1.3em; font-weight: 600;">Head</span></p>';
+    fireEvent.input(editor());
+    expect(onChange).toHaveBeenLastCalledWith("<p>paraHead</p>");
+
+    await user.click(screen.getByRole("button", { name: "After" }));
+    expect(editor().innerHTML).toBe("<p>paraHead</p>");
+  });
+
+  it("reads the styles of a loaded value like those of pasted content", () => {
+    render(
+      <RichTextEditor
+        defaultValue={'<p><span style="font-weight:700">Bold</span> text</p>'}
+        label="Note"
+      />,
+    );
+
+    expect(editor().innerHTML).toBe("<p><b>Bold</b> text</p>");
   });
 
   it("shows what its value keeps once the focus leaves it", async () => {
@@ -782,6 +1009,10 @@ describe("RichTextEditor links", () => {
     ["tel:602123456", "tel:602123456"],
     ["tel:+420 602 123 456", "tel:+420602123456"],
     ["tel:12345", "tel:12345"],
+    // The dots of an IP address make no phone number
+    ["192.168.1.1", "https://192.168.1.1"],
+    ["10.0.0.138:8080", "https://10.0.0.138:8080"],
+    ["555.123.4567", "tel:5551234567"],
   ])("links %s to %s", async (typed, href) => {
     const user = userEvent.setup();
     const execCommand = vi.fn(() => true);
@@ -1095,6 +1326,26 @@ describe("RichTextEditor toolbar", () => {
     );
   });
 
+  it("takes no commands in a disabled editor", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(<RichTextEditor defaultValue="<p>Docs</p>" disabled label="Note" />);
+
+    // A click focuses it
+    act(() => editor().focus());
+    selectText("Docs", "Docs");
+    fireEvent.keyDown(editor(), { ctrlKey: true, key: "k" });
+    expect(
+      screen.queryByRole("textbox", { name: "Enter the link URL:" }),
+    ).toBeNull();
+
+    fireEvent.paste(editor(), {
+      clipboardData: { getData: () => "<b>Pasted</b>" },
+    });
+    expect(execCommand).not.toHaveBeenCalled();
+    expect(editor().innerHTML).toBe("<p>Docs</p>");
+  });
+
   it("disables all tools of a disabled editor", () => {
     render(<RichTextEditor disabled label="Note" />);
 
@@ -1394,6 +1645,40 @@ describe("RichTextEditor marks", () => {
     expect(onChange).toHaveBeenLastCalledWith(
       '<p>bold it <a href="/x">link</a></p>',
     );
+  });
+
+  it("underlines links, which the browser takes for underlined", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    const onChange = vi.fn();
+    render(
+      <RichTextEditor
+        defaultValue='<p>Go <a href="https://example.com">there</a> now</p>'
+        label="Note"
+        onChange={onChange}
+      />,
+    );
+
+    selectText("there", "there");
+    expect(tool("Underline")).toHaveAttribute("aria-pressed", "false");
+    fireEvent.keyDown(editor(), { ctrlKey: true, key: "u" });
+    expect(onChange).toHaveBeenLastCalledWith(
+      '<p>Go <u><a href="https://example.com">there</a></u> now</p>',
+    );
+    expect(tool("Underline")).toHaveAttribute("aria-pressed", "true");
+
+    // And back - also for a selection with text around the link
+    selectText("Go", "now");
+    fireEvent.keyDown(editor(), { ctrlKey: true, key: "u" });
+    expect(onChange).toHaveBeenLastCalledWith(
+      '<p><u>Go <a href="https://example.com">there</a> now</u></p>',
+    );
+    selectText("Go", "now");
+    fireEvent.click(tool("Underline"));
+    expect(onChange).toHaveBeenLastCalledWith(
+      '<p>Go <a href="https://example.com">there</a> now</p>',
+    );
+    expect(execCommand).not.toHaveBeenCalledWith("underline", false, undefined);
   });
 
   it("shows struck text as it keeps it", async () => {
@@ -1722,6 +2007,63 @@ describe("RichTextEditor tables", () => {
     // Not in the middle of the text of a cell
     selectText("x");
     expect(fireEvent.keyDown(editor(), { key: "ArrowRight" })).toBe(true);
+  });
+
+  it("keeps the line after a table out of it by Backspace", () => {
+    const table = "<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>";
+    render(
+      <RichTextEditor
+        defaultValue={`${table}<p>After</p>`}
+        label="Note"
+        toolbar={ALL_TOOLS}
+      />,
+    );
+    const lastCell = () => editor().querySelectorAll("td")[1];
+
+    // The browser would pull the line into the last cell - also by a word
+    for (const modifiers of [{}, { altKey: true }, { ctrlKey: true }]) {
+      selectText("After");
+      expect(
+        fireEvent.keyDown(editor(), { key: "Backspace", ...modifiers }),
+      ).toBe(false);
+      expect(editor().innerHTML).toBe(`${table}<p>After</p>`);
+      // The caret goes to the end of the table
+      const selection = document.getSelection() as Selection;
+      expect(lastCell().contains(selection.anchorNode)).toBe(true);
+      expect(selection.isCollapsed).toBe(true);
+    }
+
+    // Within the text it deletes as usual
+    selectText("After", undefined, 2);
+    expect(fireEvent.keyDown(editor(), { key: "Backspace" })).toBe(true);
+
+    // A line without text goes - the last one stays, to write after the
+    // table
+    editor().innerHTML = `${table}<p><br></p><p>End</p>`;
+    fireEvent.input(editor());
+    caretIn(editor().querySelector("p") as HTMLElement);
+    expect(fireEvent.keyDown(editor(), { key: "Backspace" })).toBe(false);
+    expect(editor().innerHTML).toBe(`${table}<p>End</p>`);
+
+    editor().innerHTML = `${table}<p><br></p>`;
+    fireEvent.input(editor());
+    caretIn(editor().querySelector("p") as HTMLElement);
+    expect(fireEvent.keyDown(editor(), { key: "Backspace" })).toBe(false);
+    expect(editor().innerHTML).toBe(`${table}<p><br></p>`);
+    expect(
+      lastCell().contains(document.getSelection()?.anchorNode ?? null),
+    ).toBe(true);
+
+    // A list or a quote lifts its first line out by its own Backspace
+    for (const block of [
+      "<ul><li>Item</li></ul>",
+      "<blockquote>Quote</blockquote>",
+    ]) {
+      editor().innerHTML = `${table}${block}`;
+      fireEvent.input(editor());
+      selectText(block.includes("Item") ? "Item" : "Quote");
+      expect(fireEvent.keyDown(editor(), { key: "Backspace" })).toBe(true);
+    }
   });
 
   it("reduces pasted tables to lines without the table tool", () => {

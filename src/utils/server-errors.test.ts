@@ -173,6 +173,58 @@ describe("getFieldError", () => {
   });
 });
 
+describe("getFieldError paths", () => {
+  it("matches a user error below the argument of the mutation", () => {
+    const payload = {
+      userErrors: [
+        { field: ["input", "address", "street"], message: "is blank" },
+        { field: ["input", "email"], message: "is taken" },
+      ],
+    };
+    expect(getFieldError(payload, "address.street")).toBe("is blank");
+    expect(getFieldError(payload, "email")).toBe("is taken");
+    expect(getFieldError(payload, "street")).toBeUndefined();
+  });
+
+  it("gives no nested error to a field of the same name at the top", () => {
+    const payload = {
+      userErrors: [{ field: ["items", "0", "email"], message: "is invalid" }],
+    };
+    expect(getFieldError(payload, "email")).toBeUndefined();
+    expect(getFieldError(payload, "items.0.email")).toBe("is invalid");
+  });
+
+  it("prefers the field's own path to one below an argument", () => {
+    const payload = {
+      userErrors: [
+        { field: ["input", "email"], message: "of the input" },
+        { field: ["email"], message: "of the field" },
+      ],
+    };
+    expect(getFieldError(payload, "email")).toBe("of the field");
+  });
+
+  it("reads names with brackets as dotted ones, and the other way round", () => {
+    const nested = { errors: { items: [{ name: ["is blank"] }] } };
+    expect(getFieldError(nested, "items[0].name")).toBe("is blank");
+    expect(getFieldError(nested, "items.0.name")).toBe("is blank");
+
+    // Rails' `index_errors`, ASP.NET
+    const flat = { errors: { "Items[0].Name": ["is blank"] } };
+    expect(getFieldError(flat, "items.0.name")).toBe("is blank");
+    expect(getFieldError(flat, "items[0].name")).toBe("is blank");
+
+    const listed = { errors: [{ field: "order[items][1]", message: "…" }] };
+    expect(getFieldError(listed, "order.items.1")).toBe("…");
+  });
+
+  it("matches a plural acronym to its snake_case name", () => {
+    expect(getFieldError({ user_ids: ["are unknown"] }, "userIDs")).toBe(
+      "are unknown",
+    );
+  });
+});
+
 describe("getBaseError", () => {
   it("reads base and non-field errors", () => {
     expect(getBaseError({ errors: { base: ["Locked"] } })).toBe("Locked");

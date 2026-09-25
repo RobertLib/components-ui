@@ -10,4 +10,13 @@ describe("case conversion", () => {
     expect(camelToSnakeCase("Email")).toBe("email");
     expect(camelToSnakeCase("first_name")).toBe("first_name");
   });
+
+  it("keeps the plural s of an acronym", () => {
+    expect(camelToSnakeCase("userIDs")).toBe("user_ids");
+    expect(camelToSnakeCase("APIsList")).toBe("apis_list");
+    expect(camelToSnakeCase("URLsCount")).toBe("urls_count");
+    // A word after the acronym is still one of its own
+    expect(camelToSnakeCase("HTTPServer")).toBe("http_server");
+    expect(camelToSnakeCase("IDSet")).toBe("id_set");
+  });
 });

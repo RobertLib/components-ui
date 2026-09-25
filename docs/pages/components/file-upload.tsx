@@ -76,10 +76,10 @@ export default function FileUploadPage() {
             rejected with a message; failures are also reported to{" "}
             <code>onError</code>. Files can be dropped on the field too;{" "}
             <code>multiple</code> uploads several one after another - without it
-            a new file replaces the listed one. The button next to the progress
-            cancels the upload: the field is ready for another file at once,
-            even if <code>upload</code> does not stop. A form reset brings back
-            the <code>defaultAttachments</code>.
+            a new file replaces the listed one - and <code>maxFiles</code> caps
+            the list, the attached files included. The button next to the
+            progress cancels the upload: the field is ready for another file at
+            once, even if <code>upload</code> does not stop.
           </p>
         }
         name="file-upload/basic"
@@ -108,9 +108,22 @@ export default function FileUploadPage() {
             with a <code>value</code> - they are what the form submits; without
             one, any listed file will do. A disabled{" "}
             <code>&lt;fieldset&gt;</code> around the field disables it - it
-            takes no dropped files either. The field keeps a vertical margin (
-            <code>my-4</code>); <code>className</code> adds classes to it, and
-            an important class such as <code>my-0!</code> overrides the margin.
+            takes no dropped files either.
+          </p>
+          <p>
+            A form reset brings back the <code>defaultAttachments</code> and
+            drops the files uploaded since, without calling{" "}
+            <code>onRemove</code> - it is for files the user removes. React
+            resets a form after its <code>action</code> too, when the files have
+            just been saved: deleting them there would lose them. To clean up
+            after a reset that discards them (a Reset button), listen to the{" "}
+            <code>reset</code> event of the form and compare with what{" "}
+            <code>onUpload</code> reported.
+          </p>
+          <p>
+            The field keeps a vertical margin (<code>my-4</code>);{" "}
+            <code>className</code> adds classes to it, and an important class
+            such as <code>my-0!</code> overrides the margin.
           </p>
           <p>
             The focus stays with the field: on the cancel button while a file

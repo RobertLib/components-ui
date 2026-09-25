@@ -371,6 +371,37 @@ export function toggleHeaderRow(table: HTMLTableElement) {
 }
 
 /**
+ * The table right before the block of a caret at its very start - no text
+ * or line break before the caret in the block. Backspace there would pull
+ * the block into the last cell of the table.
+ */
+export function tableBefore(editor: HTMLElement, range: Range) {
+  if (!range.collapsed) return null;
+
+  const block = topLevelOf(editor, range.startContainer);
+  if (!isElement(block) || block.tagName === "TABLE") return null;
+
+  let previous = block.previousSibling;
+  while (isWhitespace(previous)) previous = previous?.previousSibling ?? null;
+  if (!isElement(previous) || previous.tagName !== "TABLE") return null;
+
+  const before = document.createRange();
+  before.setStart(block, 0);
+  before.setEnd(range.startContainer, range.startOffset);
+  const isAtStart =
+    before.toString() === "" &&
+    !before.cloneContents().querySelector("br, hr, img");
+
+  return isAtStart ? { block, table: previous as HTMLTableElement } : null;
+}
+
+/** The last cell of a table in reading order. */
+export function lastCellOf(table: HTMLTableElement) {
+  const row = table.rows[table.rows.length - 1];
+  return row?.cells[row.cells.length - 1] ?? null;
+}
+
+/**
  * Whether a caret is at the start (or end) of the content of `element` -
  * no text before (or after) it in there.
  */

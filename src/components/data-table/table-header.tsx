@@ -184,9 +184,15 @@ export function TableHeader<T>({
 
     event.preventDefault();
     onMoveColumn(columnKey, offset);
+    // Found by comparing the keys - a key with a quote or a backslash would
+    // break a selector
     requestAnimationFrame(() =>
-      settingsRef.current
-        ?.querySelector<HTMLElement>(`[data-column-handle="${columnKey}"]`)
+      Array.from(
+        settingsRef.current?.querySelectorAll<HTMLElement>(
+          "[data-column-handle]",
+        ) ?? [],
+      )
+        .find((handle) => handle.dataset.columnHandle === columnKey)
         ?.focus(),
     );
   };

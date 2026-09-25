@@ -152,7 +152,7 @@ describe("Timeline", () => {
     expect(created.querySelectorAll("time")).toHaveLength(2);
     expect(created.lastElementChild).toHaveClass("hidden", "md:block");
     // The second item is on the left of the line
-    expect(approved.children[1]).toHaveClass("md:col-start-1", "md:text-right");
+    expect(approved.children[1]).toHaveClass("md:col-start-1", "md:text-end");
     expect(created.children[1]).toHaveClass("md:col-start-3");
   });
 

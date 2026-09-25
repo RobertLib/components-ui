@@ -145,7 +145,7 @@ const lineClassName = (visible: boolean, dashed: boolean) =>
     "w-0.5",
     visible &&
       (dashed
-        ? "border-l-2 border-dashed border-neutral-300 dark:border-neutral-600"
+        ? "border-s-2 border-dashed border-neutral-300 dark:border-neutral-600"
         : "bg-neutral-200 dark:bg-neutral-700"),
   );
 
@@ -382,7 +382,7 @@ export default function Timeline({
                     !isLast && sizes.gap,
                     alternate &&
                       (isLeft
-                        ? "md:col-start-1 md:row-start-1 md:text-right"
+                        ? "md:col-start-1 md:row-start-1 md:text-end"
                         : "md:col-start-3 md:row-start-1"),
                   )}
                 >
@@ -432,7 +432,7 @@ export default function Timeline({
                       sizes.text,
                       isLeft
                         ? "md:col-start-3 md:row-start-1"
-                        : "md:col-start-1 md:row-start-1 md:text-right",
+                        : "md:col-start-1 md:row-start-1 md:text-end",
                     )}
                   >
                     <TimelineTime

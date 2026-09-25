@@ -1,4 +1,4 @@
-import removeDiacritics from "../../utils/remove-diacritics";
+import { foldSearchText as fold } from "../../utils/remove-diacritics";
 
 /** `[start, end)` indexes of a match in a text. */
 export type MatchRange = [start: number, end: number];
@@ -15,7 +15,7 @@ export interface SearchableText {
   text: string;
 }
 
-const COMBINING_MARK = /[̀-ͯ]/;
+const COMBINING_MARK = /\p{M}/u;
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 
 /** Prepares `text` for searching - see `SearchableText`. */
@@ -24,7 +24,7 @@ export function toSearchable(text: string): SearchableText {
   const origin: number[] = [];
 
   for (let index = 0; index < text.length; index++) {
-    const char = removeDiacritics(text[index]).toLowerCase();
+    const char = fold(text[index]);
     for (let offset = 0; offset < char.length; offset++) {
       folded += char[offset];
       origin.push(index);
@@ -36,7 +36,7 @@ export function toSearchable(text: string): SearchableText {
 
 /** The words of a search - folded like `SearchableText`, without empty ones. */
 export const toSearchWords = (query: string) =>
-  removeDiacritics(query).toLowerCase().split(/\s+/).filter(Boolean);
+  fold(query).split(/\s+/).filter(Boolean);
 
 /** Whether `word` occurs in `folded` at the start of one of its words. */
 function startsAWord(folded: string, word: string) {
@@ -99,7 +99,8 @@ export function findMatchRanges(
 
     while (position !== -1) {
       let end = origin[position + word.length - 1] + 1;
-      // A combining accent after the last letter belongs to it
+      // A combining mark after the last letter belongs to it - an accent,
+      // the voicing mark of a kana
       while (end < text.length && COMBINING_MARK.test(text[end])) end++;
 
       ranges.push([origin[position], end]);

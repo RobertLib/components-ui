@@ -13,6 +13,7 @@ import {
   type SnackbarId,
 } from "./snackbar-context";
 import Dialog from "../components/dialog";
+import { LIVE_REGION_DELAY } from "../components/toast";
 
 /** Hands the API `useSnackbar()` returns to `onApi`. */
 function Capture({ onApi }: { onApi: (api: SnackbarApi) => void }) {
@@ -573,6 +574,10 @@ describe("useSnackbar without a provider", () => {
 });
 
 describe("SnackbarProvider on the server", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("renders the app, then hydrates without the toasts in its HTML", async () => {
     const app = (
       <SnackbarProvider>
@@ -594,6 +599,42 @@ describe("SnackbarProvider on the server", () => {
     expect(onRecoverableError).not.toHaveBeenCalled();
     // The live regions are there once it has hydrated
     expect(polite()).toBeInTheDocument();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("adds a toast enqueued while it hydrates once its live region is in the page", async () => {
+    vi.useFakeTimers();
+
+    function Flash() {
+      const { enqueueSnackbar } = useSnackbar();
+      useEffect(() => {
+        enqueueSnackbar("Signed in", "success");
+      }, [enqueueSnackbar]);
+      return <p>App</p>;
+    }
+    const app = (
+      <SnackbarProvider>
+        <Flash />
+      </SnackbarProvider>
+    );
+
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(app);
+    document.body.append(container);
+
+    const root = await act(async () => hydrateRoot(container, app));
+    // The region first - screen readers announce what is added to a region
+    // they know, not a region that appears with it
+    expect(polite()).toBeInTheDocument();
+    expect(screen.queryByText("Signed in")).toBeNull();
+
+    act(() => vi.advanceTimersByTime(LIVE_REGION_DELAY));
+    expect(polite()).toContainElement(screen.getByText("Signed in"));
+    // Its time on screen starts then
+    act(() => vi.advanceTimersByTime(3000 + 200 - 1));
+    expect(screen.getByText("Signed in")).toBeInTheDocument();
 
     act(() => root.unmount());
     container.remove();

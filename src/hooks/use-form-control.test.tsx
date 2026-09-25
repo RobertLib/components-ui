@@ -1,18 +1,28 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { useFormControl, useFormReset } from "./use-form-control";
 
-function Field({ defaultValue }: { defaultValue?: string }) {
+function Field({
+  defaultValue,
+  followScriptWrites,
+  hint,
+}: {
+  defaultValue?: string;
+  followScriptWrites?: boolean;
+  hint?: string;
+}) {
   const { fieldRef, handleChange, value } = useFormControl<HTMLInputElement>({
     defaultValue,
+    followScriptWrites,
   });
   return (
     <input
       aria-label="Name"
       onChange={handleChange}
       ref={fieldRef}
+      title={hint}
       value={value}
     />
   );
@@ -35,6 +45,40 @@ describe("useFormControl", () => {
 
     await user.click(screen.getByRole("button", { name: "Reset" }));
     expect(input).toHaveValue("Ada");
+  });
+});
+
+describe("useFormControl followScriptWrites", () => {
+  it("takes a value a script writes as the value of the field", () => {
+    const { rerender } = render(<Field followScriptWrites />);
+
+    const input = screen.getByRole<HTMLInputElement>("textbox");
+    input.value = "Ada";
+    rerender(<Field followScriptWrites hint="A render" />);
+    expect(input).toHaveValue("Ada");
+  });
+
+  it("is off by default - a render shows the field's own value", () => {
+    const { rerender } = render(<Field />);
+
+    const input = screen.getByRole<HTMLInputElement>("textbox");
+    input.value = "Ada";
+    rerender(<Field hint="A render" />);
+    expect(input).toHaveValue("");
+  });
+
+  it("gives the element its own value property back when it lets go", () => {
+    const { rerender } = render(<Field followScriptWrites />);
+
+    const input = screen.getByRole<HTMLInputElement>("textbox");
+    const watched = Object.getOwnPropertyDescriptor(input, "value");
+    rerender(<Field />);
+    expect(Object.getOwnPropertyDescriptor(input, "value")).not.toEqual(
+      watched,
+    );
+    // React's own tracking of the value still sees a change
+    fireEvent.change(input, { target: { value: "Grace" } });
+    expect(input).toHaveValue("Grace");
   });
 });
 

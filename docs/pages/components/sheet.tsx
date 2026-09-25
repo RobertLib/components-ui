@@ -69,9 +69,11 @@ export default function SheetPage() {
               It is a modal dialog like <code>Dialog</code> and shares its
               implementation: the focus moves in (to the first field, past the
               close button), stays trapped while it is open and goes back to
-              where it was as the sheet starts sliding out. Escape closes the
-              topmost overlay only - the next Escape, even while the sheet
-              slides out, is for the one under it.
+              where it was as the sheet starts sliding out - to the button it
+              was opened again from, when that happens while it slides out (the
+              next record of a list). Escape closes the topmost overlay only -
+              the next Escape, even while the sheet slides out, is for the one
+              under it. The page behind is hidden from screen readers meanwhile.
             </li>
             <li>
               The page behind does not scroll, and the sheet is rendered into{" "}

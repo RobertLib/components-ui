@@ -21,6 +21,7 @@ import {
   getCellStyle,
   isClipped,
   isSticky,
+  LEADING_KEYS,
   MAX_COLUMN_WIDTH,
   MIN_COLUMN_WIDTH,
   type CellLayout,
@@ -36,6 +37,8 @@ interface FilterInputProps {
   onChange: (value: string) => void;
   /** Placeholder of the empty field. */
   placeholder: string;
+  /** Changes when the filters are cleared - a text on its way is dropped. */
+  resetKey: number;
   /** The filter value of the query. */
   value: string;
 }
@@ -45,15 +48,30 @@ function FilterInput({
   label,
   onChange,
   placeholder,
+  resetKey,
   value,
 }: FilterInputProps) {
-  const field = useDebouncedField(value, onChange);
+  const field = useDebouncedField(value, onChange, undefined, resetKey);
 
   return (
     <Input
       aria-label={label}
       dim="sm"
       onChange={({ target }) => field.change(target.value)}
+      onKeyDown={(event) => {
+        // Escape empties the field - by the field alone, not also leaving
+        // the full screen or a dialog around the table, which take a key
+        // no one used, and alike in all browsers (not all clear a search
+        // field). An empty field leaves the key to them.
+        if (
+          event.key === "Escape" &&
+          !event.nativeEvent.isComposing &&
+          field.value
+        ) {
+          event.preventDefault();
+          field.commitNow("");
+        }
+      }}
       placeholder={placeholder}
       type="search"
       value={field.value}
@@ -78,6 +96,8 @@ interface TableHeadProps<T> {
   expandColumnRef: React.RefObject<HTMLTableCellElement | null>;
   /** Column filters by column key - the values of the filter fields. */
   filters: Record<string, string>;
+  /** Changes when the filters are cleared - the fields drop what is typed. */
+  filterResetKey: number;
   /** Group actions - the header gets a select-all checkbox when there are some. */
   groupActions?: GroupAction<T>[];
   /** Lets a column header be a drop target. */
@@ -136,6 +156,7 @@ export function TableHead<T>({
   columnRefs,
   columnWidths,
   expandColumnRef,
+  filterResetKey,
   filters,
   groupActions,
   handleDragOver,
@@ -191,22 +212,22 @@ export function TableHead<T>({
         {renderSubRow && (
           <th
             className="sticky z-2 w-10 bg-surface dark:bg-surface-dark"
-            data-column-key="expand"
+            data-leading-column="expand"
             ref={expandColumnRef}
-            style={getCellStyle(null, layoutOf("expand"), true)}
+            style={getCellStyle(null, layoutOf(LEADING_KEYS.expand), true)}
           >
-            <EdgeShadow side={layoutOf("expand").shadow} />
+            <EdgeShadow side={layoutOf(LEADING_KEYS.expand).shadow} />
             <span className="sr-only">{messages.dataTable.expandRow}</span>
           </th>
         )}
         {hasGroupActions && (
           <th
             className="sticky z-2 bg-surface px-2 py-1 text-left dark:bg-surface-dark"
-            data-column-key="selection"
+            data-leading-column="selection"
             ref={selectionColumnRef}
-            style={getCellStyle(null, layoutOf("selection"), true)}
+            style={getCellStyle(null, layoutOf(LEADING_KEYS.selection), true)}
           >
-            <EdgeShadow side={layoutOf("selection").shadow} />
+            <EdgeShadow side={layoutOf(LEADING_KEYS.selection).shadow} />
             <input
               aria-label={messages.dataTable.selectAllRows}
               checked={isAllSelected}
@@ -220,12 +241,12 @@ export function TableHead<T>({
         {actions && (
           <th
             className="sticky z-2 bg-surface px-2 py-1 text-left align-top text-sm font-medium dark:bg-surface-dark"
-            data-column-key="actions"
+            data-leading-column="actions"
             ref={actionColumnRef}
-            style={getCellStyle(null, layoutOf("actions"), true)}
+            style={getCellStyle(null, layoutOf(LEADING_KEYS.actions), true)}
           >
             <div className="absolute top-0 -right-px h-full border-r border-neutral-200 dark:border-neutral-800" />
-            <EdgeShadow side={layoutOf("actions").shadow} />
+            <EdgeShadow side={layoutOf(LEADING_KEYS.actions).shadow} />
             <span className="font-semibold">{messages.dataTable.actions}</span>
           </th>
         )}
@@ -312,7 +333,7 @@ export function TableHead<T>({
                   // The sort state is the `aria-sort` of the header
                   <button
                     className={cn(
-                      "link flex items-center gap-1 text-left",
+                      "cui-link flex items-center gap-1 text-left",
                       isSized && "min-w-0",
                     )}
                     onClick={() => onSort(column.key)}
@@ -404,26 +425,30 @@ export function TableHead<T>({
           {renderSubRow && (
             <td
               className="sticky z-1 bg-surface dark:bg-surface-dark"
-              style={getCellStyle(null, layoutOf("expand"), false)}
+              style={getCellStyle(null, layoutOf(LEADING_KEYS.expand), false)}
             >
-              <EdgeShadow side={layoutOf("expand").shadow} />
+              <EdgeShadow side={layoutOf(LEADING_KEYS.expand).shadow} />
             </td>
           )}
           {hasGroupActions && (
             <td
               className="sticky z-1 bg-surface dark:bg-surface-dark"
-              style={getCellStyle(null, layoutOf("selection"), false)}
+              style={getCellStyle(
+                null,
+                layoutOf(LEADING_KEYS.selection),
+                false,
+              )}
             >
-              <EdgeShadow side={layoutOf("selection").shadow} />
+              <EdgeShadow side={layoutOf(LEADING_KEYS.selection).shadow} />
             </td>
           )}
           {actions && (
             <td
               className="sticky z-1 bg-surface px-2 pb-1 align-top dark:bg-surface-dark"
-              style={getCellStyle(null, layoutOf("actions"), false)}
+              style={getCellStyle(null, layoutOf(LEADING_KEYS.actions), false)}
             >
               <div className="absolute top-0 -right-px h-full border-r border-neutral-200 dark:border-neutral-800" />
-              <EdgeShadow side={layoutOf("actions").shadow} />
+              <EdgeShadow side={layoutOf(LEADING_KEYS.actions).shadow} />
               <div className="flex justify-end">
                 <ClearFiltersButton
                   hasActiveFilters={hasActiveFilters}
@@ -451,6 +476,7 @@ export function TableHead<T>({
                     label={filterLabel}
                     onChange={(value) => onFilterChange(column.key, value)}
                     placeholder={filterPlaceholder}
+                    resetKey={filterResetKey}
                     value={filterValue}
                   />
                 )}

@@ -23,11 +23,10 @@ const columns = personColumns.map((column) =>
 );
 
 // GET /api/people?page=1&pageSize=10&sortBy=name&order=asc&q=…&department=…
-async function fetchPeople(query: DataTableQuery, signal: AbortSignal) {
+async function fetchPeople(query: DataTableQuery, signal?: AbortSignal) {
   const { filters, order, page, pageSize, search, sortBy } =
     toOffsetParams(query);
   const params = new URLSearchParams({
-    ...filters,
     page: String(page),
     pageSize: String(pageSize),
   });
@@ -36,16 +35,32 @@ async function fetchPeople(query: DataTableQuery, signal: AbortSignal) {
     params.set("sortBy", sortBy);
     params.set("order", order);
   }
+  // The column filters under their keys - a column keyed like one of the
+  // parameters above must not replace it (an API reading `filter[key]`
+  // keeps them apart for good)
+  for (const [key, value] of Object.entries(filters)) {
+    if (!params.has(key)) params.set(key, value);
+  }
 
   const response = await fetch(`/api/people?${params}`, { signal });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return (await response.json()) as PeoplePage;
 }
 
-// The CSV export - every row of the query, not just the page
+// The CSV export - every row of the query, not just the page: page after
+// page, as many as there are
 async function fetchAllPeople(query: DataTableQuery) {
-  const all = { ...query, page: 1, pageSize: 10_000 };
-  return (await fetchPeople(all, new AbortController().signal)).items;
+  const all: Person[] = [];
+
+  for (let page = 1; ; page++) {
+    const { items, total } = await fetchPeople({
+      ...query,
+      page,
+      pageSize: 1000,
+    });
+    all.push(...items);
+    if (items.length === 0 || all.length >= total) return all;
+  }
 }
 
 export default function RestTable() {

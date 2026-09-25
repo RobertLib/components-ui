@@ -10,8 +10,14 @@ import {
   ESTIMATED_ROW_HEIGHTS,
   getCellStyle,
   isSticky,
+  LEADING_KEYS,
   type CellLayout,
 } from "./cell-layout";
+import {
+  findMoveTarget,
+  type CellMove,
+  type CellPosition,
+} from "./cell-navigation";
 import { getTabbableElements } from "../../utils/tabbable";
 import { TableRow } from "./table-row";
 import { useLocale } from "../../providers/ui-context";
@@ -181,8 +187,9 @@ export function TableBody<T extends { id: RowId }>({
         `tr[data-row-index="${focus.rowIndex}"]`,
       ) ?? rows[rows.length - 1];
     const cell = row?.children[focus.cellIndex];
+    // An editable cell takes the focus - also one that is not the tab stop
     const target =
-      cell instanceof HTMLElement && cell.tabIndex >= 0
+      cell instanceof HTMLElement && cell.hasAttribute("tabindex")
         ? cell
         : getTabbableElements(cell ?? row)[0];
     target?.focus();
@@ -198,6 +205,112 @@ export function TableBody<T extends { id: RowId }>({
     keepIndex,
     scrollRef,
   });
+
+  // The editable cells are one tab stop (the grid pattern): the cell the
+  // focus was in last, or - when that one is gone - the first editable cell
+  // rendered. The arrow keys move the focus between them.
+  const [activeCell, setActiveCell] = useState<CellPosition | null>(null);
+  const hasEditableColumns = sortedVisibleColumns.some(
+    (column) => !!column.editable,
+  );
+  const renderedIndexes = segments.flatMap((segment) =>
+    segment.type === "row" ? [segment.index] : [],
+  );
+  let tabStop: CellPosition | null = null;
+
+  if (hasEditableColumns) {
+    const activeIndex = activeCell
+      ? data.findIndex((row) => row.id === activeCell.rowId)
+      : -1;
+    const activeColumn = sortedVisibleColumns.find(
+      (column) => column.key === activeCell?.columnKey,
+    );
+
+    if (
+      activeCell &&
+      activeColumn &&
+      renderedIndexes.includes(activeIndex) &&
+      isEditable(activeColumn, data[activeIndex])
+    ) {
+      tabStop = activeCell;
+    } else {
+      for (const index of renderedIndexes) {
+        const column = sortedVisibleColumns.find((candidate) =>
+          isEditable(candidate, data[index]),
+        );
+        if (column) {
+          tabStop = { columnKey: column.key, rowId: data[index].id };
+          break;
+        }
+      }
+    }
+  }
+
+  // A cell the arrow keys moved to that is still to be rendered - a row of
+  // a virtualized table far from the view
+  const pendingFocusRef = useRef<CellPosition | null>(null);
+
+  /** The element of a body cell, when it is rendered. */
+  const findCellElement = ({ columnKey, rowId }: CellPosition) => {
+    const index = data.findIndex((row) => row.id === rowId);
+    const rowElement = bodyRef.current?.querySelector(
+      `tr[data-row-index="${index}"]`,
+    );
+    return Array.from(rowElement?.children ?? []).find(
+      (cell): cell is HTMLElement =>
+        cell instanceof HTMLElement && cell.dataset.columnKey === columnKey,
+    );
+  };
+
+  useLayoutEffect(() => {
+    const pending = pendingFocusRef.current;
+    if (!pending) return;
+
+    // Given up once the focus has left the table or the row is gone - the
+    // cell must not take the focus from wherever the user is now
+    const body = bodyRef.current;
+    if (
+      !body?.contains(body.ownerDocument.activeElement) ||
+      !data.some((row) => row.id === pending.rowId)
+    ) {
+      pendingFocusRef.current = null;
+      return;
+    }
+
+    const cell = findCellElement(pending);
+    if (cell) {
+      pendingFocusRef.current = null;
+      cell.focus();
+    }
+  });
+
+  const moveCellFocus = (row: T, column: Column<T>, move: CellMove) => {
+    const target = findMoveTarget(
+      data,
+      sortedVisibleColumns,
+      isEditable,
+      data.indexOf(row),
+      sortedVisibleColumns.indexOf(column),
+      move,
+    );
+    if (!target) return;
+
+    setActiveCell(target);
+    const cell = findCellElement(target);
+    if (cell) {
+      cell.focus();
+    } else {
+      // Kept rendered as the row with the focus, then focused
+      pendingFocusRef.current = target;
+      setFocusedRowId(target.rowId);
+    }
+  };
+
+  const handleCellFocus = (rowId: RowId, columnKey: string) => {
+    if (activeCell?.rowId !== rowId || activeCell.columnKey !== columnKey) {
+      setActiveCell({ columnKey, rowId });
+    }
+  };
 
   const leadingLayout = (key: string) =>
     cellLayouts[key] ?? DEFAULT_CELL_LAYOUT;
@@ -222,7 +335,11 @@ export function TableBody<T extends { id: RowId }>({
           {renderSubRow && (
             <td
               className="sticky w-10 bg-surface text-center dark:bg-surface-dark"
-              style={getCellStyle(null, leadingLayout("expand"), false)}
+              style={getCellStyle(
+                null,
+                leadingLayout(LEADING_KEYS.expand),
+                false,
+              )}
             >
               <div className="mx-auto h-5 w-5 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
             </td>
@@ -233,7 +350,11 @@ export function TableBody<T extends { id: RowId }>({
                 "sticky bg-surface px-2 dark:bg-surface-dark",
                 densityClass,
               )}
-              style={getCellStyle(null, leadingLayout("selection"), false)}
+              style={getCellStyle(
+                null,
+                leadingLayout(LEADING_KEYS.selection),
+                false,
+              )}
             >
               <div className="h-4 w-4 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
             </td>
@@ -244,7 +365,11 @@ export function TableBody<T extends { id: RowId }>({
                 "sticky z-1 bg-surface px-2 dark:bg-surface-dark",
                 densityClass,
               )}
-              style={getCellStyle(null, leadingLayout("actions"), false)}
+              style={getCellStyle(
+                null,
+                leadingLayout(LEADING_KEYS.actions),
+                false,
+              )}
             >
               <div className="h-6 w-16 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
             </td>
@@ -370,11 +495,16 @@ export function TableBody<T extends { id: RowId }>({
               locale={locale}
               measureRef={measureRef}
               onCancelEdit={onCancelEdit}
+              onCellFocus={handleCellFocus}
+              onCellMove={moveCellFocus}
               onCommitEdit={onCommitEdit}
               onStartEdit={onStartEdit}
               renderSubRow={renderSubRow}
               row={row}
               rowIndex={index}
+              tabStopColumnKey={
+                tabStop?.rowId === row.id ? tabStop.columnKey : null
+              }
               toggleRowExpansion={toggleRowExpansion}
               toggleRowSelection={toggleRowSelection}
             />

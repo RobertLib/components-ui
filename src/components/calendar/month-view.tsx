@@ -1,11 +1,5 @@
 import type { CalendarViewProps } from "./types";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import cn from "../../utils/cn";
 import DateCell from "./date-cell";
 import Spinner from "../spinner";
@@ -17,7 +11,9 @@ import {
 } from "./date-utils";
 import { createDayFormat, isOnDay } from "./utils";
 import {
+  addMonths,
   dateOf,
+  formatMonthYear,
   getWeekdayNames,
   isSameDay,
   parseISODate,
@@ -25,6 +21,7 @@ import {
   startOfDay,
   toISODate,
 } from "../../utils/date";
+import useIsHydrated from "../../hooks/use-is-hydrated";
 import { useLocale } from "../../providers/ui-context";
 
 const DAY_KEYS: Record<string, number> = {
@@ -38,8 +35,6 @@ const DAY_KEYS: Record<string, number> = {
 const dayOf = (target: EventTarget | null) =>
   target instanceof HTMLElement ? parseISODate(target.dataset.day) : null;
 
-const subscribeToNothing = () => () => {};
-
 export default function MonthView({
   currentDate,
   events,
@@ -51,12 +46,18 @@ export default function MonthView({
   minDate,
   onDateClick,
   onEventClick,
+  onNavigate,
   renderEventActions,
   renderEventIcon,
   stickyHeader = true,
 }: CalendarViewProps) {
   const locale = useLocale();
   const weekdayNames = getWeekdayNames(locale.code, locale.weekStartsOn);
+  const longWeekdayNames = getWeekdayNames(
+    locale.code,
+    locale.weekStartsOn,
+    "long",
+  );
 
   const weeks = useMemo(() => {
     const result = [];
@@ -151,6 +152,18 @@ export default function MonthView({
     const day = dayOf(event.target);
     if (!day) return;
 
+    // Page Up / Down go to the same day of the previous / next month - with
+    // Shift of the year - and the calendar along with it
+    if (event.key === "PageUp" || event.key === "PageDown") {
+      event.preventDefault();
+      if (!onNavigate) return;
+      const offset =
+        (event.key === "PageUp" ? -1 : 1) * (event.shiftKey ? 12 : 1);
+      moveFocusRef.current = true;
+      onNavigate(addMonths(day, offset));
+      return;
+    }
+
     // Over a day the time zone skips - in the week, towards `day`
     const offset = daysIntoWeek(day, locale.weekStartsOn);
     const next =
@@ -175,12 +188,11 @@ export default function MonthView({
   const dayLabelFormat = createDayFormat(locale);
   // Unknown on the server and while a server-rendered page hydrates - its
   // clock and time zone may differ from the browser's
-  const isHydrated = useSyncExternalStore(
-    subscribeToNothing,
-    () => true,
-    () => false,
-  );
+  const isHydrated = useIsHydrated();
   const today = isHydrated ? new Date() : null;
+  // A grid the arrow keys move in with the day buttons - a table of the
+  // days without them
+  const isGrid = !!onDateClick;
 
   return (
     <div
@@ -197,61 +209,74 @@ export default function MonthView({
       )}
 
       <div
-        className={cn(
-          "grid grid-cols-7 border-b border-neutral-200 dark:border-neutral-800",
-          stickyHeader && "sticky top-0 z-10 bg-surface dark:bg-surface-dark",
-        )}
+        aria-label={formatMonthYear(currentDate, locale.code)}
+        className={cn(!stickyHeader && "h-full")}
+        role={isGrid ? "grid" : "table"}
       >
-        {weekdayNames.map((day, index) => (
-          <div
-            className="p-2 text-center font-medium text-neutral-500 dark:text-neutral-400"
-            key={index}
-          >
-            {day}
-          </div>
-        ))}
-      </div>
+        <div
+          className={cn(
+            "grid grid-cols-7 border-b border-neutral-200 dark:border-neutral-800",
+            stickyHeader && "sticky top-0 z-10 bg-surface dark:bg-surface-dark",
+          )}
+          role="row"
+        >
+          {weekdayNames.map((day, index) => (
+            <div
+              aria-label={longWeekdayNames[index]}
+              className="p-2 text-center font-medium text-neutral-500 dark:text-neutral-400"
+              key={index}
+              role="columnheader"
+            >
+              {day}
+            </div>
+          ))}
+        </div>
 
-      <div
-        className={cn("grid grid-rows-6", !stickyHeader && "h-full")}
-        onFocus={handleGridFocus}
-        onKeyDown={handleGridKeyDown}
-        ref={gridRef}
-      >
-        {weeks.map((week, i) => (
-          <div
-            className="grid grid-cols-7 border-b border-neutral-200 dark:border-neutral-800"
-            key={i}
-          >
-            {week.map((day, j) =>
-              day === null ? (
-                <div
-                  className="border-r border-neutral-200 dark:border-neutral-800"
-                  key={`${i}-${j}`}
-                />
-              ) : (
-                <DateCell
-                  date={day.date}
-                  disabled={day.disabled}
-                  events={day.events}
-                  getEventColor={getEventColor}
-                  getEventLabel={getEventLabel}
-                  isCurrentMonth={day.isCurrentMonth}
-                  isEventClickable={isEventClickable}
-                  isFocusTarget={isSameDay(day.date, focusedDate)}
-                  isSelected={day.isSelected}
-                  isToday={today !== null && isSameDay(day.date, today)}
-                  key={`${i}-${j}`}
-                  label={dayLabelFormat.format(day.date)}
-                  onDateClick={onDateClick}
-                  onEventClick={onEventClick}
-                  renderEventActions={renderEventActions}
-                  renderEventIcon={renderEventIcon}
-                />
-              ),
-            )}
-          </div>
-        ))}
+        <div
+          className={cn("grid grid-rows-6", !stickyHeader && "h-full")}
+          onFocus={handleGridFocus}
+          onKeyDown={handleGridKeyDown}
+          ref={gridRef}
+          role="rowgroup"
+        >
+          {weeks.map((week, i) => (
+            <div
+              className="grid grid-cols-7 border-b border-neutral-200 dark:border-neutral-800"
+              key={i}
+              role="row"
+            >
+              {week.map((day, j) =>
+                day === null ? (
+                  <div
+                    className="border-r border-neutral-200 dark:border-neutral-800"
+                    key={`${i}-${j}`}
+                    role={isGrid ? "gridcell" : "cell"}
+                  />
+                ) : (
+                  <DateCell
+                    date={day.date}
+                    disabled={day.disabled}
+                    events={day.events}
+                    getEventColor={getEventColor}
+                    getEventLabel={getEventLabel}
+                    isCurrentMonth={day.isCurrentMonth}
+                    isEventClickable={isEventClickable}
+                    isFocusTarget={isSameDay(day.date, focusedDate)}
+                    isSelected={day.isSelected}
+                    isToday={today !== null && isSameDay(day.date, today)}
+                    key={`${i}-${j}`}
+                    label={dayLabelFormat.format(day.date)}
+                    onDateClick={onDateClick}
+                    onEventClick={onEventClick}
+                    renderEventActions={renderEventActions}
+                    renderEventIcon={renderEventIcon}
+                    role={isGrid ? "gridcell" : "cell"}
+                  />
+                ),
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

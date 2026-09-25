@@ -38,6 +38,12 @@ export default function TooltipPage() {
             content use a <code>Popover</code>.
           </p>
           <p>
+            It opens on the other side of its trigger when <code>position</code>{" "}
+            has no room, and below or above a <code>left</code> /{" "}
+            <code>right</code> tooltip when neither side has it (a phone). It
+            always stays inside the viewport - over its trigger at last.
+          </p>
+          <p>
             The tooltip wraps its children in an inline element as wide as they
             are. To let a child fill its container - a truncated title in a list
             or a table cell - give the tooltip the width:{" "}

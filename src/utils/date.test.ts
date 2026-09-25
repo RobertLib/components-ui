@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  addMonths,
   capitalize,
   existingDayOf,
   expandTwoDigitYear,
   formatDate,
   formatMonthYear,
   formatPattern,
+  formatPlaceholder,
   getDayPeriods,
   getISOWeek,
   getISOWeeksInYear,
@@ -431,5 +433,32 @@ describe("names from Intl with an invalid locale code", () => {
     expect(capitalize("září", "en_GB")).toBe("Září");
     expect(getDayPeriods("en_GB")).toEqual(["AM", "PM"]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('"en_GB"'));
+  });
+});
+
+describe("formatPlaceholder", () => {
+  it("writes the tokens of a pattern as the language does", () => {
+    expect(formatPlaceholder("DD.MM.YYYY", { YYYY: "RRRR" })).toBe(
+      "DD.MM.RRRR",
+    );
+    expect(formatPlaceholder("MM/DD/YYYY h:mm A", { A: "AM/PM" })).toBe(
+      "MM/DD/YYYY h:mm AM/PM",
+    );
+    // Without the bracketed text - and every token left as it is
+    expect(formatPlaceholder("[W]WW.YYYY")).toBe("WW.YYYY");
+    expect(formatPlaceholder("[KW] WW YYYY", { WW: "WW" })).toBe(" WW YYYY");
+  });
+});
+
+describe("addMonths", () => {
+  it("keeps the day of the month - or goes to the last one", () => {
+    expect(addMonths(new Date(2026, 0, 31, 15), 1)).toEqual(
+      new Date(2026, 1, 28),
+    );
+    expect(addMonths(new Date(2024, 0, 31), 1)).toEqual(new Date(2024, 1, 29));
+    expect(addMonths(new Date(2026, 8, 24), -12)).toEqual(
+      new Date(2025, 8, 24),
+    );
+    expect(addMonths(new Date(2026, 11, 31), 2)).toEqual(new Date(2027, 1, 28));
   });
 });

@@ -45,7 +45,10 @@ function measureColumns(widths: Record<string, number>) {
   vi.stubGlobal("ResizeObserver", MeasuringObserver);
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
     function (this: Element) {
-      const key = this.getAttribute("data-column-key") ?? "";
+      const key =
+        this.getAttribute("data-column-key") ??
+        this.getAttribute("data-leading-column") ??
+        "";
       return { width: widths[key] ?? 0 } as DOMRect;
     },
   );
@@ -185,11 +188,13 @@ describe("DataTable pinned columns", () => {
       );
 
       const left = (key: string) =>
-        document.querySelector<HTMLElement>(`th[data-column-key="${key}"]`)
-          ?.style.left;
+        document.querySelector<HTMLElement>(
+          `th[data-column-key="${key}"], th[data-leading-column="${key}"]`,
+        )?.style.left;
       const right = (key: string) =>
-        document.querySelector<HTMLElement>(`th[data-column-key="${key}"]`)
-          ?.style.right;
+        document.querySelector<HTMLElement>(
+          `th[data-column-key="${key}"], th[data-leading-column="${key}"]`,
+        )?.style.right;
 
       expect(left("expand")).toBe("0px");
       expect(left("selection")).toBe("40px");
@@ -198,6 +203,65 @@ describe("DataTable pinned columns", () => {
       expect(left("team")).toBe("300px");
       expect(right("id")).toBe("0px");
       expect(right("salary")).toBe("50px");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps columns keyed like the expand, selection and actions columns apart from them", () => {
+    // The leading columns measure otherwise than the columns of their keys
+    vi.stubGlobal("ResizeObserver", MeasuringObserver);
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Element) {
+        const leading = this.getAttribute("data-leading-column");
+        const widths: Record<string, number> = leading
+          ? { actions: 80, expand: 40, selection: 30 }
+          : { actions: 200, expand: 300, name: 120, selection: 400 };
+        return {
+          width: widths[leading ?? this.getAttribute("data-column-key") ?? ""],
+        } as DOMRect;
+      },
+    );
+
+    try {
+      render(
+        <DataTable
+          actions={() => "Edit"}
+          columns={[
+            { key: "name", label: "Name", pinned: "left" },
+            { key: "actions", label: "Last actions" },
+            { key: "selection", label: "Chosen" },
+            { key: "expand", label: "Expansion" },
+          ]}
+          data={rows.map((row) => ({
+            ...row,
+            actions: "Called",
+            expand: "Yes",
+            selection: "A",
+          }))}
+          groupActions={[{ label: "Archive", onClick: () => {} }]}
+          renderSubRow={(row) => row.name}
+        />,
+      );
+
+      // The columns scroll, as they are not pinned
+      for (const name of ["Last actions", "Chosen", "Expansion"]) {
+        expect(header(name)).not.toHaveClass("sticky");
+        expect(header(name).style.left).toBe("auto");
+      }
+      // The pinned column comes after the leading ones as they measure
+      expect(header("Name")).toHaveStyle({ left: "150px" });
+      const leading = (key: string) =>
+        document.querySelector<HTMLElement>(`th[data-leading-column="${key}"]`)
+          ?.style.left;
+      expect(leading("expand")).toBe("0px");
+      expect(leading("selection")).toBe("40px");
+      expect(leading("actions")).toBe("70px");
+
+      const cells = screen.getAllByRole("row")[1].querySelectorAll("td");
+      expect(cells[3]).toHaveTextContent("Adam");
+      expect(cells[4]).toHaveTextContent("Called");
+      expect(cells[4]).not.toHaveClass("sticky");
     } finally {
       vi.unstubAllGlobals();
     }

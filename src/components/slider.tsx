@@ -11,10 +11,11 @@ import {
   useRef,
   useState,
 } from "react";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { formatMessage, formatNumber } from "../i18n/format";
+import { getNumberFormat, toCanonical } from "./number-input/number-format";
 import { useLocale } from "../providers/ui-context";
 
 /** A single value, or a range - its start and its end. */
@@ -364,10 +365,15 @@ export default function Slider<T extends SliderValue = number>({
   const vertical = orientation === "vertical";
   const styles = sizeStyles[size];
 
+  // The number of the locale shows 3 fraction digits - a finer step more
   const format = (thumbValue: number) =>
     formatValue
       ? formatValue(thumbValue)
-      : formatNumber(locale.code, thumbValue);
+      : decimals > 3
+        ? getNumberFormat(locale.code, {
+            maximumFractionDigits: Math.min(decimals, 20),
+          }).format(thumbValue)
+        : formatNumber(locale.code, thumbValue);
   const percent = (thumbValue: number) =>
     max > min ? ((thumbValue - min) / (max - min)) * 100 : 0;
 
@@ -376,7 +382,7 @@ export default function Slider<T extends SliderValue = number>({
   const labelId = `${sliderId}-label`;
   const errorId = error ? `${sliderId}-error` : undefined;
   const descriptionId = description ? `${sliderId}-description` : undefined;
-  const describedBy = cn(errorId, descriptionId, ariaDescribedBy);
+  const describedBy = joinTokens(errorId, descriptionId, ariaDescribedBy);
 
   // `form.reset()` - also the one after a React form action - brings back
   // the `defaultValue`
@@ -413,13 +419,15 @@ export default function Slider<T extends SliderValue = number>({
     onChange?.(report(nextValues));
   };
 
-  // Where a thumb may go - the thumbs of a range keep `minDistance` apart
+  // Where a thumb may go - the thumbs of a range keep `minDistance` apart.
+  // Thumbs closer than that already (a `value` of the parent) may move
+  // apart, but never jump away from where they are.
   const boundsOf = (index: number): [number, number] =>
     !isRange
       ? [min, max]
       : index === 0
-        ? [min, values[1] - minDistance]
-        : [values[0] + minDistance, max];
+        ? [min, Math.max(values[1] - minDistance, values[0])]
+        : [Math.min(values[0] + minDistance, values[1]), max];
 
   /** Moves a thumb to `target` - returns the new values, `null` for no change. */
   const moveThumb = (index: number, target: number) => {
@@ -761,7 +769,7 @@ export default function Slider<T extends SliderValue = number>({
                   !isRange && !label && !ariaLabelledBy ? ariaLabel : undefined
                 }
                 aria-labelledby={
-                  isRange ? cn(nameId, thumbNameIds[index]) : nameId
+                  isRange ? joinTokens(nameId, thumbNameIds[index]) : nameId
                 }
                 aria-orientation={orientation}
                 aria-valuemax={high}
@@ -891,7 +899,8 @@ export default function Slider<T extends SliderValue = number>({
             key={index}
             name={name}
             type="hidden"
-            value={thumbValue}
+            // "0.0000001", not the "1e-7" of `String()`
+            value={toCanonical(thumbValue)}
           />
         ))}
 

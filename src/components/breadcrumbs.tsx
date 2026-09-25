@@ -52,8 +52,8 @@ export default function Breadcrumbs({
       <ol className="flex min-w-0 flex-wrap items-center gap-y-1">
         {homeItem && (
           <li aria-hidden="true" className="flex items-center">
-            <Link className="link" href={homeItem.href} tabIndex={-1}>
-              <House className="mr-1.5" size={12} />
+            <Link className="cui-link" href={homeItem.href} tabIndex={-1}>
+              <House className="me-1.5" size={12} />
             </Link>
           </li>
         )}
@@ -71,7 +71,7 @@ export default function Breadcrumbs({
                   {label}
                 </span>
               ) : item.href ? (
-                <Link className="link truncate" href={item.href}>
+                <Link className="cui-link truncate" href={item.href}>
                   {label}
                 </Link>
               ) : (

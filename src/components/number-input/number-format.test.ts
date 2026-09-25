@@ -105,6 +105,52 @@ describe("getNumberFormat", () => {
     expect(percent.fractionDigits).toBe(1);
   });
 
+  it("reads a 0 before a separator as no group - 0,234 is 0.234", () => {
+    expect(en.parse("0,234")).toBe(0.234);
+    expect(en.parse("-0,234")).toBe(-0.234);
+    expect(getNumberFormat("de-DE").parse("0.234")).toBe(0.234);
+    // After another digit it still groups
+    expect(en.parse("10,234")).toBe(10234);
+  });
+
+  it("reads the parentheses of an accounting format as a minus sign", () => {
+    const accounting = getNumberFormat("en-US", {
+      currency: "USD",
+      currencySign: "accounting",
+      style: "currency",
+    });
+    expect(accounting.format(-1234.5)).toBe("($1,234.50)");
+    expect(accounting.parse("($1,234.50)")).toBe(-1234.5);
+    expect(accounting.parse("(12)")).toBe(-12);
+    expect(accounting.parse("$12")).toBe(12);
+    expect(accounting.isPartial("(12)", false)).toBe(false);
+    expect(accounting.parse("(-12)")).toBeNull();
+    // Without an accounting format parentheses are no number
+    expect(en.parse("(12)")).toBeNull();
+  });
+
+  it("refuses a number too long for a double", () => {
+    expect(en.parse("9".repeat(400))).toBeNull();
+    expect(en.isPartial("9".repeat(400), true)).toBe(false);
+    expect(en.parse("9".repeat(300))).toBe(1e300);
+  });
+
+  it("reads the digits of the locale's own numbering system", () => {
+    const arabic = getNumberFormat("ar-EG");
+    expect(arabic.format(1234.5)).toBe(
+      "\u0661\u066c\u0662\u0663\u0664\u066b\u0665",
+    );
+    expect(arabic.parse(arabic.format(1234.5))).toBe(1234.5);
+    expect(arabic.parse("\u0661\u0662\u066b\u0665")).toBe(12.5);
+    // The edited text has Latin digits - those parse too
+    expect(arabic.toEditText(1234.5)).toBe("1234.5");
+    expect(arabic.parse("1234.5")).toBe(1234.5);
+
+    const persian = getNumberFormat("fa");
+    expect(persian.parse(persian.format(-1234.5))).toBe(-1234.5);
+    expect(getNumberFormat("th-TH-u-nu-thai").parse("\u0e51\u0e52")).toBe(12);
+  });
+
   it("falls back to the plain format for options Intl refuses", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const format = getNumberFormat("cs-CZ", { style: "currency" });
@@ -140,7 +186,37 @@ describe("stepValue", () => {
     expect(stepValue(1, -1, 10, { min: 0, step: 1 })).toBe(0);
     // The last step within max, as a native input does
     expect(stepValue(8, 1, 1, { max: 10, min: 0, step: 3 })).toBe(9);
-    expect(stepValue(150, 1, 1, { max: 100, step: 1 })).toBe(100);
+    expect(stepValue(150, -1, 1, { max: 100, step: 1 })).toBe(100);
+    expect(stepValue(-5, 1, 1, { min: 0, step: 1 })).toBe(0);
+  });
+
+  it("never lowers the value going up, or raises it going down", () => {
+    // A max off the grid of the steps - the last step is below it
+    expect(stepValue(10, 1, 1, { max: 10, min: 0, step: 3 })).toBe(10);
+    expect(stepValue(9.5, 1, 1, { max: 10, min: 0, step: 3 })).toBe(9.5);
+    expect(stepValue(10, 1, 1, { max: 10, min: 0.5, step: 1 })).toBe(10);
+    // A value past a bound stays - as the stepUp() of a native input
+    expect(stepValue(150, 1, 1, { max: 100, step: 1 })).toBe(150);
+    expect(stepValue(-5, -1, 1, { min: 0, step: 1 })).toBe(-5);
+  });
+
+  it("steps large values with a small step", () => {
+    const steps = [0.1, 0.01, 0.05, 0.001];
+    for (const step of steps) {
+      const decimals = String(step).split(".")[1].length;
+      for (const magnitude of [1e5, 1e6, 1e7, 1e9, 1e11]) {
+        for (let index = 0; index < 50; index++) {
+          const value = Number((magnitude + index * step).toFixed(decimals));
+          const up = Number((value + step).toFixed(decimals));
+          const down = Number((value - step).toFixed(decimals));
+          expect(stepValue(value, 1, 1, { step })).toBe(up);
+          expect(stepValue(value, -1, 1, { step })).toBe(down);
+        }
+      }
+    }
+    // Off the grid it still moves to the next step
+    expect(stepValue(1000000.191, 1, 1, { step: 0.01 })).toBe(1000000.2);
+    expect(stepValue(1000000.191, -1, 1, { step: 0.01 })).toBe(1000000.19);
   });
 
   it("starts an empty field at a bound or 0", () => {

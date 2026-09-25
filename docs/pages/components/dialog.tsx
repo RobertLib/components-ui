@@ -46,10 +46,27 @@ export default function DialogPage() {
               button), stays trapped in it while it is open - also after a click
               on the backdrop or the page - and returns to where it was
               afterwards; to the trigger of a popover when the dialog was opened
-              from its panel, which has closed meanwhile. Popovers opened in it
-              and the toasts of <code>SnackbarProvider</code> stay reachable -
-              Tab goes on from the last control of the dialog to the toasts. The
-              toasts show above the backdrop.
+              from its panel, which has closed meanwhile; and when that is gone
+              too - the delete button of a row the dialog deleted - to the Tab
+              stop that followed it (the next row), else to the one before it.
+              Popovers opened in it and the toasts of{" "}
+              <code>SnackbarProvider</code> stay reachable - Tab goes on from
+              the last control of the dialog to the toasts. The toasts show
+              above the backdrop.
+            </li>
+            <li>
+              A popover the dialog was opened from stays open under it, also
+              when the dialog is rendered elsewhere - the question of{" "}
+              <code>useConfirm()</code> asked from a button in the panel. Its
+              draft is still there once the dialog closes.
+            </li>
+            <li>
+              The page behind is hidden from screen readers while it is open (
+              <code>aria-hidden</code> on everything outside the dialog, besides{" "}
+              <code>aria-modal</code>, which not every screen reader honours) -
+              except the popovers opened in it and the toasts. It is shown again
+              as the dialog starts closing. Tests of the page behind an open
+              dialog query it with <code>{"{ hidden: true }"}</code>.
             </li>
             <li>
               Escape closes it - unless a popover, a list or a tooltip inside is
@@ -59,8 +76,11 @@ export default function DialogPage() {
               or over the slid-in Drawer.
             </li>
             <li>
-              The page behind does not scroll, and does not shift sideways where
-              its scrollbar takes room.
+              The page behind does not scroll - also a page whose root scrolls (
+              <code>html {"{ overflow-y: scroll }"}</code>) - and does not shift
+              sideways where its scrollbar takes room. The dialog is never
+              taller than 90% of the visible screen, without the toolbars of a
+              mobile browser (<code>dvh</code>).
             </li>
             <li>
               It is rendered into <code>document.body</code>, so sticky table
@@ -90,12 +110,13 @@ export default function DialogPage() {
             the slid-in Drawer share with <code>useOverlay</code>: Escape goes
             to the topmost overlay only, overlays opened later count above it,
             and a Dialog under it lets the focus into it. With{" "}
-            <code>modal</code> it also traps the focus, locks the page scroll
-            and gives the focus back once it closes. Wrap its content in{" "}
-            <code>OverlayScope</code>, so popovers opened in it stack above it
-            even when they open together with it. <code>Overlay</code> is the
-            dimmed backdrop to put behind it. (For a side panel of your own,
-            first see whether a <Link to="/components/sheet">Sheet</Link> does.)
+            <code>modal</code> it also traps the focus, hides the page behind
+            from screen readers, locks the page scroll and gives the focus back
+            once it closes. Wrap its content in <code>OverlayScope</code>, so
+            popovers opened in it stack above it even when they open together
+            with it. <code>Overlay</code> is the dimmed backdrop to put behind
+            it. (For a side panel of your own, first see whether a{" "}
+            <Link to="/components/sheet">Sheet</Link> does.)
           </p>
         </Prose>
       </Section>

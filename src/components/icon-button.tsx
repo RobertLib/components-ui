@@ -1,7 +1,10 @@
 import cn from "../utils/cn";
 
 export interface IconButtonProps extends React.ComponentProps<"button"> {
-  /** Shows a spinner instead of the icon and disables the button. */
+  /**
+   * Shows a spinner instead of the icon and makes the button do nothing
+   * (`aria-disabled`) - it keeps the focus, unlike `disabled`.
+   */
   loading?: boolean;
   /**
    * Color of the icon.
@@ -9,6 +12,15 @@ export interface IconButtonProps extends React.ComponentProps<"button"> {
    */
   variant?: "default" | "primary" | "secondary" | "danger";
 }
+
+/**
+ * The click of a loading button - it does nothing, not even submit a form,
+ * and like the click of a disabled button reaches no `onClick` around it.
+ */
+const preventActivation = (event: React.MouseEvent) => {
+  event.preventDefault();
+  event.stopPropagation();
+};
 
 /**
  * A borderless button for a single icon. Give it an `aria-label` - the icon
@@ -31,18 +43,23 @@ export default function IconButton({
   };
 
   const disabledStyles = "opacity-50 cursor-not-allowed";
+  // Loading, it looks disabled but stays focusable - a native `disabled`
+  // would drop the focus of the button just pressed to the page
+  const isBusy = loading && !disabled;
 
   return (
     <button
       {...props}
       aria-busy={loading || undefined}
+      aria-disabled={isBusy || props["aria-disabled"]}
       className={cn(
         "-m-1 cursor-pointer rounded-md p-1 leading-none transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-neutral-800",
         variantStyles[variant],
         (disabled || loading) && disabledStyles,
         className,
       )}
-      disabled={disabled || loading}
+      disabled={disabled}
+      onClick={isBusy ? preventActivation : props.onClick}
       type={type ?? "button"}
     >
       {loading ? (

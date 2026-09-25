@@ -8,7 +8,12 @@ import {
 } from "./parse";
 import TimeLists from "./time-lists";
 import usePickerPopup from "./use-picker-popup";
-import { formatPattern, getDayPeriods, usesHour12 } from "../../utils/date";
+import {
+  formatPattern,
+  formatPlaceholder,
+  getDayPeriods,
+  usesHour12,
+} from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
 
@@ -53,6 +58,10 @@ export default function TimePicker({
             )
           : ""
       }
+      format={formatPlaceholder(
+        locale.formats.time,
+        messages.placeholderTokens,
+      )}
       icon="clock"
       inputRef={inputRef}
       isOpen={isOpen}
@@ -67,10 +76,11 @@ export default function TimePicker({
           "time",
           dayPeriods,
         );
+        if (!typed) return { error: "format" };
         // An allowed time goes onto the minute step
-        return typed && isTimeInRange(typed, minTime, maxTime)
-          ? snapTime(typed, minuteStep, minTime, maxTime)
-          : null;
+        return isTimeInRange(typed, minTime, maxTime)
+          ? { value: snapTime(typed, minuteStep, minTime, maxTime) }
+          : { error: "range" };
       }}
       placeholder={placeholder}
       popupLabel={messages.selectTime}

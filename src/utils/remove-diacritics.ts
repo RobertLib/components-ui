@@ -42,13 +42,52 @@ const FOLDED_PATTERN = new RegExp(
   "g",
 );
 
-/**
- * The text without accents - "Příliš žluťoučký" → "Prilis zlutoucky",
- * "Łódź" → "Lodz". A text of precomposed letters keeps its length.
- */
-export default function removeDiacritics(value: string): string {
-  return value
+// A letter that may carry an accent - or an accent written on its own, as a
+// combining mark after its letter
+const NON_ASCII = /[^\p{ASCII}]/gu;
+
+/** A letter without its accents - decomposed, stripped, composed again. */
+const stripLetter = (letter: string) =>
+  letter
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
-    .replace(FOLDED_PATTERN, (letter) => FOLDED_LETTERS[letter]);
+    .replace(FOLDED_PATTERN, (folded) => FOLDED_LETTERS[folded])
+    .normalize("NFC");
+
+// The letters folded so far - a text repeats a few of them, and a search
+// folds thousands of texts at every key. Bounded for texts of scripts with
+// thousands of letters.
+const foldedLetters = new Map<string, string>();
+const MAX_CACHED_LETTERS = 4096;
+
+const foldLetter = (letter: string) => {
+  let folded = foldedLetters.get(letter);
+  if (folded === undefined) {
+    folded = stripLetter(letter);
+    if (foldedLetters.size >= MAX_CACHED_LETTERS) foldedLetters.clear();
+    foldedLetters.set(letter, folded);
+  }
+  return folded;
+};
+
+/**
+ * The text without accents - "Příliš žluťoučký" → "Prilis zlutoucky",
+ * "Łódź" → "Lodz". Everything else stays as it is, also the letters of other
+ * scripts - a Korean syllable, a kana with its voicing mark - whether they
+ * are written composed or not. A text of precomposed letters keeps its
+ * length. Letter by letter, so a text folds to what its letters fold to one
+ * by one - a search can map a match back into the original.
+ */
+export default function removeDiacritics(value: string): string {
+  return value.replace(NON_ASCII, foldLetter);
 }
+
+/**
+ * A text as the searches of the library compare it: without accents, in
+ * lower case, decomposed - "한" written composed or not is the same, as the
+ * Greek final sigma is the plain one ("ΟΔΟΣ" and a typed "οδος"). A text
+ * folds to what its letters fold to one by one, so a search can map a match
+ * back into the original.
+ */
+export const foldSearchText = (text: string) =>
+  removeDiacritics(text).normalize("NFD").toLowerCase().replace(/ς/g, "σ");

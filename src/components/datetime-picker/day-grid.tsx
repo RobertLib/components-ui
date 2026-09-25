@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import cn from "../../utils/cn";
 import { toIntlLocale } from "../../i18n/format";
 import {
+  addMonths,
   dateOf,
   formatMonthYear,
   getMonthDays,
@@ -63,16 +64,13 @@ const lastOfMonth = (date: Date) =>
 const shiftMonth = (date: Date, offset: number) =>
   dateOf(date.getFullYear(), date.getMonth() + offset, 1);
 
-/** The day `offset` months from `date` - the last one of a shorter month. */
-const addMonths = (date: Date, offset: number) => {
-  const target = shiftMonth(date, offset);
-  target.setDate(Math.min(date.getDate(), lastOfMonth(target).getDate()));
-  return target;
-};
-
 // Years offered around today without `min` / `max` - birth dates included
 const YEARS_BACK = 100;
 const YEARS_AHEAD = 20;
+
+// The most years the year select offers before and after the shown one -
+// limits like `0001-01-01` - `9999-12-31` would give it thousands
+const MAX_YEARS_AROUND = 100;
 
 const selectClassName =
   "cursor-pointer rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-semibold hover:border-neutral-300 focus:border-neutral-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:border-neutral-600 dark:focus:border-neutral-600";
@@ -134,6 +132,11 @@ export default function DayGrid({
   // The focused day takes the focus when a key moved it - not when the
   // month changed by a click or a select, where the focus stays
   const moveFocusRef = useRef(autoFocus);
+
+  // The months shown - said to screen readers when the buttons or the
+  // selects change them. A key moving the focus to another month is not:
+  // the day it focuses says its month.
+  const [announcement, setAnnouncement] = useState("");
 
   // A day selected while the grid is open - picked, or typed into the
   // field - becomes the focused one, in its month
@@ -198,6 +201,11 @@ export default function DayGrid({
   const showMonth = (year: number, monthIndex: number) => {
     const target = dateOf(year, monthIndex, 1);
     setMonth(target);
+    setAnnouncement(
+      Array.from({ length: months }, (_, index) =>
+        formatMonthYear(shiftMonth(target, index), locale.code),
+      ).join(" – "),
+    );
     setFocusedDate(
       dateOf(
         target.getFullYear(),
@@ -235,6 +243,9 @@ export default function DayGrid({
     // disabled one, and over a day the time zone skips
     const onDay = "day" in (event.target as HTMLElement).dataset;
     const from = tabStop ?? focusedDate;
+    // Home / End go to the ends of the week, like in the month view of the
+    // calendar - over a day the time zone skips, towards `from`
+    const intoWeek = (from.getDay() - locale.weekStartsOn + 7) % 7;
     let target: Date | null = null;
 
     switch (event.key) {
@@ -251,10 +262,10 @@ export default function DayGrid({
         if (onDay) target = shiftDay(from, 7);
         break;
       case "Home":
-        if (onDay) target = firstOfMonth(from);
+        if (onDay) target = shiftDay(from, -intoWeek, 1);
         break;
       case "End":
-        if (onDay) target = lastOfMonth(from);
+        if (onDay) target = shiftDay(from, 6 - intoWeek, -1);
         break;
       case "PageUp":
       case "PageDown": {
@@ -302,14 +313,20 @@ export default function DayGrid({
   });
 
   // From `min` to `max`, or a century back and some years ahead - always
-  // with the year on screen
+  // with the year on screen, and at most a century on either side of it
   const shownYear = month.getFullYear();
   const firstYear = Math.min(
-    min?.getFullYear() ?? today.getFullYear() - YEARS_BACK,
+    Math.max(
+      min?.getFullYear() ?? today.getFullYear() - YEARS_BACK,
+      shownYear - MAX_YEARS_AROUND,
+    ),
     shownYear,
   );
   const lastYear = Math.max(
-    max?.getFullYear() ?? today.getFullYear() + YEARS_AHEAD,
+    Math.min(
+      max?.getFullYear() ?? today.getFullYear() + YEARS_AHEAD,
+      shownYear + MAX_YEARS_AROUND,
+    ),
     shownYear,
   );
   const years = Array.from(
@@ -472,6 +489,9 @@ export default function DayGrid({
   // button before the days, whichever month has the tab stop
   return (
     <div onKeyDown={handleKeyDown} ref={gridRef}>
+      <div aria-live="polite" className="sr-only">
+        {announcement}
+      </div>
       <div className="mb-2 flex gap-4">
         {shownMonths.map((shownMonth, index) => (
           <div

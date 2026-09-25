@@ -259,6 +259,50 @@ describe("Popover in hover mode", () => {
     expect(screen.queryByText("The whole text")).toBeNull();
   });
 
+  it("moves Tab from its trigger into the panel and on past it", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Popover trigger={<button type="button">Plan</button>}>
+          <a href="/pricing">Compare plans</a>
+        </Popover>
+        <button type="button">Next</button>
+      </>,
+    );
+
+    await user.tab();
+    // Opened on keyboard focus - its link is reached right after the trigger
+    await user.tab();
+    expect(screen.getByRole("link", { name: "Compare plans" })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Next" })).toHaveFocus();
+    expect(screen.queryByRole("link", { name: "Compare plans" })).toBeNull();
+  });
+
+  it("goes into the panel only from the last control of its trigger", async () => {
+    const user = userEvent.setup();
+    render(
+      <Popover
+        trigger={
+          <span>
+            <button type="button">Plan</button>
+            <button type="button">Details</button>
+          </span>
+        }
+      >
+        <a href="/pricing">Compare plans</a>
+      </Popover>,
+    );
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Plan" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Details" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("link", { name: "Compare plans" })).toHaveFocus();
+  });
+
   it("stays open while the pointer moves from the panel back to the trigger", async () => {
     const user = userEvent.setup();
     render(
@@ -342,6 +386,34 @@ describe("Popover from the keyboard", () => {
     expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
   });
 
+  it("goes round to the first control of a Dialog it is the last one of", async () => {
+    const user = userEvent.setup();
+    render(
+      <Dialog open title="Report">
+        <input aria-label="Name" />
+        <Popover
+          aria-label="Filters"
+          trigger={<span>Filters</span>}
+          triggerType="click"
+        >
+          <button type="button">Apply</button>
+        </Popover>
+      </Dialog>,
+    );
+
+    await act(() => sleep(20));
+    const trigger = screen.getByRole("button", { name: "Filters" });
+    act(() => trigger.focus());
+    await user.keyboard("{Enter}");
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Apply" })).toHaveFocus();
+
+    // Past the end of the panel - as Tab past the last control of the dialog
+    await user.tab();
+    expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Close dialog" })).toHaveFocus();
+  });
+
   it("gives the focus back to the trigger when Escape closes it", async () => {
     const user = userEvent.setup();
     render(panel);
@@ -400,6 +472,34 @@ describe("Popover focus", () => {
     act(() => screen.getByRole("button", { name: "Elsewhere" }).focus());
 
     expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+  });
+
+  it("closes on a click on a button trigger while the focus is in the panel - also in Safari", async () => {
+    render(
+      <Popover
+        buttonTrigger
+        trigger={<button type="button">Filters</button>}
+        triggerType="click"
+      >
+        <input aria-label="Search" />
+      </Popover>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Filters" });
+    fireEvent.click(trigger);
+    await act(async () => {});
+    const search = screen.getByRole("textbox", { name: "Search" });
+    act(() => search.focus());
+
+    // Safari does not focus a button on a click - the focus goes to the
+    // page, and the click that follows toggles the popover
+    fireEvent.mouseDown(trigger);
+    act(() => search.blur());
+    fireEvent.mouseUp(trigger);
+    fireEvent.click(trigger);
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("textbox", { name: "Search" })).toBeNull();
   });
 
   it("closes when a Dialog opened from the page takes the focus", async () => {
@@ -1150,6 +1250,28 @@ describe("Popover renders", () => {
     triggerTop = 300;
     await user.hover(screen.getByText("Trigger"));
     expect(tops).toEqual(["100px", "300px"]);
+  });
+});
+
+describe("Popover in a right-to-left part of the page", () => {
+  it("gives its panel, a portal in the body, the direction of its trigger", async () => {
+    const user = userEvent.setup();
+    render(
+      <div dir="rtl">
+        <Popover
+          aria-label="Filters"
+          trigger={<span>Filters</span>}
+          triggerType="click"
+        >
+          <button type="button">Apply</button>
+        </Popover>
+      </div>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    const panel = screen.getByRole("dialog", { name: "Filters" });
+    expect(panel.closest("[dir]")).toHaveAttribute("dir", "rtl");
+    expect(panel.closest("[dir]")?.parentElement).toBe(document.body);
   });
 });
 

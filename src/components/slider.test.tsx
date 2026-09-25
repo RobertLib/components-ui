@@ -208,6 +208,37 @@ describe("Slider", () => {
       expect(onChange).toHaveBeenCalledTimes(2);
     });
 
+    it("never moves a thumb closer than minDistance the wrong way", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <Slider
+          aria-label="Price"
+          // Closer than minDistance already - e.g. saved before it was set
+          defaultValue={[50, 52]}
+          minDistance={5}
+          onChange={onChange}
+        />,
+      );
+
+      const start = screen.getByRole("slider", { name: "Price minimum" });
+      const end = screen.getByRole("slider", { name: "Price maximum" });
+      expect(start).toHaveAttribute("aria-valuemax", "50");
+      expect(end).toHaveAttribute("aria-valuemin", "52");
+
+      start.focus();
+      await user.keyboard("{ArrowRight}");
+      expect(onChange).not.toHaveBeenCalled();
+      await user.keyboard("{ArrowLeft}");
+      expect(onChange).toHaveBeenLastCalledWith([49, 52]);
+
+      end.focus();
+      await user.keyboard("{ArrowLeft}");
+      expect(onChange).toHaveBeenCalledTimes(1);
+      await user.keyboard("{ArrowRight}");
+      expect(onChange).toHaveBeenLastCalledWith([49, 53]);
+    });
+
     it("submits the start and the end under its name", () => {
       render(
         <form aria-label="Filter">
@@ -520,6 +551,27 @@ describe("Slider", () => {
     act(() => getForm().reset());
     expect(screen.getByRole("slider")).toHaveAttribute("aria-valuenow", "30");
     expect(new FormData(getForm()).get("volume")).toBe("30");
+  });
+
+  it("writes the values of a fine step with all their digits", () => {
+    render(
+      <form aria-label="Filter">
+        <Slider
+          aria-label="Tolerance"
+          defaultValue={0.0000001}
+          max={0.000001}
+          name="tolerance"
+          showValue
+          step={0.0000001}
+        />
+      </form>,
+    );
+
+    expect(new FormData(getForm()).get("tolerance")).toBe("0.0000001");
+    expect(screen.getByRole("slider")).toHaveAttribute(
+      "aria-valuetext",
+      "0.0000001",
+    );
   });
 
   it("shows the value next to the label, a range too", () => {

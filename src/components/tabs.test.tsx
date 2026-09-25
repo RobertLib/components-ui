@@ -90,6 +90,29 @@ describe("Tabs", () => {
   });
 });
 
+describe("Tabs while loading", () => {
+  it("are a busy list of placeholders - no tablist without tabs", () => {
+    const items = [
+      { label: "Orders", value: "orders" },
+      { label: "Invoices", value: "invoices" },
+    ];
+    const { container, rerender } = render(
+      <Tabs items={items} loading value="orders" />,
+    );
+
+    expect(screen.queryByRole("tablist")).toBeNull();
+    const list = container.querySelector("ul")!;
+    expect(list).toHaveAttribute("aria-busy", "true");
+    expect(list).not.toHaveAttribute("aria-orientation");
+    // The placeholders say nothing
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+
+    rerender(<Tabs items={items} value="orders" />);
+    expect(screen.getByRole("tablist")).not.toHaveAttribute("aria-busy");
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+  });
+});
+
 describe("Tabs with query parameters", () => {
   const activeTab = () =>
     screen

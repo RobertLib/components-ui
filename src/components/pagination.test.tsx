@@ -1,7 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import Pagination from "./pagination";
 import { cs } from "../i18n/cs";
 import UIProvider from "../providers/ui-provider";
@@ -106,5 +106,61 @@ describe("Pagination", () => {
     await user.keyboard("{Enter}");
     expect(first).toHaveFocus();
     expect(first).toHaveAttribute("aria-disabled", "true");
+  });
+});
+
+describe("Pagination of a cursor connection", () => {
+  const pageInfo = {
+    endCursor: "c20",
+    hasNextPage: true,
+    hasPreviousPage: false,
+    startCursor: "c1",
+  };
+
+  it("waits after a move until the load it reports ends", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <Pagination loading={false} onChange={onChange} pageInfo={pageInfo} />,
+    );
+    const next = screen.getByRole("button", { name: "Next page" });
+
+    await user.click(next);
+    // The old cursors would repeat the move
+    await user.click(next);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(next).toHaveAttribute("aria-disabled", "true");
+
+    // The load failed - the same page info, the move can be tried again
+    rerender(<Pagination loading onChange={onChange} pageInfo={pageInfo} />);
+    rerender(
+      <Pagination loading={false} onChange={onChange} pageInfo={pageInfo} />,
+    );
+    expect(next).not.toHaveAttribute("aria-disabled");
+    await user.click(next);
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not wait for good without a loading state", async () => {
+    vi.useFakeTimers();
+    try {
+      const onChange = vi.fn();
+      render(<Pagination onChange={onChange} pageInfo={pageInfo} />);
+      const next = screen.getByRole("button", { name: "Next page" });
+
+      fireEvent.click(next);
+      fireEvent.click(next);
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(next).toHaveAttribute("aria-disabled", "true");
+
+      // The load failed and nothing said so - the page info stays
+      act(() => vi.advanceTimersByTime(10_000));
+      expect(next).not.toHaveAttribute("aria-disabled");
+      fireEvent.click(next);
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(onChange).toHaveBeenLastCalledWith("next", "c20");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

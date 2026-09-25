@@ -17,8 +17,9 @@ export type ColumnEditor = "text" | "number" | "select" | "date" | "checkbox";
 
 /**
  * What the summary row shows under a column: `sum`, `avg` (the mean),
- * `min` and `max` of the numbers (`min` / `max` also of dates), `count` of
- * the rows - or a function of the rows returning the content itself.
+ * `min` and `max` of the numbers (`min` / `max` also of dates - `Date`s or
+ * ISO texts like `2026-09-24`), `count` of the rows - or a function of the
+ * rows returning the content itself.
  */
 export type ColumnSummary<T> =
   "sum" | "avg" | "min" | "max" | "count" | ((rows: T[]) => React.ReactNode);
@@ -102,8 +103,10 @@ export interface Column<T> {
   /**
    * The value of the cell for client-side sorting, filtering and searching -
    * and for display when there is no `render`: dates are shown by the date
-   * format of the locale, booleans as its "Yes" / "No". Defaults to
-   * `row[key]`.
+   * format of the locale in the local time zone (a server rendering the table
+   * in another zone than the browser shows other text - build a day from its
+   * parts, `new Date(year, month - 1, day)`), booleans as its "Yes" / "No".
+   * Defaults to `row[key]`.
    */
   getValue?: (row: T) => unknown;
   /** Unique key of the column - also the default field of the row shown. */
@@ -160,12 +163,20 @@ export interface Column<T> {
 export interface GroupActionSelection<T> {
   /**
    * Every row matching the current filters is selected, not just the loaded
-   * ones - with server data act on the filters (`query`) rather than on
-   * `rows` then.
+   * ones - but `excludedRows` - with server data act on the filters
+   * (`query`) rather than on `rows` then.
    */
   allFiltered: boolean;
-  /** Number of selected rows - all rows matching the filters when `allFiltered`. */
+  /**
+   * Number of selected rows - all rows matching the filters but
+   * `excludedRows` when `allFiltered`.
+   */
   count: number;
+  /**
+   * `allFiltered`: the matching rows the user unchecked afterwards - they
+   * are not selected. Empty otherwise.
+   */
+  excludedRows: T[];
   /**
    * The query the rows were selected under - its `filters` and `search` let
    * a server find all the rows of an `allFiltered` selection.
@@ -173,7 +184,8 @@ export interface GroupActionSelection<T> {
   query: DataTableQuery;
   /**
    * The selected rows that are loaded - with `allFiltered` all matching rows
-   * of a `clientSide` table, the rows of the page with server data.
+   * of a `clientSide` table, the rows of the page with server data (without
+   * `excludedRows` either way).
    */
   rows: T[];
 }
@@ -193,6 +205,11 @@ export interface GroupAction<T> {
 }
 
 export interface FilteredSelectionConfig {
+  /**
+   * "{count} matching rows are selected." - all matching rows but some the
+   * user unchecked afterwards. `{count}` is shown in bold.
+   */
+  allExceptSelectionLabel?: string;
   /** "All {count} rows are selected." - `{count}` is shown in bold. */
   allSelectionLabel?: string;
   /** "Clear selection" */

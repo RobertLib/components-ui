@@ -400,6 +400,42 @@ describe("TagsInput", () => {
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     });
 
+    it("keeps the highlight of the arrow keys under a pointer that does not move", async () => {
+      const user = userEvent.setup();
+      render(<TagsInput label="Skills" suggestions={skills} />);
+      const combobox = screen.getByRole("combobox", { name: "Skills:" });
+      const highlighted = () =>
+        document.getElementById(
+          combobox.getAttribute("aria-activedescendant") ?? "",
+        )?.textContent;
+
+      await user.click(combobox);
+      await user.keyboard("{ArrowDown}");
+      fireEvent.mouseMove(screen.getByRole("option", { name: "GraphQL" }), {
+        clientX: 10,
+        clientY: 30,
+      });
+      expect(highlighted()).toBe("GraphQL");
+
+      await user.keyboard("{ArrowDown}");
+      expect(highlighted()).toBe("Čeština");
+
+      // Chrome after the list scrolled: another suggestion under the
+      // pointer, which has not moved
+      fireEvent.mouseMove(screen.getByRole("option", { name: "React" }), {
+        clientX: 10,
+        clientY: 30,
+      });
+      expect(highlighted()).toBe("Čeština");
+
+      // A real move of the pointer
+      fireEvent.mouseMove(screen.getByRole("option", { name: "React" }), {
+        clientX: 10,
+        clientY: 12,
+      });
+      expect(highlighted()).toBe("React");
+    });
+
     it("adds a clicked suggestion, and the typed text as a suggestion spells it", async () => {
       const user = userEvent.setup();
       const onChange = vi.fn();

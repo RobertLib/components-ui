@@ -1,8 +1,15 @@
-import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 import cn from "../utils/cn";
 import logger from "../utils/logger";
 import Toast, {
+  LIVE_REGION_DELAY,
   type ToastAction,
   type ToastVariant,
 } from "../components/toast";
@@ -38,6 +45,13 @@ interface QueuedToast {
   title?: string;
   /** Color of the toast. */
   variant: ToastVariant;
+  /**
+   * Enqueued before the live regions were in the page - while a
+   * server-rendered page hydrates. It waits until they have been there a
+   * moment: screen readers announce what is added to a region they know,
+   * not a region that appears with it.
+   */
+  waitsForRegion: boolean;
 }
 
 /**
@@ -108,6 +122,10 @@ export default function SnackbarProvider({
     () => false,
   );
 
+  // The live regions have been in the page long enough for the toasts that
+  // wait for them
+  const [isRegionSettled, setIsRegionSettled] = useState(false);
+
   const updateToasts = useCallback(
     (change: (toasts: QueuedToast[]) => QueuedToast[]) => {
       toastsRef.current = change(toastsRef.current);
@@ -117,10 +135,11 @@ export default function SnackbarProvider({
   );
 
   const addToast = useCallback(
-    (toast: Omit<QueuedToast, "id">) => {
+    (toast: Omit<QueuedToast, "id" | "waitsForRegion">) => {
       nextId.current += 1;
       const id = nextId.current;
-      updateToasts((current) => [...current, { ...toast, id }]);
+      const waitsForRegion = regionRef.current === null;
+      updateToasts((current) => [...current, { ...toast, id, waitsForRegion }]);
       return id;
     },
     [updateToasts],
@@ -159,7 +178,10 @@ export default function SnackbarProvider({
   const closeSnackbar = useCallback(
     (id?: SnackbarId) => {
       updateToasts((current) => {
-        const shown = selectShown(current, maxToasts);
+        const shown = selectShown(
+          current.filter((toast) => isRegionSettled || !toast.waitsForRegion),
+          maxToasts,
+        );
         return current.flatMap((toast) => {
           if (toast.hiding || (id !== undefined && toast.id !== id)) {
             return [toast];
@@ -170,7 +192,7 @@ export default function SnackbarProvider({
         });
       });
     },
-    [maxToasts, updateToasts],
+    [isRegionSettled, maxToasts, updateToasts],
   );
 
   const promise = useCallback(
@@ -247,7 +269,21 @@ export default function SnackbarProvider({
     />
   );
 
-  const shownToasts = selectShown(toasts, maxToasts);
+  // Toasts enqueued before the live regions were in the page wait a moment
+  // after they are
+  const isWaitingForRegion = toasts.some((toast) => toast.waitsForRegion);
+
+  useEffect(() => {
+    if (!isHydrated || !isWaitingForRegion || isRegionSettled) return;
+
+    const timer = setTimeout(() => setIsRegionSettled(true), LIVE_REGION_DELAY);
+    return () => clearTimeout(timer);
+  }, [isHydrated, isRegionSettled, isWaitingForRegion]);
+
+  const shownToasts = selectShown(
+    isRegionSettled ? toasts : toasts.filter((toast) => !toast.waitsForRegion),
+    maxToasts,
+  );
   const errors = shownToasts.filter((toast) => toast.assertive);
   const others = shownToasts.filter((toast) => !toast.assertive);
 

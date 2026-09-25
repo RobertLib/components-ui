@@ -65,4 +65,31 @@ describe("useDebouncedField", () => {
     rerender({ value: "ab" });
     expect(result.current.value).toBe("ab");
   });
+
+  it("drops a text still to be committed when the key resets it", () => {
+    vi.useFakeTimers();
+    try {
+      const onCommit = vi.fn();
+      const { rerender, result } = renderHook(
+        ({ resetKey, value }) =>
+          useDebouncedField(value, onCommit, 300, resetKey),
+        { initialProps: { resetKey: 0, value: "" } },
+      );
+
+      act(() => result.current.change("abc"));
+      // "Clear filters" before the text was committed - the value stays ""
+      rerender({ resetKey: 1, value: "" });
+      expect(result.current.value).toBe("");
+
+      act(() => vi.advanceTimersByTime(500));
+      expect(onCommit).not.toHaveBeenCalled();
+
+      // Typing afterwards commits as before
+      act(() => result.current.change("de"));
+      act(() => vi.advanceTimersByTime(500));
+      expect(onCommit).toHaveBeenLastCalledWith("de");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

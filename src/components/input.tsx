@@ -2,7 +2,7 @@ import { Eye, EyeOff, X } from "lucide-react";
 import { attachRef, useFormControl } from "../hooks/use-form-control";
 import { useCallback, useId, useRef, useState } from "react";
 import Button from "./button";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { useMessages } from "../providers/ui-context";
@@ -183,9 +183,12 @@ export function InputBase({
     [ref],
   );
 
+  // A value a script writes into the input - React Hook Form's
+  // `register()`, `setValue()` - stays, and the clear button follows it
   const { fieldRef, handleChange, value } = useFormControl({
     ...props,
     defaultValue,
+    followScriptWrites: true,
     ref: ownRef,
   });
 
@@ -276,13 +279,18 @@ export function InputBase({
         dimStyles[dim],
         disabled && "cursor-not-allowed",
         disabled && !isFramed && "opacity-50",
-        floating && "pt-2",
         error && !isFramed && "border-danger-500! focus:ring-danger-500!",
         // The browser's own clear button of a search field would be a second one
         canClear && "[&::-webkit-search-cancel-button]:hidden",
         className,
+        // Last - the room for the floating label stays with any padding
+        floating && "pt-2",
       )}
-      aria-describedby={cn(errorId, descriptionId, props["aria-describedby"])}
+      aria-describedby={joinTokens(
+        errorId,
+        descriptionId,
+        props["aria-describedby"],
+      )}
       aria-invalid={error ? "true" : props["aria-invalid"]}
       aria-required={required ? "true" : props["aria-required"]}
       disabled={disabled}
@@ -328,6 +336,10 @@ export function InputBase({
               error &&
               "border-danger-500! focus-within:ring-danger-500!",
             isFramed && disabled && "cursor-not-allowed opacity-50",
+            // Also for a disabled fieldset around, which no prop tells - an
+            // input without a frame looks so by `form-control`
+            isFramed &&
+              "has-[input:disabled]:cursor-not-allowed has-[input:disabled]:opacity-50",
           )}
           // The frame acts as the input: a press on an adornment or the
           // padding keeps the focus where it is (and selects no text), a
@@ -366,7 +378,7 @@ export function InputBase({
             <button
               aria-label={messages.input.clear}
               className={cn(
-                "flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-neutral-500 hover:text-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-400 dark:hover:text-neutral-300",
+                "flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-neutral-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 enabled:hover:text-neutral-700 disabled:cursor-not-allowed dark:text-neutral-400 dark:enabled:hover:text-neutral-300",
                 hasSuffix ? "me-0.5" : clearMargins[dim],
                 // Over the padding of the small field, which it would make
                 // taller

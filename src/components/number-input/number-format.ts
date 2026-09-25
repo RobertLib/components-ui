@@ -5,8 +5,17 @@ import { toIntlLocale } from "../../i18n/format";
 interface NumberSymbols {
   /** Texts of the format around the number - a currency, a percent sign, a unit. */
   affixes: string[];
+  /** Whether the format writes a negative number in parentheses - "($5.00)". */
+  accounting: boolean;
+  /** The decimal separator with Latin digits - those of the edited text. */
   decimal: string;
+  /** The group separator with Latin digits. */
   group: string;
+  /**
+   * The digits and separators of the locale's own numbering system (Arabic
+   * "١٢٣٫٤") - with the Latin ones they stand for.
+   */
+  native: Map<string, string>;
 }
 
 /** What a typed text says - see `readNumber`. */
@@ -94,9 +103,12 @@ function separatorsOf(
   const followedByGroup = /^\d{3}(?!\d)/.test(
     digits.slice(digits.indexOf(char) + 1),
   );
+  // A group follows a digit other than 0 - "0,234" is 0.234 in English too
+  const groupsDigits = /[1-9]/.test(digits.slice(0, digits.indexOf(char)));
   const isGroup =
     dots + commas > 1 ||
-    (char === symbols.group && (fractionDigits === 0 || followedByGroup));
+    (char === symbols.group &&
+      (fractionDigits === 0 || (followedByGroup && groupsDigits)));
 
   return isGroup ? { group: char } : { decimal: char };
 }
@@ -106,13 +118,21 @@ function separatorsOf(
  * leading minus sign, spaces and apostrophes as grouping, and the currency,
  * percent sign or unit of the format anywhere. `valid` tells whether it is
  * a number or the start of one ("", "-", "1,"), `number` what it stands for.
+ * The digits of the locale's numbering system count as Latin ones, and an
+ * accounting format's parentheses as a minus sign.
  */
 function readNumber(
   text: string,
   symbols: NumberSymbols,
   fractionDigits: number,
 ): ReadNumber {
-  let normalized = text;
+  // "($1,234.50)" - before the parentheses go with the other affixes
+  const parenthesized = symbols.accounting && /^\s*\(.*\)\s*$/.test(text);
+
+  let normalized = Array.from(
+    text,
+    (char) => symbols.native.get(char) ?? char,
+  ).join("");
   for (const affix of symbols.affixes) {
     normalized = normalized.split(affix).join("");
   }
@@ -126,9 +146,11 @@ function readNumber(
     .replace(/^\+/, "");
 
   const match = /^(-?)([\d.,]*)$/.exec(normalized);
-  if (!match) return INVALID;
+  // No second minus sign in parentheses
+  if (!match || (parenthesized && match[1])) return INVALID;
 
-  const [, sign, digits] = match;
+  const digits = match[2];
+  const sign = parenthesized ? "-" : match[1];
   const { decimal, group } = separatorsOf(digits, symbols, fractionDigits);
   const decimalIndex = decimal ? digits.lastIndexOf(decimal) : -1;
   const integer = decimalIndex < 0 ? digits : digits.slice(0, decimalIndex);
@@ -139,34 +161,93 @@ function readNumber(
   if (!/^\d*$/.test(integerDigits) || !/^\d*$/.test(fraction)) return INVALID;
 
   const hasDigits = integerDigits !== "" || fraction !== "";
+  const number = hasDigits
+    ? Number(`${sign}${integerDigits || "0"}.${fraction || "0"}`)
+    : null;
+
+  // More digits than a number holds - Infinity is no value
+  if (number !== null && !Number.isFinite(number)) return INVALID;
 
   return {
     hasDecimal: decimalIndex >= 0,
     negative: sign === "-",
-    number: hasDigits
-      ? Number(`${sign}${integerDigits || "0"}.${fraction || "0"}`)
-      : null,
+    number,
     valid: true,
   };
 }
 
+/** The decimal and the group separator of a format. */
+function separatorsOfFormat(format: Intl.NumberFormat) {
+  const parts = format.formatToParts(-12345.6);
+  return {
+    decimal: parts.find((part) => part.type === "decimal")?.value ?? ".",
+    group: parts.find((part) => part.type === "group")?.value ?? ",",
+  };
+}
+
+/**
+ * The digits and separators of the numbering systems `display` and the
+ * locale write with - mapped to the Latin digits and the separators of
+ * `latin`. Empty for a locale writing Latin digits.
+ */
+function readNativeSymbols(
+  locale: string,
+  display: Intl.NumberFormat,
+  latin: { decimal: string; group: string },
+) {
+  const native = new Map<string, string>();
+  const systems = new Set([
+    display.resolvedOptions().numberingSystem,
+    new Intl.NumberFormat(locale).resolvedOptions().numberingSystem,
+  ]);
+
+  for (const numberingSystem of systems) {
+    if (numberingSystem === "latn") continue;
+
+    const digits = new Intl.NumberFormat(locale, {
+      numberingSystem,
+      useGrouping: false,
+    });
+    for (let digit = 0; digit <= 9; digit++) {
+      native.set(digits.format(digit), String(digit));
+    }
+
+    const separators = separatorsOfFormat(
+      new Intl.NumberFormat(locale, { numberingSystem }),
+    );
+    if (separators.decimal !== latin.decimal) {
+      native.set(separators.decimal, latin.decimal);
+    }
+    if (separators.group !== latin.group) {
+      native.set(separators.group, latin.group);
+    }
+  }
+
+  return native;
+}
+
 /** The separators of a locale, and the texts of `display` around a number. */
 function readSymbols(locale: string, display: Intl.NumberFormat) {
-  const parts = new Intl.NumberFormat(locale).formatToParts(-12345.6);
+  const latin = separatorsOfFormat(
+    new Intl.NumberFormat(locale, { numberingSystem: "latn" }),
+  );
   const affixTypes = new Set(["currency", "literal", "percentSign", "unit"]);
+  const displayParts = display.formatToParts(-12345.6);
 
   return {
+    accounting: displayParts.some(
+      (part) => part.type === "literal" && part.value.includes("("),
+    ),
     affixes: [
       ...new Set(
-        display
-          .formatToParts(-12345.6)
+        displayParts
           .filter((part) => affixTypes.has(part.type))
           .map((part) => part.value.trim())
           .filter(Boolean),
       ),
     ],
-    decimal: parts.find((part) => part.type === "decimal")?.value ?? ".",
-    group: parts.find((part) => part.type === "group")?.value ?? ",",
+    ...latin,
+    native: readNativeSymbols(locale, display, latin),
   };
 }
 
@@ -302,10 +383,26 @@ export interface StepOptions {
 }
 
 /**
+ * Where `value` lies on the grid of `step` from `base` - in steps. The float
+ * noise of the numbers (0.30000000000000004, and 100000018.99999999 for
+ * 1000000.19 in steps of 0.01) grows with their size in steps, so the
+ * tolerance that keeps a value on the grid grows with it - a few units of
+ * the last of the 16 digits a double holds.
+ */
+function gridPosition(value: number, base: number, step: number) {
+  const position = (value - base) / step;
+  const size = (Math.abs(value) + Math.abs(base)) / step;
+  return { position, tolerance: Math.max(1e-9, size * 1e-15) };
+}
+
+/**
  * The value `count` steps up (`direction` 1) or down (-1) from `value` - on
  * the grid of `step` counted from `min` (or 0) like a native number input:
  * a value between two steps moves to the next one. Within `min` and `max`;
  * an empty field starts at `min` going up and at `max` going down (or 0).
+ * Like the `stepUp()` of a native input, a step up never lowers the value
+ * (and one down never raises it) - at a `max` off the grid, or with a value
+ * past it, the value stays.
  */
 export function stepValue(
   value: number | null,
@@ -320,22 +417,22 @@ export function stepValue(
 
   const base = min ?? 0;
   const decimals = Math.max(decimalsOf(step), decimalsOf(base));
-  // Where the value lies on the grid - the tolerance keeps a value that is
-  // on it despite float noise (0.30000000000000004) there
-  const position = (value - base) / step;
+  const { position, tolerance } = gridPosition(value, base, step);
   const index =
     direction > 0
-      ? Math.floor(position + 1e-9) + count
-      : Math.ceil(position - 1e-9) - count;
+      ? Math.floor(position + tolerance) + count
+      : Math.ceil(position - tolerance) - count;
   let next = roundTo(base + index * step, decimals);
 
   // Past `max` - the last step within it, as a native input does
   if (max !== undefined && next > max) {
+    const last = gridPosition(max, base, step);
     next = roundTo(
-      base + Math.floor((max - base) / step + 1e-9) * step,
+      base + Math.floor(last.position + last.tolerance) * step,
       decimals,
     );
   }
 
-  return clamp(next);
+  next = clamp(next);
+  return (direction > 0 ? next < value : next > value) ? value : next;
 }

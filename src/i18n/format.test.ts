@@ -93,9 +93,14 @@ describe("toIntlLocale", () => {
 
 describe("locales", () => {
   it("define the same messages in every language", () => {
+    // A text with plural forms is one message, and so are the tokens of
+    // the placeholders - each language lists those it writes otherwise
     const keys = (value: object, prefix = ""): string[] =>
       Object.entries(value).flatMap(([key, child]) =>
-        typeof child === "object" && child !== null && !("other" in child)
+        typeof child === "object" &&
+        child !== null &&
+        !("other" in child) &&
+        key !== "placeholderTokens"
           ? keys(child, `${prefix}${key}.`)
           : [`${prefix}${key}`],
       );

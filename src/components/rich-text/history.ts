@@ -23,6 +23,9 @@ export interface Snapshot {
 // Typing within this time of the last change joins it in one undo step
 const JOIN_MS = 1000;
 const MAX_ENTRIES = 100;
+// The characters of HTML the snapshots hold together (some 20 MB) - the
+// history of a long document keeps fewer steps, not a hundred copies of it
+export const MAX_HISTORY_SIZE = 10_000_000;
 
 function pathOf(root: Node, node: Node): number[] | null {
   const path: number[] = [];
@@ -140,10 +143,21 @@ export class EditHistory {
       this.entries = [...this.entries.slice(0, this.index + 1), snapshot].slice(
         -MAX_ENTRIES,
       );
-      this.index = this.entries.length - 1;
     }
+    this.dropOldest();
+    this.index = this.entries.length - 1;
     this.lastKind = kind;
     this.lastTime = time;
+  }
+
+  /** Drops the oldest steps beyond the size of the history - not the current one. */
+  private dropOldest() {
+    let size = 0;
+    for (const entry of this.entries) size += entry.html.length;
+
+    while (this.entries.length > 1 && size > MAX_HISTORY_SIZE) {
+      size -= (this.entries.shift() as Snapshot).html.length;
+    }
   }
 
   /**

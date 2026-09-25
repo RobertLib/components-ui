@@ -10,6 +10,7 @@ import cn from "../../utils/cn";
 import Kbd from "../kbd";
 import MenuPopup from "./menu-popup";
 import {
+  getDirection,
   isEscapeKey,
   isTopmostOverlay,
   OverlayContext,
@@ -19,7 +20,7 @@ import { getGracePolygon, isPointInPolygon, type Point } from "./position";
 import { getTabbableElements } from "../../utils/tabbable";
 import { toAriaKeyShortcuts } from "../../utils/shortcut";
 import useIsApplePlatform from "../../hooks/use-is-apple-platform";
-import removeDiacritics from "../../utils/remove-diacritics";
+import { foldSearchText } from "../../utils/remove-diacritics";
 import { useRouter } from "../../providers/ui-context";
 import {
   buildMenuModel,
@@ -66,7 +67,10 @@ interface MenuListProps {
   level?: number;
   /** Closes the whole menu - after a pick. */
   onClose: () => void;
-  /** Submenus: closes this submenu (ArrowLeft) - the focus goes back to its item. */
+  /**
+   * Submenus: closes this submenu (ArrowLeft, ArrowRight right to left) -
+   * the focus goes back to its item.
+   */
   onCloseSubmenu?: () => void;
   ref?: React.Ref<MenuListHandle>;
   /** Id of the menu the submenu belongs to. */
@@ -77,14 +81,15 @@ interface MenuListProps {
 // clicked, so it is not lost with the closing menu
 const keepFocus = (event: React.MouseEvent) => event.preventDefault();
 
-const normalizeText = (text: string) => removeDiacritics(text).toLowerCase();
+const normalizeText = foldSearchText;
 
 /**
  * The list of a menu - its items, groups and separators, and all its keys:
  * the arrow keys, Home / End, typed letters, Enter and Space, ArrowRight /
- * ArrowLeft into and out of submenus. The focus stays on the list, which
- * announces its highlighted item (`aria-activedescendant`); custom content
- * with a control takes the focus itself.
+ * ArrowLeft into and out of submenus (the other way round right to left).
+ * The focus stays on the list, which announces its highlighted item
+ * (`aria-activedescendant`); custom content with a control takes the focus
+ * itself.
  */
 export default function MenuList({
   "aria-label": ariaLabel,
@@ -99,9 +104,10 @@ export default function MenuList({
   treeId,
 }: MenuListProps) {
   const [activeIndex, setActiveIndex] = useState(-1);
-  // The open submenu - by the index of its item, and whether it opened from
-  // the keyboard, with the focus in it
+  // The open submenu - by the index of its item, whether it opened from the
+  // keyboard, with the focus in it, and the writing direction of the menu
   const [submenu, setSubmenu] = useState<{
+    dir: "ltr" | "rtl";
     focus: boolean;
     index: number;
   } | null>(null);
@@ -205,7 +211,11 @@ export default function MenuList({
       if (focus) submenuRef.current?.focusItem("first");
       return;
     }
-    setSubmenu({ focus, index });
+    setSubmenu({
+      dir: listRef.current ? getDirection(listRef.current) : "ltr",
+      focus,
+      index,
+    });
   };
 
   const moveTo = (index: number | undefined) => {
@@ -318,8 +328,16 @@ export default function MenuList({
     // On the menu, or on the trigger of the open menu - a control in custom
     // content keeps these keys, the arrow keys aside
     const own = fromTrigger || event.target === listRef.current;
+    // A submenu opens towards the end of the line - to the left right to left
+    const rtl = !!listRef.current && getDirection(listRef.current) === "rtl";
+    const key =
+      event.key === "ArrowRight" || event.key === "ArrowLeft"
+        ? (event.key === "ArrowRight") !== rtl
+          ? "ArrowIn"
+          : "ArrowOut"
+        : event.key;
 
-    switch (event.key) {
+    switch (key) {
       case "ArrowDown":
         event.preventDefault();
         moveTo(navigableIndexes().find((index) => index > activeIndex));
@@ -335,13 +353,13 @@ export default function MenuList({
           focusItem(event.key === "Home" ? "first" : "last");
         }
         break;
-      case "ArrowRight":
+      case "ArrowIn":
         if (own && rowSubmenu(rows[activeIndex])) {
           event.preventDefault();
           openSubmenu(activeIndex, true);
         }
         break;
-      case "ArrowLeft":
+      case "ArrowOut":
         if (own && onCloseSubmenu) {
           event.preventDefault();
           onCloseSubmenu();
@@ -548,7 +566,7 @@ export default function MenuList({
         ? toAriaKeyShortcuts(fields.shortcut, isApple)
         : undefined,
       className: cn(
-        "flex w-full items-center gap-2.5 rounded px-3 py-1.5 text-left text-sm transition-colors focus:outline-none motion-reduce:transition-none pointer-coarse:py-2",
+        "flex w-full items-center gap-2.5 rounded px-3 py-1.5 text-start text-sm transition-colors focus:outline-none motion-reduce:transition-none pointer-coarse:py-2",
         disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
         danger && "text-danger-700 dark:text-danger-400",
         // The highlight follows the pointer and the keys alike - a tap only
@@ -617,7 +635,7 @@ export default function MenuList({
           // Announced by `aria-keyshortcuts` - not read as part of the name
           <Kbd
             aria-hidden="true"
-            className="ml-3 shrink-0"
+            className="ms-3 shrink-0"
             shortcut={fields.shortcut}
             size="sm"
           />
@@ -625,7 +643,8 @@ export default function MenuList({
         {isParent && (
           <ChevronRight
             aria-hidden="true"
-            className="-mr-1 shrink-0 text-neutral-500 dark:text-neutral-400"
+            // Towards the submenu - to the left right to left
+            className="-me-1 shrink-0 text-neutral-500 rtl:rotate-180 dark:text-neutral-400"
             size={16}
           />
         )}
@@ -715,6 +734,7 @@ export default function MenuList({
 
       {submenu && openEntries && (
         <Submenu
+          dir={submenu.dir}
           entries={openEntries}
           getAnchor={() => rowElement(submenu.index)?.getBoundingClientRect()}
           handleRef={submenuRef}
@@ -736,6 +756,7 @@ export default function MenuList({
 }
 
 interface SubmenuProps {
+  dir: "ltr" | "rtl";
   entries: DropdownEntry[];
   getAnchor: () => DOMRect | undefined;
   handleRef: React.RefObject<MenuListHandle | null>;
@@ -756,6 +777,7 @@ interface SubmenuProps {
  * Escape closes it first, and the focus in it counts as inside the menu.
  */
 function Submenu({
+  dir,
   entries,
   getAnchor,
   handleRef,
@@ -812,6 +834,7 @@ function Submenu({
 
   return (
     <MenuPopup
+      dir={dir}
       getAnchor={getAnchor}
       id={panelId}
       onPointerEnter={onPointerEnter}

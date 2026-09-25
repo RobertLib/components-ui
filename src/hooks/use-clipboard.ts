@@ -75,12 +75,31 @@ function copyWithCommand(text: string) {
   if (!copied) throw new Error("The browser does not allow copying here.");
 }
 
+/**
+ * Copies with the old command after the Clipboard API refused - failing, it
+ * throws the reason of the Clipboard API, which tells more.
+ */
+function copyWithCommandInstead(text: string, reason: unknown) {
+  try {
+    copyWithCommand(text);
+  } catch {
+    throw reason;
+  }
+}
+
 /** Writes `text` to the clipboard - a rejection says why it could not. */
 function writeToClipboard(text: string) {
   return new Promise<void>((resolve) => {
     // Called right away, within the user action
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      resolve(navigator.clipboard.writeText(text));
+      resolve(
+        // The API can be there and still refuse - in a frame the page did
+        // not allow `clipboard-write`. The old command may work there, as
+        // the user action still counts.
+        navigator.clipboard
+          .writeText(text)
+          .catch((reason: unknown) => copyWithCommandInstead(text, reason)),
+      );
     } else {
       copyWithCommand(text);
       resolve();

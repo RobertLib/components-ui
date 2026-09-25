@@ -663,6 +663,22 @@ describe.each(["Europe/Prague", "America/New_York"])(
       expect(occurrence.end.getHours()).toBe(5);
     });
 
+    it("keeps the length of an occurrence the skipped hour moved to its end", () => {
+      const change = timeZone === "Europe/Prague" ? 29 : 8;
+      const [occurrence] = expandRecurringEvents(
+        [
+          event(new Date(2026, 0, 1, 2, 30), new Date(2026, 0, 1, 3, 30), {
+            freq: "daily",
+          }),
+        ],
+        range(new Date(2026, 2, change), new Date(2026, 2, change + 1)),
+      );
+
+      // 3:30 - 3:30 by the clock times - an hour long instead
+      expect(occurrence.start).toEqual(new Date(2026, 2, change, 3, 30));
+      expect(occurrence.end).toEqual(new Date(2026, 2, change, 4, 30));
+    });
+
     it("repeats all-day events of date strings on their days", () => {
       const events = expandRecurringEvents(
         [
@@ -723,6 +739,37 @@ describe.each(["Europe/Prague", "America/New_York"])(
       );
 
       expect(events).toHaveLength(3);
+    });
+
+    it("takes an until at a UTC midnight and the time of the event as that moment", () => {
+      // 19:00 in New York (winter) and 1:00 in Prague are UTC midnights
+      const hour = timeZone === "Europe/Prague" ? 1 : 19;
+      const expand = (until: Date, eventHour = hour) =>
+        starts(
+          expandRecurringEvents(
+            [
+              event(
+                new Date(2026, 0, 10, eventHour),
+                new Date(2026, 0, 10, eventHour),
+                { freq: "daily", until },
+              ),
+            ],
+            year2026,
+          ),
+        );
+
+      // The start of the last occurrence - not the whole UTC day after it
+      const lastStart = new Date(2026, 0, 15, hour);
+      expect(lastStart.getTime() % 86_400_000).toBe(0);
+      expect(expand(lastStart)).toHaveLength(6);
+      expect(expand(lastStart).at(-1)).toBe(
+        `2026-01-15 ${String(hour).padStart(2, "0")}:00`,
+      );
+      // At another time a date string still includes its whole day
+      expect(expand(new Date("2026-01-15"), 12)).toHaveLength(6);
+      expect(expand(new Date("2026-01-15"), 12).at(-1)).toBe(
+        "2026-01-15 12:00",
+      );
     });
   },
 );

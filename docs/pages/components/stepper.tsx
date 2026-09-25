@@ -14,7 +14,8 @@ export default function StepperPage() {
             <code>onStepClick</code> the steps only show the progress - they are
             no buttons. The horizontal stepper is compact: the{" "}
             <code>title</code> and <code>description</code> of a step are its
-            tooltip.
+            tooltip - shown on hover, on keyboard focus and, without{" "}
+            <code>onStepClick</code>, on a tap.
           </p>
         }
         name="stepper/wizard"

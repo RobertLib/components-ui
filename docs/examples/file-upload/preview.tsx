@@ -51,9 +51,10 @@ export default function Preview() {
         { filename: "delivery-note.jpg", id: "1", url: photo, value: "1" },
         { filename: "invoice-0141.pdf", id: "2", value: "2" },
       ]}
-      description="Photos of the goods or the delivery note - JPG, PNG or PDF up to 10 MB."
+      description="Up to 5 photos of the goods or the delivery note - JPG, PNG or PDF up to 10 MB."
       label="Photos"
       maxFileSize={10}
+      maxFiles={5}
       multiple
       name="photos"
       onUpload={(file) => {

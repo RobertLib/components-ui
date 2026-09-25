@@ -1,5 +1,10 @@
+import { screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { getNextTabbable, getTabbableElements } from "./tabbable";
+import {
+  getNextTabbable,
+  getPreviousTabbable,
+  getTabbableElements,
+} from "./tabbable";
 
 const mount = (html: string) => {
   document.body.innerHTML = html;
@@ -28,6 +33,27 @@ describe("getTabbableElements", () => {
     `);
 
     expect(names(getTabbableElements(body))).toEqual(["A", "F"]);
+  });
+
+  it("stops at what Tab reaches without a tabindex - summaries, frames, media, editing hosts", () => {
+    const body = mount(`
+      <details><summary>More</summary><summary>Not a summary</summary></details>
+      <iframe aria-label="Map"></iframe>
+      <video aria-label="Clip" controls></video>
+      <video aria-label="Muted"></video>
+      <audio aria-label="Podcast" controls></audio>
+      <div aria-label="Notes" contenteditable="true"><p contenteditable="true">x</p></div>
+      <div aria-label="Read only" contenteditable="false"></div>
+      <div aria-label="Skipped" contenteditable tabindex="-1"></div>
+    `);
+
+    expect(names(getTabbableElements(body))).toEqual([
+      "More",
+      "Map",
+      "Clip",
+      "Podcast",
+      "Notes",
+    ]);
   });
 
   it("makes a radio group a single stop - the checked radio", () => {
@@ -94,5 +120,31 @@ describe("getNextTabbable", () => {
     const [small] = document.querySelectorAll("input");
 
     expect(getNextTabbable(small)?.textContent).toBe("Next");
+  });
+});
+
+describe("getPreviousTabbable", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("finds the Tab stop before an element, skipping what Tab skips", () => {
+    mount(`
+      <button>First</button>
+      <button disabled>Disabled</button>
+      <div aria-hidden="true"><button>Hidden</button></div>
+      <label><input type="radio" name="size" value="s"> S</label>
+      <label><input type="radio" name="size" value="m" checked> M</label>
+      <div id="row"><button>Delete</button></div>
+      <button>After</button>
+    `);
+    const row = document.getElementById("row") as HTMLElement;
+
+    // Of the radio group the checked radio is the stop
+    expect(getPreviousTabbable(row)).toHaveProperty("value", "m");
+    expect(getNextTabbable(row)?.textContent).toBe("After");
+
+    const first = screen.getByText("First");
+    expect(getPreviousTabbable(first)).toBeUndefined();
   });
 });

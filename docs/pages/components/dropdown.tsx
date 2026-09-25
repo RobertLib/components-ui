@@ -67,7 +67,10 @@ export default function DropdownPage() {
             and go back to its item. The pointer can cross other items on its
             way to an open submenu. A submenu opens to the left near the right
             edge of the screen, and below its item where there is room on
-            neither side, as on a phone.
+            neither side, as on a phone. In a right-to-left page (or part of
+            one, <code>dir=&quot;rtl&quot;</code>) all of it is mirrored:
+            ArrowLeft opens a submenu, ArrowRight closes it, and it opens to the
+            left.
           </p>
         }
         name="dropdown/submenus"
@@ -114,10 +117,13 @@ export default function DropdownPage() {
               trigger.
             </li>
             <li>
-              The focus stays on the menu, which announces its highlighted item
-              (<code>aria-activedescendant</code>); the pointer and the keys
-              move the same highlight. Submenus are overlays of their own:
-              Escape closes the innermost one first.
+              The menu takes the focus when it opens - opened with the mouse (or
+              by a screen reader clicking the trigger) with no item highlighted,
+              from the keyboard with its first one. The focus stays on the menu,
+              which announces its highlighted item (
+              <code>aria-activedescendant</code>); the pointer and the keys move
+              the same highlight. Submenus are overlays of their own: Escape
+              closes the innermost one first.
             </li>
             <li>
               The same items build a <code>ContextMenu</code> and the menu of a{" "}

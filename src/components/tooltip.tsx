@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import {
   isEscapeKey,
   isTopmostOverlay,
@@ -70,10 +70,21 @@ const GAP = 8;
 // the tooltip (either way) without the tooltip closing underneath it.
 const HIDE_DELAY = 150;
 
+// Where a tooltip goes when neither its side nor the opposite one has the
+// room - on a phone, a tooltip beside a trigger in the middle of the screen
+const PERPENDICULAR: Record<Side, [Side, Side]> = {
+  bottom: ["right", "left"],
+  left: ["bottom", "top"],
+  right: ["bottom", "top"],
+  top: ["right", "left"],
+};
+
 /**
  * Where a tooltip of `width` x `height` goes next to `rect`: on `preferred`,
- * or on the opposite side when only that one has the room, then pushed
- * inside the viewport.
+ * on the opposite side when only that one has the room, else on a side
+ * across that has it (below or above a `left` / `right` one) - or, with room
+ * nowhere, on the side with the most. It is kept inside the viewport both
+ * ways, over the trigger at last.
  */
 function place(
   rect: DOMRect,
@@ -92,40 +103,47 @@ function place(
   };
   const needed = (side: Side) =>
     (side === "top" || side === "bottom" ? height : width) + VIEWPORT_MARGIN;
+  const fits = (side: Side) => room[side] >= needed(side);
 
-  const opposite = OPPOSITE[preferred];
+  const candidates: Side[] = [
+    preferred,
+    OPPOSITE[preferred],
+    ...PERPENDICULAR[preferred],
+  ];
   const side =
-    room[preferred] < needed(preferred) &&
-    room[opposite] >= needed(opposite) &&
-    room[opposite] > room[preferred]
-      ? opposite
-      : preferred;
+    candidates.find(fits) ??
+    // The most room for what it needs - the preferred side on a tie
+    candidates.reduce((best, candidate) =>
+      room[candidate] - needed(candidate) > room[best] - needed(best)
+        ? candidate
+        : best,
+    );
 
   const centerX = rect.left + rect.width / 2;
   const centerY = rect.top + rect.height / 2;
+  const clampLeft = (left: number) =>
+    clamp(left, VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN);
+  const clampTop = (top: number) =>
+    clamp(top, VIEWPORT_MARGIN, viewportHeight - height - VIEWPORT_MARGIN);
 
   if (side === "top" || side === "bottom") {
-    const left = clamp(
-      centerX - width / 2,
-      VIEWPORT_MARGIN,
-      viewportWidth - width - VIEWPORT_MARGIN,
-    );
+    const left = clampLeft(centerX - width / 2);
     return {
       arrow: clamp(centerX - left, 8, width - 8),
       left,
       side,
-      top: side === "top" ? rect.top - GAP - height : rect.bottom + GAP,
+      top: clampTop(
+        side === "top" ? rect.top - GAP - height : rect.bottom + GAP,
+      ),
     };
   }
 
-  const top = clamp(
-    centerY - height / 2,
-    VIEWPORT_MARGIN,
-    viewportHeight - height - VIEWPORT_MARGIN,
-  );
+  const top = clampTop(centerY - height / 2);
   return {
     arrow: clamp(centerY - top, 8, height - 8),
-    left: side === "left" ? rect.left - GAP - width : rect.right + GAP,
+    left: clampLeft(
+      side === "left" ? rect.left - GAP - width : rect.right + GAP,
+    ),
     side,
     top,
   };
@@ -178,7 +196,10 @@ export default function Tooltip({
     isValidElement<{ "aria-describedby"?: string }>(children) &&
     children.type !== Fragment
       ? cloneElement(children, {
-          "aria-describedby": cn(children.props["aria-describedby"], tooltipId),
+          "aria-describedby": joinTokens(
+            children.props["aria-describedby"],
+            tooltipId,
+          ),
         })
       : children;
 

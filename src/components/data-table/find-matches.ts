@@ -1,11 +1,11 @@
-import removeDiacritics from "../../utils/remove-diacritics";
+import { foldSearchText } from "../../utils/remove-diacritics";
 
 /**
  * Finds the ranges of `text` matching `term`, ignoring case and diacritics -
  * "cilovy" matches "Cílový". Returns `[start, end)` indexes into `text`.
  */
 export function findMatches(text: string, term: string): [number, number][] {
-  const needle = removeDiacritics(term).toLowerCase();
+  const needle = foldSearchText(term);
 
   if (!needle) return [];
 
@@ -15,7 +15,7 @@ export function findMatches(text: string, term: string): [number, number][] {
   const origin: number[] = [];
 
   for (let index = 0; index < text.length; index++) {
-    const char = removeDiacritics(text[index]).toLowerCase();
+    const char = foldSearchText(text[index]);
     for (let offset = 0; offset < char.length; offset++) {
       folded += char[offset];
       origin.push(index);

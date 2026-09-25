@@ -1,5 +1,5 @@
 import { useId } from "react";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { useCheckedControl } from "../hooks/use-form-control";
@@ -66,7 +66,7 @@ export default function Checkbox({
             error && "accent-danger-500!",
             className,
           )}
-          aria-describedby={cn(
+          aria-describedby={joinTokens(
             errorId,
             descriptionId,
             props["aria-describedby"],

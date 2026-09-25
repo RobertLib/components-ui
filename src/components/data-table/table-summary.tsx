@@ -6,6 +6,7 @@ import {
   getCellStyle,
   isClipped,
   isSticky,
+  LEADING_KEYS,
   type CellLayout,
 } from "./cell-layout";
 import { formatSummaryValue } from "./summary";
@@ -71,9 +72,9 @@ export function TableSummary<T>({
       ref={ref}
     >
       <tr aria-rowindex={ariaRowIndex}>
-        {hasSubRows && leadingCell("expand")}
-        {hasSelection && leadingCell("selection")}
-        {hasActions && leadingCell("actions")}
+        {hasSubRows && leadingCell(LEADING_KEYS.expand)}
+        {hasSelection && leadingCell(LEADING_KEYS.selection)}
+        {hasActions && leadingCell(LEADING_KEYS.actions)}
         {sortedVisibleColumns.map((column) => {
           const layout = cellLayouts[column.key] ?? DEFAULT_CELL_LAYOUT;
           const { summary } = column;

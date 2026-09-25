@@ -30,7 +30,12 @@ export type CalendarEventColor =
  * A rule an event repeats by - a subset of the iCalendar `RRULE`. The event
  * itself is the first occurrence; the others take its clock time (also over
  * a daylight saving change) and its length. Days a month or a year does not
- * have (the 31st, February 29) are skipped, not moved.
+ * have (the 31st, February 29) are skipped, not moved. The clock is the one
+ * of the browser's time zone - the calendar knows no other: a series planned
+ * at 9:00 in Prague is 3:00 in New York, and stays 3:00 there also in the
+ * weeks the two change to summer time on different days, when it is 8:00 in
+ * Prague. Expand series of other time zones on the server if they must keep
+ * their own clock.
  */
 export interface CalendarRecurrence {
   /** Repeats every day, week, month or year - times `interval`. */
@@ -45,7 +50,11 @@ export interface CalendarRecurrence {
   /**
    * The last day or moment an occurrence may start - inclusive. A date
    * without a time (a local midnight, or a UTC one like
-   * `new Date("2026-12-31")`) includes the whole day.
+   * `new Date("2026-12-31")`) includes the whole day. A UTC midnight at the
+   * clock time of the event is that moment instead - the start of its last
+   * occurrence, the way iCalendar gives `UNTIL` (a 19:00 event in New York
+   * starts at a UTC midnight). A local midnight
+   * (`new Date(2026, 11, 31)`) always means the whole day.
    */
   until?: Date;
   /**
@@ -239,6 +248,10 @@ export interface CalendarViewProps {
   onDateClick?: (date: Date, resourceId?: string) => void;
   /** An event tile was clicked. */
   onEventClick?: (event: CalendarEvent) => void;
+  /**
+   * Moves the calendar to another date - Page Up / Down of the month view.
+   */
+  onNavigate?: (date: Date) => void;
   /** An event was dragged to another time or day. */
   onEventDrop?: (change: EventTimeChange) => void;
   /** An event was resized by its top or bottom edge. */

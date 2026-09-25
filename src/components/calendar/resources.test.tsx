@@ -300,7 +300,11 @@ describe("Calendar resources in the day view", () => {
     expect(within(roomB).getByText("Holiday")).toBeVisible();
     // Two, and the rest behind "+1 more"
     expect(within(roomB).queryByText("Painting")).toBeNull();
-    await user.click(within(roomB).getByRole("button", { name: "+1 more" }));
+    await user.click(
+      within(roomB).getByRole("button", {
+        name: "+1 more, Room B, Thursday, September 24, 2026",
+      }),
+    );
     const list = screen.getByRole("dialog");
     expect(
       within(list).getByText("Room B, Thursday, September 24, 2026"),

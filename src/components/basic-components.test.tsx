@@ -1,31 +1,98 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
+import Avatar from "./avatar";
+import AvatarGroup from "./avatar-group";
+import Breadcrumbs from "./breadcrumbs";
 import Button from "./button";
+import ButtonGroup from "./button-group";
+import Chip from "./chip";
+import Link from "./link";
+import Tabs from "./tabs";
+import Timeline from "./timeline";
 import { cs } from "../i18n/cs";
 import Pagination from "./pagination";
 import Spinner from "./spinner";
 import Stepper from "./stepper";
 import Switch from "./switch";
 import UIProvider from "../providers/ui-provider";
+import * as ui from "../index";
 
 describe("Button", () => {
-  it("is disabled and busy while loading", async () => {
+  it("does nothing and is busy while loading - keeping the focus", async () => {
     const user = userEvent.setup();
     const onClick = vi.fn();
-    render(
+    const { rerender } = render(<Button onClick={onClick}>Save</Button>);
+
+    const button = screen.getByRole("button", { name: "Save" });
+    act(() => button.focus());
+    rerender(
       <Button loading onClick={onClick}>
         Save
       </Button>,
     );
 
-    const button = screen.getByRole("button", { name: "Save" });
-    expect(button).toBeDisabled();
+    // A native `disabled` would drop the focus to the page in a browser
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAttribute("aria-busy", "true");
     expect(button).toHaveAttribute("type", "button");
+    expect(button).toHaveFocus();
 
     await user.click(button);
+    await user.keyboard("{Enter} ");
+    expect(onClick).not.toHaveBeenCalled();
+
+    rerender(
+      <Button disabled loading onClick={onClick}>
+        Save
+      </Button>,
+    );
+    expect(button).toBeDisabled();
+  });
+
+  it("does not submit its form while loading", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    render(
+      <form onSubmit={onSubmit}>
+        <input aria-label="Name" />
+        <Button loading type="submit">
+          Save
+        </Button>
+      </form>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    // Enter in a field clicks the submit button of the form
+    await user.type(
+      screen.getByRole("textbox", { name: "Name" }),
+      "Jana{Enter}",
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps a loading link focusable, but it does not navigate", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    render(
+      <Button link="/export" loading onClick={onClick}>
+        Export
+      </Button>,
+    );
+
+    const link = screen.getByRole("link", { name: "Export" });
+    expect(link).toHaveAttribute("href", "/export");
+    expect(link).toHaveAttribute("aria-disabled", "true");
+    expect(link).toHaveAttribute("aria-busy", "true");
+
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    act(() => {
+      link.dispatchEvent(click);
+    });
+    expect(click.defaultPrevented).toBe(true);
+    await user.click(link);
     expect(onClick).not.toHaveBeenCalled();
   });
 
@@ -196,5 +263,93 @@ describe("Spinner", () => {
     const [loading, saving] = screen.getAllByRole("status");
     expect(loading).toHaveTextContent("Načítání…");
     expect(saving).toHaveTextContent("Ukládání…");
+  });
+});
+
+describe("Right-to-left pages", () => {
+  it("lay the components out by start and end, not by left and right", () => {
+    const { container } = render(
+      <>
+        <ButtonGroup>
+          <Button>One</Button>
+          <Button variant="outline">Two</Button>
+          <Button>Three</Button>
+        </ButtonGroup>
+        <Breadcrumbs
+          items={[{ href: "/orders", label: "Orders" }, { label: "42" }]}
+        />
+        <Pagination currentPage={2} onChange={() => {}} total={100} />
+        <Stepper
+          currentStepId={1}
+          onStepClick={() => {}}
+          orientation="vertical"
+          steps={[
+            { content: "Form", id: 1, title: "Details" },
+            { id: 2, title: "Review" },
+          ]}
+        />
+        <Timeline
+          alternate
+          items={[
+            { title: "Created" },
+            { pending: true, title: "Approved" },
+            { title: "Shipped" },
+          ]}
+        />
+        <Tabs
+          items={[{ label: "One", value: "1" }]}
+          orientation="vertical"
+          value="1"
+        />
+        <Avatar name="Jana" status="online" />
+        <AvatarGroup max={2}>
+          <Avatar name="A B" />
+          <Avatar name="C D" />
+          <Avatar name="E F" />
+        </AvatarGroup>
+        <Chip onRemove={() => {}}>Paid</Chip>
+        <Link external href="https://example.com">
+          Docs
+        </Link>
+      </>,
+    );
+
+    const physical =
+      /^(?:[a-z-]+:)*-?(?:ml|mr|pl|pr|left|right|rounded-[lr]|rounded-[tb][lr]|border-[lr]|text-left|text-right)(?:-|$)/;
+    const classes = Array.from(
+      container.querySelectorAll("[class]"),
+      (element) => (element.getAttribute("class") ?? "").split(/\s+/),
+    ).flat();
+    expect(classes.filter((name) => physical.test(name))).toEqual([]);
+    // Previous points to the start - the right in a right-to-left page
+    expect(
+      screen
+        .getByRole("button", { name: "Previous page" })
+        .querySelector("svg"),
+    ).toHaveClass("rtl:-scale-x-100");
+  });
+});
+
+describe("Public helpers", () => {
+  it("are exported - the platform, the hydration and the current link", () => {
+    expect(ui.toAriaKeyShortcuts("mod+shift+k", true)).toBe("Shift+Meta+K");
+    expect(ui.toAriaKeyShortcuts("mod+k", false)).toBe("Control+K");
+
+    const items = [{ href: "/users" }, { href: "/users/new" }];
+    expect(ui.findActiveLink(items, (item) => item.href, "/users/new")).toBe(
+      items[1],
+    );
+
+    let hydrated: boolean | undefined;
+    let apple: boolean | undefined;
+    function Probe() {
+      hydrated = ui.useIsHydrated();
+      apple = ui.useIsApplePlatform();
+      return null;
+    }
+    render(<Probe />);
+    // Rendered in the browser only - hydrated from the first render
+    expect(hydrated).toBe(true);
+    expect(typeof apple).toBe("boolean");
   });
 });

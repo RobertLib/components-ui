@@ -46,6 +46,19 @@ export default function DateTimePickerPage() {
               year and without a separator need two digits each (
               <code>2409</code>).
             </p>
+            <p>
+              A value pasted in ISO 8601 is taken in any locale -{" "}
+              <code>2026-09-24</code>, <code>2026-09-24T14:30</code> (a
+              date-time with a zone, <code>…Z</code> or <code>…+02:00</code>, on
+              the local clock), <code>2026-09</code>, <code>2026-W39</code>. A
+              day alone typed into a date-time field keeps the time it had
+              (midnight without one), like a day picked in the popup. A text
+              that is no value, or one out of <code>min</code> /{" "}
+              <code>max</code>, is dropped - the field shows its value again,
+              and a message under it says why and in which format to type it.
+              The placeholder shows that format with the tokens of the language
+              (<code>DD.MM.RRRR</code> in Czech).
+            </p>
           </>
         }
         name="datetime-picker/types"
@@ -70,8 +83,9 @@ export default function DateTimePickerPage() {
           <ul>
             <li>
               Days: the arrow keys move by a day and a week, Home / End to the
-              first and the last day of the month, Page Up / Down by a month -
-              with Shift by a year.
+              first and the last day of the week (of the locale), Page Up / Down
+              by a month - with Shift by a year. The months the buttons and the
+              selects show are announced to screen readers.
             </li>
             <li>
               Months and weeks: the arrow keys move on into the next or the
@@ -119,7 +133,9 @@ export default function DateTimePickerPage() {
             input's own. With React Hook Form, use <code>Controller</code>:{" "}
             <code>register()</code> passes its <code>ref</code> to the visible
             field and writes default values and <code>setValue()</code> into it
-            as text.
+            as text, which the picker does not read back. Only in{" "}
+            <code>native</code> mode, where the field is the native input,{" "}
+            <code>register()</code> works as with <code>Input</code>.
           </p>
         </Prose>
         <CodeBlock code={hookForm} />

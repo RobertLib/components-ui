@@ -23,11 +23,11 @@ describe("ButtonGroup", () => {
 
     const [edit, duplicate, remove] = screen.getAllByRole("button");
     // Only the outer corners are round
-    expect(edit).toHaveClass("rounded-l-md");
-    expect(edit).not.toHaveClass("rounded-md", "rounded-r-md", "-ml-px");
-    expect(duplicate).not.toHaveClass("rounded-md", "rounded-l-md");
-    expect(duplicate).toHaveClass("-ml-px");
-    expect(remove).toHaveClass("rounded-r-md", "-ml-px");
+    expect(edit).toHaveClass("rounded-s-md");
+    expect(edit).not.toHaveClass("rounded-md", "rounded-e-md", "-ms-px");
+    expect(duplicate).not.toHaveClass("rounded-md", "rounded-s-md");
+    expect(duplicate).toHaveClass("-ms-px");
+    expect(remove).toHaveClass("rounded-e-md", "-ms-px");
   });
 
   it("gives its size, variant and color to buttons without their own", () => {
@@ -49,7 +49,7 @@ describe("ButtonGroup", () => {
     expect(all).toHaveClass("px-2", "border-[1.5px]", "text-secondary-600");
     // The outline border overlaps the one before
     const overdue = screen.getByRole("button", { name: "Overdue" });
-    expect(overdue).toHaveClass("px-4", "from-danger-600", "-ml-px");
+    expect(overdue).toHaveClass("px-4", "from-danger-600", "-ms-px");
   });
 
   it("joins the buttons in a column", () => {
@@ -87,10 +87,10 @@ describe("ButtonGroup", () => {
     );
 
     expect(screen.getByRole("button", { name: "Edit" })).toHaveClass(
-      "rounded-l-md",
+      "rounded-s-md",
     );
     const more = screen.getByRole("button", { name: "More actions" });
-    expect(more).toHaveClass("rounded-r-md", "border-[1.5px]");
+    expect(more).toHaveClass("rounded-e-md", "border-[1.5px]");
 
     await user.click(more);
     expect(
@@ -120,7 +120,7 @@ describe("ButtonGroup", () => {
       </ButtonGroup>,
     );
     expect(html).toContain('role="group"');
-    expect(html).toContain("rounded-l-md");
+    expect(html).toContain("rounded-s-md");
   });
 });
 
@@ -145,7 +145,7 @@ describe("ButtonGroup and overlays", () => {
     );
 
     const confirm = screen.getByRole("button", { name: "Confirm" });
-    expect(confirm.className).not.toMatch(/-ml-|rounded-r-md|rounded-l-md/);
+    expect(confirm.className).not.toMatch(/-ms-|rounded-e-md|rounded-s-md/);
     // The default solid primary look, not the group's ghost one
     expect(confirm.className).toMatch(
       /from-primary-600 to-primary-700 text-white/,

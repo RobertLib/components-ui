@@ -14,7 +14,9 @@ export default function NumberInputPage() {
             The buttons repeat the step while held - on touch screens they are
             larger plus and minus buttons. The steps count from <code>min</code>{" "}
             (or 0) like those of a native number input: 1.23 with a step of 0.1
-            moves to 1.3.
+            moves to 1.3. And like there, a step up never lowers the value: with
+            a <code>max</code> of 10 and a step of 3 the last step is 9, and
+            from 10 a step up changes nothing.
           </p>
         }
         name="number-input/basic"
@@ -34,16 +36,23 @@ export default function NumberInputPage() {
               It reads what the user types in that notation, and leniently where
               the text is unambiguous: in Czech &quot;1.5&quot; is 1.5 too,
               spaces and apostrophes group, &quot;1.234,5&quot; and
-              &quot;1,234.5&quot; are 1234.5 in any language, and a pasted
-              &quot;1 234,50 Kč&quot; is read without the currency. Letters are
-              refused as they are typed, and so is a minus sign when{" "}
-              <code>min</code> is 0 or more, or a decimal separator with{" "}
-              <code>maximumFractionDigits={"{0}"}</code>.
+              &quot;1,234.5&quot; are 1234.5 in any language, &quot;0,5&quot; is
+              0.5 in English too, and a pasted &quot;1 234,50 Kč&quot; is read
+              without the currency (&quot;($1,234.50)&quot; of an accounting
+              format as a negative number). The digits of the language&apos;s
+              own numbering system (Arabic &quot;١٢٣&quot;) count as the Latin
+              ones. Letters are refused as they are typed, and so is a minus
+              sign when <code>min</code> is 0 or more, or a decimal separator
+              with <code>maximumFractionDigits={"{0}"}</code>.
             </li>
             <li>
               When the field loses the focus, or on Enter, a typed value outside{" "}
               <code>min</code> - <code>max</code> is moved to the nearest bound,
               and the value is rounded to the fraction digits of the format.
+              Until then - and for a value outside them the parent passes - the
+              field is invalid like a native number input: a form submitted from
+              a script meanwhile (<code>form.requestSubmit()</code>) is refused,
+              with a message of the language.
             </li>
           </ul>
         </Prose>
@@ -54,10 +63,11 @@ export default function NumberInputPage() {
           <p>
             <code>formatOptions</code> are the options of{" "}
             <code>Intl.NumberFormat</code>: a currency, a percentage (the value
-            0.21 shows as 21 % and is typed as 21) or a unit. The value keeps
-            the fraction digits the format shows - 3 by default, 2 for most
-            currencies; <code>maximumFractionDigits</code> is a shorthand for
-            the one of the options.
+            0.21 shows as 21 % and is typed as 21, and a step is 0.01 - one
+            percent - by default) or a unit. The value keeps the fraction digits
+            the format shows - 3 by default, 2 for most currencies;{" "}
+            <code>maximumFractionDigits</code> is a shorthand for the one of the
+            options.
           </p>
         }
         name="number-input/formats"

@@ -8,7 +8,7 @@ import {
   getColorStyles,
   isOnDay,
 } from "./utils";
-import { useEffect, useId, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useId, useMemo, useRef } from "react";
 import cn from "../../utils/cn";
 import EventTile from "./event-tile";
 import EventTitle from "./event-title";
@@ -21,6 +21,7 @@ import {
   toISODate,
 } from "../../utils/date";
 import { formatMessage } from "../../i18n/format";
+import useIsHydrated from "../../hooks/use-is-hydrated";
 import { useLocale } from "../../providers/ui-context";
 
 /** An event on a day of the agenda. */
@@ -39,8 +40,6 @@ interface AgendaDay {
   date: Date;
   items: AgendaItem[];
 }
-
-const subscribeToNothing = () => () => {};
 
 /**
  * The part of an event on `day`, as the agenda shows it: the times of an
@@ -180,11 +179,7 @@ export default function AgendaView({
 
   // Unknown on the server and while a server-rendered page hydrates - its
   // clock and time zone may differ from the browser's
-  const isHydrated = useSyncExternalStore(
-    subscribeToNothing,
-    () => true,
-    () => false,
-  );
+  const isHydrated = useIsHydrated();
   const today = isHydrated ? new Date() : null;
 
   // A new period opens at today - once its events are there
@@ -348,7 +343,9 @@ export default function AgendaView({
           })}
         </ol>
       ) : (
-        !loading && (
+        // Not on the server - the events come after the hydration
+        !loading &&
+        isHydrated && (
           <p className="px-4 py-12 text-center text-sm text-neutral-500 dark:text-neutral-400">
             {messages.calendar.noEvents}
           </p>

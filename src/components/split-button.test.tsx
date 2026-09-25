@@ -74,7 +74,8 @@ describe("SplitButton", () => {
       </SplitButton>,
     );
     const save = screen.getByRole("button", { name: "Save" });
-    expect(save).toBeDisabled();
+    // Busy, the pressed button keeps the focus - `aria-disabled`
+    expect(save).toHaveAttribute("aria-disabled", "true");
     expect(save).toHaveAttribute("aria-busy", "true");
     expect(screen.getByRole("button", { name: "More options" })).toBeDisabled();
 
@@ -113,8 +114,8 @@ describe("SplitButton", () => {
     for (const button of [publish, toggle]) {
       expect(button).toHaveClass("border-[1.5px]", "text-success-700");
     }
-    expect(publish).toHaveClass("px-2", "rounded-l-md");
-    expect(toggle).toHaveClass("px-1!", "rounded-r-md");
+    expect(publish).toHaveClass("px-2", "rounded-s-md");
+    expect(toggle).toHaveClass("px-1!", "rounded-e-md");
 
     await user.click(publish);
     expect(onSubmit).toHaveBeenCalledTimes(1);

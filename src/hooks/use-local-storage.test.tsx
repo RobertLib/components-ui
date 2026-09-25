@@ -138,6 +138,28 @@ describe("useLocalStorage", () => {
     expect(result.current[0]).toEqual({ page: 2 });
   });
 
+  it("keeps a stored null - a deserialize that checks the shape gives the default", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    localStorage.setItem("columns", "null");
+
+    // `null` is JSON, and may be the value on purpose
+    const { result: plain } = renderHook(() =>
+      useLocalStorage<string[] | null>("columns", ["name"]),
+    );
+    expect(plain.current[0]).toBeNull();
+
+    const { result: checked } = renderHook(() =>
+      useLocalStorage<string[]>("columns", ["name"], {
+        deserialize: (text) => {
+          const value: unknown = JSON.parse(text);
+          if (!Array.isArray(value)) throw new Error("No list");
+          return value as string[];
+        },
+      }),
+    );
+    expect(checked.current[0]).toEqual(["name"]);
+  });
+
   it("uses a custom serialize and deserialize", () => {
     localStorage.setItem("since", "2026-09-24");
     const { result } = renderHook(() =>

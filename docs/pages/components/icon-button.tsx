@@ -9,9 +9,9 @@ export default function IconButtonPage() {
       <Example
         description={
           <p>
-            <code>loading</code> swaps the icon for a spinner and disables the
-            button. Combine it with a <code>Tooltip</code> to name the action
-            for sighted users too.
+            <code>loading</code> swaps the icon for a spinner and makes the
+            button do nothing - it keeps the focus. Combine it with a{" "}
+            <code>Tooltip</code> to name the action for sighted users too.
           </p>
         }
         name="icon-button/states"

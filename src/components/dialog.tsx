@@ -66,7 +66,7 @@ export default function Dialog({
       duration={200}
       openClassName="scale-100 opacity-100"
       panelClassName={cn(
-        "fixed top-1/2 left-1/2 z-50 flex max-h-[90vh] w-full max-w-11/12 -translate-x-1/2 -translate-y-1/2 scale-95 transform flex-col overflow-hidden rounded-lg border border-neutral-200 bg-background opacity-0 shadow-md transition-all duration-200 focus:outline-none motion-reduce:transition-opacity dark:border-neutral-800 dark:bg-background-dark",
+        "fixed top-1/2 left-1/2 z-50 flex max-h-[90dvh] w-full max-w-11/12 -translate-x-1/2 -translate-y-1/2 scale-95 transform flex-col overflow-hidden rounded-lg border border-neutral-200 bg-background opacity-0 shadow-md transition-all duration-200 focus:outline-none motion-reduce:transition-opacity dark:border-neutral-800 dark:bg-background-dark",
         sizeClasses[size],
       )}
       role={role}

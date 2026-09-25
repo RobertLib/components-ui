@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { normalizeLoadOptionsResult } from "./load-options";
 
 const items = [{ id: 1 }, { id: 2 }];
@@ -64,5 +64,25 @@ describe("normalizeLoadOptionsResult", () => {
         pageInfo: { endCursor: null, hasNextPage: false },
       }),
     ).toEqual({ hasMore: false, items, nextCursor: null });
+  });
+
+  it("warns about a shape it cannot read, instead of listing nothing silently", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // A Django REST Framework page
+    const result = { count: 2, next: null, results: items };
+    expect(
+      normalizeLoadOptionsResult(
+        result as unknown as Parameters<typeof normalizeLoadOptionsResult>[0],
+      ).items,
+    ).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("`count`, `next`, `results`");
+
+    // Empty pages and connections are no mistake
+    normalizeLoadOptionsResult({ items: [], total: 0 });
+    normalizeLoadOptionsResult({ nodes: null, pageInfo: null });
+    normalizeLoadOptionsResult({ edges: [] });
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });

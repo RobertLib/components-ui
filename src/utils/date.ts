@@ -1,5 +1,5 @@
 import { toIntlLocale } from "../i18n/format";
-import type { WeekDay } from "../i18n/types";
+import type { DatePatternToken, WeekDay } from "../i18n/types";
 
 export const pad2 = (value: number) => String(value).padStart(2, "0");
 
@@ -92,6 +92,17 @@ export const addDays = (date: Date, days: number) => {
   result.setDate(result.getDate() + days);
   return result;
 };
+
+/**
+ * The start of the day `offset` months from the day of `date` - the last day
+ * of a shorter month: January 31 + 1 is February 28 (29).
+ */
+export function addMonths(date: Date, offset: number) {
+  const year = date.getFullYear();
+  const monthIndex = date.getMonth() + offset;
+  const lastDay = dateOf(year, monthIndex + 1, 0).getDate();
+  return dateOf(year, monthIndex, Math.min(date.getDate(), lastDay));
+}
 
 export const isSameDay = (a: Date, b: Date) =>
   a.getDate() === b.getDate() &&
@@ -213,6 +224,20 @@ export function formatPattern(
         return token;
     }
   });
+}
+
+/**
+ * A pattern as the placeholder of a field shows it: its bracketed text left
+ * out (`[W]WW.YYYY` - `WW.YYYY`), each token written by `tokens` if they
+ * have it - with `{ YYYY: "RRRR" }` `DD.MM.YYYY` is the Czech `DD.MM.RRRR`.
+ */
+export function formatPlaceholder(
+  pattern: string,
+  tokens: Partial<Record<DatePatternToken, string>> = {},
+) {
+  return pattern.replace(PATTERN_TOKEN, (token, literal?: string) =>
+    literal !== undefined ? "" : (tokens[token as DatePatternToken] ?? token),
+  );
 }
 
 /** Whether a pattern shows the hours on the 12-hour clock (`h`, `hh`). */

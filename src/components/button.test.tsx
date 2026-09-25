@@ -1,6 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import Button from "./button";
+import IconButton from "./icon-button";
 
 const auxClick = (element: Element) =>
   fireEvent(
@@ -99,7 +101,10 @@ describe("Button icons", () => {
 
     expect(screen.queryByTestId("icon")).toBeNull();
     expect(container.querySelector(".animate-spin")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Refresh" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 
   it("stretches to the width of its container", () => {
@@ -124,5 +129,61 @@ describe("Button icons", () => {
     const button = screen.getByRole("button", { name: "Save" });
     expect(button.children).toHaveLength(0);
     expect(button).not.toHaveClass("gap-1.5");
+  });
+});
+
+describe("IconButton", () => {
+  it("keeps the focus and does nothing while loading", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    const { rerender } = render(
+      <IconButton aria-label="Refresh" onClick={onClick}>
+        <svg />
+      </IconButton>,
+    );
+    const button = screen.getByRole("button", { name: "Refresh" });
+    act(() => button.focus());
+
+    rerender(
+      <IconButton aria-label="Refresh" loading onClick={onClick}>
+        <svg />
+      </IconButton>,
+    );
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).toHaveFocus();
+
+    await user.click(button);
+    expect(onClick).not.toHaveBeenCalled();
+
+    rerender(
+      <IconButton aria-label="Refresh" disabled onClick={onClick}>
+        <svg />
+      </IconButton>,
+    );
+    expect(button).toBeDisabled();
+  });
+});
+
+describe("A loading button in a clickable container", () => {
+  it("reaches no onClick around it, like a disabled button", async () => {
+    const user = userEvent.setup();
+    const onRowClick = vi.fn();
+    render(
+      <div onClick={onRowClick}>
+        <Button loading>Save</Button>
+        <Button link="/orders" loading>
+          Orders
+        </Button>
+        <IconButton aria-label="Refresh" loading>
+          <svg />
+        </IconButton>
+      </div>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("link", { name: "Orders" }));
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(onRowClick).not.toHaveBeenCalled();
   });
 });

@@ -785,7 +785,10 @@ describe("Calendar from the keyboard", () => {
     );
 
     expect(screen.queryByText("D")).toBeNull();
-    const more = screen.getByRole("button", { name: "+2 more" });
+    // Named with its day - a screen reader lists it out of its cell
+    const more = screen.getByRole("button", {
+      name: "+2 more, Thursday, September 24, 2026",
+    });
     more.focus();
     await user.keyboard("{Enter}");
 
@@ -919,7 +922,7 @@ describe("Calendar", () => {
     expect(tile?.parentElement?.parentElement).toHaveClass("w-full");
 
     // In the list of the day as wide as their text - at most as the list
-    await user.click(screen.getByRole("button", { name: "+1 more" }));
+    await user.click(screen.getByRole("button", { name: /^\+1 more,/ }));
     const listed = within(screen.getByRole("dialog"))
       .getByText("A title too long for a day of a month")
       .closest(".group\\/event");
@@ -1009,7 +1012,7 @@ describe("Calendar order of events", () => {
     // The latest is the one behind "+1 more"
     expect(screen.getByText("Offsite")).toBeInTheDocument();
     expect(screen.queryByText("Evening")).toBeNull();
-    expect(screen.getByRole("button", { name: "+1 more" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /^\+1 more,/ })).toBeVisible();
   });
 
   it("tabs through the events of a day by their start", () => {
@@ -1046,7 +1049,7 @@ describe("Calendar order of events", () => {
     );
 
     expect(screen.queryByText("C")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "+2 more" }));
+    await user.click(screen.getByRole("button", { name: /^\+2 more,/ }));
     expect(within(screen.getByRole("dialog")).getByText("D")).toBeVisible();
   });
 });

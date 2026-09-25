@@ -65,6 +65,76 @@ function setResetValue(element: FieldElement, value: FieldValue) {
   }
 }
 
+/** The value of a field element - of a multiple select all picked ones. */
+function readValue(element: FieldElement): FieldValue {
+  // The `value` of a multiple select is just its first selected option
+  return element instanceof HTMLSelectElement && element.multiple
+    ? Array.from(element.selectedOptions, (option) => option.value)
+    : element.value;
+}
+
+/** The `value` property of `element` - its own or that of its prototype. */
+function findValueProperty(element: FieldElement) {
+  for (
+    let target: object | null = element;
+    target;
+    target = Object.getPrototypeOf(target)
+  ) {
+    const descriptor = Object.getOwnPropertyDescriptor(target, "value");
+    if (descriptor) return descriptor;
+  }
+  return undefined;
+}
+
+/**
+ * Calls `onWrite` whenever a script sets the `value` of `element` - which
+ * fires no event: React Hook Form's `register()`, `setValue()` and
+ * `reset()` do so. Wraps the property the way React tracks it, and passes
+ * every write on to it. Returns what stops the watch.
+ */
+function watchValueWrites(element: FieldElement, onWrite: () => void) {
+  const property = findValueProperty(element);
+  const get = property?.get;
+  const set = property?.set;
+  if (!property || !get || !set) return () => {};
+
+  const own = Object.getOwnPropertyDescriptor(element, "value");
+  let active = true;
+  const setValue = function (this: FieldElement, next: unknown) {
+    set.call(this, next);
+    if (active) onWrite();
+  };
+
+  Object.defineProperty(element, "value", {
+    configurable: true,
+    enumerable: property.enumerable,
+    get() {
+      return get.call(this);
+    },
+    set: setValue,
+  });
+
+  return () => {
+    active = false;
+    // Wrapped once more meanwhile - that wrapper keeps calling this one
+    if (Object.getOwnPropertyDescriptor(element, "value")?.set !== setValue) {
+      return;
+    }
+    if (own) Object.defineProperty(element, "value", own);
+    else Reflect.deleteProperty(element, "value");
+  };
+}
+
+/** Whether `element` shows a value of its own - not a checkbox or a radio. */
+const holdsValue = (element: FieldElement) =>
+  !(
+    element instanceof HTMLInputElement &&
+    (element.type === "checkbox" || element.type === "radio")
+  );
+
+const sameValue = (a: FieldValue | undefined, b: FieldValue | undefined) =>
+  a !== undefined && b !== undefined && String(a) === String(b);
+
 /**
  * The value of a field that works controlled (`value` + `onChange`) and
  * uncontrolled (`defaultValue`). A controlled field always shows `value`, so
@@ -75,37 +145,57 @@ function setResetValue(element: FieldElement, value: FieldValue) {
  * reset - `form.reset()`, also the one after a React form action - bring
  * back the `defaultValue` of an uncontrolled field and leave a controlled one
  * showing its `value`.
+ *
+ * With `followScriptWrites`, for an element that shows the value itself (an
+ * input, a textarea, a select), a value a script writes into an uncontrolled
+ * field - React Hook Form's `register()` with `defaultValues`, `setValue()`,
+ * `reset(values)` - becomes its value, as in a native field: the next render
+ * keeps it, and what depends on the value (a clear button, a counter)
+ * follows it at once. A controlled field shows `value` again at its next
+ * render, like a controlled native one. Only writes through the `value`
+ * property count - a script selecting the options of a multiple select one
+ * by one, or setting the `value` attribute, is seen at the next change.
  */
 export function useFormControl<T extends FieldElement = FieldElement>({
   defaultValue,
+  followScriptWrites = false,
   onChange,
   ref,
   value,
 }: {
   defaultValue?: FieldValue;
+  /** Makes a value a script writes into the element the field's value. */
+  followScriptWrites?: boolean;
   onChange?: React.ChangeEventHandler<T>;
   ref?: React.Ref<T>;
   value?: FieldValue;
 }) {
-  // What the user entered into an uncontrolled field. Until then, and again
-  // after a reset, it shows `defaultValue` - like a native field does.
+  // What the user (or a script) entered into an uncontrolled field. Until
+  // then, and again after a reset, it shows `defaultValue` - like a native
+  // field does.
   const [enteredValue, setEnteredValue] = useState<FieldValue>();
   const isControlled = value !== undefined;
   // The elements `fieldRef` is on
   const elements = useRef(new Set<T>());
+  // What the listeners of the DOM need to know - up to date after each
+  // render, and `entered` also at once after a change
+  const latest = useRef({
+    defaultValue,
+    entered: undefined as FieldValue | undefined,
+    // The entered value was written by a script, not typed
+    fromScript: false,
+    isControlled,
+  });
 
   const handleChange = useCallback(
     (event: React.ChangeEvent<T>) => {
       onChange?.(event);
       if (isControlled) return;
 
-      const { target } = event;
-      setEnteredValue(
-        // The `value` of a multiple select is just its first selected option
-        target instanceof HTMLSelectElement && target.multiple
-          ? Array.from(target.selectedOptions, (option) => option.value)
-          : target.value,
-      );
+      const entered = readValue(event.target);
+      latest.current.entered = entered;
+      latest.current.fromScript = false;
+      setEnteredValue(entered);
     },
     [isControlled, onChange],
   );
@@ -113,9 +203,39 @@ export function useFormControl<T extends FieldElement = FieldElement>({
   // A reset fires an event on the form only, none on its fields
   const fieldRef = useCallback(
     (element: T | null) => {
-      const detachRef = attachRef(ref, element);
       const form = element?.form;
-      const handleReset = () => setEnteredValue(undefined);
+      const handleReset = () => {
+        latest.current.entered = undefined;
+        latest.current.fromScript = false;
+        setEnteredValue(undefined);
+      };
+
+      // A write while nothing was entered that brings the default is React
+      // showing it (after a reset) - no value entered
+      const handleWrite = () => {
+        const state = latest.current;
+        if (!element || state.isControlled) return;
+
+        const written = readValue(element);
+        if (
+          state.entered === undefined &&
+          sameValue(written, state.defaultValue ?? "")
+        ) {
+          return;
+        }
+
+        state.entered = written;
+        state.fromScript = true;
+        setEnteredValue(written);
+      };
+
+      // Watched before the `ref` prop gets the element - `register()`
+      // writes the default value into it right then
+      const stopWatching =
+        element && followScriptWrites && holdsValue(element)
+          ? watchValueWrites(element, handleWrite)
+          : undefined;
+      const detachRef = attachRef(ref, element);
 
       if (element) elements.current.add(element);
       form?.addEventListener("reset", handleReset);
@@ -124,14 +244,33 @@ export function useFormControl<T extends FieldElement = FieldElement>({
         if (element) elements.current.delete(element);
         form?.removeEventListener("reset", handleReset);
         detachRef();
+        stopWatching?.();
       };
     },
-    [ref],
+    [followScriptWrites, ref],
   );
 
   // What a reset brings back: the value a controlled field shows, the
   // `defaultValue` of an uncontrolled one - also one that arrived late
   const resetValue = isControlled ? value : (defaultValue ?? "");
+
+  useLayoutEffect(() => {
+    const state = latest.current;
+    state.defaultValue = defaultValue;
+    state.isControlled = isControlled;
+
+    // React writing a `defaultValue` that arrived late looks like a script
+    // to the watch - the field shows its default then, and a later one too
+    if (
+      !isControlled &&
+      state.fromScript &&
+      sameValue(enteredValue, defaultValue ?? "")
+    ) {
+      state.entered = undefined;
+      state.fromScript = false;
+      setEnteredValue(undefined);
+    }
+  }, [defaultValue, enteredValue, isControlled]);
 
   useLayoutEffect(() => {
     for (const element of elements.current) {

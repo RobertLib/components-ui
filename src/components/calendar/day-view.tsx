@@ -1,16 +1,19 @@
 import type { CalendarEvent, CalendarViewProps } from "./types";
 import { addCalendarDays, getSlotStart } from "./date-utils";
 import {
+  createDayFormat,
   createSlotLabeler,
   formatTimeRange,
   getColorStyles,
   getEventTooltipText,
+  getHiddenSide,
   isOnDay,
 } from "./utils";
 import { useCallback, useMemo, useRef } from "react";
 import cn from "../../utils/cn";
 import EventTile from "./event-tile";
 import EventTitle from "./event-title";
+import HiddenEvents from "./hidden-events";
 import Spinner from "../spinner";
 import TimeGrid from "./time-grid";
 import TimedEvents from "./timed-events";
@@ -147,6 +150,14 @@ function SingleDayView({
 
   const allDayEvents = dayEvents.filter((event) => event.allDay);
   const timedEvents = dayEvents.filter((event) => !event.allDay);
+  // Timed events no part of which the hours shown have a row for - the
+  // header offers them
+  const hasHiddenEvents = timedEvents.some((event) => {
+    const { end, start } = getEventDisplayTimes(event);
+    return (
+      getHiddenSide(start, end, currentDate, START_HOUR, END_HOUR) !== null
+    );
+  });
 
   const formattedDate = formatDate(currentDate, locale.formats.date);
 
@@ -220,7 +231,7 @@ function SingleDayView({
         </div>
       )}
 
-      {allDayEvents.length > 0 && (
+      {(allDayEvents.length > 0 || hasHiddenEvents) && (
         <div className="sticky top-0 z-10 flex items-center border-b border-neutral-200 bg-surface p-2 dark:border-neutral-800 dark:bg-surface-dark">
           <div
             className={cn(
@@ -255,6 +266,20 @@ function SingleDayView({
                 </EventTile>
               ))}
             </div>
+            <HiddenEvents
+              day={currentDate}
+              endHour={END_HOUR}
+              events={timedEvents}
+              getDisplayTimes={getEventDisplayTimes}
+              label={createDayFormat(locale).format(currentDate)}
+              getEventColor={getEventColor}
+              getEventLabel={getEventLabel}
+              isClickable={isClickable}
+              onEventOpen={handleEventClick}
+              renderEventActions={renderEventActions}
+              renderEventIcon={renderEventIcon}
+              startHour={START_HOUR}
+            />
           </div>
         </div>
       )}

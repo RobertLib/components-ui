@@ -1,5 +1,18 @@
 import type { Column, DataTableDensity } from "./types";
 
+/**
+ * The keys of the expand, selection and actions columns among the layouts
+ * and the measured widths of the columns - apart from the keys of the
+ * columns, one of which may well be `actions` too.
+ */
+export const LEADING_KEYS: Readonly<
+  Record<"actions" | "expand" | "selection", string>
+> = {
+  actions: "\u0000actions",
+  expand: "\u0000expand",
+  selection: "\u0000selection",
+};
+
 /** Narrowest a column can be resized to without a `minWidth` of its own. */
 export const MIN_COLUMN_WIDTH = 50;
 

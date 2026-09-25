@@ -106,7 +106,9 @@ export default function ConfirmDialogPage() {
             </li>
             <li>
               The dialog opens above whatever is open - a <code>Sheet</code>, a{" "}
-              <code>Dialog</code>, a popover - and Escape closes it first.
+              <code>Dialog</code>, a popover - and Escape closes it first. A
+              popover it is asked from stays open under it, with what was typed
+              in it.
             </li>
             <li>
               When <code>ConfirmProvider</code> unmounts, the open and waiting

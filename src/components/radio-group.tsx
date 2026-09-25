@@ -1,6 +1,6 @@
 import { attachRef, useFormControl } from "../hooks/use-form-control";
 import { useCallback, useId } from "react";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { useMessages } from "../providers/ui-context";
@@ -193,6 +193,8 @@ export default function RadioGroup({
               optionDisabled
                 ? "cursor-not-allowed opacity-60"
                 : "cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800",
+              // Disabled by a disabled fieldset around, which no prop tells
+              "has-disabled:cursor-not-allowed has-disabled:opacity-60 has-disabled:hover:bg-transparent dark:has-disabled:hover:bg-transparent",
             )}
             key={option.value}
           >
@@ -244,7 +246,7 @@ export default function RadioGroup({
   // The group carries the error and `required` - the radios keep `required`
   // for the browser's validation
   const groupProps = {
-    "aria-describedby": cn(errorId, descriptionId, ariaDescribedBy),
+    "aria-describedby": joinTokens(errorId, descriptionId, ariaDescribedBy),
     "aria-invalid": error ? ("true" as const) : undefined,
     "aria-required": required ? ("true" as const) : undefined,
     id,

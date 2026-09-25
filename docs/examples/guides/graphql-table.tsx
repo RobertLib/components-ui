@@ -68,7 +68,7 @@ const columns = personColumns.map((column) =>
   column.key === "salary" ? { ...column, summary: "sum" as const } : column,
 );
 
-async function fetchPeople(query: DataTableQuery, signal: AbortSignal) {
+async function fetchPeople(query: DataTableQuery, signal?: AbortSignal) {
   const response = await fetch("/api/graphql", {
     body: JSON.stringify({ query: PEOPLE, variables: toRelayVariables(query) }),
     headers: { "Content-Type": "application/json" },
@@ -80,11 +80,24 @@ async function fetchPeople(query: DataTableQuery, signal: AbortSignal) {
   return data.people as PeopleConnection;
 }
 
-// The CSV export - every row of the query in one connection, not just the
-// page (a large API would page through it with `after`)
+// The CSV export - every row of the query, not just the page: the
+// connection from its start, page after page (`after: endCursor`) while it
+// has a next one
 async function fetchAllPeople(query: DataTableQuery) {
-  const all = { ...query, after: null, before: null, pageSize: 10_000 };
-  return (await fetchPeople(all, new AbortController().signal)).nodes;
+  const all: Person[] = [];
+  let after: string | null = null;
+
+  for (;;) {
+    const { nodes, pageInfo }: PeopleConnection = await fetchPeople({
+      ...query,
+      after,
+      before: null,
+      pageSize: 1000,
+    });
+    all.push(...nodes);
+    if (!pageInfo.hasNextPage || !pageInfo.endCursor) return all;
+    after = pageInfo.endCursor;
+  }
 }
 
 export default function GraphQLTable() {

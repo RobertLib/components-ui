@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { use, useEffect, useId, useState } from "react";
+import { isValidElement, use, useEffect, useId, useState } from "react";
 import { AccordionGroupContext } from "./accordion-group-context";
 import cn from "../utils/cn";
 import CollapsibleContent from "./collapsible-content";
@@ -34,9 +34,17 @@ export interface AccordionProps extends React.ComponentProps<"div"> {
   defaultOpen?: boolean;
   /**
    * Always visible part - clicking it toggles the content, except on links,
-   * buttons and fields inside it.
+   * buttons and fields inside it. It is a heading for assistive technology
+   * (see `headingLevel`) - unless it is a heading element itself
+   * (`<h3>…</h3>`).
    */
   header?: React.ReactNode;
+  /**
+   * Level of the heading the header is for screen readers, who move between
+   * the sections by their headings - the level of the headings around.
+   * @default 3
+   */
+  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   /** Called with the requested state when the header is clicked. */
   onOpenChange?: (open: boolean) => void;
   /**
@@ -53,6 +61,12 @@ export interface AccordionProps extends React.ComponentProps<"div"> {
   value?: string;
 }
 
+/** Whether a header is a heading element of its own - `<h3>…</h3>`. */
+const isHeadingElement = (node: React.ReactNode) =>
+  isValidElement(node) &&
+  typeof node.type === "string" &&
+  /^h[1-6]$/.test(node.type);
+
 /**
  * A `Panel` whose content collapses under a clickable header. From the
  * keyboard, the toggle button at the end of the header opens and closes it.
@@ -61,6 +75,7 @@ export interface AccordionProps extends React.ComponentProps<"div"> {
 export default function Accordion({
   defaultOpen = true,
   header,
+  headingLevel = 3,
   children,
   onOpenChange,
   open,
@@ -103,6 +118,8 @@ export default function Accordion({
   }, [hasOpenProp, isGrouped, onOpenChange]);
 
   const Icon = isOpen ? ChevronUp : ChevronDown;
+  // The header is the heading of the section - or brings its own
+  const isHeading = !!header && !isHeadingElement(header);
 
   const handleToggle = () => {
     if (isLocked) return;
@@ -131,11 +148,18 @@ export default function Accordion({
           handleToggle();
         }}
       >
-        <div className="flex-1" id={headerId}>
+        {/* A heading - the toggle after it is named by it (APG) */}
+        <div
+          aria-level={isHeading ? headingLevel : undefined}
+          className="flex-1"
+          id={headerId}
+          role={isHeading ? "heading" : undefined}
+        >
           {header}
         </div>
         <IconButton
-          aria-controls={contentId}
+          // Closed, the content is not there to point at
+          aria-controls={isOpen ? contentId : undefined}
           aria-disabled={isLocked || undefined}
           aria-expanded={isOpen}
           aria-label={header ? undefined : messages.accordion.toggle}

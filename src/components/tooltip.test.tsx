@@ -313,6 +313,56 @@ describe("Tooltip placement", () => {
     expect(tooltip.style.top).toBe(`${210 - 8 - 24}px`);
   });
 
+  it.each(["right", "left"] as const)(
+    "goes below a %s tooltip with room on neither side - on a phone",
+    async (position) => {
+      mockLayout();
+      vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(
+        250,
+      );
+      vi.spyOn(window, "innerWidth", "get").mockReturnValue(375);
+      // In the middle of a phone screen - 142 px on the left, 187 px on the
+      // right, neither enough for 250 px
+      rect = {
+        bottom: 46,
+        height: 20,
+        left: 150,
+        right: 180,
+        top: 26,
+        width: 30,
+      };
+      const tooltip = await showTooltip(position);
+
+      // Below the trigger, held inside the screen
+      expect(tooltip.style.top).toBe("54px");
+      const left = parseFloat(tooltip.style.left);
+      expect(left).toBeGreaterThanOrEqual(4);
+      expect(left + 250).toBeLessThanOrEqual(375 - 4);
+    },
+  );
+
+  it("stays inside the viewport with room on no side", async () => {
+    mockLayout();
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(700);
+    rect = {
+      bottom: 380,
+      height: 20,
+      left: 500,
+      right: 540,
+      top: 360,
+      width: 40,
+    };
+    const tooltip = await showTooltip("right");
+
+    const left = parseFloat(tooltip.style.left);
+    const top = parseFloat(tooltip.style.top);
+    // Where it has the most room, over its trigger at last
+    expect(left).toBeGreaterThanOrEqual(4);
+    expect(left + 600).toBeLessThanOrEqual(window.innerWidth - 4);
+    expect(top).toBeGreaterThanOrEqual(4);
+  });
+
   it("follows its trigger while the page scrolls", async () => {
     mockLayout();
     rect = {

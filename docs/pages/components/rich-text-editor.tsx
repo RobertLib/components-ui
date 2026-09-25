@@ -168,7 +168,7 @@ export default function RichTextEditorPage() {
             <p>
               All the tools. Code, a quote, nested lists - and undo and redo
               with an own history of the editor, which the browser's shared one
-              is not.
+              is not: up to 100 steps, fewer of a very long document.
             </p>
           }
           name="rich-text-editor/full-toolbar"
@@ -232,7 +232,9 @@ export default function RichTextEditorPage() {
               table of the caret. Tab moves to the next cell and adds a row
               after the last one; Shift+Tab moves back. Enter breaks the line of
               a cell, and the arrow keys leave a table at the start or end of
-              the content into a new paragraph.
+              the content into a new paragraph. Backspace at the start of the
+              line after a table moves the caret into its last cell - it does
+              not pull the line into it.
             </p>
           }
           name="rich-text-editor/table"
@@ -275,9 +277,10 @@ export default function RichTextEditorPage() {
             <code>isSafeHref(href)</code> (<code>http:</code>,{" "}
             <code>https:</code>, <code>mailto:</code>, <code>tel:</code> and
             relative links) - without any attributes but those links, and
-            nothing else. Its <code>formats</code> keep less, like an editor
-            with fewer tools. Render stored HTML through it, inside an element
-            with the <code>rich-text</code> class:
+            nothing else; other links become their text. Its{" "}
+            <code>formats</code> keep less, like an editor with fewer tools.
+            Render stored HTML through it, inside an element with the{" "}
+            <code>rich-text</code> class:
           </p>
         </Prose>
         <CodeBlock code={rendering} />
@@ -289,11 +292,14 @@ export default function RichTextEditorPage() {
         </Prose>
         <Callout title="Server rendering">
           <p>
-            <code>sanitizeRichText</code> needs <code>DOMParser</code>: it runs
-            in the browser, or on a server with a DOM like jsdom, and throws on
-            a server without one - importing it is safe anywhere. A page
-            rendered on the server calls it once it is hydrated, as below, or
-            sanitizes the HTML on the server with a library of its own.
+            <code>sanitizeRichText</code> needs <code>DOMParser</code> - and
+            nothing else of a DOM. It runs in the browser, and on a server with
+            a global <code>DOMParser</code>, e.g. that of jsdom:{" "}
+            <code>globalThis.DOMParser = new JSDOM().window.DOMParser</code>. On
+            a server without one it throws - importing it is safe anywhere. A
+            page rendered on such a server calls it once it is hydrated, as
+            below, or sanitizes the HTML on the server with a library of its
+            own.
           </p>
         </Callout>
         <CodeBlock code={serverRendering} />
@@ -311,20 +317,22 @@ export default function RichTextEditorPage() {
             struck and monospace text of Google Docs and Word, which set it by
             styles, stays too. Without their tools, headings, list items and
             quotes become paragraphs and table rows lines of text (the cells
-            separated by tabs). Content pasted into a table cell or a heading
-            becomes its lines - unless it replaces the heading or table as a
-            whole, from its start on (select all), or the heading is empty. A
-            table of more than 50 columns or 10 000 cells arrives without its
-            merged cells, and where it is still too big as lines of text - a few
-            kilobytes of <code>colspan</code> cannot grow into millions of
-            cells.
+            separated by tabs). Content pasted into a table cell, a heading or a
+            list item becomes its lines (a pasted list gives the item items next
+            to it), into a quote its paragraphs - so the editor shows what it
+            submits. Blocks that replace the line or table as a whole, from its
+            start on (select all), or fill an empty line keep their kinds; text
+            of one line stays in the line, like typed text. A table of more than
+            50 columns or 10 000 cells arrives without its merged cells, and
+            where it is still too big as lines of text - a few kilobytes of{" "}
+            <code>colspan</code> cannot grow into millions of cells.
           </p>
           <p>
             The link tool takes web addresses (<code>example.com</code>,{" "}
-            <code>localhost:3000</code> get <code>https://</code>), e-mail
-            addresses (<code>mailto:</code>) and phone numbers (
-            <code>tel:</code>, also typed with it). With the caret in a link it
-            edits the address or removes the link.
+            <code>localhost:3000</code>, <code>192.168.1.1</code> get{" "}
+            <code>https://</code>), e-mail addresses (<code>mailto:</code>) and
+            phone numbers (<code>tel:</code>, also typed with it). With the
+            caret in a link it edits the address or removes the link.
           </p>
         </Prose>
       </Section>

@@ -14,6 +14,7 @@ import MenuPopup from "./menu/menu-popup";
 import { pointRect, type AnchorRect, type Point } from "./menu/position";
 import { isSkippedEntry, type DropdownEntry } from "./menu/types";
 import {
+  getDirection,
   isEscapeKey,
   isInOverlayTree,
   isTopmostOverlay,
@@ -55,6 +56,8 @@ interface TargetProps {
 
 interface OpenMenu {
   anchor: AnchorRect;
+  /** The writing direction of the target - the menu takes it. */
+  dir: "ltr" | "rtl";
   /** Space between the anchor and the menu. */
   gap: number;
   /** Opened from the keyboard - with the first item highlighted. */
@@ -101,9 +104,13 @@ function swallowNextClick() {
 
 /**
  * A touch held on the target without moving - a scroll moves the finger.
- * The handlers go on the target; `onLongPress` gets the point of the touch.
+ * The handlers go on the target; `onLongPress` gets the point of the touch
+ * and the target.
  */
-function useLongPress(enabled: boolean, onLongPress: (point: Point) => void) {
+function useLongPress(
+  enabled: boolean,
+  onLongPress: (point: Point, target: Element) => void,
+) {
   const pressRef = useRef<{
     id: number;
     timer: ReturnType<typeof setTimeout>;
@@ -137,12 +144,12 @@ function useLongPress(enabled: boolean, onLongPress: (point: Point) => void) {
       handledEvents.add(event.nativeEvent);
       cancel();
 
-      const { clientX: x, clientY: y, pointerId } = event;
+      const { clientX: x, clientY: y, currentTarget, pointerId } = event;
       pressRef.current = {
         id: pointerId,
         timer: setTimeout(() => {
           pressRef.current = null;
-          onLongPressRef.current({ x, y });
+          onLongPressRef.current({ x, y }, currentTarget);
         }, LONG_PRESS_DELAY),
         x,
         y,
@@ -261,13 +268,19 @@ export default function ContextMenu({
     giveFocusBackRef.current = giveFocusBack;
   });
 
-  const openMenu = (anchor: AnchorRect, gap: number, highlight: boolean) => {
+  const openMenu = (
+    anchor: AnchorRect,
+    gap: number,
+    highlight: boolean,
+    target: Element,
+  ) => {
     // Opened once already - on Android a long press fires `contextmenu` too
     if (menu) return;
 
     const active = document.activeElement;
     setMenu({
       anchor,
+      dir: getDirection(target),
       gap,
       highlight,
       returnFocus:
@@ -331,9 +344,9 @@ export default function ContextMenu({
   }, [enabled, menu]);
 
   // A long press on a touch screen opens the menu at the finger
-  const longPress = useLongPress(enabled, (point) => {
+  const longPress = useLongPress(enabled, (point, target) => {
     swallowNextClick();
-    openMenu(pointRect(point), 2, false);
+    openMenu(pointRect(point), 2, false, target);
   });
 
   const handleContextMenu = (event: React.MouseEvent<HTMLElement>) => {
@@ -354,11 +367,11 @@ export default function ContextMenu({
       y <= rect.bottom;
 
     if (atPointer) {
-      openMenu(pointRect({ x, y }), 2, false);
+      openMenu(pointRect({ x, y }), 2, false, event.currentTarget);
     } else {
       const element =
         event.target instanceof Element ? event.target : event.currentTarget;
-      openMenu(element.getBoundingClientRect(), 4, true);
+      openMenu(element.getBoundingClientRect(), 4, true, element);
     }
   };
 
@@ -378,7 +391,7 @@ export default function ContextMenu({
     event.preventDefault();
     const element =
       event.target instanceof Element ? event.target : event.currentTarget;
-    openMenu(element.getBoundingClientRect(), 4, true);
+    openMenu(element.getBoundingClientRect(), 4, true, element);
   };
 
   // The keys the menu uses do not reach the page - a list or a table around
@@ -454,6 +467,7 @@ export default function ContextMenu({
       {target}
       {isOpen && menu && (
         <MenuPopup
+          dir={menu.dir}
           gap={menu.gap}
           getAnchor={() => menu.anchor}
           id={panelId}

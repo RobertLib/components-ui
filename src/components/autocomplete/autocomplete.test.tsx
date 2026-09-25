@@ -445,17 +445,31 @@ describe("Autocomplete keyboard", () => {
 });
 
 describe("Autocomplete list states", () => {
-  it("announces them beside the listbox, not as its options", async () => {
+  it("shows them beside the listbox and announces them once typing pauses", async () => {
     const user = userEvent.setup();
     render(<Autocomplete label="City" options={cities} />);
 
+    // Only while the list is open - added empty, as a live region added with
+    // its text in it is not read out
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: /City/ }));
-    await user.keyboard("xyz");
-
     const status = screen.getByRole("status");
-    expect(status).toHaveTextContent("No results");
-    expect(screen.getByRole("listbox")).not.toContainElement(status);
-    expect(screen.getByRole("listbox").children).toHaveLength(0);
+    expect(status).toBeEmptyDOMElement();
+    await waitFor(() => expect(status).toHaveTextContent("3 results"));
+
+    // Not at every key typed
+    await user.keyboard("xyz");
+    expect(status).toHaveTextContent("3 results");
+    await waitFor(() => expect(status).toHaveTextContent("No results"));
+
+    // Shown under the list, not as its option
+    const listbox = screen.getByRole("listbox");
+    expect(listbox.children).toHaveLength(0);
+    expect(listbox.parentElement).toHaveTextContent("No results");
+    expect(listbox.parentElement).not.toContainElement(status);
+
+    await user.keyboard("{Escape}");
+    expect(status).not.toBeInTheDocument();
   });
 
   it("stops calling loadMore once hasMore is false", async () => {
@@ -1080,12 +1094,17 @@ describe("Autocomplete as a select", () => {
     );
 
     await user.click(screen.getByRole("combobox", { name: "Person:" }));
+    const list = screen.getByRole("listbox").parentElement!;
+    await waitFor(() => expect(list).toHaveTextContent("Loading…"));
     await waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent("Loading…"),
     );
 
     await act(async () => resolve([]));
-    expect(screen.getByRole("status")).toHaveTextContent("No results");
+    expect(list).toHaveTextContent("No results");
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("No results"),
+    );
     expect(screen.getAllByRole("option")).toHaveLength(1);
   });
 });
@@ -1291,9 +1310,15 @@ describe("Autocomplete fields", () => {
     await user.click(screen.getByRole("combobox", { name: "City:" }));
     renderOption.mockClear();
 
-    await user.hover(screen.getByRole("option", { name: "Plzeň" }));
+    fireEvent.mouseMove(screen.getByRole("option", { name: "Plzeň" }), {
+      clientX: 10,
+      clientY: 30,
+    });
     expect(renderOption).toHaveBeenCalledTimes(1);
-    await user.hover(screen.getByRole("option", { name: /Zürich/ }));
+    fireEvent.mouseMove(screen.getByRole("option", { name: /Zürich/ }), {
+      clientX: 10,
+      clientY: 50,
+    });
     expect(renderOption).toHaveBeenCalledTimes(3);
   });
 });
@@ -1520,11 +1545,16 @@ describe("Autocomplete option states", () => {
     );
 
     await user.click(screen.getByRole("combobox", { name: "Cities:" }));
-    expect(screen.getByRole("status")).not.toHaveTextContent(/up to/);
+    expect(screen.queryByText(/up to/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("option", { name: "Plzeň" }));
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "You can select up to 2 options.",
+    expect(
+      screen.getByText("You can select up to 2 options.", { selector: "p" }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "You can select up to 2 options. 3 results",
+      ),
     );
     expect(screen.getByRole("option", { name: "Zürich" })).toHaveAttribute(
       "aria-disabled",
@@ -1858,5 +1888,327 @@ describe("Autocomplete keyboard and focus details", () => {
 
     await user.click(screen.getByRole("button", { name: "Reset" }));
     expect(input).toHaveValue("Praha");
+  });
+});
+
+/** The text of the option the combobox points at. */
+const highlightedOf = (combobox: HTMLElement) =>
+  document.getElementById(combobox.getAttribute("aria-activedescendant") ?? "")
+    ?.textContent;
+
+describe("Autocomplete pointer", () => {
+  it("keeps the highlight of the arrow keys under a pointer that does not move", async () => {
+    const user = userEvent.setup();
+    render(<Autocomplete label="City" options={cities} />);
+    const input = screen.getByRole("combobox", { name: "City:" });
+
+    await user.click(input);
+    fireEvent.mouseMove(screen.getByRole("option", { name: "Plzeň" }), {
+      clientX: 10,
+      clientY: 30,
+    });
+    expect(highlightedOf(input)).toBe("Plzeň");
+
+    await user.keyboard("{ArrowDown}");
+    expect(highlightedOf(input)).toBe("Zürich");
+
+    // Chrome after the list scrolled: another option under the pointer,
+    // which has not moved
+    fireEvent.mouseMove(screen.getByRole("option", { name: "Praha" }), {
+      clientX: 10,
+      clientY: 30,
+    });
+    expect(highlightedOf(input)).toBe("Zürich");
+
+    // A real move of the pointer
+    fireEvent.mouseMove(screen.getByRole("option", { name: "Praha" }), {
+      clientX: 10,
+      clientY: 12,
+    });
+    expect(highlightedOf(input)).toBe("Praha");
+  });
+});
+
+describe("Autocomplete search term", () => {
+  it("ignores the spaces around the typed term", async () => {
+    const user = userEvent.setup();
+    const loadOptions = vi.fn(pagePeople);
+    render(
+      <>
+        <Autocomplete label="City" options={cities} />
+        <Autocomplete label="Person" loadOptions={loadOptions} />
+      </>,
+    );
+
+    const city = screen.getByRole("combobox", { name: "City:" });
+    await user.click(city);
+    // A phone keyboard adds a space after a word it completes
+    await user.type(city, "praha ");
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Praha",
+    ]);
+
+    const person = screen.getByRole("combobox", { name: "Person:" });
+    await user.click(person);
+    await user.type(person, " Person 12 ");
+    await act(() => sleep(400));
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
+    expect(loadOptions.mock.calls.map(([{ search }]) => search)).toEqual([
+      "",
+      "Person 12",
+    ]);
+  });
+  it("matches Greek capitals and Korean written decomposed", async () => {
+    const user = userEvent.setup();
+    render(
+      <Autocomplete
+        label="Street"
+        options={[
+          { label: "ΟΔΟΣ ΑΘΗΝΑΣ", value: "athinas" },
+          { label: "한국어".normalize("NFD"), value: "ko" },
+        ]}
+      />,
+    );
+    const input = screen.getByRole("combobox", { name: "Street:" });
+
+    await user.click(input);
+    // A typed word ends with the final sigma
+    await user.type(input, "οδος αθηνας");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+
+    await user.clear(input);
+    await user.type(input, "한국");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+  });
+});
+
+describe("Autocomplete reloading", () => {
+  it("drops the error of a failed load once the same list loads fine", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const user = userEvent.setup();
+    const loadOptions = vi
+      .fn(pagePeople)
+      .mockRejectedValueOnce(new Error("offline"));
+
+    render(<Autocomplete label="People" loadOptions={loadOptions} multiple />);
+    const input = screen.getByRole("combobox", { name: /People/ });
+
+    await user.click(input);
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+    await user.type(input, "Person 1");
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(11));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    // Back to the list that failed - it loads again, and fine this time
+    await user.clear(input);
+    await waitFor(() => expect(loadOptions).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(30));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText("No results")).not.toBeInTheDocument();
+  });
+
+  it("loads the list again when it opens, showing the one it has meanwhile", async () => {
+    const user = userEvent.setup();
+    const responses: ((items: typeof people) => void)[] = [];
+    const loadOptions = vi.fn(
+      () =>
+        new Promise<typeof people>((resolve) => {
+          responses.push(resolve);
+        }),
+    );
+
+    render(
+      <>
+        <Autocomplete label="Person" loadOptions={loadOptions} />
+        <Autocomplete asSelect label="Owner" loadOptions={loadOptions} />
+        <button type="button">Outside</button>
+      </>,
+    );
+
+    for (const name of ["Person:", "Owner:"]) {
+      const combobox = screen.getByRole("combobox", { name });
+      const calls = loadOptions.mock.calls.length;
+
+      await user.click(combobox);
+      await waitFor(() => expect(loadOptions).toHaveBeenCalledTimes(calls + 1));
+      await act(async () => responses.at(-1)!(people.slice(0, 2)));
+      expect(screen.getAllByRole("option")).toHaveLength(2);
+
+      await user.click(screen.getByRole("button", { name: "Outside" }));
+      await user.click(combobox);
+      await waitFor(() => expect(loadOptions).toHaveBeenCalledTimes(calls + 2));
+      // The list of the last opening stays until the new one arrives
+      expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "Person 1",
+        "Person 2",
+      ]);
+
+      await act(async () => responses.at(-1)!(people.slice(2, 5)));
+      expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "Person 3",
+        "Person 4",
+        "Person 5",
+      ]);
+      await user.click(screen.getByRole("button", { name: "Outside" }));
+    }
+  });
+});
+
+describe("Autocomplete select keyboard", () => {
+  const cityOptions = [
+    { label: "Praha", value: "praha" },
+    { label: "Brno", value: "brno" },
+    { label: "Bratislava", value: "bratislava" },
+    { label: "New Delhi", value: "delhi" },
+    { label: "New York", value: "ny" },
+  ];
+
+  it("takes a space typed within a search as part of it", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <Autocomplete
+        asSelect
+        label="City"
+        onChange={onChange}
+        options={cityOptions}
+      />,
+    );
+    const combobox = screen.getByRole("combobox", { name: "City:" });
+
+    act(() => combobox.focus());
+    await user.keyboard("new y");
+    expect(highlightedOf(combobox)).toBe("New York");
+    expect(onChange).not.toHaveBeenCalled();
+
+    // Once the search is over, Space picks
+    await sleepPastTypeAhead();
+    await user.keyboard(" ");
+    expect(onChange).toHaveBeenCalledWith("ny", null);
+
+    // So does it right after the arrow keys moved on
+    await user.keyboard("{ArrowDown}b{ArrowDown} ");
+    expect(onChange).toHaveBeenLastCalledWith("bratislava", null);
+  });
+
+  it("searches a closed select from its selection on, as a native one", async () => {
+    const user = userEvent.setup();
+    render(
+      <Autocomplete
+        asSelect
+        defaultValue="brno"
+        label="City"
+        options={cityOptions}
+      />,
+    );
+    const combobox = screen.getByRole("combobox", { name: "City:" });
+
+    act(() => combobox.focus());
+    await user.keyboard("b");
+    expect(combobox).toHaveAttribute("aria-expanded", "true");
+    expect(highlightedOf(combobox)).toBe("Bratislava");
+
+    // Further letters narrow the search down from the highlighted option
+    await user.keyboard("r");
+    expect(highlightedOf(combobox)).toBe("Bratislava");
+  });
+
+  it("opens on the arrow keys, Home and End", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+    render(
+      <Autocomplete
+        asSelect
+        defaultValue="brno"
+        label="City"
+        options={cityOptions}
+      />,
+    );
+    const combobox = screen.getByRole("combobox", { name: "City:" });
+    act(() => combobox.focus());
+
+    await user.keyboard("{ArrowUp}");
+    expect(combobox).toHaveAttribute("aria-expanded", "true");
+    expect(highlightedOf(combobox)).toBe("Brno");
+
+    await user.keyboard("{Escape}{End}");
+    expect(combobox).toHaveAttribute("aria-expanded", "true");
+    expect(highlightedOf(combobox)).toBe("New York");
+    await waitFor(() =>
+      expect(scrollIntoView.mock.contexts.at(-1)).toHaveTextContent("New York"),
+    );
+
+    await user.keyboard("{Escape}{Home}");
+    expect(highlightedOf(combobox)).toBe("Praha");
+  });
+
+  it("takes the highlighted option on Tab, one of several it leaves alone", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const onChangeMultiple = vi.fn();
+    render(
+      <>
+        <Autocomplete
+          asSelect
+          defaultValue="brno"
+          label="City"
+          onChange={onChange}
+          options={cityOptions}
+        />
+        <Autocomplete
+          asSelect
+          label="Cities"
+          multiple
+          onChange={onChangeMultiple}
+          options={cityOptions}
+        />
+      </>,
+    );
+    const city = screen.getByRole("combobox", { name: "City:" });
+    const cities = screen.getByRole("combobox", { name: "Cities:" });
+
+    act(() => city.focus());
+    await user.keyboard("{Enter}{ArrowDown}");
+    await user.tab();
+    expect(onChange).toHaveBeenCalledWith("bratislava", null);
+    expect(city).toHaveTextContent("Bratislava");
+    expect(cities).toHaveFocus();
+
+    await user.keyboard("{Enter}{ArrowDown}");
+    await user.tab();
+    expect(onChangeMultiple).not.toHaveBeenCalled();
+    expect(cities).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+describe("Autocomplete window focus", () => {
+  // Leaving the window blurs the input but keeps it the active element -
+  // `fireEvent.blur` does the same
+  it("brings the list back as it was when the window gets the focus again", async () => {
+    const user = userEvent.setup();
+    render(<Autocomplete label="City" options={cities} />);
+    const input = screen.getByRole("combobox", { name: "City:" });
+
+    await user.click(input);
+    await user.keyboard("{Escape}");
+    fireEvent.blur(input);
+    fireEvent.focus(input);
+    expect(input).toHaveAttribute("aria-expanded", "false");
+
+    await user.keyboard("{ArrowDown}");
+    expect(input).toHaveAttribute("aria-expanded", "true");
+    fireEvent.blur(input);
+    // The popover closes the list as the focus leaves
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    fireEvent.focus(input);
+    expect(input).toHaveAttribute("aria-expanded", "true");
+
+    // The focus the user moves into the input still opens the list
+    await user.keyboard("{Escape}");
+    act(() => input.blur());
+    await user.tab();
+    expect(input).toHaveFocus();
+    expect(input).toHaveAttribute("aria-expanded", "true");
   });
 });

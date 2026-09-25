@@ -9,6 +9,7 @@ import {
   addDays,
   dateOf,
   formatPattern,
+  formatPlaceholder,
   getISOWeek,
   getISOWeeksInYear,
   pad2,
@@ -324,6 +325,10 @@ export default function WeekPicker({
       displayValue={
         selected ? formatPattern(locale.formats.week, selected) : ""
       }
+      format={formatPlaceholder(
+        locale.formats.week,
+        messages.placeholderTokens,
+      )}
       icon="calendar"
       inputRef={inputRef}
       isOpen={isOpen}
@@ -333,7 +338,10 @@ export default function WeekPicker({
       panelClassName="w-64"
       parseText={(text) => {
         const typed = parseDisplayValue(text, locale.formats.week, "week");
-        return typed && isInRange(typed, min, max) ? typed : null;
+        if (!typed) return { error: "format" };
+        return isInRange(typed, min, max)
+          ? { value: typed }
+          : { error: "range" };
       }}
       placeholder={placeholder}
       popupLabel={messages.selectWeek}

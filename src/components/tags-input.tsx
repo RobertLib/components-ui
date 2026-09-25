@@ -1,11 +1,12 @@
 import { X } from "lucide-react";
 import { attachRef, useFormReset } from "../hooks/use-form-control";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import Popover from "./popover";
-import removeDiacritics from "../utils/remove-diacritics";
+import { foldSearchText } from "../utils/remove-diacritics";
+import usePointerMoved from "../hooks/use-pointer-moved";
 import { formatMessage, formatPlural } from "../i18n/format";
 import { useLocale } from "../providers/ui-context";
 
@@ -91,7 +92,7 @@ export interface TagsInputProps extends Omit<
 
 const DEFAULT_SEPARATORS = [","];
 
-const normalizeText = (text: string) => removeDiacritics(text).toLowerCase();
+const normalizeText = foldSearchText;
 
 const sameTag = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
@@ -330,6 +331,14 @@ export default function TagsInput({
       ?.scrollIntoView({ block: "nearest" });
   };
 
+  const pointerMoved = usePointerMoved();
+
+  // Only a real move of the pointer highlights the suggestion under it, not
+  // the list scrolling beneath it from the keyboard
+  const handleHover = (event: React.MouseEvent, index: number) => {
+    if (pointerMoved(event)) setActiveIndex(index);
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     onKeyDown?.(event);
 
@@ -521,7 +530,7 @@ export default function TagsInput({
         }
         aria-autocomplete={suggestions ? "list" : undefined}
         aria-controls={isListShown ? listboxId : undefined}
-        aria-describedby={cn(
+        aria-describedby={joinTokens(
           inputErrorId,
           errorId,
           descriptionId,
@@ -618,7 +627,7 @@ export default function TagsInput({
               id={optionId(index)}
               key={`${suggestion}\u0000${index}`}
               onClick={() => addParts([suggestion], "")}
-              onMouseEnter={() => setActiveIndex(index)}
+              onMouseMove={(event) => handleHover(event, index)}
               role="option"
             >
               {suggestion}

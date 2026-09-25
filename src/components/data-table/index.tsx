@@ -24,6 +24,7 @@ import useRowSelection from "./use-row-selection";
 import {
   clampWidth,
   DRAG_WIDTH_VARIABLE,
+  LEADING_KEYS,
   type CellLayout,
 } from "./cell-layout";
 import { computeSummary } from "./summary";
@@ -436,9 +437,12 @@ export default function DataTable<T extends { id: RowId }>({
   const isDraggingRef = useRef(false);
   const pendingWidthsRef = useRef<Record<string, number> | null>(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
-  const [allFilteredSelectionScope, setAllFilteredSelectionScope] = useState<
-    string | null
-  >(null);
+  // "All rows matching the filters" - the filters it was chosen for, and the
+  // matching rows unchecked since, which it leaves out
+  const [allFilteredSelection, setAllFilteredSelection] = useState<{
+    excluded: T[];
+    scope: string;
+  } | null>(null);
 
   // Full screen covers the page like a dialog, in the overlay stack shared
   // with dialogs and popovers: Escape leaves it - unless something open in
@@ -642,10 +646,10 @@ export default function DataTable<T extends { id: RowId }>({
   // "All rows matching the filters" ends with the filters - it does not come
   // back when the user returns to them
   if (
-    allFilteredSelectionScope !== null &&
-    allFilteredSelectionScope !== selectionScopeKey
+    allFilteredSelection !== null &&
+    allFilteredSelection.scope !== selectionScopeKey
   ) {
-    setAllFilteredSelectionScope(null);
+    setAllFilteredSelection(null);
   }
 
   // Rows that leave the page (another page, a refetch without them) leave
@@ -661,25 +665,46 @@ export default function DataTable<T extends { id: RowId }>({
   } = useRowSelection(rows, { loading, resetKey: selectionScopeKey });
 
   const isAllFilteredSelected =
-    !!selectionConfig && allFilteredSelectionScope === selectionScopeKey;
+    !!selectionConfig && allFilteredSelection?.scope === selectionScopeKey;
+  const excludedRows = useMemo(
+    () => (isAllFilteredSelected ? (allFilteredSelection?.excluded ?? []) : []),
+    [allFilteredSelection, isAllFilteredSelected],
+  );
+  const excludedIds = useMemo(
+    () => new Set(excludedRows.map((row) => row.id)),
+    [excludedRows],
+  );
   const selectedCount = isAllFilteredSelected
-    ? selectionTotal
+    ? Math.max(0, selectionTotal - excludedRows.length)
     : selectedRows.length;
   const displayedSelectedIds = useMemo(
     () =>
-      isAllFilteredSelected ? new Set(rows.map((row) => row.id)) : selectedIds,
-    [isAllFilteredSelected, rows, selectedIds],
+      isAllFilteredSelected
+        ? new Set(
+            rows.map((row) => row.id).filter((id) => !excludedIds.has(id)),
+          )
+        : selectedIds,
+    [excludedIds, isAllFilteredSelected, rows, selectedIds],
   );
 
   const resetAllSelection = () => {
-    setAllFilteredSelectionScope(null);
+    setAllFilteredSelection(null);
     resetSelection();
   };
 
   const handleToggleRowSelection = (row: T) => {
     if (isAllFilteredSelected) {
-      setAllFilteredSelectionScope(null);
-      setSelectedRows(rows.filter((current) => current.id !== row.id));
+      // All matching rows but the unchecked ones - checked again, a row is
+      // back in; with none left, nothing is selected
+      const excluded = excludedIds.has(row.id)
+        ? excludedRows.filter((current) => current.id !== row.id)
+        : [...excludedRows, row];
+
+      if (excluded.length >= selectionTotal) {
+        resetAllSelection();
+      } else {
+        setAllFilteredSelection({ excluded, scope: selectionScopeKey });
+      }
       return;
     }
 
@@ -688,7 +713,13 @@ export default function DataTable<T extends { id: RowId }>({
 
   const handleToggleSelectAll = () => {
     if (isAllFilteredSelected) {
-      resetAllSelection();
+      // Mixed with rows unchecked - all matching rows again, as a mixed
+      // checkbox checks all; checked, it unchecks all
+      if (excludedRows.length > 0) {
+        setAllFilteredSelection({ excluded: [], scope: selectionScopeKey });
+      } else {
+        resetAllSelection();
+      }
       return;
     }
 
@@ -705,14 +736,16 @@ export default function DataTable<T extends { id: RowId }>({
     isActionRunning.current = true;
     setRunningAction(index);
 
-    // Client-side every matching row is loaded - all of them are selected
+    // Client-side every matching row is loaded - all of them are selected,
+    // but those unchecked since
     const actionRows = isAllFilteredSelected
-      ? (matchingRows ?? rows)
+      ? (matchingRows ?? rows).filter((row) => !excludedIds.has(row.id))
       : selectedRows;
     const actionScope = isAllFilteredSelected ? selectionScopeKey : null;
     const selection: GroupActionSelection<T> = {
       allFiltered: isAllFilteredSelected,
       count: selectedCount,
+      excludedRows,
       query,
       rows: actionRows,
     };
@@ -731,8 +764,8 @@ export default function DataTable<T extends { id: RowId }>({
       // selected (a selection of another page is gone already)
       const actedIds = new Set(actionRows.map((row) => row.id));
       if (actionScope !== null) {
-        setAllFilteredSelectionScope((scope) =>
-          scope === actionScope ? null : scope,
+        setAllFilteredSelection((current) =>
+          current?.scope === actionScope ? null : current,
         );
       }
       setSelectedRows((current) =>
@@ -788,13 +821,17 @@ export default function DataTable<T extends { id: RowId }>({
   useEffect(() => {
     if (!rows.length || typeof ResizeObserver === "undefined") return;
 
+    // The key each measured header cell has its width under - kept by the
+    // element, as a column may be keyed `actions` like the actions column
+    const cellKeys = new Map<Element, string>();
+
     const observer = new ResizeObserver((entries) => {
       const newWidths: Record<string, number> = {};
 
       entries.forEach((entry) => {
-        const columnKey = entry.target.getAttribute("data-column-key");
+        const columnKey = cellKeys.get(entry.target);
 
-        if (columnKey) {
+        if (columnKey !== undefined) {
           newWidths[columnKey] = entry.target.getBoundingClientRect().width;
         }
       });
@@ -828,18 +865,18 @@ export default function DataTable<T extends { id: RowId }>({
       }
     });
 
-    if (actions && actionColumnRef.current) {
-      observer.observe(actionColumnRef.current);
-    }
+    const observeCell = (cell: Element | null, key: string) => {
+      if (!cell) return;
+      cellKeys.set(cell, key);
+      observer.observe(cell);
+    };
 
-    if (expandColumnRef.current) observer.observe(expandColumnRef.current);
+    if (actions) observeCell(actionColumnRef.current, LEADING_KEYS.actions);
+    observeCell(expandColumnRef.current, LEADING_KEYS.expand);
+    observeCell(selectionColumnRef.current, LEADING_KEYS.selection);
 
-    if (selectionColumnRef.current) {
-      observer.observe(selectionColumnRef.current);
-    }
-
-    Object.entries(columnRefs.current).forEach(([, ref]) => {
-      if (ref) observer.observe(ref);
+    Object.entries(columnRefs.current).forEach(([key, cell]) => {
+      observeCell(cell, key);
     });
 
     if (tableRef.current) {
@@ -925,7 +962,12 @@ export default function DataTable<T extends { id: RowId }>({
   const hasActiveFilters =
     hasHiddenSearch || hasStrayFilters || activeFilterKeys.some(isColumnFilter);
 
-  const clearFilters = () =>
+  // Counts the clearing of the filters - a filter field drops a text typed
+  // but not committed yet, which would come back once typing pauses
+  const [filterResetKey, setFilterResetKey] = useState(0);
+
+  const clearFilters = () => {
+    setFilterResetKey((count) => count + 1);
     updateQuery((current) =>
       resetPagination(current, {
         filters: {},
@@ -933,6 +975,7 @@ export default function DataTable<T extends { id: RowId }>({
         ...(!enableGlobalSearch && { search: "" }),
       }),
     );
+  };
 
   // Column widths: the one the user drags or resized the column to, or its
   // `width` - within its limits. A drag renders when it starts and when it
@@ -1002,9 +1045,9 @@ export default function DataTable<T extends { id: RowId }>({
     // Pinned columns stick while they leave half of the view to the others -
     // on a phone they would cover it. The right ones give way first.
     const leadingKeys = [
-      renderSubRow && "expand",
-      hasGroupActions && "selection",
-      actions && "actions",
+      renderSubRow && LEADING_KEYS.expand,
+      hasGroupActions && LEADING_KEYS.selection,
+      actions && LEADING_KEYS.actions,
     ].filter((key): key is string => !!key);
     const visibleKeys = sortedVisibleColumns.map((column) => column.key);
     let leftPinned = visibleKeys.filter((key) =>
@@ -1034,7 +1077,11 @@ export default function DataTable<T extends { id: RowId }>({
       if (key === draggedKey) dragOffset = widths[key];
       offset += widthOf(
         key,
-        key === "expand" ? 40 : key === "selection" ? 30 : 0,
+        key === LEADING_KEYS.expand
+          ? 40
+          : key === LEADING_KEYS.selection
+            ? 30
+            : 0,
       );
     }
     const left = offset;
@@ -1366,68 +1413,81 @@ export default function DataTable<T extends { id: RowId }>({
                 </Button>
               ))}
             </div>
-            {!selectionConfig && selectedRows.length > 0 && (
+            {/* A live region is announced when its content changes - it is
+                there, empty, before the first row is selected */}
+            {!selectionConfig && (
               <div
                 aria-live="polite"
                 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300"
               >
-                {formatPlural(
-                  locale.code,
-                  messages.dataTable.selectedCount,
-                  selectedRows.length,
-                )}
+                {selectedRows.length > 0 &&
+                  formatPlural(
+                    locale.code,
+                    messages.dataTable.selectedCount,
+                    selectedRows.length,
+                  )}
               </div>
             )}
           </div>
         )}
-        {selectionConfig && selectedCount > 0 && (
-          <div
-            aria-live="polite"
-            className="mb-2 rounded-md border border-primary-200 bg-primary-50 px-3 py-2 text-sm text-primary-950 dark:border-primary-800 dark:bg-primary-950 dark:text-primary-50"
-          >
-            {isAllFilteredSelected ? (
-              <>
-                {renderSelectionLabel(
-                  selectionConfig.allSelectionLabel ??
-                    messages.dataTable.selection.all,
-                  selectionTotal,
-                )}{" "}
-                <button
-                  className="font-semibold text-primary-700 underline hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"
-                  onClick={resetAllSelection}
-                  type="button"
-                >
-                  {selectionConfig.clearSelectionLabel ??
-                    messages.dataTable.selection.clear}
-                </button>
-              </>
-            ) : (
-              <>
-                {renderSelectionLabel(
-                  selectionConfig.pageSelectionLabel ??
-                    messages.dataTable.selection.page,
-                  selectedRows.length,
-                )}{" "}
-                {isAllSelected && selectionTotal > rows.length && (
-                  <button
-                    className="font-semibold text-primary-700 underline hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"
-                    onClick={() =>
-                      setAllFilteredSelectionScope(selectionScopeKey)
-                    }
-                    type="button"
-                  >
-                    {selectionConfig.selectAllLabel
-                      ? formatMessage(selectionConfig.selectAllLabel, {
-                          count: formatNumber(locale.code, selectionTotal),
-                        })
-                      : formatPlural(
-                          locale.code,
-                          messages.dataTable.selection.selectAll,
+        {selectionConfig && (
+          <div aria-live="polite">
+            {selectedCount > 0 && (
+              <div className="mb-2 rounded-md border border-primary-200 bg-primary-50 px-3 py-2 text-sm text-primary-950 dark:border-primary-800 dark:bg-primary-950 dark:text-primary-50">
+                {isAllFilteredSelected ? (
+                  <>
+                    {excludedRows.length === 0
+                      ? renderSelectionLabel(
+                          selectionConfig.allSelectionLabel ??
+                            messages.dataTable.selection.all,
                           selectionTotal,
-                        )}
-                  </button>
+                        )
+                      : renderSelectionLabel(
+                          selectionConfig.allExceptSelectionLabel ??
+                            messages.dataTable.selection.allExcept,
+                          selectedCount,
+                        )}{" "}
+                    <button
+                      className="font-semibold text-primary-700 underline hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"
+                      onClick={resetAllSelection}
+                      type="button"
+                    >
+                      {selectionConfig.clearSelectionLabel ??
+                        messages.dataTable.selection.clear}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {renderSelectionLabel(
+                      selectionConfig.pageSelectionLabel ??
+                        messages.dataTable.selection.page,
+                      selectedRows.length,
+                    )}{" "}
+                    {isAllSelected && selectionTotal > rows.length && (
+                      <button
+                        className="font-semibold text-primary-700 underline hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"
+                        onClick={() =>
+                          setAllFilteredSelection({
+                            excluded: [],
+                            scope: selectionScopeKey,
+                          })
+                        }
+                        type="button"
+                      >
+                        {selectionConfig.selectAllLabel
+                          ? formatMessage(selectionConfig.selectAllLabel, {
+                              count: formatNumber(locale.code, selectionTotal),
+                            })
+                          : formatPlural(
+                              locale.code,
+                              messages.dataTable.selection.selectAll,
+                              selectionTotal,
+                            )}
+                      </button>
+                    )}
+                  </>
                 )}
-              </>
+              </div>
             )}
           </div>
         )}
@@ -1541,14 +1601,21 @@ export default function DataTable<T extends { id: RowId }>({
               columnRefs={columnRefs}
               columnWidths={currentWidths}
               expandColumnRef={expandColumnRef}
+              filterResetKey={filterResetKey}
               filters={query.filters}
               groupActions={groupActions}
               handleDragOver={handleDragOver}
               handleDragStart={handleDragStart}
               handleDrop={handleDrop}
               hasActiveFilters={hasActiveFilters}
-              isAllSelected={isAllFilteredSelected || isAllSelected}
-              isSomeSelected={selectedRows.length > 0}
+              // All matching rows, or all of the page - mixed while some
+              // are unchecked
+              isAllSelected={
+                isAllFilteredSelected
+                  ? excludedRows.length === 0
+                  : isAllSelected
+              }
+              isSomeSelected={isAllFilteredSelected || selectedRows.length > 0}
               onClearFilters={clearFilters}
               onColumnDrag={handleColumnDrag}
               onColumnResize={setColumnWidth}

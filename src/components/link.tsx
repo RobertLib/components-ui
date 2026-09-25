@@ -1,5 +1,5 @@
 import { ExternalLink } from "lucide-react";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import { useMessages, useRouter } from "../providers/ui-context";
 
 type LinkColor =
@@ -89,7 +89,7 @@ export default function Link({
   const messages = useMessages();
 
   const classes = cn(
-    "link transition-colors motion-reduce:transition-none",
+    "cui-link transition-colors motion-reduce:transition-none",
     colorClasses[color],
     underlineClasses[underline],
     className,
@@ -103,7 +103,7 @@ export default function Link({
         download={download}
         href={href}
         // The opened page gets no hold of this one, nor where it came from
-        rel={cn(rel, "noopener noreferrer")}
+        rel={joinTokens(rel, "noopener noreferrer")}
         target={target ?? "_blank"}
       >
         {children}
@@ -111,7 +111,7 @@ export default function Link({
             and none between it and the icon inside nowrap */}
         <span aria-hidden="true" className="whitespace-nowrap">
           {"\u2060"}
-          <ExternalLink className="ml-[0.25em] inline-block size-[0.85em] align-[-0.1em]" />
+          <ExternalLink className="ms-[0.25em] inline-block size-[0.85em] align-[-0.1em]" />
         </span>
         <span
           className="sr-only"

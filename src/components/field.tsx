@@ -1,5 +1,5 @@
 import { useId } from "react";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { useMessages } from "../providers/ui-context";
@@ -83,7 +83,7 @@ export default function Field({
   const descriptionId = description ? `${controlId}-description` : undefined;
 
   const controlProps: FieldControlProps = {
-    "aria-describedby": cn(errorId, descriptionId),
+    "aria-describedby": joinTokens(errorId, descriptionId),
     "aria-invalid": error ? "true" : undefined,
     "aria-labelledby": label ? labelId : undefined,
     "aria-required": required ? "true" : undefined,

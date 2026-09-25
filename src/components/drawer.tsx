@@ -3,6 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import cn from "../utils/cn";
 import Overlay from "./overlay";
 import {
+  getNextTabStop,
   isEscapeKey,
   isTopmostOverlay,
   lockPageScroll,
@@ -11,7 +12,7 @@ import {
   useOverlayLayer,
 } from "./overlay-stack";
 import Popover from "./popover";
-import { getNextTabbable, getTabbableElements } from "../utils/tabbable";
+import { getTabbableElements } from "../utils/tabbable";
 import useIsMobile from "../hooks/use-is-mobile";
 import { findActiveLink } from "../providers/active-path";
 import { useDrawer } from "../providers/drawer-context";
@@ -125,11 +126,15 @@ export default function Drawer({
   const rootRef = useRef<HTMLElement>(null);
   // The content of the drawer - the modal dialog while it is slid in
   const panelRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
 
   // Slid in over the page, the drawer is modal - in the overlay stack shared
-  // with dialogs and popovers, so Escape closes only the topmost of them
+  // with dialogs and popovers, so Escape closes only the topmost of them.
+  // Its backdrop is part of it: the page behind is hidden from assistive
+  // technology, the backdrop stays - on a touch screen a screen reader
+  // closes the drawer with it.
   const { childContext, id: layerId } = useOverlayLayer(isOverlaid, {
-    getElements: () => [rootRef.current],
+    getElements: () => [rootRef.current, backdropRef.current],
     modal: true,
   });
 
@@ -194,6 +199,7 @@ export default function Drawer({
           aria-label={messages.common.close}
           onClick={toggleOpen}
           portal={false}
+          ref={backdropRef}
           role="button"
         />
       )}
@@ -204,11 +210,11 @@ export default function Drawer({
         {...props}
         aria-hidden={!isOpen}
         className={cn(
-          "drawer fixed inset-y-0 left-0 z-40 flex flex-col border-r border-neutral-100 bg-surface shadow-lg transition-all duration-300 motion-reduce:transition-none dark:border-neutral-900 dark:bg-surface-dark",
-          isCollapsed ? "drawer-collapsed" : "",
+          "cui-drawer fixed inset-y-0 left-0 z-40 flex flex-col border-r border-neutral-100 bg-surface shadow-lg transition-all duration-300 motion-reduce:transition-none dark:border-neutral-900 dark:bg-surface-dark",
+          isCollapsed ? "cui-drawer-collapsed" : "",
           isOpen
-            ? "drawer-open translate-x-0"
-            : "drawer-closed -translate-x-full",
+            ? "cui-drawer-open translate-x-0"
+            : "cui-drawer-closed -translate-x-full",
           // Open as on a desktop, but on a phone-sized screen: a page
           // rendered on the server, before it hydrates - out of sight until
           // the drawer knows the device
@@ -358,7 +364,7 @@ function DrawerMenuItem({
     setShowPopover(false);
     (event.shiftKey
       ? group
-      : (getNextTabbable(group, popoverContentRef.current) ?? group)
+      : (getNextTabStop(group, popoverContentRef.current) ?? group)
     ).focus();
   };
 

@@ -9,7 +9,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import cn from "../utils/cn";
+import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { useLocale } from "../providers/ui-context";
@@ -161,9 +161,12 @@ export default function Textarea({
     [ref],
   );
 
+  // A value a script writes into the textarea - React Hook Form's
+  // `register()`, `setValue()` - stays, and the counter follows it
   const { fieldRef, handleChange, value } = useFormControl({
     ...props,
     defaultValue,
+    followScriptWrites: true,
     ref: ownRef,
   });
 
@@ -320,7 +323,7 @@ export default function Textarea({
         <textarea
           {...props}
           className={textareaClassName}
-          aria-describedby={cn(
+          aria-describedby={joinTokens(
             errorId,
             descriptionId,
             props["aria-describedby"],

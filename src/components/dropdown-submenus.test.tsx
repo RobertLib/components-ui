@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import ConfirmDialog from "./confirm-dialog";
 import Dropdown from "./dropdown";
 import type { DropdownEntry } from "../index";
@@ -188,6 +188,37 @@ describe("Dropdown submenus from the keyboard", () => {
   });
 });
 
+describe("Dropdown submenus right to left", () => {
+  afterEach(() => {
+    document.documentElement.dir = "";
+  });
+
+  it("open with ArrowLeft, close with ArrowRight and point to the left", async () => {
+    const user = userEvent.setup();
+    document.documentElement.dir = "rtl";
+    const trigger = renderMenu(menuItems());
+
+    trigger.focus();
+    await user.keyboard("{Enter}{ArrowDown}");
+    const menu = screen.getByRole("menu", { name: "Actions" });
+    const parent = screen.getByRole("menuitem", { name: "Move to" });
+    expect(parent.querySelector("svg")).toHaveClass("rtl:rotate-180");
+
+    // ArrowRight goes back - there is nothing to go back to in the menu
+    await user.keyboard("{ArrowRight}");
+    expect(screen.queryByRole("menu", { name: "Move to" })).toBeNull();
+
+    await user.keyboard("{ArrowLeft}");
+    const submenu = screen.getByRole("menu", { name: "Move to" });
+    expect(submenu).toHaveFocus();
+    expect(submenu.closest("[dir]")).toHaveAttribute("dir", "rtl");
+
+    await user.keyboard("{ArrowRight}");
+    expect(screen.queryByRole("menu", { name: "Move to" })).toBeNull();
+    expect(menu).toHaveFocus();
+  });
+});
+
 describe("Dropdown submenus with the pointer", () => {
   it("opens on hover after a moment, and closes on another item", async () => {
     const user = userEvent.setup();
@@ -199,9 +230,9 @@ describe("Dropdown submenus with the pointer", () => {
 
     await act(() => sleep(200));
     const submenu = screen.getByRole("menu", { name: "Move to" });
-    // Opened by the pointer: the focus stays where it was, nothing is
-    // highlighted in it
-    expect(trigger).toHaveFocus();
+    // Opened by the pointer: the focus stays in the menu, nothing is
+    // highlighted in the submenu
+    expect(screen.getByRole("menu", { name: "Actions" })).toHaveFocus();
     expect(submenu).not.toHaveAttribute("aria-activedescendant");
 
     await user.hover(screen.getByRole("menuitem", { name: "Inbox" }));
