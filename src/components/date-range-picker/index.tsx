@@ -1,12 +1,17 @@
 import { useId } from "react";
 import PickerField from "../datetime-picker/picker-field";
 import RangeCalendar from "./range-calendar";
-import { parseDisplayRange } from "../datetime-picker/parse";
+import { getRangeMessage, parseDisplayRange } from "../datetime-picker/parse";
 import usePickerPopup from "../datetime-picker/use-picker-popup";
 import useIsMobile from "../../hooks/use-is-mobile";
 import { useFormControl } from "../../hooks/use-form-control";
 import { useLocale } from "../../providers/ui-context";
-import { formatPlaceholder, parseISODate } from "../../utils/date";
+import {
+  formatDate,
+  formatPlaceholder,
+  parseISODate,
+  toISODate,
+} from "../../utils/date";
 import {
   decodeRange,
   encodeRange,
@@ -88,11 +93,17 @@ export interface DateRangePickerProps extends Omit<
   error?: string;
   /** Text of the label above the field - also its accessible name. */
   label?: string;
-  /** The latest day that can be picked, `YYYY-MM-DD`. */
+  /**
+   * The latest day that can be picked, `YYYY-MM-DD` - a range ending after
+   * it makes the field invalid, like a native input (a submit is blocked).
+   */
   max?: string;
   /** The most days a range may have - a week is 7 days. */
   maxDays?: number;
-  /** The earliest day that can be picked, `YYYY-MM-DD`. */
+  /**
+   * The earliest day that can be picked, `YYYY-MM-DD` - a range starting
+   * before it makes the field invalid, like a native input.
+   */
   min?: string;
   /**
    * The fewest days a range may have - e.g. 2 for a stay of at least one
@@ -158,9 +169,9 @@ const toDayLimit = (days: number | undefined) =>
 /**
  * A from - to range of days: typed into the field in the date format of the
  * locale (`24.09.2026 – 30.09.2026`, also with the years left out or of two
- * digits), or picked in a calendar of two months (one on phones) - the first
- * click picks the first day, the second the last, with the range previewed
- * in between - or by a preset. The value is `{ start, end }` in the
+ * digits, or the month written once: `24.–30.9.`), or picked in a calendar of
+ * two months (one on phones) - the first click picks the first day, the
+ * second the last, with the range previewed in between - or by a preset. The value is `{ start, end }` in the
  * `YYYY-MM-DD` format, so it can be sent to an API as it is.
  */
 export default function DateRangePicker({
@@ -209,8 +220,10 @@ export default function DateRangePicker({
     contentRef,
     inputRef,
     isOpen,
+    markPicked,
     onOpenChange,
     openedByKeyboard,
+    pickCount,
   } = usePickerPopup(!disabled && !readOnly);
 
   const generatedId = useId();
@@ -238,6 +251,7 @@ export default function DateRangePicker({
   };
 
   const pickRange = (picked: DayRange) => {
+    markPicked();
     const newValue = encodeRange(toDateRange(picked));
     if (newValue !== fieldValue) changeValue(newValue);
     close();
@@ -249,6 +263,27 @@ export default function DateRangePicker({
     locale.messages.dateTimePicker.placeholderTokens,
   );
   const rangePlaceholder = `${datePlaceholder}${RANGE_SEPARATOR}${datePlaceholder}`;
+
+  // A range reaching out of `min` / `max` makes the form invalid, like a
+  // native date input - its first day before `min`, or its last after `max`
+  const dayLimit = (day: Date | null) => (day ? toISODate(day) : undefined);
+  const formatDay = (day: string) => {
+    const date = parseISODate(day);
+    return date ? formatDate(date, pattern) : day;
+  };
+  const rangeMessage =
+    getRangeMessage(
+      locale.messages.dateTimePicker,
+      days?.start,
+      { min: dayLimit(limits.min) },
+      formatDay,
+    ) ||
+    getRangeMessage(
+      locale.messages.dateTimePicker,
+      days?.end,
+      { max: dayLimit(limits.max) },
+      formatDay,
+    );
 
   return (
     <PickerField
@@ -290,8 +325,10 @@ export default function DateRangePicker({
           ? { value: encodeRange(toDateRange(typed)) }
           : { error: "range" };
       }}
+      pickCount={pickCount}
       placeholder={placeholder ?? rangePlaceholder}
       popupLabel={messages.selectRange}
+      rangeMessage={rangeMessage}
       readOnly={readOnly}
       required={required}
       value={fieldValue}

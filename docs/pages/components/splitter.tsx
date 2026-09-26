@@ -65,8 +65,11 @@ export default function SplitterPage() {
           with the smallest and largest size it can have. Name the handles with{" "}
           <code>paneLabels</code>; without them they are "Resize pane 1", "… 2".
           Escape cancels a drag. A collapsed pane is hidden and out of the Tab
-          order. In a right-to-left page the first pane is on the right: the
-          arrow keys and the pointer move the handle the way they point.
+          order. A pane whose content scrolls with nothing in it to focus is a
+          Tab stop itself, so that the arrow keys can scroll it in every browser
+          (Safari leaves such a pane out of the Tab order). In a right-to-left
+          page the first pane is on the right: the arrow keys and the pointer
+          move the handle the way they point.
         </p>
       </Callout>
 

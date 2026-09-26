@@ -1013,6 +1013,191 @@ describe("TreeView links", () => {
     expect(navigate).toHaveBeenCalledTimes(2);
   });
 
+  it("marks only the current page of a tree of links by default", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    function Link({ href, ...props }: LinkComponentProps) {
+      return (
+        <a
+          {...props}
+          href={href}
+          onClick={(event) => {
+            event.preventDefault();
+            navigate(href);
+          }}
+        />
+      );
+    }
+    const tree = (pathname: string) => (
+      <UIProvider router={{ Link, navigate, pathname, search: "" }}>
+        <TreeView aria-label="Navigation" items={navigation} />
+      </UIProvider>
+    );
+    const { rerender } = render(tree("/dashboard"));
+
+    // A click follows the link - it selects nothing
+    await user.click(item("Reports"));
+    expect(navigate).toHaveBeenLastCalledWith("/reports");
+    expect(item("Reports")).not.toHaveAttribute("aria-selected");
+    // Space follows it too
+    await user.keyboard("{ArrowDown} ");
+    expect(navigate).toHaveBeenLastCalledWith("/reports/sales");
+
+    // Back on the dashboard (the back button of the browser), the items
+    // clicked before do not look current
+    rerender(tree("/dashboard"));
+    const marked = screen
+      .getAllByRole("treeitem")
+      .filter((row) => row.classList.contains("bg-primary-50"));
+    expect(marked).toEqual([item("Dashboard")]);
+  });
+
+  it("selects the links of a tree given a selection", async () => {
+    const user = userEvent.setup();
+    const onSelectedChange = vi.fn();
+    function Link({ href, ...props }: LinkComponentProps) {
+      return (
+        <a {...props} href={href} onClick={(event) => event.preventDefault()} />
+      );
+    }
+    render(
+      <UIProvider router={{ Link, pathname: "/dashboard", search: "" }}>
+        <TreeView
+          aria-label="Navigation"
+          items={navigation}
+          onSelectedChange={onSelectedChange}
+        />
+      </UIProvider>,
+    );
+
+    await user.click(item("Reports"));
+    expect(onSelectedChange).toHaveBeenLastCalledWith(["reports"]);
+    expect(item("Reports")).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("keeps selecting when links load later into a tree without any", async () => {
+    const user = userEvent.setup();
+    let resolve: (children: TreeItem<string>[]) => void = () => {};
+    const folders: TreeItem<string>[] = [
+      { hasChildren: true, id: "sales", label: "Sales" },
+      { hasChildren: true, id: "stock", label: "Stock" },
+    ];
+    render(
+      <UIProvider router={{ pathname: "/home", search: "" }}>
+        <TreeView
+          aria-label="Sections"
+          items={folders}
+          loadChildren={() =>
+            new Promise<TreeItem<string>[]>((done) => {
+              resolve = done;
+            })
+          }
+        />
+      </UIProvider>,
+    );
+
+    // No links at first - a click selects
+    await user.click(item("Stock"));
+    expect(item("Stock")).toHaveAttribute("aria-selected", "true");
+
+    await user.keyboard("{ArrowUp}{ArrowRight}");
+    await act(async () => {
+      resolve([{ href: "/sales/invoices", id: "invoices", label: "Invoices" }]);
+    });
+    expect(item("Invoices")).toBeInTheDocument();
+
+    // The links change nothing - the selection can still be moved
+    expect(item("Stock")).toHaveAttribute("aria-selected", "true");
+    await user.click(item("Sales"));
+    expect(item("Sales")).toHaveAttribute("aria-selected", "true");
+    expect(item("Stock")).not.toHaveAttribute("aria-selected");
+    expect(item("Stock")).not.toHaveClass("bg-primary-50");
+  });
+
+  it("is a navigation once its items get links - the menu filled in later", () => {
+    const navigate = vi.fn();
+    function Link({ href, ...props }: LinkComponentProps) {
+      return (
+        <a
+          {...props}
+          href={href}
+          onClick={(event) => {
+            event.preventDefault();
+            navigate(href);
+          }}
+        />
+      );
+    }
+    const tree = (items: TreeItem<string>[], pathname: string) => (
+      <UIProvider router={{ Link, navigate, pathname, search: "" }}>
+        <TreeView
+          aria-label="Navigation"
+          defaultExpanded={["reports"]}
+          items={items}
+        />
+      </UIProvider>
+    );
+    // The sections at once, their pages once the menu has loaded
+    const { rerender } = render(
+      tree([{ children: [], id: "reports", label: "Reports" }], "/"),
+    );
+    rerender(tree(navigation, "/"));
+
+    fireEvent.click(item("Sales"));
+    rerender(tree(navigation, "/reports/sales"));
+    // The back button, a link elsewhere
+    rerender(tree(navigation, "/reports/stock"));
+
+    // Only the current page is marked
+    expect(item("Stock")).toHaveAttribute("aria-current", "page");
+    expect(item("Sales")).not.toHaveAttribute("aria-selected");
+    expect(item("Sales")).not.toHaveClass("bg-primary-50");
+  });
+
+  it("is a navigation when its first items are links, also ones that come later", () => {
+    const navigate = vi.fn();
+    function Link({ href, ...props }: LinkComponentProps) {
+      return (
+        <a
+          {...props}
+          href={href}
+          onClick={(event) => {
+            event.preventDefault();
+            navigate(href);
+          }}
+        />
+      );
+    }
+    const tree = (items: TreeItem<string>[]) => (
+      <UIProvider router={{ Link, navigate, pathname: "/", search: "" }}>
+        <TreeView aria-label="Navigation" items={items} />
+      </UIProvider>
+    );
+    // Its items still loading
+    const { rerender } = render(tree([]));
+    rerender(tree(navigation));
+
+    // Space follows the link - it selects nothing
+    fireEvent.keyDown(item("Dashboard"), { key: " " });
+    expect(navigate).toHaveBeenLastCalledWith("/dashboard");
+    expect(item("Dashboard")).not.toHaveAttribute("aria-selected");
+  });
+
+  it("shows no selection where nothing is selected", () => {
+    render(
+      <TreeView
+        aria-label="Categories"
+        items={categories}
+        selected={["garden"]}
+        selectionMode="none"
+      />,
+    );
+    expect(item("Garden")).not.toHaveAttribute("aria-selected");
+    expect(item("Garden")).not.toHaveClass("bg-primary-50");
+    // The tab stop is the first item, not the selected one
+    expect(item("Electronics")).toHaveAttribute("tabindex", "0");
+  });
+
   it("expands to the page it moves to", () => {
     const navigate = vi.fn();
     const tree = (pathname: string) => (

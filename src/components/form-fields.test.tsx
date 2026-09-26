@@ -8,6 +8,8 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
+import { createPortal, flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import Autocomplete from "./autocomplete";
 import Checkbox from "./checkbox";
@@ -21,6 +23,7 @@ import RadioGroup from "./radio-group";
 import SegmentedControl from "./segmented-control";
 import Select from "./select";
 import Switch from "./switch";
+import TagsInput from "./tags-input";
 import Textarea from "./textarea";
 import { cs } from "../i18n/cs";
 import UIProvider from "../providers/ui-provider";
@@ -188,6 +191,16 @@ describe("Checkbox indeterminate", () => {
     rerender(<Checkbox label="All (changed)" ref={ref} />);
 
     expect(ref.current!.indeterminate).toBe(true);
+  });
+
+  it("clears the property when the prop goes from true to undefined", () => {
+    // `indeterminate={partly || undefined}`
+    const { rerender } = render(<Checkbox indeterminate label="All" />);
+    const checkbox = screen.getByRole<HTMLInputElement>("checkbox");
+    expect(checkbox.indeterminate).toBe(true);
+
+    rerender(<Checkbox indeterminate={undefined} label="All" />);
+    expect(checkbox.indeterminate).toBe(false);
   });
 });
 
@@ -850,6 +863,179 @@ describe("Form resets", () => {
 
     act(() => screen.getByRole<HTMLFormElement>("form").reset());
     expect(select).toHaveValue("s");
+  });
+
+  // A state update of `onReset` renders before the event reaches the
+  // document - in a browser a clicked reset button gets a microtask
+  // checkpoint after each listener; flushSync stands in for it. The render
+  // gives the fields a new ref, which watches the form anew.
+  it("reset fields rendered with a new ref while the reset is on its way", async () => {
+    const user = userEvent.setup();
+
+    function Page() {
+      const [resets, setResets] = useState(0);
+      // An inline callback ref - a new one at every render
+      const ref = (element: HTMLInputElement | null) =>
+        void (element && resets);
+      return (
+        <form
+          aria-label="Order"
+          onReset={() => flushSync(() => setResets((count) => count + 1))}
+        >
+          <output>{resets}</output>
+          <Input defaultValue="a" label="Name" ref={ref} />
+          <NumberInput defaultValue={1} label="Count" ref={ref} />
+          <TagsInput defaultValue={["x"]} label="Tags" ref={ref} />
+          <button type="reset">Reset</button>
+        </form>
+      );
+    }
+
+    render(<Page />);
+    const name = screen.getByRole("textbox", { name: /Name/ });
+    const count = screen.getByRole("spinbutton", { name: /Count/ });
+    await user.type(name, "b");
+    await user.clear(count);
+    await user.type(count, "5");
+    await user.type(screen.getByRole("textbox", { name: /Tags/ }), "y{Enter}");
+    expect(screen.getAllByRole("button", { name: /^Remove/ })).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    expect(screen.getByRole("status")).toHaveTextContent("1");
+    expect(name).toHaveValue("a");
+    expect(count).toHaveValue("1");
+    expect(screen.getAllByRole("button", { name: /^Remove/ })).toHaveLength(1);
+  });
+
+  it("reset a field rendered anew after a listener stopped the reset", async () => {
+    const user = userEvent.setup();
+
+    function Page() {
+      const [resets, setResets] = useState(0);
+      return (
+        <form
+          aria-label="Order"
+          onReset={(event) => {
+            event.stopPropagation();
+            setResets((count) => count + 1);
+          }}
+        >
+          <Input
+            defaultValue="a"
+            label="Name"
+            ref={(element) => void (element && resets)}
+          />
+        </form>
+      );
+    }
+
+    render(<Page />);
+    const name = screen.getByRole("textbox", { name: /Name/ });
+    await user.type(name, "b");
+
+    act(() => screen.getByRole<HTMLFormElement>("form").reset());
+    // Settled a task later - the event never reached the document
+    await waitFor(() => expect(name).toHaveValue("a"));
+  });
+
+  it("reset, or leave alone when canceled, fields in a shadow root", async () => {
+    for (const portal of [false, true]) {
+      for (const cancel of [false, true]) {
+        const host = document.createElement("div");
+        document.body.append(host);
+        const shadow = host.attachShadow({ mode: "open" });
+        const container = document.createElement("div");
+        (portal ? document.body : shadow).append(container);
+        const form = (
+          <form onReset={(event) => cancel && event.preventDefault()}>
+            <Input defaultValue="a" label="Name" />
+          </form>
+        );
+        const root = createRoot(container);
+        act(() => root.render(portal ? createPortal(form, shadow) : form));
+
+        const input = shadow.querySelector("input")!;
+        act(() => {
+          Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype,
+            "value",
+          )!.set!.call(input, "ab");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        act(() => shadow.querySelector("form")!.reset());
+        await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+
+        expect(input.value).toBe(cancel ? "ab" : "a");
+        act(() => root.unmount());
+        host.remove();
+        container.remove();
+      }
+    }
+  });
+
+  it("leave every field alone when a listener cancels the reset", async () => {
+    const user = userEvent.setup();
+    const cities = [
+      { label: "Praha", value: "praha" },
+      { label: "Brno", value: "brno" },
+    ];
+    render(
+      // "Discard your changes?" - Cancel
+      <form aria-label="Order" onReset={(event) => event.preventDefault()}>
+        <input aria-label="Native" defaultValue="a" name="native" />
+        <Input defaultValue="a" label="Name" name="name" />
+        <Select defaultValue="m" label="Size" name="size" options={sizes} />
+        <RadioGroup defaultValue={1} label="Plan" name="plan" options={plans} />
+        <SegmentedControl
+          aria-label="Period"
+          defaultValue="s"
+          name="period"
+          options={sizes}
+        />
+        <CheckboxGroup label="Extras" name="extras" options={sizes} />
+        <Autocomplete
+          asSelect
+          defaultValue="praha"
+          label="City"
+          name="city"
+          options={cities}
+        />
+        <button type="reset">Reset</button>
+      </form>,
+    );
+
+    await user.type(screen.getByRole("textbox", { name: "Native" }), "b");
+    await user.type(screen.getByRole("textbox", { name: /Name/ }), "b");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /Size/ }),
+      "l",
+    );
+    await user.click(screen.getByRole("radio", { name: "Team" }));
+    await user.click(
+      within(screen.getByRole("radiogroup", { name: "Period" })).getByRole(
+        "radio",
+        { name: "Large" },
+      ),
+    );
+    await user.click(screen.getByRole("checkbox", { name: "Small" }));
+    await user.click(screen.getByRole("combobox", { name: /City/ }));
+    await user.click(screen.getByRole("option", { name: "Brno" }));
+
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+    const edited = formEntries(form);
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+
+    expect(formEntries(form)).toEqual(edited);
+    expect(edited).toEqual({
+      city: "brno",
+      extras: "s",
+      name: "ab",
+      native: "ab",
+      period: "l",
+      plan: "2",
+      size: "l",
+    });
+    expect(screen.getByRole("textbox", { name: /Name/ })).toHaveValue("ab");
   });
 
   it("leave controlled fields showing their value", async () => {

@@ -228,16 +228,22 @@ export function formatPattern(
 
 /**
  * A pattern as the placeholder of a field shows it: its bracketed text left
- * out (`[W]WW.YYYY` - `WW.YYYY`), each token written by `tokens` if they
- * have it - with `{ YYYY: "RRRR" }` `DD.MM.YYYY` is the Czech `DD.MM.RRRR`.
+ * out with the separators after it - before it at the end (`[W]WW.YYYY` -
+ * `WW.YYYY`, `[KW] WW YYYY` - `WW YYYY`), each token written by `tokens` if
+ * they have it - with `{ YYYY: "RRRR" }` `DD.MM.YYYY` is the Czech
+ * `DD.MM.RRRR`.
  */
 export function formatPlaceholder(
   pattern: string,
   tokens: Partial<Record<DatePatternToken, string>> = {},
 ) {
-  return pattern.replace(PATTERN_TOKEN, (token, literal?: string) =>
-    literal !== undefined ? "" : (tokens[token as DatePatternToken] ?? token),
-  );
+  return pattern
+    .replace(new RegExp(`${SEPARATOR}*\\[[^\\]]*]$`), "")
+    .replace(new RegExp(`\\[[^\\]]*]${SEPARATOR}*`, "g"), "")
+    .replace(
+      PATTERN_TOKEN,
+      (token) => tokens[token as DatePatternToken] ?? token,
+    );
 }
 
 /** Whether a pattern shows the hours on the 12-hour clock (`h`, `hh`). */
@@ -456,25 +462,49 @@ export function parsePattern(
   return result;
 }
 
+/** `pattern` without its first of `tokens` and the separators next to it. */
+function withoutToken(pattern: string, tokens: ReadonlySet<string>) {
+  const found = Array.from(pattern.matchAll(PATTERN_TOKEN)).find(([token]) =>
+    tokens.has(token),
+  );
+  if (!found) return pattern;
+
+  const before = pattern
+    .slice(0, found.index)
+    .replace(new RegExp(`${SEPARATOR}+$`), "");
+  const after = pattern.slice(found.index + found[0].length);
+
+  return before
+    ? before + after
+    : after.replace(new RegExp(`^${SEPARATOR}+`), "");
+}
+
 /**
  * `pattern` without its year and the separators next to it. The week
  * picker labels its buttons with the week format of the locale that way:
  * `[W]WW.YYYY` - `[W]WW` (W39), `[KW] WW YYYY` - `[KW] WW` (KW 39).
  */
-export function withoutYear(pattern: string) {
-  const year = Array.from(pattern.matchAll(PATTERN_TOKEN)).find(
-    ([token]) => token === "YYYY",
+export const withoutYear = (pattern: string) =>
+  withoutToken(pattern, new Set(["YYYY"]));
+
+/**
+ * `pattern` without its month and the separators next to it - how a day of
+ * a range typed with the month of the other day is read: `DD.MM.YYYY` -
+ * `DD.YYYY`, `MM/DD/YYYY` - `DD/YYYY`.
+ */
+export const withoutMonth = (pattern: string) =>
+  withoutToken(pattern, new Set(["M", "MM"]));
+
+/** Whether the day comes before the month in `pattern` - `DD.MM.YYYY`. */
+export function isDayBeforeMonth(pattern: string) {
+  const tokens = Array.from(
+    pattern.matchAll(PATTERN_TOKEN),
+    ([token]) => token,
   );
-  if (!year) return pattern;
-
-  const before = pattern
-    .slice(0, year.index)
-    .replace(new RegExp(`${SEPARATOR}+$`), "");
-  const after = pattern.slice(year.index + year[0].length);
-
-  return before
-    ? before + after
-    : after.replace(new RegExp(`^${SEPARATOR}+`), "");
+  return (
+    tokens.findIndex((token) => token === "D" || token === "DD") <
+    tokens.findIndex((token) => token === "M" || token === "MM")
+  );
 }
 
 /**

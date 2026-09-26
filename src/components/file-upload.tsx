@@ -1,5 +1,13 @@
 import { File as FileIcon, Upload, X } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { flushSync } from "react-dom";
 import Button from "./button";
 import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
@@ -159,22 +167,26 @@ function isAccepted(file: File, accept: string | undefined) {
 
   const name = file.name.toLowerCase();
   const type = file.type.toLowerCase();
-
-  return accept
+  // Empty tokens (`.pdf,`) are none - like the browser, which ignores them;
+  // an empty one would match every file without a type
+  const tokens = accept
     .split(",")
     .map((token) => token.trim().toLowerCase())
-    .some((token) =>
-      token === "*" || token === "*/*"
-        ? true
-        : token.startsWith(".")
-          ? name.endsWith(token)
-          : token.endsWith("/*")
-            ? isOfGroup(name, type, token.slice(0, -1))
-            : type === token ||
-              !!TYPE_EXTENSIONS[token]?.some((extension) =>
-                name.endsWith(extension),
-              ),
-    );
+    .filter(Boolean);
+  if (tokens.length === 0) return true;
+
+  return tokens.some((token) =>
+    token === "*" || token === "*/*"
+      ? true
+      : token.startsWith(".")
+        ? name.endsWith(token)
+        : token.endsWith("/*")
+          ? isOfGroup(name, type, token.slice(0, -1))
+          : type === token ||
+            !!TYPE_EXTENSIONS[token]?.some((extension) =>
+              name.endsWith(extension),
+            ),
+  );
 }
 
 type UploadOutcome<TResult> = { result: TResult } | { error: unknown } | null;
@@ -389,9 +401,15 @@ export default function FileUpload<
 
   // The list as of the last render - read after an upload finished
   const filesRef = useRef(files);
+  // The callbacks of the last render - files uploaded one after another
+  // outlive the render they were picked in, whose callbacks would see its
+  // state (an `onUpload` adding to a list of the parent would lose files)
+  const callbacksRef = useRef({ onError, onRemove, onUpload, upload });
 
-  useEffect(() => {
+  // In a layout effect - a render forced by `flushSync` updates them at once
+  useLayoutEffect(() => {
     filesRef.current = files;
+    callbacksRef.current = { onError, onRemove, onUpload, upload };
   });
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -406,19 +424,24 @@ export default function FileUpload<
   // Where the focus goes once the control it was on is gone: the cancel
   // button, the upload button, or the remove button at this index
   const pendingFocus = useRef<"cancel" | "upload" | number | null>(null);
+  // Whether the field is on the page - a callback may take it away (an
+  // `onUpload` closing its dialog), and the files still waiting stay then
+  const mounted = useRef(false);
 
   const releasePreviewUrl = () => {
     if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
     previewUrl.current = null;
   };
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+
+    return () => {
+      mounted.current = false;
       uploadController.current?.abort();
       releasePreviewUrl();
-    },
-    [],
-  );
+    };
+  }, []);
 
   useEffect(() => {
     const target = pendingFocus.current;
@@ -484,10 +507,18 @@ export default function FileUpload<
 
   const canAdd = !disabled && !uploading;
 
-  const reject = (file: File, message: string) => {
-    setUploadError(message);
-    onError?.(new Error(message), file);
-  };
+  // Renders the change of a file - the field's and what the callbacks
+  // change in the parent - before the next file: of files told one right
+  // after another (an `upload` that settles at once, several refused ones),
+  // the later ones would go to the callbacks of the state before
+  const report = (change: (callbacks: typeof callbacksRef.current) => void) =>
+    flushSync(() => change(callbacksRef.current));
+
+  const reject = (file: File, message: string) =>
+    report(({ onError }) => {
+      setUploadError(message);
+      onError?.(new Error(message), file);
+    });
 
   // Why a file cannot be added - null when it can. `room` is the number of
   // files the list takes still.
@@ -523,6 +554,9 @@ export default function FileUpload<
     }
 
     for (const file of accepted) {
+      // A callback reported before took the field away
+      if (!mounted.current) return;
+
       const controller = new AbortController();
       uploadController.current = controller;
       moveFocusFrom(buttonRef.current, "cancel");
@@ -539,7 +573,7 @@ export default function FileUpload<
 
       const outcome = await runUpload(
         () =>
-          upload(file, {
+          callbacksRef.current.upload(file, {
             onProgress: (progress) => {
               // A cancelled upload that goes on reports nothing
               if (controller.signal.aborted) return;
@@ -557,8 +591,10 @@ export default function FileUpload<
       if ("error" in outcome) {
         logger.error("File upload failed", outcome.error);
 
-        setUploadError(messages.fileUpload.uploadFailed);
-        onError?.(outcome.error, file);
+        report(({ onError }) => {
+          setUploadError(messages.fileUpload.uploadFailed);
+          onError?.(outcome.error, file);
+        });
         continue;
       }
 
@@ -577,14 +613,15 @@ export default function FileUpload<
       filesRef.current = multiple
         ? [...filesRef.current, uploaded]
         : [uploaded];
-      setFiles(filesRef.current);
-      setInteracted(true);
-
-      onUpload?.(result);
-      replaced.forEach((replacedFile) => onRemove?.(replacedFile));
+      report(({ onRemove, onUpload }) => {
+        setFiles(filesRef.current);
+        setInteracted(true);
+        onUpload?.(result);
+        replaced.forEach((replacedFile) => onRemove?.(replacedFile));
+      });
     }
 
-    finishUpload();
+    if (mounted.current) finishUpload();
   };
 
   const handleChange = ({ target }: React.ChangeEvent<HTMLInputElement>) => {

@@ -22,6 +22,8 @@ export interface CheckboxProps extends Omit<
    * selected list; assistive technology announces it as "mixed". A click
    * clears it like on a native checkbox: the checkbox turns checked or
    * unchecked, and the next render with `indeterminate` brings it back.
+   * `false` - or `undefined` after `true` - clears it; otherwise `undefined`
+   * leaves the DOM property to the page.
    */
   indeterminate?: boolean;
   /** Text of the `<label>` next to the checkbox. */

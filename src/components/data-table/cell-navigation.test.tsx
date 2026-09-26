@@ -1,5 +1,6 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
 import type { Column } from "./types";
@@ -210,6 +211,110 @@ describe("DataTable editable cells as one tab stop", () => {
     expect(focused()).toBe("c499");
     await user.keyboard("{ArrowUp}");
     expect(focused()).toBe("c498");
+  });
+
+  it("edits the next editable cell on Tab also far down a virtualized table", async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 500 }, (_, index) => ({
+      id: index + 1,
+      name: `name${index + 1}`,
+    }));
+    render(
+      <DataTable
+        // Only two rows can be edited, far apart
+        columns={[
+          {
+            editable: (row) => row.id === 1 || row.id === 400,
+            key: "name",
+            label: "Name",
+          },
+        ]}
+        data={many}
+        onCellEdit={() => {}}
+        pagination={false}
+        virtualized
+      />,
+    );
+    expect(screen.queryByText("name400")).toBeNull();
+
+    screen.getByText("name1").closest("td")?.focus();
+    await user.keyboard("{Enter}");
+    await user.keyboard("{Tab}");
+
+    // The row edited is rendered, its field has the focus
+    const field = screen.getByRole("textbox", { name: "Name" });
+    expect(field).toHaveValue("name400");
+    expect(field).toHaveFocus();
+  });
+
+  it("moves in its own rows past a table nested in a detail", async () => {
+    const user = userEvent.setup();
+    const items = rows.slice(0, 3);
+    render(
+      <DataTable
+        columns={[{ editable: true, key: "a", label: "A" }]}
+        data={rows.slice(0, 3)}
+        expandedByDefault
+        onCellEdit={() => {}}
+        pagination={false}
+        // Master-detail - the rows of the nested table are numbered too
+        renderSubRow={() => (
+          <DataTable
+            columns={[{ key: "b", label: "B" }]}
+            data={items}
+            pagination={false}
+          />
+        )}
+      />,
+    );
+
+    const first = screen.getByText("a0").closest("td");
+    first?.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(focused()).toBe("a1");
+    await user.keyboard("{ArrowDown}");
+    expect(focused()).toBe("a2");
+    await user.keyboard("{Control>}{Home}{/Control}");
+    expect(focused()).toBe("a0");
+  });
+
+  it("gives the focus of a deleted row to the next one past a nested table", async () => {
+    const user = userEvent.setup();
+
+    function MasterDetail() {
+      const [data, setData] = useState(rows.slice(0, 3));
+      return (
+        <DataTable
+          actions={(row) => (
+            <button
+              onClick={() =>
+                setData((current) => current.filter((item) => item !== row))
+              }
+              type="button"
+            >
+              Delete {row.a}
+            </button>
+          )}
+          columns={[{ key: "a", label: "A" }]}
+          data={data}
+          expandedByDefault
+          pagination={false}
+          renderSubRow={() => (
+            <DataTable
+              actions={(item) => <button type="button">Open {item.b}</button>}
+              columns={[{ key: "b", label: "B" }]}
+              data={rows.slice(0, 3)}
+              pagination={false}
+            />
+          )}
+        />
+      );
+    }
+    render(<MasterDetail />);
+
+    await user.click(screen.getByRole("button", { name: "Delete a1" }));
+    // The second row of the outer table - not of the table nested above it
+    expect(screen.getByRole("button", { name: "Delete a2" })).toHaveFocus();
   });
 
   it("leaves tables without editable cells as they are", () => {

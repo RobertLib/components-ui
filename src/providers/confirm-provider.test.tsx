@@ -1,4 +1,10 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode, useEffect, useState } from "react";
 import { renderToString } from "react-dom/server";
@@ -106,6 +112,22 @@ describe("useConfirm", () => {
 
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(screen.getByRole("status")).toHaveTextContent("cancelled");
+  });
+
+  it("gives the focus back to the button Safari did not focus on the click", async () => {
+    renderDelete();
+    const button = screen.getByRole("button", { name: "Delete" });
+
+    // Safari focuses no button it clicks - the focus stays on the page
+    fireEvent.pointerDown(button);
+    fireEvent.click(button);
+    const dialog = await screen.findByRole("alertdialog");
+    await waitFor(() =>
+      expect(dialog).toContainElement(document.activeElement as HTMLElement),
+    );
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+
+    await waitFor(() => expect(button).toHaveFocus());
   });
 
   it("shows the extra content and the labels of the options", async () => {

@@ -415,3 +415,75 @@ describe("PinInput", () => {
     container.remove();
   });
 });
+
+describe("PinInput with a code that gets shorter under the focus", () => {
+  // The parent clears a code the server rejected
+  function ClearedCode() {
+    const [code, setCode] = useState("");
+    return (
+      <>
+        <PinInput aria-label="Code" onChange={setCode} value={code} />
+        <button onClick={() => setCode("")} type="button">
+          Reject
+        </button>
+      </>
+    );
+  }
+
+  it("moves the focus back to the first empty cell, where typing goes on", async () => {
+    const user = userEvent.setup();
+    render(<ClearedCode />);
+
+    await user.click(cell(1));
+    await user.keyboard("123456");
+    expect(cell(6)).toHaveFocus();
+
+    // Cleared while the focus stays in the cells
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    expect(cellValues()).toBe("");
+    expect(cell(1)).toHaveFocus();
+
+    await user.keyboard("12");
+    expect(cell(3)).toHaveFocus();
+    await user.keyboard("{Backspace}");
+    expect(cellValues()).toBe("1");
+  });
+
+  it("types into the first empty cell from a cell past it", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    // The parent refuses every character - the focus moved on anyway
+    render(<PinInput aria-label="Code" onChange={onChange} value="1" />);
+
+    await user.click(cell(2));
+    await user.keyboard("2");
+    expect(cell(3)).toHaveFocus();
+
+    await user.keyboard("3");
+    expect(onChange).toHaveBeenLastCalledWith("13");
+    // Takes back the last character of the code
+    await user.keyboard("{Backspace}");
+    expect(onChange).toHaveBeenLastCalledWith("");
+  });
+
+  it("moves the focus back after a reset of an uncontrolled field", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Verify">
+        <PinInput aria-label="Code" length={4} name="code" />
+      </form>,
+    );
+
+    await user.click(cell(1, 4));
+    await user.keyboard("1234");
+    expect(cell(4, 4)).toHaveFocus();
+
+    // React resetting the form after an action submitted with Enter
+    act(() => getForm().reset());
+    expect(cellValues()).toBe("");
+    expect(cell(1, 4)).toHaveFocus();
+
+    await user.keyboard("12{Backspace}");
+    expect(cellValues()).toBe("1");
+  });
+});

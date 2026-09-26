@@ -388,6 +388,66 @@ describe("CheckboxGroup", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it("counts no picked disabled option for required, min or max - it is not submitted", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Notifications">
+        <CheckboxGroup
+          defaultValue={["sms"]}
+          label="Channels"
+          max={2}
+          name="channels"
+          options={[
+            channels[0],
+            { ...channels[1], disabled: true },
+            channels[2],
+          ]}
+          required
+        />
+      </form>,
+    );
+
+    expect(new FormData(getForm()).getAll("channels")).toEqual([]);
+    expect(getForm().checkValidity()).toBe(false);
+
+    await user.click(checkbox("Email"));
+    expect(getForm().checkValidity()).toBe(true);
+    // Not submitted, it takes no place of max
+    expect(checkbox("Push")).toBeEnabled();
+    await user.click(checkbox("Push"));
+    expect(new FormData(getForm()).getAll("channels")).toEqual([
+      "email",
+      "push",
+    ]);
+    expect(getForm().checkValidity()).toBe(true);
+  });
+
+  it("can be valid with a picked disabled option and min equal to max", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Order">
+        <CheckboxGroup
+          defaultValue={["included", "b"]}
+          label="Pick exactly 2"
+          max={2}
+          min={2}
+          name="extras"
+          options={[
+            { disabled: true, label: "Included", value: "included" },
+            { label: "B", value: "b" },
+            { label: "C", value: "c" },
+          ]}
+        />
+      </form>,
+    );
+
+    expect(getForm().checkValidity()).toBe(false);
+    expect(checkbox("C")).toBeEnabled();
+    await user.click(checkbox("C"));
+    expect(new FormData(getForm()).getAll("extras")).toEqual(["b", "c"]);
+    expect(getForm().checkValidity()).toBe(true);
+  });
+
   describe("select all", () => {
     it("picks and clears the options that can be changed", async () => {
       const user = userEvent.setup();
@@ -511,6 +571,20 @@ describe("CheckboxGroup", () => {
     expect(checkbox("Email")).toHaveAttribute("aria-invalid", "true");
     expect(checkbox("SMS")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByRole("alert")).toHaveTextContent("Pick a channel");
+  });
+
+  it("marks the options invalid, not its select all", () => {
+    render(
+      <CheckboxGroup
+        error="Pick a channel"
+        label="Channels"
+        options={channels}
+        selectAll
+      />,
+    );
+
+    expect(checkbox("Email")).toHaveAttribute("aria-invalid", "true");
+    expect(checkbox("Select all")).not.toHaveAttribute("aria-invalid");
   });
 
   it("derives the ids of its messages from its id", () => {

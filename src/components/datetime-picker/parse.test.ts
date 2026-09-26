@@ -374,6 +374,82 @@ describe("parseDisplayRange", () => {
     );
   });
 
+  it("never splits a number between the two days", () => {
+    const today = new Date(2026, 8, 25);
+    // "9/2" and "4 - 9/30" would be days too - April 9, 2030
+    for (const [text, pattern, start, end] of [
+      ["9/24 - 9/30", "MM/DD/YYYY", "2026-09-24", "2026-09-30"],
+      ["9/24-9/30", "MM/DD/YYYY", "2026-09-24", "2026-09-30"],
+      ["9/24 9/30", "MM/DD/YYYY", "2026-09-24", "2026-09-30"],
+      ["1/15 - 1/20", "MM/DD/YYYY", "2026-01-15", "2026-01-20"],
+      ["1.12 - 5.12", "DD.MM.YYYY", "2026-12-01", "2026-12-05"],
+      ["24.9 - 1.10", "DD.MM.YYYY", "2026-09-24", "2026-10-01"],
+    ]) {
+      expect(parseDisplayRange(text, pattern, today), text).toEqual({
+        end,
+        start,
+      });
+    }
+  });
+
+  it("reads the month written once, where the pattern has it", () => {
+    const today = new Date(2026, 8, 25);
+    for (const text of [
+      "24.–30.9.2026",
+      "24 - 30.9.2026",
+      "24.-30.9.",
+      "24 30.9.",
+      "30.–24.9.",
+    ]) {
+      expect(parseDisplayRange(text, "DD.MM.YYYY", today), text).toEqual({
+        end: "2026-09-30",
+        start: "2026-09-24",
+      });
+    }
+    // A month before the day - the second day leaves it out
+    for (const text of ["9/24–30", "9/24 - 30/2026", "9/24 to 30"]) {
+      expect(parseDisplayRange(text, "MM/DD/YYYY", today), text).toEqual({
+        end: "2026-09-30",
+        start: "2026-09-24",
+      });
+    }
+    // Also a second day of 1 - 12 with the year - `10/2026` is no October
+    // 20, 2026, its 2026 split into the 20th and 26
+    for (let day = 1; day <= 12; day++) {
+      const text = `9/5 – ${day}/2026`;
+      expect(parseDisplayRange(text, "MM/DD/YYYY", today), text).toEqual(
+        day < 5
+          ? { end: "2026-09-05", start: `2026-09-0${day}` }
+          : {
+              end: `2026-09-${String(day).padStart(2, "0")}`,
+              start: "2026-09-05",
+            },
+      );
+    }
+    expect(parseDisplayRange("5.–10.9.2026", "DD.MM.YYYY", today)).toEqual({
+      end: "2026-09-10",
+      start: "2026-09-05",
+    });
+    // A day of a two-digit year comes first - as the docs say
+    expect(parseDisplayRange("9/24 - 30", "MM/DD/YYYY", today)).toEqual({
+      end: "2030-09-24",
+      start: "2030-09-24",
+    });
+    // Two whole days stay two whole days
+    expect(parseDisplayRange("9/5 – 10/20/2026", "MM/DD/YYYY", today)).toEqual({
+      end: "2026-10-20",
+      start: "2026-09-05",
+    });
+    // Only with something between the days the date itself does not use -
+    // "1.10.12" is a day, and "31.9 3.10" no 31st and 9.3.2010
+    expect(parseDisplayRange("1.10.12", "DD.MM.YYYY", today)).toEqual({
+      end: "2012-10-01",
+      start: "2012-10-01",
+    });
+    expect(parseDisplayRange("31.9 3.10", "DD.MM.YYYY", today)).toBeNull();
+    expect(parseDisplayRange("31.–5.2.2026", "DD.MM.YYYY", today)).toBeNull();
+  });
+
   it("fills in the years left out over the new year", () => {
     const today = new Date(2026, 11, 20);
     const range = (text: string, pattern = "DD.MM.YYYY") =>

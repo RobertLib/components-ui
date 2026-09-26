@@ -9,6 +9,7 @@ import Dialog from "./dialog";
 import Overlay from "./overlay";
 import { OverlayScope, useOverlay } from "./overlay-stack";
 import Popover from "./popover";
+import Tooltip from "./tooltip";
 
 describe("Overlay", () => {
   it("renders the backdrop into the body", () => {
@@ -229,6 +230,55 @@ describe("useOverlay", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("button", { name: "Actions" })).toHaveFocus();
+  });
+
+  it("is the topmost while a tooltip in it is shown - its backdrop closes it", async () => {
+    // Built as the docs show: the press on the backdrop reads isTopmost()
+    function Panel() {
+      const [open, setOpen] = useState(true);
+      const ref = useRef<HTMLDivElement>(null);
+      const close = () => setOpen(false);
+      const { isTopmost, scope } = useOverlay({
+        modal: true,
+        onEscape: close,
+        open,
+        ref,
+      });
+      const pressedOnTopRef = useRef(false);
+      if (!open) return null;
+      return createPortal(
+        <>
+          <Overlay
+            data-testid="backdrop"
+            onClick={() => {
+              if (pressedOnTopRef.current) close();
+            }}
+            onPointerDown={() => {
+              pressedOnTopRef.current = isTopmost();
+            }}
+            portal={false}
+          />
+          <div aria-label="Share" ref={ref} role="dialog" tabIndex={-1}>
+            <OverlayScope value={scope}>
+              <Tooltip delay={0} title="Copies the link">
+                <button type="button">Copy</button>
+              </Tooltip>
+            </OverlayScope>
+          </div>
+        </>,
+        document.body,
+      );
+    }
+    render(<Panel />);
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Copy" }));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+
+    const backdrop = screen.getByTestId("backdrop");
+    fireEvent.pointerDown(backdrop);
+    fireEvent.click(backdrop);
+    expect(screen.queryByRole("dialog", { name: "Share" })).toBeNull();
   });
 
   it("lets a Dialog under it hand it the focus and Escape", async () => {

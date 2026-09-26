@@ -29,6 +29,7 @@ const columns: Column<Person>[] = [
 export default function Expandable() {
   return (
     <DataTable
+      aria-label="People by salary"
       clientSide
       columns={columns}
       data={people}

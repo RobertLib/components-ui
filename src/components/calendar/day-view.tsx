@@ -1,6 +1,7 @@
 import type { CalendarEvent, CalendarViewProps } from "./types";
 import { addCalendarDays, getSlotStart } from "./date-utils";
 import {
+  MAX_ALL_DAY_EVENTS,
   createDayFormat,
   createSlotLabeler,
   formatTimeRange,
@@ -8,12 +9,14 @@ import {
   getEventTooltipText,
   getHiddenSide,
   isOnDay,
+  revealFocus,
 } from "./utils";
 import { useCallback, useMemo, useRef } from "react";
 import cn from "../../utils/cn";
 import EventTile from "./event-tile";
 import EventTitle from "./event-title";
 import HiddenEvents from "./hidden-events";
+import MoreEvents from "./more-events";
 import Spinner from "../spinner";
 import TimeGrid from "./time-grid";
 import TimedEvents from "./timed-events";
@@ -90,6 +93,8 @@ function SingleDayView({
   const gridRef = useRef<HTMLDivElement>(null);
   // The view scrolls - a drag scrolls it along at its edges
   const scrollRef = useRef<HTMLDivElement>(null);
+  // The all-day and hidden events on top - the focus stays below them
+  const headerRef = useRef<HTMLDivElement>(null);
   // How the last slot was pressed - a tap or a click of a screen reader
   // picks a slot, a mouse or a pen drags a range
   const pressTypeRef = useRef<string | null>(null);
@@ -159,7 +164,34 @@ function SingleDayView({
     );
   });
 
+  const hasHeader = allDayEvents.length > 0 || hasHiddenEvents;
+
   const formattedDate = formatDate(currentDate, locale.formats.date);
+  const dayLabel = createDayFormat(locale).format(currentDate);
+  // A crowded day gets "+N more", like the week - the header stays low
+  const hiddenAllDayCount = allDayEvents.length - MAX_ALL_DAY_EVENTS;
+
+  const allDayTile = (event: CalendarEvent) => (
+    <EventTile
+      actions={renderEventActions?.(event)}
+      className={cn(
+        "relative rounded border-l-2 px-2 py-1 text-sm",
+        ...getColorStyles(getEventColor(event)),
+        isClickable(event) ? "cursor-pointer" : "cursor-default",
+      )}
+      clickable={isClickable(event)}
+      key={event.id}
+      label={getEventLabel(event)}
+      onOpen={() => handleEventClick(event)}
+      title={getEventTooltipText(event)}
+    >
+      {/* Optional custom icon renderer */}
+      {renderEventIcon?.(event)}
+      <EventTitle event={event}>{event.title}</EventTitle>{" "}
+      {/* Also after an `htmlTitle` - in the label for screen readers */}
+      <span aria-hidden="true">({locale.messages.calendar.allDay})</span>
+    </EventTile>
+  );
 
   // The time of the row of `hour` - the row of the end hour stands for the
   // last hour before it
@@ -231,8 +263,11 @@ function SingleDayView({
         </div>
       )}
 
-      {(allDayEvents.length > 0 || hasHiddenEvents) && (
-        <div className="sticky top-0 z-10 flex items-center border-b border-neutral-200 bg-surface p-2 dark:border-neutral-800 dark:bg-surface-dark">
+      {hasHeader && (
+        <div
+          className="sticky top-0 z-10 flex items-center border-b border-neutral-200 bg-surface p-2 dark:border-neutral-800 dark:bg-surface-dark"
+          ref={headerRef}
+        >
           <div
             className={cn(
               "bg-primary-50 p-2 text-center dark:bg-primary-900/30",
@@ -241,37 +276,24 @@ function SingleDayView({
           >
             <div className="font-medium">{formattedDate}</div>
             <div className="mt-2 space-y-1">
-              {allDayEvents.map((event) => (
-                <EventTile
-                  actions={renderEventActions?.(event)}
-                  className={cn(
-                    "relative rounded border-l-2 px-2 py-1 text-sm",
-                    ...getColorStyles(getEventColor(event)),
-                    isClickable(event) ? "cursor-pointer" : "cursor-default",
-                  )}
-                  clickable={isClickable(event)}
-                  key={event.id}
-                  label={getEventLabel(event)}
-                  onOpen={() => handleEventClick(event)}
-                  title={getEventTooltipText(event)}
-                >
-                  {/* Optional custom icon renderer */}
-                  {renderEventIcon?.(event)}
-                  <EventTitle event={event}>{event.title}</EventTitle>{" "}
-                  {/* Also after an `htmlTitle` - in the label for screen
-                      readers */}
-                  <span aria-hidden="true">
-                    ({locale.messages.calendar.allDay})
-                  </span>
-                </EventTile>
-              ))}
+              {(hiddenAllDayCount > 0
+                ? allDayEvents.slice(0, MAX_ALL_DAY_EVENTS)
+                : allDayEvents
+              ).map(allDayTile)}
+              {hiddenAllDayCount > 0 && (
+                <MoreEvents count={hiddenAllDayCount} label={dayLabel}>
+                  {allDayEvents.map((event) => (
+                    <div key={event.id}>{allDayTile(event)}</div>
+                  ))}
+                </MoreEvents>
+              )}
             </div>
             <HiddenEvents
               day={currentDate}
               endHour={END_HOUR}
               events={timedEvents}
               getDisplayTimes={getEventDisplayTimes}
-              label={createDayFormat(locale).format(currentDate)}
+              label={dayLabel}
               getEventColor={getEventColor}
               getEventLabel={getEventLabel}
               isClickable={isClickable}
@@ -313,7 +335,15 @@ function SingleDayView({
         <div
           className="relative isolate"
           onBlur={slotsFocusable ? slotFocus.handleBlur : undefined}
-          onFocus={slotsFocusable ? slotFocus.handleFocus : undefined}
+          onFocus={(event) => {
+            // Below the header of the all-day and hidden events
+            revealFocus(
+              event.target,
+              scrollRef.current,
+              headerRef.current?.offsetHeight ?? 0,
+            );
+            if (slotsFocusable) slotFocus.handleFocus(event);
+          }}
           onKeyDown={slotsFocusable ? slotFocus.handleKeyDown : undefined}
           ref={gridRef}
         >

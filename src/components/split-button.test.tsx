@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -86,6 +86,26 @@ describe("SplitButton", () => {
     );
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "More options" })).toBeDisabled();
+  });
+
+  it("closes its menu as its action starts", async () => {
+    const user = userEvent.setup();
+    const menu = (loading: boolean) => (
+      <SplitButton items={[{ label: "Save as draft" }]} loading={loading}>
+        Save
+      </SplitButton>
+    );
+    const { rerender } = render(menu(false));
+
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    // E.g. a shortcut saves meanwhile - nothing of the menu is for now
+    rerender(menu(true));
+    await act(async () => {});
+    expect(screen.queryByRole("menu")).toBeNull();
+    // Not to the page, nor to the disabled toggle - to the busy main button
+    expect(screen.getByRole("button", { name: "Save" })).toHaveFocus();
   });
 
   it("gives its look to both buttons and the other props to the main one", async () => {

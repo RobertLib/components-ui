@@ -36,14 +36,15 @@ export default function NumberInputPage() {
               It reads what the user types in that notation, and leniently where
               the text is unambiguous: in Czech &quot;1.5&quot; is 1.5 too,
               spaces and apostrophes group, &quot;1.234,5&quot; and
-              &quot;1,234.5&quot; are 1234.5 in any language, &quot;0,5&quot; is
-              0.5 in English too, and a pasted &quot;1 234,50 Kč&quot; is read
-              without the currency (&quot;($1,234.50)&quot; of an accounting
-              format as a negative number). The digits of the language&apos;s
-              own numbering system (Arabic &quot;١٢٣&quot;) count as the Latin
-              ones. Letters are refused as they are typed, and so is a minus
-              sign when <code>min</code> is 0 or more, or a decimal separator
-              with <code>maximumFractionDigits={"{0}"}</code>.
+              &quot;1,234.5&quot; are 1234.5 in any language, so are
+              &quot;1.234.567&quot; and &quot;1,234,567&quot; 1234567,
+              &quot;0,5&quot; is 0.5 in English too, and a pasted &quot;1 234,50
+              Kč&quot; is read without the currency (&quot;($1,234.50)&quot; of
+              an accounting format as a negative number). The digits of the
+              language&apos;s own numbering system (Arabic &quot;١٢٣&quot;)
+              count as the Latin ones. Letters are refused as they are typed,
+              and so is a minus sign when <code>min</code> is 0 or more, or a
+              decimal separator with <code>maximumFractionDigits={"{0}"}</code>.
             </li>
             <li>
               When the field loses the focus, or on Enter, a typed value outside{" "}
@@ -65,7 +66,8 @@ export default function NumberInputPage() {
             <code>Intl.NumberFormat</code>: a currency, a percentage (the value
             0.21 shows as 21 % and is typed as 21, and a step is 0.01 - one
             percent - by default) or a unit. The value keeps the fraction digits
-            the format shows - 3 by default, 2 for most currencies;{" "}
+            the format shows - 3 by default, 2 for most currencies, more for a
+            finer <code>step</code> (0.0001) unless the options set them;{" "}
             <code>maximumFractionDigits</code> is a shorthand for the one of the
             options.
           </p>

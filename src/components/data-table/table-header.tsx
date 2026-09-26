@@ -17,6 +17,7 @@ import IconButton from "../icon-button";
 import Popover from "../popover";
 import Switch from "../switch";
 import { formatMessage } from "../../i18n/format";
+import { isEscapeKey } from "../overlay-stack";
 import { useMessages } from "../../providers/ui-context";
 import type { Column, DataTableDensity } from "./types";
 import useDebouncedField from "./use-debounced-field";
@@ -226,7 +227,9 @@ export function TableHeader<T>({
                 className="h-6.5 w-full rounded-md border border-neutral-200 bg-surface px-3 py-1.5 text-sm text-neutral-900 placeholder-neutral-500 focus:border-primary-500 focus:outline-none dark:border-neutral-800 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-400"
                 onChange={({ target }) => searchField.change(target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Escape") {
+                  // Not an Escape ending a composition - also Safari's,
+                  // which comes after it
+                  if (isEscapeKey(e.nativeEvent)) {
                     // Closes the search only, not a dialog around the table
                     e.preventDefault();
                     toggleSearch();

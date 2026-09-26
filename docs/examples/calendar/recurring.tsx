@@ -68,8 +68,25 @@ const initialEvents: CalendarEvent[] = [
 /** A change of an occurrence waiting for "this one or all of them?". */
 type Pending = { change?: EventTimeChange; event: CalendarEvent };
 
-const shift = (date: Date, from: Date, to: Date) =>
-  new Date(date.getTime() + to.getTime() - from.getTime());
+// `date` moved like an occurrence from `from` to `to` - by days and by the
+// clock, not by milliseconds: a day over a daylight saving change has 23 or
+// 25 hours, and the series would end up an hour off its time
+const shift = (date: Date, from: Date, to: Date) => {
+  const days = Math.round(
+    (Date.UTC(to.getFullYear(), to.getMonth(), to.getDate()) -
+      Date.UTC(from.getFullYear(), from.getMonth(), from.getDate())) /
+      86_400_000,
+  );
+  const minutes =
+    to.getHours() * 60 +
+    to.getMinutes() -
+    (from.getHours() * 60 + from.getMinutes());
+
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  result.setMinutes(result.getMinutes() + minutes);
+  return result;
+};
 
 export default function Recurring() {
   const [events, setEvents] = useState(initialEvents);

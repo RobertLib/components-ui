@@ -84,6 +84,56 @@ function isTabStopCandidate(element: HTMLElement) {
 }
 
 /**
+ * Whether Tab stops at `candidate`, one of the `elements` of the page - a
+ * radio for its group, which is all the check needs.
+ */
+function isTabStopAmong(candidate: HTMLElement, elements: HTMLElement[]) {
+  if (!isTabStopCandidate(candidate)) return false;
+  if (!isRadio(candidate)) return true;
+
+  const group = elements.filter(
+    (other) =>
+      isRadio(other) &&
+      other.name === candidate.name &&
+      isTabStopCandidate(other),
+  );
+  return isRadioTabStop(candidate, group);
+}
+
+/**
+ * The elements Tab may stop at, from `element` on in the page - after it,
+ * or before it with `backwards` - with all of them (to find the radios of a
+ * group).
+ */
+function tabCandidatesBeside(element: Element, backwards: boolean) {
+  if (!element.isConnected) return { beside: [], elements: [] };
+
+  const elements = Array.from(
+    element.ownerDocument.body.querySelectorAll<HTMLElement>(TABBABLE),
+  );
+
+  // The first of them after `element` (or in it) - they are in the order of
+  // the page, so a few comparisons find it. Each may walk a long row of
+  // siblings (the rows of a table), too slow for all of them.
+  let after = 0;
+  let end = elements.length;
+  while (after < end) {
+    const middle = (after + end) >> 1;
+    const position = element.compareDocumentPosition(elements[middle]);
+    if (position & Node.DOCUMENT_POSITION_FOLLOWING) end = middle;
+    else after = middle + 1;
+  }
+
+  const beside = backwards
+    ? elements
+        .slice(0, after)
+        .filter((candidate) => candidate !== element)
+        .reverse()
+    : elements.slice(after);
+  return { beside, elements };
+}
+
+/**
  * The first Tab stop after `element` in the page - or before it, with
  * `backwards` - outside of it and of `skipped`. It checks the elements from
  * `element` on only until it finds one: finding the stop next to a button
@@ -94,34 +144,55 @@ function findTabStopBeside(
   backwards: boolean,
   skipped?: Element | null,
 ): HTMLElement | undefined {
-  const elements = Array.from(
-    element.ownerDocument.body.querySelectorAll<HTMLElement>(TABBABLE),
+  const { beside, elements } = tabCandidatesBeside(element, backwards);
+
+  return beside.find(
+    (candidate) =>
+      !element.contains(candidate) &&
+      !skipped?.contains(candidate) &&
+      isTabStopAmong(candidate, elements),
   );
-  const side = backwards
-    ? Node.DOCUMENT_POSITION_PRECEDING
-    : Node.DOCUMENT_POSITION_FOLLOWING;
-  const ordered = backwards ? elements.reverse() : elements;
+}
 
-  return ordered.find((candidate) => {
+/**
+ * The Tab stops after `element` in the page - or before it, with
+ * `backwards` - one for each of its ancestors, nearest first: the first
+ * stop outside `element`, then the first outside its parent, and so on up
+ * to the body. When `element` goes away with an ancestor - the row a pick
+ * in its menu deleted, with a second button of the row after the menu
+ * button - the first of them still in the page is the stop next to that
+ * ancestor, the next row.
+ */
+export function getTabStopsBeside(element: Element, backwards: boolean) {
+  const { beside, elements } = tabCandidatesBeside(element, backwards);
+  const body = element.ownerDocument.body;
+  // `element` and its ancestors below the body, the nearest first
+  const scopes: Element[] = [];
+  for (
+    let current: Element | null = element;
+    current && current !== body;
+    current = current.parentElement
+  ) {
+    scopes.push(current);
+  }
+
+  const stops: HTMLElement[] = [];
+  let level = 0;
+  for (const candidate of beside) {
+    if (level === scopes.length) break;
     if (
-      !(element.compareDocumentPosition(candidate) & side) ||
-      element.contains(candidate) ||
-      skipped?.contains(candidate) ||
-      !isTabStopCandidate(candidate)
+      scopes[level].contains(candidate) ||
+      !isTabStopAmong(candidate, elements)
     ) {
-      return false;
+      continue;
     }
-    if (!isRadio(candidate)) return true;
-
-    // A radio is a stop for its group - the group is all the check needs
-    const group = elements.filter(
-      (other) =>
-        isRadio(other) &&
-        other.name === candidate.name &&
-        isTabStopCandidate(other),
-    );
-    return isRadioTabStop(candidate, group);
-  });
+    stops.push(candidate);
+    // The stop next to all the scopes it is outside of
+    while (level < scopes.length && !scopes[level].contains(candidate)) {
+      level += 1;
+    }
+  }
+  return stops;
 }
 
 /**

@@ -258,6 +258,42 @@ describe("TagsInput", () => {
     expect(screen.getByRole("textbox", { name: "Without" })).toHaveValue("b");
   });
 
+  it("keeps the form from submitting while it holds refused text", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    render(
+      <form aria-label="Mail" onSubmit={onSubmit}>
+        <TagsInput
+          addOnBlur
+          defaultValue={["anna@example.com"]}
+          label="To"
+          name="to"
+          validate={(tag) =>
+            tag.includes("@") ? undefined : `${tag} is not an e-mail address.`
+          }
+        />
+        <button type="submit">Send</button>
+      </form>,
+    );
+
+    // The blur of the click on the button refuses the text
+    await user.type(input(), "bob");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(input()).toHaveValue("bob");
+    expect(input()).toBeInvalid();
+    expect(input().validationMessage).toBe("bob is not an e-mail address.");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    // Fixed, the text is added on the next blur
+    await user.type(input(), "@example.com");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(new FormData(getForm()).getAll("to")).toEqual([
+      "anna@example.com",
+      "bob@example.com",
+    ]);
+  });
+
   it("shows the value of a controlled field only", async () => {
     const user = userEvent.setup();
 

@@ -16,20 +16,23 @@ const cities = [
   { label: "Praha", value: "praha" },
 ];
 
-// A side panel of your own, stacked with the library's overlays: Escape
-// closes the list of the Autocomplete first, then the panel; the focus
-// stays in the panel and the page does not scroll
+// A side panel of your own, stacked with the library's overlays: Escape and
+// a click on the backdrop close the list of the Autocomplete first, then the
+// panel; the focus stays in the panel and the page does not scroll
 export default function CustomOverlay() {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const close = () => setOpen(false);
-  const { scope } = useOverlay({
+  const { isTopmost, scope } = useOverlay({
     modal: true,
     onEscape: close,
     open,
     ref: panelRef,
   });
+  // Whether the panel was the topmost overlay as the press on the backdrop
+  // began: a press that closes the list of the Autocomplete leaves it open
+  const pressedOnTopRef = useRef(false);
 
   return (
     <>
@@ -39,7 +42,16 @@ export default function CustomOverlay() {
       {open &&
         createPortal(
           <>
-            <Overlay className="z-50" onClick={close} portal={false} />
+            <Overlay
+              className="z-50"
+              onClick={() => {
+                if (pressedOnTopRef.current) close();
+              }}
+              onPointerDown={() => {
+                pressedOnTopRef.current = isTopmost();
+              }}
+              portal={false}
+            />
             <div
               aria-labelledby={titleId}
               aria-modal="true"

@@ -30,12 +30,12 @@ export default function DateTimePickerPage() {
               One component for all five native types. The value can be typed in
               the display format of the locale - forgiving about separators and
               zeros (<code>3.7.1985</code>), and a time without its minutes is
-              the full hour (<code>14</code>, <code>5 pm</code>;{" "}
-              <code>930</code> is 9:30) - or picked in the popup: with the mouse
-              or the keyboard. ArrowDown opens it and moves into it, Tab and
-              Shift + Tab move through it and out of it, Enter picks, Escape
-              closes. The month and year selects of the date popup jump far,
-              e.g. to a birth date.
+              the full hour (<code>14</code>; <code>930</code> is 9:30; with a
+              12-hour format like the English one also <code>5 pm</code>) - or
+              picked in the popup: with the mouse or the keyboard. ArrowDown
+              opens it and moves into it, Tab and Shift + Tab move through it
+              and out of it, Enter picks, Escape closes. The month and year
+              selects of the date popup jump far, e.g. to a birth date.
             </p>
             <p>
               A year after the day and the month (or the week) may be left out -
@@ -147,16 +147,20 @@ export default function DateTimePickerPage() {
             <code>min</code> / <code>max</code> (in the value format) disable
             the days, months, weeks and times outside the range, and a picked
             date and time is kept inside it - the arrow keys stop at the first
-            and the last allowed one. A time range whose <code>min</code> comes
-            after its <code>max</code> (<code>22:00</code> - <code>06:00</code>)
-            spans midnight, as for a native input. <code>minuteStep</code>{" "}
-            limits the minutes - <code>quarterMinutesOnly</code> is a shorthand
-            for 15 - and moves a picked, typed or clamped time onto them: a
-            date-time to the nearest one, also the midnight of the next day, a
-            time alone to the nearest one of its day (<code>23:58</code> stays{" "}
-            <code>23:55</code> with a step of 5). <code>description</code> adds
-            a help text under the field - the field is described by it, after
-            the error message.
+            and the last allowed one. A value out of them - a default one or one
+            of the parent - makes the field invalid, as with a native input: the
+            form cannot be submitted, and the browser says the limit (
+            <code>messages.dateTimePicker.rangeUnderflow</code> /{" "}
+            <code>rangeOverflow</code>). A time range whose <code>min</code>{" "}
+            comes after its <code>max</code> (<code>22:00</code> -{" "}
+            <code>06:00</code>) spans midnight, as for a native input.{" "}
+            <code>minuteStep</code> limits the minutes -{" "}
+            <code>quarterMinutesOnly</code> is a shorthand for 15 - and moves a
+            picked, typed or clamped time onto them: a date-time to the nearest
+            one, also the midnight of the next day, a time alone to the nearest
+            one of its day (<code>23:58</code> stays <code>23:55</code> with a
+            step of 5). <code>description</code> adds a help text under the
+            field - the field is described by it, after the error message.
           </p>
         }
         name="datetime-picker/limits"
@@ -180,7 +184,10 @@ export default function DateTimePickerPage() {
             <li>
               With a <code>name</code>, a hidden input submits the value with
               the form (also a form given by the <code>form</code> attribute);{" "}
-              <code>required</code> is enforced by the browser.
+              <code>required</code>, <code>min</code> and <code>max</code> are
+              enforced by the browser. <code>step</code> applies in{" "}
+              <code>native</code> mode only - the custom pickers take{" "}
+              <code>minuteStep</code>.
             </li>
             <li>
               Other native attributes - <code>aria-*</code>, <code>data-*</code>

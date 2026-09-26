@@ -313,6 +313,32 @@ describe("Autocomplete forms", () => {
     expect(stops).toHaveValue("");
   });
 
+  it("keeps its value when a listener cancels the reset", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Trip" onReset={(event) => event.preventDefault()}>
+        <Autocomplete
+          defaultValue="praha"
+          label="City"
+          name="city"
+          options={cities}
+        />
+        <button type="reset">Reset</button>
+      </form>,
+    );
+
+    const input = screen.getByRole("combobox", { name: /City/ });
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, "zur");
+    await user.click(screen.getByRole("option", { name: "Zürich" }));
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Trip" });
+    expect(new FormData(form).get("city")).toBe("zurich");
+    expect(input).toHaveValue("Zürich");
+  });
+
   it("is reset after a form action", async () => {
     const user = userEvent.setup();
     const action = vi.fn();

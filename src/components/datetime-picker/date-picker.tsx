@@ -1,6 +1,6 @@
 import DayGrid from "./day-grid";
 import PickerField from "./picker-field";
-import { isInRange, parseDisplayValue } from "./parse";
+import { getRangeMessage, isInRange, parseDisplayValue } from "./parse";
 import usePickerPopup from "./use-picker-popup";
 import {
   formatDate,
@@ -28,20 +28,26 @@ export default function DatePicker({
     contentRef,
     inputRef,
     isOpen,
+    markPicked,
     onOpenChange,
     openedByKeyboard,
+    pickCount,
   } = usePickerPopup(!props.disabled && !props.readOnly);
 
   const selectedDate = parseISODate(value);
+
+  /** A date (`YYYY-MM-DD`) as the field shows it. */
+  const formatValue = (date: string) => {
+    const day = parseISODate(date);
+    return day ? formatDate(day, locale.formats.date) : date;
+  };
 
   return (
     <PickerField
       {...props}
       ariaLabel={props.ariaLabel ?? messages.openCalendar}
       contentRef={contentRef}
-      displayValue={
-        selectedDate ? formatDate(selectedDate, locale.formats.date) : ""
-      }
+      displayValue={selectedDate ? formatValue(value) : ""}
       format={formatPlaceholder(
         locale.formats.date,
         messages.placeholderTokens,
@@ -60,8 +66,15 @@ export default function DatePicker({
           ? { value: typed }
           : { error: "range" };
       }}
+      pickCount={pickCount}
       placeholder={placeholder}
       popupLabel={messages.selectDate}
+      rangeMessage={getRangeMessage(
+        messages,
+        selectedDate ? toISODate(selectedDate) : undefined,
+        { max, min },
+        formatValue,
+      )}
       value={value}
     >
       <DayGrid
@@ -70,6 +83,7 @@ export default function DatePicker({
         min={parseISODate(min)}
         onEscape={close}
         onSelect={(date) => {
+          markPicked();
           onValueChange(toISODate(date));
           close();
         }}

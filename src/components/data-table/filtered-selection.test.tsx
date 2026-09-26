@@ -1,9 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
-import { cs } from "../../i18n/cs";
+import ConfirmProvider from "../../providers/confirm-provider";
 import UIProvider from "../../providers/ui-provider";
+import { cs } from "../../i18n/cs";
+import { useConfirm } from "../../providers/confirm-context";
 import type { Column } from "./types";
 
 interface Row {
@@ -143,6 +146,160 @@ describe("DataTable selection of all matching rows", () => {
 
     expect(barText()).toBe("Vybrány 4 odpovídající řádky. Zrušit výběr");
   });
+});
+
+describe("DataTable selection focus", () => {
+  it("keeps the focus on the bar's buttons and gives that of Clear selection to Select all", async () => {
+    const user = userEvent.setup();
+    render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={rows}
+        defaultQuery={{ pageSize: 10 }}
+        filteredSelection
+        groupActions={[{ label: "Archive", onClick: () => {} }]}
+      />,
+    );
+    const selectAll = screen.getByRole("checkbox", { name: "Select all rows" });
+
+    await user.click(selectAll);
+    await user.click(
+      screen.getByRole("button", { name: "Select all 25 rows" }),
+    );
+    // The same button - it says "Clear selection" now
+    expect(
+      screen.getByRole("button", { name: "Clear selection" }),
+    ).toHaveFocus();
+
+    // The bar goes with the selection - not the focus
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(barText()).toBe("");
+    expect(selectAll).toHaveFocus();
+  });
+
+  it("keeps the focus on a group action that dropped the selection", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    render(
+      <>
+        <DataTable
+          autoResetSelectedRows
+          clientSide
+          columns={columns}
+          data={rows.slice(0, 3)}
+          groupActions={[
+            { label: "Archive", onClick },
+            { label: "Export", onClick: () => {} },
+          ]}
+        />
+        <button type="button">After</button>
+      </>,
+    );
+
+    await user.click(rowBox("Person 1"));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    expect(onClick).toHaveBeenCalledTimes(1);
+
+    // Nothing selected - announced unavailable, but still focused
+    const archive = screen.getByRole("button", { name: "Archive" });
+    expect(archive).toHaveFocus();
+    expect(archive).not.toBeDisabled();
+    expect(archive).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Export" })).toBeDisabled();
+    await user.keyboard("{Enter}");
+    expect(onClick).toHaveBeenCalledTimes(1);
+
+    // Once the focus moves on, the button is disabled
+    await user.tab();
+    expect(archive).toBeDisabled();
+  });
+
+  it("gives the focus to Select all when a group action removes every row", async () => {
+    const user = userEvent.setup();
+
+    function Table() {
+      const [data, setData] = useState(rows.slice(0, 3));
+      return (
+        <DataTable
+          autoResetSelectedRows
+          clientSide
+          columns={columns}
+          data={data}
+          groupActions={[
+            {
+              label: "Delete",
+              onClick: (selected) =>
+                setData((current) =>
+                  current.filter((row) => !selected.includes(row)),
+                ),
+            },
+          ]}
+        />
+      );
+    }
+    render(<Table />);
+
+    const selectAll = screen.getByRole("checkbox", { name: "Select all rows" });
+    await user.click(selectAll);
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    // The bar of the actions went with the last row - not the focus
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    expect(selectAll).toHaveFocus();
+  });
+
+  it.each([false, true])(
+    "has the focus on the group action after its confirm dialog (slow: %s)",
+    async (slow) => {
+      const user = userEvent.setup();
+
+      function Table() {
+        const confirm = useConfirm();
+        return (
+          <DataTable
+            autoResetSelectedRows
+            clientSide
+            columns={columns}
+            data={rows.slice(0, 3)}
+            groupActions={[
+              {
+                label: "Archive",
+                onClick: async () => {
+                  const ok = await confirm({
+                    confirmLabel: "Archive them",
+                    title: "Archive the rows?",
+                  });
+                  if (slow) await new Promise((r) => setTimeout(r, 50));
+                  return ok;
+                },
+              },
+            ]}
+          />
+        );
+      }
+      render(
+        <ConfirmProvider>
+          <Table />
+        </ConfirmProvider>,
+      );
+
+      await user.click(rowBox("Person 1"));
+      const archive = screen.getByRole("button", { name: "Archive" });
+      archive.focus();
+      await user.keyboard("{Enter}");
+      await user.click(
+        await screen.findByRole("button", { name: "Archive them" }),
+      );
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+
+      // The selection is gone - the button got the focus back, unavailable
+      await waitFor(() => expect(rowBox("Person 1")).not.toBeChecked());
+      expect(archive).toHaveFocus();
+      expect(archive).not.toBeDisabled();
+      expect(archive).toHaveAttribute("aria-disabled", "true");
+    },
+  );
 });
 
 describe("DataTable selection announcements", () => {

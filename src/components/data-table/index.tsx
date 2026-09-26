@@ -94,6 +94,10 @@ export type {
 
 const MAX_TOGGLED_ROWS = 1000;
 
+// How long the refusal of a change stays in the live region - long enough
+// to be announced
+const ANNOUNCEMENT_DURATION = 5000;
+
 /** The measured widths with new ones - the same object when none changed. */
 function mergeWidths(
   widths: Record<string, number>,
@@ -114,6 +118,44 @@ function withCellState<T>(
   if (state) next.set(key, state);
   else next.delete(key);
   return next;
+}
+
+/**
+ * The changes of cells that still show with new rows - the same map when
+ * all do. A saved value shows until its row is replaced, a refusal until
+ * the cell holds another value than the refused one or the one before it
+ * (another user's change, a refetch); a row gone takes its changes along,
+ * unless a save of it is still on its way.
+ */
+function pruneCellStates<T extends { id: RowId }>(
+  states: ReadonlyMap<string, CellEditState<T>>,
+  data: T[],
+  columns: Column<T>[],
+) {
+  if (states.size === 0) return states;
+
+  const rowsById = new Map(data.map((row) => [String(row.id), row]));
+  const next = new Map(states);
+
+  for (const [key, state] of states) {
+    if (state.status === "pending") continue;
+
+    const separator = key.indexOf("\u0000");
+    const row = rowsById.get(key.slice(0, separator));
+    const columnKey = key.slice(separator + 1);
+    const column = columns.find((candidate) => candidate.key === columnKey);
+    const isShown =
+      !!row &&
+      !!column &&
+      (state.status === "saved"
+        ? state.row === row
+        : isSameValue(getColumnValue(row, column), state.refused) ||
+          isSameValue(getColumnValue(row, column), state.previous));
+
+    if (!isShown) next.delete(key);
+  }
+
+  return next.size === states.size ? states : next;
 }
 
 /**
@@ -138,6 +180,17 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
 > {
   /** Content of a sticky first column, e.g. edit / delete buttons. */
   actions?: (row: T) => React.ReactNode;
+  /**
+   * Name of the table - of the region around it (by default "Data table"),
+   * of the `<table>` and of its pagination ("People pagination"). Several
+   * tables of a page are told apart by it.
+   */
+  "aria-label"?: string;
+  /**
+   * Id of the element naming the table, e.g. a heading above it - instead
+   * of `aria-label` for the region, the `<table>` and its pagination.
+   */
+  "aria-labelledby"?: string;
   /** Drop the selection after a group action (unless it returns `false`). */
   autoResetSelectedRows?: boolean;
   /**
@@ -216,9 +269,11 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
    * as it was, also when a refetch changed the cell meanwhile. While a
    * returned promise is pending, the cell shows the new value with a
    * spinner; when it rejects, the cell shows its old value again with the
-   * message of the rejection (of an `Error`, or a generic one). Update
-   * `data` with the saved value. Another page, sorting or filter ends the
-   * editing.
+   * message of the rejection (of an `Error`, or a generic one), announced
+   * once - until the cell is saved again or `data` no longer has the
+   * refused value or the one before it (another value, or no such row).
+   * Update `data` with the saved value. Another page, sorting or filter
+   * ends the editing.
    */
   onCellEdit?: (
     row: T,
@@ -291,6 +346,8 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
  */
 export default function DataTable<T extends { id: RowId }>({
   actions,
+  "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
   autoResetSelectedRows = false,
   className,
   clientSide = false,
@@ -385,6 +442,14 @@ export default function DataTable<T extends { id: RowId }>({
   // clear a search, so a `clientSide` table ignores one then
   const searchTerm = enableGlobalSearch ? query.search : "";
 
+  // Only a sortable column the user sees sorts - a hand-edited URL or an old
+  // bookmark may name another one, whose header could not show or undo it
+  const sortBy = sortedVisibleColumns.some(
+    (column) => column.sortable && column.key === query.sortBy,
+  )
+    ? query.sortBy
+    : null;
+
   // Client-side: all rows matching the filters and the search, sorted - the
   // expensive part, so it runs again only when they, the columns or these
   // parts of the query change, not on a page change or a checkbox click -
@@ -394,7 +459,7 @@ export default function DataTable<T extends { id: RowId }>({
   const queryColumns = useQueryColumns(columns);
   const searchColumns = useQueryColumns(visibleColumns);
   const filtersKey = JSON.stringify(query.filters);
-  const { order, sortBy } = query;
+  const { order } = query;
   const matchingRows = useMemo(
     () =>
       clientSide
@@ -730,6 +795,25 @@ export default function DataTable<T extends { id: RowId }>({
   // them can be pressed again until it is done
   const [runningAction, setRunningAction] = useState<number | null>(null);
   const isActionRunning = useRef(false);
+  // The group action button with the focus - one that becomes unavailable
+  // (its action dropped the selection) keeps the focus, `aria-disabled`,
+  // until it moves on, instead of dropping it to the page
+  const [focusedAction, setFocusedAction] = useState<number | null>(null);
+  // "Clear selection" goes with the selection - the focus goes to the
+  // "select all" checkbox instead of the page
+  const selectAllRef = useRef<HTMLInputElement>(null);
+
+  // A group action that removed the last row takes the bar of the actions
+  // along - with the focus of its button, which goes to the "select all"
+  // checkbox too. Looked at as the bar leaves, while it is in the page.
+  const actionBarRef = useCallback((bar: HTMLDivElement | null) => {
+    if (!bar) return;
+    return () => {
+      if (bar.contains(bar.ownerDocument.activeElement)) {
+        selectAllRef.current?.focus();
+      }
+    };
+  }, []);
 
   const runGroupAction = async (action: GroupAction<T>, index: number) => {
     if (isActionRunning.current) return;
@@ -895,8 +979,9 @@ export default function DataTable<T extends { id: RowId }>({
     visibleColumnKeys,
   ]);
 
-  // Hiding a column takes its filter along - the field of the filter goes
-  // with the column, and rows filtered by nothing visible would puzzle
+  // Hiding a column takes its filter and its sorting along - the field of
+  // the filter and the sort button go with the column, and rows filtered or
+  // ordered by nothing visible would puzzle
   const changeColumnVisibility = (
     update:
       | Record<string, boolean>
@@ -906,19 +991,21 @@ export default function DataTable<T extends { id: RowId }>({
       typeof update === "function" ? update(columnVisibility) : update;
     const hidden = columns.filter(
       (column) =>
-        column.filter &&
-        columnVisibility[column.key] &&
-        visibility[column.key] === false,
+        columnVisibility[column.key] && visibility[column.key] === false,
     );
 
     setColumnVisibility(visibility);
     if (hidden.length > 0) {
-      updateQuery((current) =>
-        hidden.reduce(
-          (next, column) => setFilter(next, column.key, ""),
+      updateQuery((current) => {
+        const next = hidden.reduce(
+          (result, column) =>
+            column.filter ? setFilter(result, column.key, "") : result,
           current,
-        ),
-      );
+        );
+        return hidden.some((column) => column.key === current.sortBy)
+          ? resetPagination(next, { order: "asc", sortBy: null })
+          : next;
+      });
     }
   };
 
@@ -1156,6 +1243,39 @@ export default function DataTable<T extends { id: RowId }>({
   >(() => new Map());
   const editHintId = useId();
 
+  // A refused change is announced once, here - the message under its cell
+  // is plain text, which a row rendered again (another page and back, a
+  // virtualized table scrolling) must not announce again. Announced, it
+  // goes, so that no one reading the page finds it later.
+  const [editAnnouncement, setEditAnnouncement] = useState<{
+    id: number;
+    /** The cell refused - its message goes with it. */
+    key: string;
+    text: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!editAnnouncement) return;
+    const timer = setTimeout(
+      () => setEditAnnouncement(null),
+      ANNOUNCEMENT_DURATION,
+    );
+    return () => clearTimeout(timer);
+  }, [editAnnouncement]);
+
+  // New rows drop the changes that no longer show - a refusal must not stay
+  // under a cell that holds another value by now, nor the changes of rows
+  // gone pile up
+  const [cellStatesData, setCellStatesData] = useState(data);
+  if (cellStates.size > 0 && cellStatesData !== data) {
+    const pruned = pruneCellStates(cellStates, data, columns);
+    setCellStatesData(data);
+    setCellStates(pruned);
+    if (editAnnouncement && !pruned.has(editAnnouncement.key)) {
+      setEditAnnouncement(null);
+    }
+  }
+
   // The rows as they are when a save ends - the current object of its row
   const latestData = useRef(data);
 
@@ -1252,6 +1372,8 @@ export default function DataTable<T extends { id: RowId }>({
     setCellStates((states) =>
       withCellState(states, key, { status: "pending", value }),
     );
+    // A refusal of the cell announced before is over
+    setEditAnnouncement((current) => (current?.key === key ? null : current));
 
     runCellEdit(onCellEdit, row, column.key, value).then(
       () => {
@@ -1272,19 +1394,25 @@ export default function DataTable<T extends { id: RowId }>({
       },
       (error: unknown) => {
         logger.error(`Saving the cell "${column.key}" failed`, error);
+        const message = getEditErrorMessage(
+          error,
+          messages.dataTable.editFailed,
+        );
         setCellStates((states) =>
           isThisSave(states.get(key))
             ? withCellState(states, key, {
-                message: getEditErrorMessage(
-                  error,
-                  messages.dataTable.editFailed,
-                ),
+                message,
                 previous,
                 refused: value,
                 status: "failed",
               })
             : states,
         );
+        setEditAnnouncement((current) => ({
+          id: (current?.id ?? 0) + 1,
+          key,
+          text: message,
+        }));
       },
     );
   };
@@ -1368,6 +1496,19 @@ export default function DataTable<T extends { id: RowId }>({
   };
 
   const headerRowCount = hasFilterColumns ? 2 : 1;
+  // Rows measured under another density, or with a column the user resized,
+  // have other heights now - a virtualized table measures them again. Not
+  // a view of another width (a resized window, a sidebar), whose widths the
+  // columns sized by their content follow: the rows keep their heights.
+  const rowLayoutKey = virtualized
+    ? `${density}|${JSON.stringify(
+        columns.map(
+          (column) =>
+            (canResize(column) ? userWidths[column.key] : undefined) ??
+            column.width,
+        ),
+      )}`
+    : "";
   // Virtualized, most rows are not in the page - screen readers learn their
   // number (and place, `aria-rowindex`) from the attributes
   const rowCount = virtualized
@@ -1379,7 +1520,10 @@ export default function DataTable<T extends { id: RowId }>({
 
   return (
     <div
-      aria-label={messages.dataTable.region}
+      aria-label={
+        ariaLabel ?? (ariaLabelledBy ? undefined : messages.dataTable.region)
+      }
+      aria-labelledby={ariaLabelledBy}
       role="region"
       {...props}
       className={cn(
@@ -1393,25 +1537,42 @@ export default function DataTable<T extends { id: RowId }>({
       {/* Popovers opened in the table count as part of it in full screen */}
       <OverlayContext value={childContext}>
         {hasGroupActions && (rowsTotal ?? rows.length) > 0 && (
-          <div className="mb-2 flex flex-wrap items-center gap-3.5">
+          <div
+            className="mb-2 flex flex-wrap items-center gap-3.5"
+            ref={actionBarRef}
+          >
             <div className="flex flex-wrap gap-2">
-              {groupActions.map((action, index) => (
-                <Button
-                  disabled={
-                    selectedCount === 0 ||
-                    (runningAction !== null && runningAction !== index)
-                  }
-                  // Labels need not be unique - the running action is
-                  // tracked by the index too
-                  key={index}
-                  loading={runningAction === index}
-                  onClick={() => runGroupAction(action, index)}
-                  size="sm"
-                  variant="outline"
-                >
-                  {action.label}
-                </Button>
-              ))}
+              {groupActions.map((action, index) => {
+                const isUnavailable =
+                  selectedCount === 0 ||
+                  (runningAction !== null && runningAction !== index);
+                const isKept = isUnavailable && focusedAction === index;
+
+                return (
+                  <Button
+                    aria-disabled={isKept || undefined}
+                    className={
+                      isKept ? "cursor-not-allowed opacity-60" : undefined
+                    }
+                    disabled={isUnavailable && !isKept}
+                    // Labels need not be unique - the running action is
+                    // tracked by the index too
+                    key={index}
+                    loading={runningAction === index}
+                    onBlur={() => setFocusedAction(null)}
+                    onClick={
+                      isUnavailable
+                        ? undefined
+                        : () => runGroupAction(action, index)
+                    }
+                    onFocus={() => setFocusedAction(index)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {action.label}
+                  </Button>
+                );
+              })}
             </div>
             {/* A live region is announced when its content changes - it is
                 there, empty, before the first row is selected */}
@@ -1449,7 +1610,12 @@ export default function DataTable<T extends { id: RowId }>({
                         )}{" "}
                     <button
                       className="font-semibold text-primary-700 underline hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"
-                      onClick={resetAllSelection}
+                      onClick={() => {
+                        // The bar goes with the selection - and would take
+                        // the focus of the button along to the page
+                        selectAllRef.current?.focus();
+                        resetAllSelection();
+                      }}
                       type="button"
                     >
                       {selectionConfig.clearSelectionLabel ??
@@ -1492,9 +1658,18 @@ export default function DataTable<T extends { id: RowId }>({
           </div>
         )}
         {onCellEdit && (
-          <span hidden id={editHintId}>
-            {messages.dataTable.editCell}
-          </span>
+          <>
+            <span hidden id={editHintId}>
+              {messages.dataTable.editCell}
+            </span>
+            {/* There before the first refusal - a live region is announced
+                when its content changes; a new node also repeats a message */}
+            <div aria-live="assertive" className="sr-only">
+              {editAnnouncement && (
+                <span key={editAnnouncement.id}>{editAnnouncement.text}</span>
+              )}
+            </div>
+          </>
         )}
         <div
           className="overflow-x-auto rounded-t-lg border border-neutral-100 bg-surface shadow-lg dark:border-neutral-900 dark:bg-surface-dark"
@@ -1584,6 +1759,8 @@ export default function DataTable<T extends { id: RowId }>({
 
           <table
             aria-busy={loading || undefined}
+            aria-label={ariaLabel}
+            aria-labelledby={ariaLabelledBy}
             aria-rowcount={rowCount}
             // Holds the loading overlay - it must not cover the toolbar and
             // the pagination
@@ -1629,8 +1806,9 @@ export default function DataTable<T extends { id: RowId }>({
               order={query.order}
               ref={theadRef}
               renderSubRow={renderSubRow}
+              selectAllRef={selectAllRef}
               selectionColumnRef={selectionColumnRef}
-              sortBy={query.sortBy}
+              sortBy={sortBy}
               sortedVisibleColumns={sortedVisibleColumns}
               stickyTop={headerHeight}
               toggleSelectAll={handleToggleSelectAll}
@@ -1653,6 +1831,7 @@ export default function DataTable<T extends { id: RowId }>({
               groupActions={groupActions}
               headerRowCount={headerRowCount}
               isEditable={isEditable}
+              layoutKey={rowLayoutKey}
               loading={loading}
               onCancelEdit={() => setEditingCell(null)}
               onCommitEdit={handleCommitEdit}
@@ -1685,6 +1864,8 @@ export default function DataTable<T extends { id: RowId }>({
 
         {pagination && (
           <TableFooter
+            label={ariaLabel}
+            labelledBy={ariaLabelledBy}
             loading={loading}
             page={page}
             pageInfo={pageInfo}

@@ -449,6 +449,57 @@ describe("Sheet switching its content", () => {
 });
 
 describe("Sheet in the overlay stack", () => {
+  it.each([
+    // Chrome focuses the clicked button
+    ["Chrome", (button: HTMLElement) => button],
+    // WebKit focuses no clicked button, but its nearest focusable ancestor:
+    // the panel of the sheet (`tabIndex={-1}`)
+    [
+      "Safari",
+      (button: HTMLElement) => button.closest<HTMLElement>("[tabindex]")!,
+    ],
+  ])(
+    "gives the focus back to the button a ConfirmDialog in it was opened from - %s",
+    async (_, focusedOnPress) => {
+      function SheetWithConfirm() {
+        const [confirming, setConfirming] = useState(false);
+        return (
+          <Sheet onClose={() => {}} open title="Jana Nováková">
+            <button onClick={() => setConfirming(true)} type="button">
+              Delete
+            </button>
+            <ConfirmDialog
+              confirmLabel="Delete"
+              onClose={() => setConfirming(false)}
+              onConfirm={() => setConfirming(false)}
+              open={confirming}
+              title="Delete the customer?"
+            />
+          </Sheet>
+        );
+      }
+      render(<SheetWithConfirm />);
+      await act(() => sleep(350));
+
+      const del = screen.getByRole("button", { name: "Delete" });
+      fireEvent.pointerDown(del);
+      fireEvent.mouseDown(del);
+      act(() => focusedOnPress(del).focus());
+      fireEvent.mouseUp(del);
+      fireEvent.click(del);
+      await waitFor(() =>
+        expect(screen.getByRole("alertdialog")).toContainElement(
+          document.activeElement as HTMLElement,
+        ),
+      );
+
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+      await act(() => sleep(250));
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(del).toHaveFocus();
+    },
+  );
+
   it("closes a ConfirmDialog opened in it first", async () => {
     const user = userEvent.setup();
     const onSheetClose = vi.fn();

@@ -88,11 +88,73 @@ export const clickableTileProps = (onActivate: () => void) => ({
   tabIndex: 0,
 });
 
+/** Whether the focus came from the keyboard - not from a press or a click. */
+function isKeyboardFocus(element: Element) {
+  try {
+    return element.matches(":focus-visible");
+  } catch {
+    // A browser (or jsdom) without the selector
+    return false;
+  }
+}
+
+/**
+ * How far a box from `start` to `end` is out of `min` - `max` - to its
+ * nearer edge, to `min` when it does not fit.
+ */
+const overflowOf = (start: number, end: number, min: number, max: number) =>
+  start < min ? start - min : end > max ? Math.min(end - max, start - min) : 0;
+
+/**
+ * Scrolls what the keyboard focused in a view - a day or a slot the arrow
+ * keys moved to, a tile reached by Tab - into sight whole: below the sticky
+ * header of the view (`topInset` pixels) and right of its sticky time
+ * column (`leftInset`). The browser's own scroll of the focus knows of
+ * neither, and leaves an element a few pixels in view as it is. A press is
+ * left alone - the view scrolled under the pointer would take it for a
+ * drag.
+ */
+export function revealFocus(
+  target: EventTarget,
+  scroller: HTMLElement | null,
+  topInset: number,
+  leftInset = 0,
+) {
+  if (!scroller || !(target instanceof HTMLElement)) return;
+  if (!isKeyboardFocus(target)) return;
+
+  const box = target.getBoundingClientRect();
+  const view = scroller.getBoundingClientRect();
+  const top = view.top + scroller.clientTop;
+  const left = view.left + scroller.clientLeft;
+
+  const y = overflowOf(
+    box.top,
+    box.bottom,
+    top + topInset,
+    top + scroller.clientHeight,
+  );
+  const x = overflowOf(
+    box.left,
+    box.right,
+    left + leftInset,
+    left + scroller.clientWidth,
+  );
+  if (y !== 0) scroller.scrollTop += y;
+  if (x !== 0) scroller.scrollLeft += x;
+}
+
 /**
  * Height of the shortest tile in the week and day views, in pixels - a line
  * of text, and room to grab the tile between its resize handles.
  */
 export const MIN_TILE_HEIGHT = 24;
+
+/**
+ * All-day events the header of a day of the week and day views shows before
+ * "+N more" - the header stays low, the hours below it in view.
+ */
+export const MAX_ALL_DAY_EVENTS = 2;
 
 export interface EventLayout {
   /** Column of the event in its cluster of overlapping events, 0 = leftmost. */

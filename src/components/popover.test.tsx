@@ -717,10 +717,24 @@ describe("Popover over its trigger", () => {
     await user.click(screen.getByRole("button", { name: "Filters" }));
     const panel = screen.getByRole("dialog");
     // The box is as big as the trigger and fixed over it - only the panel
-    // and the hover bridge in it take the pointer
+    // takes the pointer. A click popover has no hover bridge: a click in the
+    // gap under the trigger is a click outside.
     const box = panel.parentElement!;
     expect(box).toHaveClass("pointer-events-none");
     expect(panel).toHaveClass("pointer-events-auto");
+    expect(box.querySelector(".popover-bridge")).toBeNull();
+  });
+
+  it("bridges the gap to the panel of a hover popover", async () => {
+    const user = userEvent.setup();
+    render(
+      <Popover trigger={<span>Help</span>}>
+        <p>Panel content</p>
+      </Popover>,
+    );
+
+    await user.hover(screen.getByText("Help"));
+    const box = screen.getByRole("dialog").parentElement!;
     expect(box.querySelector(".popover-bridge")).toHaveClass(
       "pointer-events-auto",
     );
@@ -1082,7 +1096,9 @@ describe("Popover flipping", () => {
     const getRect = HTMLElement.prototype.getBoundingClientRect;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       function (this: HTMLElement) {
-        if (this.classList.contains("popover")) return trigger as DOMRect;
+        // A new rect at every call, as in a browser
+        if (this.classList.contains("popover"))
+          return { ...trigger } as DOMRect;
         return getRect.call(this);
       },
     );
@@ -1187,6 +1203,35 @@ describe("Popover flipping", () => {
     act(() => resize?.());
     expect(panel()).toHaveClass("top-full");
     expect(panel().style.maxHeight).toBe("");
+  });
+
+  it("takes the room the on-screen keyboard of a phone leaves", async () => {
+    layout({ bottom: 430, height: 30, left: 10, right: 110, top: 400 });
+    const viewport = {
+      addEventListener: () => {},
+      height: 768,
+      offsetLeft: 0,
+      offsetTop: 0,
+      removeEventListener: () => {},
+      width: 1024,
+    };
+    vi.stubGlobal("visualViewport", viewport);
+    const popover = (open: boolean) => (
+      <Popover open={open} position="bottom" trigger={<span>Trigger</span>}>
+        Panel
+      </Popover>
+    );
+    const { rerender } = render(popover(true));
+    await act(() => sleep(20));
+    expect(panel()).toHaveClass("top-full");
+    rerender(popover(false));
+
+    // The keyboard covers all below 500: 500 - 430 - 16 = 54px below the
+    // field, 400 - 16 = 384px above it - read again at the next opening
+    viewport.height = 500;
+    rerender(popover(true));
+    await act(() => sleep(20));
+    expect(panel()).toHaveClass("bottom-full");
   });
 });
 

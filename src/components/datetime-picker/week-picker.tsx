@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import cn from "../../utils/cn";
-import { isInRange, parseDisplayValue } from "./parse";
+import { getRangeMessage, isInRange, parseDisplayValue } from "./parse";
 import PickerField from "./picker-field";
 import usePickerPopup from "./use-picker-popup";
 import { formatMessage } from "../../i18n/format";
@@ -311,20 +311,26 @@ export default function WeekPicker({
     contentRef,
     inputRef,
     isOpen,
+    markPicked,
     onOpenChange,
     openedByKeyboard,
+    pickCount,
   } = usePickerPopup(!props.disabled && !props.readOnly);
 
   const selected = parseWeek(value);
+
+  /** A week (`YYYY-Www`) as the field shows it. */
+  const formatValue = (week: string) => {
+    const parts = parseWeek(week);
+    return parts ? formatPattern(locale.formats.week, parts) : week;
+  };
 
   return (
     <PickerField
       {...props}
       ariaLabel={props.ariaLabel ?? messages.selectWeek}
       contentRef={contentRef}
-      displayValue={
-        selected ? formatPattern(locale.formats.week, selected) : ""
-      }
+      displayValue={selected ? formatValue(value) : ""}
       format={formatPlaceholder(
         locale.formats.week,
         messages.placeholderTokens,
@@ -343,8 +349,17 @@ export default function WeekPicker({
           ? { value: typed }
           : { error: "range" };
       }}
+      pickCount={pickCount}
       placeholder={placeholder}
       popupLabel={messages.selectWeek}
+      rangeMessage={getRangeMessage(
+        messages,
+        selected
+          ? `${padYear(selected.year)}-W${pad2(selected.week)}`
+          : undefined,
+        { max, min },
+        formatValue,
+      )}
       value={value}
     >
       <WeekGrid
@@ -353,6 +368,7 @@ export default function WeekPicker({
         min={parseWeek(min)}
         onEscape={close}
         onSelect={(year, week) => {
+          markPicked();
           onValueChange(`${padYear(year)}-W${pad2(week)}`);
           close();
         }}

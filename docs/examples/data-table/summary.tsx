@@ -51,6 +51,7 @@ const columns: Column<Person>[] = [
 export default function Summary() {
   return (
     <DataTable
+      aria-label="People with totals"
       clientSide
       columns={columns}
       data={people}

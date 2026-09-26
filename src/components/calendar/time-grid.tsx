@@ -5,12 +5,14 @@ import type {
 } from "./types";
 import { addCalendarDays, getSlotStart, isSameDay } from "./date-utils";
 import {
+  MAX_ALL_DAY_EVENTS,
   createDayFormat,
   createSlotLabeler,
   formatTimeRange,
   getColorStyles,
   getEventTooltipText,
   isOnDay,
+  revealFocus,
   withResource,
 } from "./utils";
 import { useCallback, useMemo, useRef } from "react";
@@ -33,9 +35,6 @@ import {
 } from "../../utils/date";
 import { formatMessage, toIntlLocale } from "../../i18n/format";
 import { useLocale } from "../../providers/ui-context";
-
-/** All-day events the header of a column shows before "+N more". */
-const MAX_ALL_DAY_EVENTS = 2;
 
 /** Width of the time column in pixels - `grid-cols-[60px_1fr]`. */
 const TIME_COLUMN_WIDTH = 60;
@@ -127,6 +126,8 @@ export default function TimeGrid({
   const gridRef = useRef<HTMLDivElement>(null);
   // The view scrolls - a drag scrolls it along at its edges
   const scrollRef = useRef<HTMLDivElement>(null);
+  // The days, resources and all-day events on top - the focus stays below
+  const headerRef = useRef<HTMLDivElement>(null);
   // How the last slot was pressed - a tap or a click of a screen reader
   // picks a slot, a mouse or a pen drags a range
   const pressTypeRef = useRef<string | null>(null);
@@ -513,6 +514,7 @@ export default function TimeGrid({
       {/* Over the time column (z-10) - it scrolls sideways under the corner */}
       <div
         className="sticky top-0 z-20 grid grid-cols-[60px_1fr] bg-surface dark:bg-surface-dark"
+        ref={headerRef}
         style={{ minWidth: `${TIME_COLUMN_WIDTH + columnsMinWidth}px` }}
       >
         <div className="sticky left-0 z-11 border-r border-neutral-200 bg-surface dark:border-neutral-800 dark:bg-surface-dark" />
@@ -522,25 +524,25 @@ export default function TimeGrid({
         >
           {resourceList ? (
             <>
-              {/* The days over their resources - one day needs none */}
-              {gridDays.length > 1 &&
-                gridDays.map((day) => (
-                  <div
-                    className={cn(
-                      "border-r border-b border-r-neutral-300 border-b-neutral-200 px-1 py-1.5 dark:border-r-neutral-600 dark:border-b-neutral-800",
-                      dayHeaderClassName(day),
-                    )}
-                    key={day.date.getTime()}
-                    onClick={() => !day.disabled && onDateClick?.(day.date)}
-                    style={{ gridColumn: `span ${resourceList.length}` }}
-                  >
-                    {/* In view while the resources of the day scroll sideways
-                        - right of the time column */}
-                    <div className="sticky left-15 flex w-fit items-center gap-1.5 px-1">
-                      {dayHeading(day, true)}
-                    </div>
+              {/* The days over their resources - also the one day of the
+                  day view, with its date and the mark of today */}
+              {gridDays.map((day) => (
+                <div
+                  className={cn(
+                    "border-r border-b border-r-neutral-300 border-b-neutral-200 px-1 py-1.5 dark:border-r-neutral-600 dark:border-b-neutral-800",
+                    dayHeaderClassName(day),
+                  )}
+                  key={day.date.getTime()}
+                  onClick={() => !day.disabled && onDateClick?.(day.date)}
+                  style={{ gridColumn: `span ${resourceList.length}` }}
+                >
+                  {/* In view while the resources of the day scroll sideways
+                      - right of the time column */}
+                  <div className="sticky left-15 flex w-fit items-center gap-1.5 px-1">
+                    {dayHeading(day, true)}
                   </div>
-                ))}
+                </div>
+              ))}
               {columns.map((column, index) => {
                 const { resource } = column;
                 if (!resource) return null;
@@ -638,7 +640,16 @@ export default function TimeGrid({
         <div
           className={cn("grid", isWholeWeek && "grid-cols-7")}
           onBlur={slotsFocusable ? slotFocus.handleBlur : undefined}
-          onFocus={slotsFocusable ? slotFocus.handleFocus : undefined}
+          onFocus={(event) => {
+            // Below the header, right of the time column
+            revealFocus(
+              event.target,
+              scrollRef.current,
+              headerRef.current?.offsetHeight ?? 0,
+              TIME_COLUMN_WIDTH,
+            );
+            if (slotsFocusable) slotFocus.handleFocus(event);
+          }}
           onKeyDown={slotsFocusable ? slotFocus.handleKeyDown : undefined}
           ref={gridRef}
           style={columnsStyle}

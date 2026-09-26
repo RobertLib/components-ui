@@ -6,6 +6,7 @@ import { createRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import NumberInput from ".";
 import { cs } from "../../i18n/cs";
+import { en } from "../../i18n/en";
 import UIProvider from "../../providers/ui-provider";
 
 const spinbutton = (name: RegExp | string = /Quantity/) =>
@@ -270,6 +271,25 @@ describe("NumberInput", () => {
     expect(Object.fromEntries(new FormData(form))).toEqual({ quantity: "3" });
   });
 
+  it("keeps its value when a listener cancels the form reset", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Order" onReset={(event) => event.preventDefault()}>
+        <NumberInput defaultValue={3} label="Quantity" name="quantity" />
+        <button type="reset">Reset</button>
+      </form>,
+    );
+
+    const input = spinbutton();
+    await user.click(input);
+    await user.keyboard("{ArrowUp}");
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+    expect(input).toHaveValue("4");
+    expect(Object.fromEntries(new FormData(form))).toEqual({ quantity: "4" });
+  });
+
   it("submits the typed value moved into its bounds on Enter", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn((event: React.FormEvent<HTMLFormElement>) => {
@@ -481,6 +501,51 @@ describe("NumberInput", () => {
     expect(spinbutton()).toHaveAttribute("aria-valuenow", "1000000.21");
     await user.keyboard("{ArrowDown}");
     expect(spinbutton()).toHaveAttribute("aria-valuenow", "1000000.2");
+  });
+
+  it("keeps the fraction digits of a step finer than the format's", async () => {
+    const user = userEvent.setup();
+    render(<NumberInput defaultValue={0} label="Quantity" step={0.0001} />);
+
+    await user.click(spinbutton());
+    await user.keyboard("{ArrowUp}");
+    expect(spinbutton()).toHaveAttribute("aria-valuenow", "0.0001");
+    expect(
+      screen.getByRole("button", { name: "Increase" }),
+    ).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("leaves the keys of an input method editor alone", () => {
+    const onChange = vi.fn();
+    render(
+      <NumberInput defaultValue={5} label="Quantity" onChange={onChange} />,
+    );
+
+    const input = spinbutton();
+    input.focus();
+    // The arrows pick a candidate of the IME while it composes text
+    for (const key of ["ArrowUp", "ArrowDown", "PageUp", "PageDown"]) {
+      fireEvent.keyDown(input, { isComposing: true, key });
+    }
+    fireEvent.keyDown(input, { key: "ArrowUp", keyCode: 229 });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input).toHaveAttribute("aria-valuenow", "5");
+  });
+
+  it("edits a negative number of a language written right to left", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <UIProvider locale={{ ...en, code: "ar-EG" }}>
+        <NumberInput defaultValue={-12} label="Quantity" onChange={onChange} />
+      </UIProvider>,
+    );
+
+    const input = spinbutton();
+    await user.click(input);
+    input.setSelectionRange(input.value.length, input.value.length);
+    await user.keyboard("3");
+    expect(onChange).toHaveBeenLastCalledWith(-123);
   });
 
   it("never steps down going up - at a max off the grid of the steps", async () => {

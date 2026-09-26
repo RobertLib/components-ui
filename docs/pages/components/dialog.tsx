@@ -45,11 +45,12 @@ export default function DialogPage() {
               nothing in it can take it, e.g. while a request disables its close
               button), stays trapped in it while it is open - also after a click
               on the backdrop or the page - and returns to where it was
-              afterwards; to the trigger of a popover when the dialog was opened
-              from its panel, which has closed meanwhile; and when that is gone
-              too - the delete button of a row the dialog deleted - to the Tab
-              stop that followed it (the next row), else to the one before it.
-              Popovers opened in it and the toasts of{" "}
+              afterwards (also to the button that opened it in Safari, which
+              does not focus a clicked button); to the trigger of a popover when
+              the dialog was opened from its panel, which has closed meanwhile;
+              and when that is gone too - the delete button of a row the dialog
+              deleted - to the Tab stop that followed it (the next row), else to
+              the one before it. Popovers opened in it and the toasts of{" "}
               <code>SnackbarProvider</code> stay reachable - Tab goes on from
               the last control of the dialog to the toasts. The toasts show
               above the backdrop.
@@ -114,9 +115,14 @@ export default function DialogPage() {
             from screen readers, locks the page scroll and gives the focus back
             once it closes. Wrap its content in <code>OverlayScope</code>, so
             popovers opened in it stack above it even when they open together
-            with it. <code>Overlay</code> is the dimmed backdrop to put behind
-            it. (For a side panel of your own, first see whether a{" "}
-            <Link to="/components/sheet">Sheet</Link> does.)
+            with it, and - in a modal one - its tooltips and{" "}
+            <code>useHotkeys</code> shortcuts work. <code>Overlay</code> is the
+            dimmed backdrop to put behind it: check <code>isTopmost()</code> as
+            a press on it begins, so the press that closes a list open in the
+            panel does not close the panel too (a tooltip shown in the panel
+            does not count). Without <code>onEscape</code> it leaves Escape to
+            the shortcuts of the page. (For a side panel of your own, first see
+            whether a <Link to="/components/sheet">Sheet</Link> does.)
           </p>
         </Prose>
       </Section>

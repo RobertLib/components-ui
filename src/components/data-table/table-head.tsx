@@ -13,7 +13,7 @@ import DateTimePicker from "../datetime-picker";
 import EdgeShadow from "./edge-shadow";
 import Input from "../input";
 import Popover from "../popover";
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId } from "react";
 import useDebouncedField from "./use-debounced-field";
 import useIsMobile from "../../hooks/use-is-mobile";
 import {
@@ -27,6 +27,7 @@ import {
   type CellLayout,
 } from "./cell-layout";
 import { formatMessage } from "../../i18n/format";
+import { isEscapeKey } from "../overlay-stack";
 import { useMessages } from "../../providers/ui-context";
 import type { Column, GroupAction } from "./types";
 
@@ -62,12 +63,9 @@ function FilterInput({
         // Escape empties the field - by the field alone, not also leaving
         // the full screen or a dialog around the table, which take a key
         // no one used, and alike in all browsers (not all clear a search
-        // field). An empty field leaves the key to them.
-        if (
-          event.key === "Escape" &&
-          !event.nativeEvent.isComposing &&
-          field.value
-        ) {
+        // field). An empty field leaves the key to them, and so does an
+        // input method whose composition the key ends.
+        if (isEscapeKey(event.nativeEvent) && field.value) {
           event.preventDefault();
           field.commitNow("");
         }
@@ -136,9 +134,11 @@ interface TableHeadProps<T> {
   ref?: React.Ref<HTMLTableSectionElement>;
   /** Expandable detail of a row - the header gets a column for its toggles. */
   renderSubRow?: (row: T) => React.ReactNode;
+  /** The "select all" checkbox - it takes the focus of "Clear selection". */
+  selectAllRef: React.RefObject<HTMLInputElement | null>;
   /** The header cell of the selection column - its width is measured. */
   selectionColumnRef: React.RefObject<HTMLTableCellElement | null>;
-  /** Key of the sorted column. */
+  /** Key of the sorted column - a sortable one. */
   sortBy: string | null;
   /** The visible columns in the order they are shown. */
   sortedVisibleColumns: Column<T>[];
@@ -174,6 +174,7 @@ export function TableHead<T>({
   order,
   ref,
   renderSubRow,
+  selectAllRef,
   selectionColumnRef,
   sortBy,
   sortedVisibleColumns,
@@ -189,13 +190,12 @@ export function TableHead<T>({
   const hasAnyFilters = sortedVisibleColumns.some((column) => column.filter);
   const hasGroupActions = !!groupActions && groupActions.length > 0;
 
-  const selectAllRef = useRef<HTMLInputElement>(null);
   const isMixed = isSomeSelected && !isAllSelected;
 
   // `indeterminate` exists only as a DOM property
   useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = isMixed;
-  }, [isMixed]);
+  }, [isMixed, selectAllRef]);
 
   const layoutOf = (key: string) => cellLayouts[key] ?? DEFAULT_CELL_LAYOUT;
 
@@ -278,13 +278,13 @@ export function TableHead<T>({
               // Named by the label alone, not also by the resize handle in it
               aria-labelledby={labelId}
               aria-sort={
-                sortBy === column.key
-                  ? order === "asc"
-                    ? "ascending"
-                    : "descending"
-                  : column.sortable
-                    ? "none"
-                    : undefined
+                !column.sortable
+                  ? undefined
+                  : sortBy === column.key
+                    ? order === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
               }
               className={cn(
                 "group/th px-2 py-1 text-left align-top text-sm font-medium",
@@ -379,17 +379,17 @@ export function TableHead<T>({
                       {column.labelInfo}
                     </span>
                     <Popover
-                      // A hover popover is for the mouse - a tap one is a
-                      // button, which needs its name
-                      aria-hidden={isMobile ? undefined : true}
-                      className="shrink-0"
+                      className="shrink-0 rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
                       contentClassName="p-2 text-sm"
                       position="bottom"
+                      // A tap opens it on a touch screen; with a mouse it
+                      // opens on hover and, reached by Tab, on focus
+                      tabIndex={isMobile ? undefined : 0}
                       trigger={
                         <Info
-                          aria-label={isMobile ? column.labelInfo : undefined}
+                          aria-label={column.labelInfo}
                           className="text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-300"
-                          role={isMobile ? "img" : undefined}
+                          role="img"
                           size={14}
                         />
                       }

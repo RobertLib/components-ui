@@ -107,7 +107,10 @@ export default function DataTablePage() {
             but these). With <code>autoResetSelectedRows</code> only the rows
             the action got are deselected - rows picked while it ran stay
             selected. A refetch keeps the selected rows that are still there; a
-            row selected on its own leaves the selection with its page.
+            row selected on its own leaves the selection with its page. A group
+            action whose button has the focus keeps it when the action drops the
+            selection, and "Clear selection" - or an action removing every row -
+            gives it to the "select all" checkbox.
           </p>
         }
         name="data-table/selection"
@@ -136,7 +139,10 @@ export default function DataTablePage() {
             button steps through the changes. <code>urlPrefix</code> separates
             several tables of one page. Pass the table's{" "}
             <code>pageSizeOptions</code> to the hook too - a URL asking for
-            another page size falls back to the default one.
+            another page size falls back to the default one. The query stays the
+            same object while only other parameters of the URL change (another
+            table&apos;s, your app&apos;s), so an effect fetching on{" "}
+            <code>[query]</code> runs for a new query only.
           </p>
         }
         name="data-table/url-state"
@@ -196,7 +202,11 @@ export default function DataTablePage() {
             value: while its promise is pending the cell shows the new value
             with a spinner, and when it rejects the cell shows its old value
             with the message of the error - try a name with "error" in it, also
-            after an optimistic update of <code>data</code>. Update{" "}
+            after an optimistic update of <code>data</code>. The message is
+            announced once and stays while the cell holds the refused value or
+            the one before it - until the cell is saved again, a refetch brings
+            another value (another user&apos;s change) or the rows no longer
+            have its row (with server data: another page). Update{" "}
             <code>data</code> with the saved value. While a cell is edited the
             rows keep their places: sort by name and rename a person - the row
             moves once the editing ends, not while its next cell is edited.
@@ -229,9 +239,14 @@ export default function DataTablePage() {
           toolbar, a sort button or a filter field does not scroll the rows, and
           another page, sorting or filter shows them from the top. Escape
           empties a text filter - in an empty one it leaves the full screen. The
-          number of selected rows is announced. "Clear filters", "Reset columns"
-          and the paging buttons keep the focus when pressing them leaves
-          nothing more to do.
+          info icon of a header (<code>labelInfo</code>) is a Tab stop that
+          opens its text on focus. The number of selected rows is announced.
+          "Clear filters", "Reset columns", the group actions and the paging
+          buttons keep the focus when pressing them leaves nothing more to do.
+          Give each table of a page a name with <code>aria-label</code> (or{" "}
+          <code>aria-labelledby</code>) - the region, the table and its
+          pagination ("People pagination") take it, so screen readers tell them
+          apart.
         </p>
       </Callout>
       <Example
@@ -294,7 +309,12 @@ export default function DataTablePage() {
             away, and screen readers learn the number and position of the rows (
             <code>aria-rowcount</code>, <code>aria-rowindex</code>). The columns
             take their widths from the rows shown first and keep them while the
-            table scrolls - resize a column whose values do not fit.
+            table scrolls - resize a column whose values do not fit. Another
+            density or a resized column measures the rows again. Rows above the
+            view taking another room than estimated - measured again, or for the
+            first time as you scroll up - leave the first row under the header
+            (or detail) where it is, and Tab in an edited cell reaches the next
+            editable cell however far down it is.
           </p>
         }
         name="data-table/virtualized"
@@ -359,7 +379,8 @@ export default function DataTablePage() {
       <Section title="Filters the user can see">
         <Prose>
           <p>
-            Rows must not go missing because of a filter the user cannot see:
+            Rows must not go missing, or come in an order, because of a filter
+            or a sorting the user cannot see:
           </p>
           <ul>
             <li>
@@ -376,6 +397,12 @@ export default function DataTablePage() {
               Without <code>enableGlobalSearch</code> a <code>clientSide</code>{" "}
               table ignores <code>query.search</code>. A server applies it all
               the same, so "Clear filters" clears it there.
+            </li>
+            <li>
+              A <code>sortBy</code> of a column that is not{" "}
+              <code>sortable</code> or hidden (a hand-edited URL) sorts nothing
+              client-side and marks no header; hiding the sorted column in the
+              column settings drops the sorting.
             </li>
           </ul>
         </Prose>

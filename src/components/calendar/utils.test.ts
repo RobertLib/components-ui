@@ -8,6 +8,7 @@ import {
   formatTimeRange,
   getVisibleMinutes,
   layoutEvents,
+  revealFocus,
   sortEvents,
 } from "./utils";
 
@@ -213,5 +214,51 @@ describe("formatTimeRange", () => {
     ).toBe("Release, Thursday, September 24, 2026, all day");
 
     warn.mockRestore();
+  });
+});
+
+describe("revealFocus", () => {
+  /** A view of 600 x 400 at the top left of the page, scrolled to 500 / 300. */
+  function setup(box: { left: number; top: number }, keyboard = true) {
+    const scroller = document.createElement("div");
+    const element = document.createElement("div");
+    scroller.append(element);
+    vi.spyOn(scroller, "clientHeight", "get").mockReturnValue(400);
+    vi.spyOn(scroller, "clientWidth", "get").mockReturnValue(600);
+    vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+    } as DOMRect);
+    vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+      ...box,
+      bottom: box.top + 64,
+      right: box.left + 100,
+    } as DOMRect);
+    vi.spyOn(element, "matches").mockReturnValue(keyboard);
+    scroller.scrollTop = 500;
+    scroller.scrollLeft = 300;
+    return { element, scroller };
+  }
+
+  it("scrolls a slot out from under the sticky header and time column", () => {
+    // Its top 20px under an 80px header, its left 10px under the column
+    const { element, scroller } = setup({ left: 50, top: 60 });
+    revealFocus(element, scroller, 80, 60);
+    expect(scroller.scrollTop).toBe(480);
+    expect(scroller.scrollLeft).toBe(290);
+  });
+
+  it("scrolls one a few pixels in view at the bottom and right in whole", () => {
+    const { element, scroller } = setup({ left: 597, top: 390 });
+    revealFocus(element, scroller, 80, 60);
+    expect(scroller.scrollTop).toBe(554);
+    expect(scroller.scrollLeft).toBe(397);
+  });
+
+  it("leaves a press alone - a scroll would move the view under the pointer", () => {
+    const { element, scroller } = setup({ left: 50, top: 60 }, false);
+    revealFocus(element, scroller, 80, 60);
+    expect(scroller.scrollTop).toBe(500);
+    expect(scroller.scrollLeft).toBe(300);
   });
 });

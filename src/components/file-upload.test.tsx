@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cs } from "../i18n/cs";
 import FileUpload, { type UploadedFile } from "./file-upload";
@@ -541,6 +542,139 @@ describe("FileUpload", () => {
     ]);
     expect(onError).toHaveBeenCalledTimes(2);
   });
+
+  it("ignores empty tokens of accept", async () => {
+    const upload = vi.fn(async () => ({ value: "blob" }));
+    const onError = vi.fn();
+    const { rerender } = render(
+      <FileUpload accept=".pdf," onError={onError} upload={upload} />,
+    );
+
+    // A file of a type the system does not know - no empty token matches it
+    drop(screen.getByRole("group"), [file("setup.exe", "")]);
+    expect(upload).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    // No token at all - any file, like the browser takes it
+    rerender(<FileUpload accept=" , " onError={onError} upload={upload} />);
+    await act(async () =>
+      drop(screen.getByRole("group"), [file("setup.exe", "")]),
+    );
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports each of several files to the callbacks of the latest render", async () => {
+    const { pending, upload } = controllableUpload();
+
+    function Parent() {
+      const [values, setValues] = useState<string[]>([]);
+      return (
+        <>
+          <FileUpload
+            multiple
+            // A callback of the state of its render, like most are
+            onUpload={(result) => setValues([...values, result.value ?? ""])}
+            upload={upload}
+          />
+          <output>{values.join()}</output>
+        </>
+      );
+    }
+    render(<Parent />);
+
+    drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+    await act(async () => pending[0].resolve({ value: "a" }));
+    await act(async () => pending[1].resolve({ value: "b" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("a,b");
+  });
+
+  it("reports each file of an upload that settles at once to the latest callbacks", async () => {
+    // A field that only collects the files, a cached result - the next file
+    // finishes before the parent would render the one before
+    function Parent() {
+      const [values, setValues] = useState<string[]>([]);
+      const [refused, setRefused] = useState<string[]>([]);
+      return (
+        <>
+          <FileUpload
+            accept=".pdf"
+            multiple
+            onError={(_, picked) => setRefused([...refused, picked.name])}
+            onUpload={(result) => setValues([...values, result.value ?? ""])}
+            upload={async (picked) => ({ value: picked.name })}
+          />
+          <output>{values.join()}</output>
+          <p data-testid="refused">{refused.join()}</p>
+        </>
+      );
+    }
+    render(<Parent />);
+
+    await act(async () =>
+      drop(screen.getByRole("group"), [
+        file("a.pdf"),
+        file("x.exe", ""),
+        file("b.pdf"),
+        file("y.exe", ""),
+        file("c.pdf"),
+      ]),
+    );
+
+    await waitFor(() =>
+      expect(screen.getAllByRole("listitem")).toHaveLength(3),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("a.pdf,b.pdf,c.pdf");
+    expect(screen.getByTestId("refused")).toHaveTextContent("x.exe,y.exe");
+  });
+
+  it.each(["onUpload", "onError"] as const)(
+    "uploads none of the files still waiting once an %s takes the field away",
+    async (callback) => {
+      const signals: AbortSignal[] = [];
+      const upload = vi.fn(
+        (picked: File, { signal }: { signal: AbortSignal }) => {
+          signals.push(signal);
+          return new Promise<UploadedFile>((resolve) =>
+            setTimeout(() => resolve({ value: picked.name }), 5),
+          );
+        },
+      );
+      const onUpload = vi.fn();
+      // A dialog the field closes, a step of a wizard it moves on from
+      function Parent() {
+        const [open, setOpen] = useState(true);
+        return open ? (
+          <FileUpload
+            accept=".pdf"
+            multiple
+            onError={() => callback === "onError" && setOpen(false)}
+            onUpload={(result) => {
+              onUpload(result.value);
+              if (callback === "onUpload") setOpen(false);
+            }}
+            upload={upload}
+          />
+        ) : (
+          <p>Closed</p>
+        );
+      }
+      render(<Parent />);
+
+      await act(async () =>
+        drop(screen.getByRole("group"), [
+          ...(callback === "onError" ? [file("x.exe", "")] : []),
+          file("a.pdf"),
+          file("b.pdf"),
+        ]),
+      );
+
+      await screen.findByText("Closed");
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(onUpload).toHaveBeenCalledTimes(callback === "onUpload" ? 1 : 0);
+      expect(signals.slice(1).every((signal) => signal.aborted)).toBe(true);
+    },
+  );
 
   it("takes classes and hides the required mark from screen readers", () => {
     render(

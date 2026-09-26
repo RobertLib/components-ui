@@ -46,7 +46,8 @@ export default function PopoverPage() {
             </li>
             <li>
               The panel follows the trigger while the page scrolls or resizes,
-              on phones too. There it stretches to the screen width when it
+              on phones too - where the room it flips by is what the on-screen
+              keyboard leaves. There it stretches to the screen width when it
               would overflow. The trigger stays clickable while the panel is
               open.
             </li>
@@ -66,7 +67,10 @@ export default function PopoverPage() {
               and gets Escape first: one Escape closes one overlay, the topmost.
               Escape, or the panel closing with the focus in it, gives the focus
               back to the trigger - also after a Dialog opened from the panel
-              closes, even when the same click closed the panel.
+              closes, even when the same click closed the panel - or, when the
+              trigger went with it (the row a pick in its menu deleted), to the
+              Tab stop next to it. A button trigger that turns{" "}
+              <code>disabled</code> closes the panel.
             </li>
             <li>
               Tab moves from the trigger into the open panel and past its end on

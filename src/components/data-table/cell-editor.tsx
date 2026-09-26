@@ -16,6 +16,14 @@ import {
 import { useMessages } from "../../providers/ui-context";
 import type { CellEditorProps, Column } from "./types";
 
+/**
+ * A key of an input method (IME) - pressed while it composes a text, or
+ * the one ending the composition, which Safari sends after it (key code
+ * 229). Enter confirming a word must not save the cell.
+ */
+const isCompositionKey = (event: KeyboardEvent) =>
+  event.isComposing || event.keyCode === 229;
+
 interface CustomEditorProps<T> extends CellEditorProps<T> {
   /** The column's `renderEditor`. */
   render: (props: CellEditorProps<T>) => React.ReactNode;
@@ -183,7 +191,7 @@ export default function CellEditor<T>({
     // key comes from a popup of the field, a portal handling its own keys
     if (
       event.defaultPrevented ||
-      event.nativeEvent.isComposing ||
+      isCompositionKey(event.nativeEvent) ||
       !event.currentTarget.contains(event.target as Node)
     ) {
       return;
@@ -214,6 +222,7 @@ export default function CellEditor<T>({
   // only when it loses the focus, so it loses it first.
   const handleDateKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     const isOpen = event.currentTarget.getAttribute("aria-expanded") === "true";
+    if (isCompositionKey(event.nativeEvent)) return;
     if (event.key !== "Tab" && (event.key !== "Enter" || isOpen)) return;
 
     event.preventDefault();

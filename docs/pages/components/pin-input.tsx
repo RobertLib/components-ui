@@ -65,7 +65,9 @@ export default function PinInputPage() {
             <li>
               The arrow keys move between the filled cells, Home / End to the
               first cell and to the first empty one. A click on a cell after the
-              first empty one fills that one.
+              first empty one fills that one, and a code that gets shorter under
+              the focus - cleared by the parent after the server rejected it, or
+              reset - moves the focus back to the first empty cell.
             </li>
           </ul>
         </Prose>

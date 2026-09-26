@@ -301,10 +301,11 @@ const getListedErrorMessage = (item: ListedError) =>
  * Field names are matched in camelCase, snake_case and any letter case, and
  * `address.street` (or `address[street]`, `items[0].name`) addresses a
  * nested field - also in nested objects (`{ address: { street: [...] } }`)
- * and in a user error below the argument (`["input", "address", "street"]`). In a body without an `errors` map, a
- * text in a member that describes the error itself (`message`, `code`,
- * `title`, `detail`, `status`, `type`, …) is no field message - a list there
- * is (`title: ["can't be blank"]`), and so is anything inside `errors`.
+ * and in a GraphQL user error below the argument (`["input", "address",
+ * "street"]`). In a body without an `errors` map, a text in a member that
+ * describes the error itself (`message`, `code`, `title`, `detail`,
+ * `status`, `type`, …) is no field message - a list there is
+ * (`title: ["can't be blank"]`), and so is anything inside `errors`.
  */
 export const getFieldError = (
   error: unknown,
@@ -315,10 +316,15 @@ export const getFieldError = (
 
   if (list) {
     const paths = list.map(getListedErrorPath);
-    // The field's own path first - then one below an argument
+    // The field's own path first - then one below an argument, which only
+    // the path list of a GraphQL user error has: in a REST `field` or a
+    // JSON:API pointer, `company.name` is no top-level "name"
     const index = paths.findIndex((path) => path && samePath(path, fieldPath));
     const argumentIndex = paths.findIndex(
-      (path) => path && matchesArgumentPath(path, fieldPath),
+      (path, pathIndex) =>
+        path &&
+        Array.isArray(list[pathIndex].field) &&
+        matchesArgumentPath(path, fieldPath),
     );
     const item = list[index >= 0 ? index : argumentIndex];
     return item ? getListedErrorMessage(item) : undefined;

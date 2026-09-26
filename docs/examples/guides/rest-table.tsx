@@ -113,6 +113,7 @@ export default function RestTable() {
         </Alert>
       )}
       <DataTable
+        aria-label="People from the REST API"
         columns={columns}
         data={result?.page?.items ?? []}
         emptyMessage={result?.error ? "Nothing loaded" : undefined}

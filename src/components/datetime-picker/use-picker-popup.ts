@@ -9,6 +9,9 @@ export default function usePickerPopup(canOpen: boolean) {
   // Opened with a key, not a click - the time picker then moves the focus
   // into its lists
   const [openedByKeyboard, setOpenedByKeyboard] = useState(false);
+  // Values picked in the popup - a typed text gives way to each of them,
+  // also to the value the field has already (which changes nothing)
+  const [pickCount, setPickCount] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -35,12 +38,17 @@ export default function usePickerPopup(canOpen: boolean) {
     setOpenedByKeyboard(byKeyboard);
   };
 
+  /** A value was picked in the popup - call it along with the change. */
+  const markPicked = () => setPickCount((count) => count + 1);
+
   return {
     close,
     contentRef,
     inputRef,
     isOpen: isOpen && canOpen,
+    markPicked,
     onOpenChange,
     openedByKeyboard,
+    pickCount,
   };
 }

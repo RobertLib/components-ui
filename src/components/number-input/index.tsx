@@ -12,7 +12,7 @@ import { attachRef, useFormReset } from "../../hooks/use-form-control";
 import cn from "../../utils/cn";
 import { flushSync } from "react-dom";
 import { formatMessage } from "../../i18n/format";
-import { getNumberFormat, stepValue, toCanonical } from "./number-format";
+import { getStepNumberFormat, stepValue, toCanonical } from "./number-format";
 import { InputBase } from "../input";
 import { useLocale, useMessages } from "../../providers/ui-context";
 
@@ -104,7 +104,8 @@ export interface NumberInputProps extends Omit<
    * (`{ style: "percent" }` - 0.25 shows as 25 % and is typed as 25) or a
    * unit (`{ style: "unit", unit: "kilogram" }`). The value is rounded to
    * the fraction digits the format shows - 3 by default, those of the
-   * currency for one.
+   * currency for one, or those of a finer `step` unless the options set
+   * the digits.
    */
   formatOptions?: Intl.NumberFormatOptions;
   /** Hides the step buttons - the keyboard still steps. */
@@ -148,7 +149,9 @@ export interface NumberInputProps extends Omit<
    * Page Up and Page Down ten times as much. The steps count from `min` (or
    * 0), as those of a native number input: a value between two steps moves
    * to the next one. 1 by default - 0.01 (one percent) for
-   * `formatOptions={{ style: "percent" }}`, whose value is the fraction.
+   * `formatOptions={{ style: "percent" }}`, whose value is the fraction. A
+   * step with more fraction digits than the format keeps by default (0.0001)
+   * makes the value keep them.
    */
   step?: number;
   /**
@@ -208,18 +211,20 @@ export default function NumberInput({
     () => "other" as const,
   );
 
-  const numberFormat = getNumberFormat(
-    locale.code,
-    maximumFractionDigits === undefined
-      ? formatOptions
-      : { ...formatOptions, maximumFractionDigits },
-  );
   // The value of a percentage is the fraction - a step of 1 would be 100 %
   const defaultStep = formatOptions?.style === "percent" ? 0.01 : 1;
   const stepSize =
     step !== undefined && Number.isFinite(step) && step > 0
       ? step
       : defaultStep;
+  // A step finer than the digits of the format keeps its digits
+  const numberFormat = getStepNumberFormat(
+    locale.code,
+    maximumFractionDigits === undefined
+      ? formatOptions
+      : { ...formatOptions, maximumFractionDigits },
+    stepSize,
+  );
   const allowsNegative = min === undefined || min < 0;
 
   // What the user entered into an uncontrolled field - until then, and
@@ -608,7 +613,12 @@ export default function NumberInput({
             event.defaultPrevented ||
             event.altKey ||
             event.ctrlKey ||
-            event.metaKey
+            event.metaKey ||
+            // The keys of an input method editor (IME) composing text -
+            // the arrows pick a candidate, Enter confirms it (Safari sends
+            // that Enter after `compositionend`, with the key code 229)
+            event.nativeEvent.isComposing ||
+            event.keyCode === 229
           ) {
             return;
           }

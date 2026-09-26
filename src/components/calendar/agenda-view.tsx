@@ -182,12 +182,13 @@ export default function AgendaView({
   const isHydrated = useIsHydrated();
   const today = isHydrated ? new Date() : null;
 
-  // A new period opens at today - once its events are there
+  // A new period opens at today - once its events are there, also when
+  // they come without `loading`: an empty list does not count yet
   const scrolledRangeRef = useRef<string | null>(null);
   useEffect(() => {
     const rangeKey = `${rangeStart}/${rangeEnd}`;
     if (loading || scrolledRangeRef.current === rangeKey) return;
-    scrolledRangeRef.current = rangeKey;
+    scrolledRangeRef.current = agendaDays.length > 0 ? rangeKey : null;
     scrollToToday(scrollRef.current, {
       end: new Date(rangeEnd),
       start: new Date(rangeStart),

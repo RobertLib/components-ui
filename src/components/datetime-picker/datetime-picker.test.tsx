@@ -269,6 +269,96 @@ describe("DateTimePicker in forms", () => {
     expect(form.checkValidity()).toBe(true);
   });
 
+  it("is invalid with a value out of min and max, like a native input", async () => {
+    const user = userEvent.setup();
+    render(
+      <UIProvider locale={cs}>
+        <form aria-label="Booking">
+          <DateTimePicker
+            defaultValue="2026-09-01"
+            label="Day"
+            min="2026-09-10"
+            name="day"
+            type="date"
+          />
+          <DateTimePicker
+            label="At"
+            max="2026-09-30T18:00"
+            onChange={() => {}}
+            type="datetime-local"
+            value="2026-09-30T19:00"
+          />
+          <DateTimePicker
+            defaultValue="2027-01"
+            label="Month"
+            max="2026-12"
+            type="month"
+          />
+          <DateTimePicker
+            defaultValue="2026-W01"
+            label="Week"
+            min="2026-W10"
+            type="week"
+          />
+          <DateTimePicker
+            defaultValue="12:00"
+            label="Shift"
+            max="06:00"
+            min="22:00"
+            type="time"
+          />
+        </form>
+      </UIProvider>,
+    );
+
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Booking" });
+    const field = (name: RegExp) => screen.getByRole("combobox", { name });
+    expect(form.checkValidity()).toBe(false);
+    expect(field(/Day/)).toHaveProperty(
+      "validationMessage",
+      "Zadejte hodnotu 10.09.2026 nebo pozdější.",
+    );
+    expect(field(/At/)).toHaveProperty(
+      "validationMessage",
+      "Zadejte hodnotu 30.09.2026 18:00 nebo dřívější.",
+    );
+    expect(field(/Month/)).toHaveProperty(
+      "validationMessage",
+      "Zadejte hodnotu 12.2026 nebo dřívější.",
+    );
+    expect(field(/Week/)).toHaveProperty(
+      "validationMessage",
+      "Zadejte hodnotu W10.2026 nebo pozdější.",
+    );
+    // Out of a range over midnight - its start is said
+    expect(field(/Shift/)).toHaveProperty(
+      "validationMessage",
+      "Zadejte hodnotu 22:00 nebo pozdější.",
+    );
+
+    // A value in the range makes the field valid again
+    await user.clear(field(/Day/));
+    await user.type(field(/Day/), "10.9.2026{Enter}");
+    expect(field(/Day/)).toHaveProperty("validationMessage", "");
+    expect(field(/Day/)).toBeValid();
+  });
+
+  it("keeps a validity message the page set", () => {
+    render(
+      <DateTimePicker
+        defaultValue="2026-09-24"
+        label="Day"
+        ref={(input) => input?.setCustomValidity("Booked out")}
+        type="date"
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: /Day/ })).toHaveProperty(
+      "validationMessage",
+      "Booked out",
+    );
+  });
+
   it("passes readOnly, ref, onFocus and onBlur to the field", async () => {
     const user = userEvent.setup();
     const ref = createRef<HTMLInputElement>();
@@ -1367,10 +1457,83 @@ describe("DateTimePicker texts that give no value", () => {
     expect(onChange).toHaveBeenLastCalledWith("2026-11-02T08:15");
   });
 
+  it("takes a day alone like a day picked in the popup - moved into min", async () => {
+    const { input, onChange, user } = renderCzech({
+      min: "2026-09-24T10:00",
+      minuteStep: 15,
+      type: "datetime-local",
+    });
+
+    await user.type(input, "24.9.2026{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("2026-09-24T10:00");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    // A day before the day of min is still out of the range
+    await user.clear(input);
+    await user.type(input, "23.9.2026{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "„23.9.2026“ je mimo povolený rozsah.",
+    );
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
   it("takes a day alone at midnight into an empty date-time field", async () => {
     const { input, onChange, user } = renderCzech({ type: "datetime-local" });
 
     await user.type(input, "1.10.2026{Enter}");
     expect(onChange).toHaveBeenLastCalledWith("2026-10-01T00:00");
+  });
+});
+
+describe("DateTimePicker typed text and a pick of the same value", () => {
+  it("drops the typed text for a day picked in the popup", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <UIProvider locale={cs}>
+        <DateTimePicker
+          defaultValue="2026-09-24"
+          label="Day"
+          onChange={(event) => onChange(event.target.value)}
+          type="date"
+        />
+      </UIProvider>,
+    );
+
+    const input = screen.getByRole("combobox", { name: /Day/ });
+    await user.click(input);
+    await settle();
+    await user.clear(input);
+    await user.type(input, "25.9.2026");
+    // The day selected already - the value stays, the typed text goes
+    await user.click(screen.getByRole("button", { name: "24. září 2026" }));
+    expect(input).toHaveValue("24.09.2026");
+    await user.tab();
+    expect(onChange).not.toHaveBeenCalledWith("2026-09-25");
+  });
+
+  it("drops the typed text for a time picked in the lists", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <UIProvider locale={cs}>
+        <DateTimePicker
+          defaultValue="09:30"
+          label="Time"
+          onChange={(event) => onChange(event.target.value)}
+          type="time"
+        />
+      </UIProvider>,
+    );
+
+    const input = screen.getByRole("combobox", { name: /Time/ });
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, "14:00");
+    const hours = await screen.findByRole("listbox", { name: "Hodiny" });
+    await user.click(within(hours).getByRole("option", { name: "09" }));
+    expect(input).toHaveValue("09:30");
+    await user.tab();
+    expect(onChange).not.toHaveBeenCalledWith("14:00");
   });
 });

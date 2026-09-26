@@ -14,7 +14,11 @@ export interface TagsInputProps extends Omit<
   React.ComponentProps<"input">,
   "className" | "defaultValue" | "onChange" | "size" | "type" | "value"
 > {
-  /** Adds the typed text as a value when the focus leaves the field too. */
+  /**
+   * Adds the typed text as a value when the focus leaves the field too -
+   * also for a click on the submit button. Text it refuses stays in the
+   * input, and keeps the form from being submitted without it.
+   */
   addOnBlur?: boolean;
   /**
    * Lets a value be in the list more than once. Values are compared
@@ -198,10 +202,13 @@ export default function TagsInput({
   );
 
   // The browser refuses to submit a required field without a value - and
-  // says so at the input. Set at every render: the message belongs to the
-  // input element, and a new one would start without it.
+  // says so at the input. So it does while the input holds text that was
+  // refused (a click on the submit button with `addOnBlur`), which the form
+  // would lose. Set at every render: the message belongs to the input
+  // element, and a new one would start without it.
   const validationMessage =
-    required && tags.length === 0 ? messages.tagsInput.required : "";
+    inputError ??
+    (required && tags.length === 0 ? messages.tagsInput.required : "");
 
   useLayoutEffect(() => {
     inputRef.current?.setCustomValidity(validationMessage);

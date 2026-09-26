@@ -41,7 +41,9 @@ export default function TooltipPage() {
             It opens on the other side of its trigger when <code>position</code>{" "}
             has no room, and below or above a <code>left</code> /{" "}
             <code>right</code> tooltip when neither side has it (a phone). It
-            always stays inside the viewport - over its trigger at last.
+            always stays inside the viewport - over its trigger at last. It does
+            not show over a modal dialog it is not in - one a shortcut opened
+            while the pointer rested on the trigger.
           </p>
           <p>
             The tooltip wraps its children in an inline element as wide as they

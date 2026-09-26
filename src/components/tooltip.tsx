@@ -2,6 +2,7 @@ import {
   cloneElement,
   Fragment,
   isValidElement,
+  use,
   useCallback,
   useEffect,
   useId,
@@ -12,8 +13,11 @@ import {
 import { createPortal } from "react-dom";
 import cn, { joinTokens } from "../utils/cn";
 import {
+  isBelowModalOverlay,
   isEscapeKey,
   isTopmostOverlay,
+  OverlayContext,
+  subscribeToOverlayStack,
   useOverlayLayer,
 } from "./overlay-stack";
 import { ButtonGroupContext } from "./button-group-context";
@@ -177,6 +181,7 @@ export default function Tooltip({
   const triggerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const tooltipId = useId();
+  const ancestors = use(OverlayContext);
   const hasTitle = title != null && title !== "";
   const isShown = isVisible && hasTitle;
 
@@ -208,6 +213,13 @@ export default function Tooltip({
     if (hideTimer.current) clearTimeout(hideTimer.current);
   };
 
+  // Not over a modal dialog opened meanwhile (by a shortcut, while the
+  // pointer rested on the trigger) that the tooltip is not in - it would
+  // paint above the backdrop and take the Escape of the dialog
+  const show = () => {
+    if (!isBelowModalOverlay(ancestors)) setIsVisible(true);
+  };
+
   // The events of a popover or menu opened from the trigger reach here
   // through its portal, which is inside the trigger in the React tree - the
   // focus or the pointer in its panel is not on the trigger
@@ -224,9 +236,7 @@ export default function Tooltip({
     // shown without waiting for the `delay` again
     if (isVisible) return;
 
-    timer.current = setTimeout(() => {
-      setIsVisible(true);
-    }, delay);
+    timer.current = setTimeout(show, delay);
   };
 
   const hideNow = () => {
@@ -293,7 +303,7 @@ export default function Tooltip({
     // a popover or menu the trigger opened
     if (isOwnEvent(event) && event.target.matches(":focus-visible")) {
       clearTimers();
-      setIsVisible(true);
+      show();
     }
     onFocus?.(event);
   };
@@ -337,6 +347,17 @@ export default function Tooltip({
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
   }, [isShown, layerId]);
+
+  // A modal dialog opened while it is shown - by a shortcut, the pointer
+  // resting on the trigger - hides it, unless it is in the dialog: it would
+  // paint above the backdrop
+  useEffect(() => {
+    if (!isShown) return;
+
+    return subscribeToOverlayStack(() => {
+      if (isBelowModalOverlay(ancestors)) hideNow();
+    });
+  }, [ancestors, isShown]);
 
   const updatePlacement = useCallback(() => {
     const trigger = triggerRef.current;

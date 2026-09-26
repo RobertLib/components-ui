@@ -117,7 +117,8 @@ export interface SliderProps<T extends SliderValue = number> {
   size?: "sm" | "md" | "lg";
   /**
    * The values lie on steps of this size from `min` - a drag and the arrow
-   * keys move by it, Page Up / Page Down by a tenth of the range.
+   * keys move by it, Page Up / Page Down by a tenth of the range. As in a
+   * native range input, the largest value is the last step within `max`.
    */
   step?: number;
   /** Value of a controlled slider - `[start, end]` makes it a range. */
@@ -154,6 +155,17 @@ function snapToStep(
   if (!(step > 0)) return value;
   const snapped = min + Math.round((value - min) / step) * step;
   return Number(snapped.toFixed(decimals));
+}
+
+/**
+ * The last step at or below `max` - the largest value, as in a native range
+ * input: a `max` off the steps (10 with steps of 3) is not reached.
+ */
+function lastStepOf(max: number, min: number, step: number, decimals: number) {
+  if (!(step > 0) || max <= min) return max;
+  // The noise of the division (0.3 / 0.1 = 2.9999999999999996) is no step
+  const steps = Math.floor((max - min) / step + 1e-9);
+  return Math.min(max, Number((min + steps * step).toFixed(decimals)));
 }
 
 const isRtl = (element: Element) =>
@@ -360,6 +372,7 @@ export default function Slider<T extends SliderValue = number>({
     .sort((a, b) => a - b);
 
   const decimals = Math.max(countDecimals(step), countDecimals(min));
+  const lastStep = lastStepOf(max, min, step, decimals);
   // A tenth of the range, in whole steps
   const pageStep = Math.max(1, Math.round((max - min) / 10 / step)) * step;
   const vertical = orientation === "vertical";
@@ -435,7 +448,14 @@ export default function Slider<T extends SliderValue = number>({
     // Also a drag of a slider disabled meanwhile stops
     if (disabled || low > high) return null;
 
-    const next = clamp(snapToStep(target, min, step, decimals), low, high);
+    // Up to the last step within `max` - a thumb past it (a `value` of the
+    // parent) may stay there, but never moves back towards it going up
+    const top = Math.max(lastStep, values[index]);
+    const next = clamp(
+      target >= top ? top : snapToStep(target, min, step, decimals),
+      low,
+      high,
+    );
     if (next === values[index]) return null;
 
     const nextValues = values.map((thumbValue, i) =>

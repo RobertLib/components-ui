@@ -45,7 +45,7 @@ Requirements: React 19, Tailwind CSS 4.1 or newer and a bundler that sets
    page):
 
    ```sh
-   npm install git+https://github.com/RobertLib/components-ui.git#v0.2.1
+   npm install git+https://github.com/RobertLib/components-ui.git#v0.2.2
    ```
 
    If npm reports that the `prepare` script of `components-ui` is not allowed

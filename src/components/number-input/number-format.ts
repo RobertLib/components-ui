@@ -62,6 +62,9 @@ const MINUS_SIGNS = /[\u2212\u2012\u2013\uFE63\uFF0D]/g;
 const FULL_WIDTH = /[\uFF0B\uFF0C\uFF0E\uFF10-\uFF19]/g;
 // Only ever grouping - no locale writes a decimal separator so
 const GROUPING_MARKS = /[\s'\u2019\u02BC]/g;
+// The direction marks around a number of a right-to-left language - the
+// format written with Latin digits may use another one than the display
+const BIDI_MARKS = /[\u061C\u200E\u200F]/g;
 
 const INVALID: ReadNumber = {
   hasDecimal: false,
@@ -77,8 +80,10 @@ const countOf = (text: string, char: string) => text.split(char).length - 1;
  * lenient where the text is unambiguous: "1.5" is 1.5 in Czech (which
  * groups with spaces), "1,5" is 1.5 in English (a comma not followed by
  * three digits groups nothing), "1.234,5" and "1,234.5" are 1234.5
- * anywhere, and a separator repeated ("1.234.567") groups. In a field
- * without fraction digits the group separator of the locale always groups.
+ * anywhere, and a separator repeated ("1.234.567") groups - the decimal
+ * separator of the locale in groups of three digits only ("1,234,567" in
+ * Czech), else it is a second decimal separator. In a field without
+ * fraction digits the group separator of the locale always groups.
  */
 function separatorsOf(
   digits: string,
@@ -98,7 +103,11 @@ function separatorsOf(
   if (dots === 0 && commas === 0) return {};
 
   const char = dots > 0 ? "." : ",";
-  if (char === symbols.decimal) return { decimal: char };
+  if (char === symbols.decimal) {
+    return /^\d{1,3}(?:[.,]\d{3}){2,}$/.test(digits)
+      ? { group: char }
+      : { decimal: char };
+  }
 
   const followedByGroup = /^\d{3}(?!\d)/.test(
     digits.slice(digits.indexOf(char) + 1),
@@ -141,6 +150,7 @@ function readNumber(
       String.fromCharCode(char.charCodeAt(0) - 0xfee0),
     )
     .replace(GROUPING_MARKS, "")
+    .replace(BIDI_MARKS, "")
     .replace(MINUS_SIGNS, "-")
     // A plus sign says nothing - "+5" of `signDisplay: "always"`
     .replace(/^\+/, "");
@@ -353,6 +363,38 @@ export function getNumberFormat(
   return format;
 }
 
+/**
+ * The format of a field stepping by `step` - `getNumberFormat`, with the
+ * fraction digits of a step finer than those the format keeps by default (3,
+ * those of a currency): rounded to the format's digits, every step would be
+ * rounded away. Digits the options set stay as they are.
+ */
+export function getStepNumberFormat(
+  localeCode: string,
+  options: Intl.NumberFormatOptions | undefined,
+  step: number,
+) {
+  const format = getNumberFormat(localeCode, options);
+  if (
+    options?.maximumFractionDigits !== undefined ||
+    options?.maximumSignificantDigits !== undefined ||
+    options?.minimumSignificantDigits !== undefined
+  ) {
+    return format;
+  }
+
+  // The digits of the typed number - of the percent number for a percentage
+  const scaleDigits = options?.style === "percent" ? 2 : 0;
+  const stepDigits = Math.min(20, decimalsOf(step) - scaleDigits);
+
+  return stepDigits > format.fractionDigits
+    ? getNumberFormat(localeCode, {
+        ...options,
+        maximumFractionDigits: stepDigits,
+      })
+    : format;
+}
+
 const canonical = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 20,
   useGrouping: false,
@@ -365,7 +407,7 @@ const canonical = new Intl.NumberFormat("en-US", {
 export const toCanonical = (value: number) => canonical.format(value);
 
 /** How many fraction digits `value` is written with. */
-function decimalsOf(value: number) {
+export function decimalsOf(value: number) {
   const [digits, exponent] = String(value).split("e");
   const fraction = digits.split(".")[1]?.length ?? 0;
   return Math.max(0, fraction - Number(exponent ?? 0));

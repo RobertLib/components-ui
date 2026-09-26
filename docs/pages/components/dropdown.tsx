@@ -114,7 +114,8 @@ export default function DropdownPage() {
               flips upwards when there is no room below and scrolls when it is
               taller than 24rem or the room. Closed with the focus in it - also
               after a pick in a submenu - it gives the focus back to the
-              trigger.
+              trigger, or to the Tab stop next to it when the pick removed the
+              trigger with its row.
             </li>
             <li>
               The menu takes the focus when it opens - opened with the mouse (or

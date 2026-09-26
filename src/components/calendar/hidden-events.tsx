@@ -9,6 +9,8 @@ import {
   getEventTooltipText,
   getHiddenSide,
 } from "./utils";
+import { formatMessage } from "../../i18n/format";
+import { startOfDay } from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
 
 interface HiddenEventsProps extends Pick<
@@ -57,7 +59,17 @@ export default function HiddenEvents({
   const { messages } = locale;
   const timeFormat = createTimeFormat(locale);
 
-  // A timed event in a list - with its start, as the grid has no row for it
+  // When an event of the list takes place that day - its start, or "until"
+  // its end for one running into the day from the one before, like the
+  // agenda: a night event is no event of the evening of this day
+  const timeOf = (event: CalendarEvent) => {
+    const { end, start } = getDisplayTimes(event);
+    return start < startOfDay(day)
+      ? formatMessage(messages.calendar.until, { time: timeFormat.format(end) })
+      : timeFormat.format(start);
+  };
+
+  // A timed event in a list - with its time, as the grid has no row for it
   const tile = (event: CalendarEvent) => (
     <EventTile
       actions={renderEventActions?.(event)}
@@ -72,9 +84,7 @@ export default function HiddenEvents({
       onOpen={() => onEventOpen(event)}
       title={getEventTooltipText(event)}
     >
-      <span className="mr-1 tabular-nums">
-        {timeFormat.format(getDisplayTimes(event).start)}
-      </span>
+      <span className="mr-1 tabular-nums">{timeOf(event)}</span>
       {renderEventIcon?.(event)}
       <EventTitle event={event}>{event.title}</EventTitle>
     </EventTile>

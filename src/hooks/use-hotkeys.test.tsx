@@ -2,8 +2,12 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import ContextMenu from "../components/context-menu";
 import Dialog from "../components/dialog";
+import Dropdown from "../components/dropdown";
 import { useOverlay } from "../components/overlay-stack";
+import Popover from "../components/popover";
+import Tooltip from "../components/tooltip";
 import useHotkeys, { type Hotkey, type UseHotkeysOptions } from "./use-hotkeys";
 
 function Shortcuts({
@@ -297,5 +301,129 @@ describe("useHotkeys under modal overlays", () => {
     );
     fireEvent.keyDown(document, { key: "n" });
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useHotkeys and Escape", () => {
+  function ClearSelection({
+    children,
+    onEscape,
+    preventDefault,
+  }: {
+    children: React.ReactNode;
+    onEscape: () => void;
+    preventDefault?: boolean;
+  }) {
+    useHotkeys([["escape", onEscape, { preventDefault }]]);
+    return <>{children}</>;
+  }
+
+  it("leaves the Escape to an open menu, popover or context menu first", async () => {
+    const user = userEvent.setup();
+    const clearSelection = vi.fn();
+    render(
+      <ClearSelection onEscape={clearSelection}>
+        <Dropdown items={[{ label: "Edit" }]} trigger="Actions" />
+        <Popover trigger="Filters" triggerType="click">
+          <button type="button">Apply</button>
+        </Popover>
+        <ContextMenu aria-label="Row actions" items={[{ label: "Open" }]}>
+          <div tabIndex={0}>Row</div>
+        </ContextMenu>
+      </ClearSelection>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    const row = screen.getByText("Row");
+    row.focus();
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true });
+    expect(screen.getByRole("menu")).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(clearSelection).not.toHaveBeenCalled();
+
+    // With nothing open, the Escape is the page's
+    await user.keyboard("{Escape}");
+    expect(clearSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes one overlay with one Escape - also without preventDefault", async () => {
+    const user = userEvent.setup();
+    const closePanel = vi.fn();
+    render(
+      <ClearSelection onEscape={closePanel} preventDefault={false}>
+        <Dropdown items={[{ label: "Edit" }]} trigger="Actions" />
+      </ClearSelection>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(closePanel).not.toHaveBeenCalled();
+  });
+
+  it("leaves the Escape to a shown tooltip first", async () => {
+    const user = userEvent.setup();
+    const clearSelection = vi.fn();
+    render(
+      <ClearSelection onEscape={clearSelection}>
+        <Tooltip title="Help">
+          <button type="button">Trigger</button>
+        </Tooltip>
+      </ClearSelection>,
+    );
+
+    await user.tab();
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(clearSelection).not.toHaveBeenCalled();
+  });
+
+  it("gets the Escape under a panel of your own that does nothing on it", () => {
+    const onEscape = vi.fn();
+    // A help panel next to the page - no `onEscape`
+    function HelpPanel() {
+      const ref = useRef<HTMLDivElement>(null);
+      useOverlay({ open: true, ref });
+      return <div ref={ref}>Help</div>;
+    }
+    render(
+      <ClearSelection onEscape={onEscape}>
+        <HelpPanel />
+      </ClearSelection>,
+    );
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onEscape).toHaveBeenCalledTimes(1);
+  });
+
+  it("gets the Escape in a dialog once the menu opened in it is closed", async () => {
+    const user = userEvent.setup();
+    const onEscape = vi.fn();
+    render(
+      <Dialog open title="Edit">
+        <ClearSelection onEscape={onEscape}>
+          <Dropdown items={[{ label: "Edit" }]} trigger="Actions" />
+        </ClearSelection>
+      </Dialog>,
+    );
+
+    // The menu in the dialog closes first
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(onEscape).not.toHaveBeenCalled();
+
+    // Then the shortcut of the content of the dialog takes it
+    await user.keyboard("{Escape}");
+    expect(onEscape).toHaveBeenCalledTimes(1);
   });
 });

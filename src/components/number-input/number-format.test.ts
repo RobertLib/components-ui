@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { getNumberFormat, stepValue, toCanonical } from "./number-format";
+import {
+  getNumberFormat,
+  getStepNumberFormat,
+  stepValue,
+  toCanonical,
+} from "./number-format";
 
 const cs = getNumberFormat("cs-CZ");
 const en = getNumberFormat("en-US");
@@ -30,8 +35,13 @@ describe("getNumberFormat", () => {
     // Both separators - the last one is the decimal separator
     expect(cs.parse("1,234.5")).toBe(1234.5);
     expect(en.parse("1.234,5")).toBe(1234.5);
-    // A repeated separator groups
+    // A repeated separator groups - the decimal one of the locale in groups
+    // of three, else it is refused as a second decimal separator
     expect(cs.parse("1.234.567")).toBe(1234567);
+    expect(cs.parse("1,234,567")).toBe(1234567);
+    expect(en.parse("1.234.567")).toBe(1234567);
+    expect(en.parse("1.2.3")).toBeNull();
+    expect(cs.isPartial("1,555,", true)).toBe(false);
     // Other minus signs, a plus sign, full-width digits
     expect(cs.parse("\u22125")).toBe(-5);
     expect(cs.parse("+5")).toBe(5);
@@ -148,6 +158,13 @@ describe("getNumberFormat", () => {
 
     const persian = getNumberFormat("fa");
     expect(persian.parse(persian.format(-1234.5))).toBe(-1234.5);
+
+    // The edited text marks the direction of a negative number with another
+    // mark (U+200E) than the display (U+061C)
+    const edit = arabic.toEditText(-1234.5);
+    expect(arabic.isPartial(edit, true)).toBe(true);
+    expect(arabic.parse(edit)).toBe(-1234.5);
+    expect(getNumberFormat("ar-SA").parse(edit)).toBe(-1234.5);
     expect(getNumberFormat("th-TH-u-nu-thai").parse("\u0e51\u0e52")).toBe(12);
   });
 
@@ -157,6 +174,31 @@ describe("getNumberFormat", () => {
 
     expect(format.format(1.5)).toBe("1,5");
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+describe("getStepNumberFormat", () => {
+  it("keeps the fraction digits of a step finer than the format's", () => {
+    expect(
+      getStepNumberFormat("en-US", undefined, 0.0001).parse("0.0001"),
+    ).toBe(0.0001);
+    expect(getStepNumberFormat("en-US", undefined, 0.5).fractionDigits).toBe(3);
+    // Of the percent number for a percentage: 0.001 is 0.1 %
+    expect(
+      getStepNumberFormat("en-US", { style: "percent" }, 0.001).fractionDigits,
+    ).toBe(1);
+    expect(
+      getStepNumberFormat(
+        "en-US",
+        { currency: "EUR", style: "currency" },
+        0.001,
+      ).format(1.005),
+    ).toBe("€1.005");
+    // Digits the options set stay
+    expect(
+      getStepNumberFormat("en-US", { maximumFractionDigits: 2 }, 0.0001)
+        .fractionDigits,
+    ).toBe(2);
   });
 });
 

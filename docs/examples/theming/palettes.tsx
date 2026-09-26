@@ -63,7 +63,7 @@ export default function Palettes() {
           </Chip>
           <Switch defaultChecked label="Switch" />
         </div>
-        <Progress value={65} />
+        <Progress aria-label="Upload" value={65} />
         <Alert type="info">Info alerts use the primary color as well.</Alert>
       </div>
     </div>

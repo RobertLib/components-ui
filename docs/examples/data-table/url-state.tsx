@@ -19,6 +19,7 @@ export default function UrlState() {
   return (
     <div className="space-y-3">
       <DataTable
+        aria-label="People in the URL"
         clientSide
         columns={columns}
         data={people}

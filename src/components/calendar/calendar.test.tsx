@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import Calendar, { type CalendarEvent } from ".";
@@ -455,6 +455,150 @@ describe("Calendar", () => {
     expect(field).toHaveValue("09/26/2026");
   });
 
+  it("navigates no further than minDate and maxDate", async () => {
+    const user = userEvent.setup();
+    render(
+      <Calendar
+        initialDate={d(24)}
+        maxDate={new Date(2026, 9, 15)}
+        minDate={d(10)}
+      />,
+    );
+    const field = screen.getByRole("combobox", { name: "Go to date" });
+    const previous = screen.getByRole("button", { name: "Previous" });
+    const next = screen.getByRole("button", { name: "Next" });
+
+    // No day of August is enabled
+    expect(previous).toBeDisabled();
+
+    // To October - onto its last enabled day
+    await user.click(next);
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
+      "October 2026",
+    );
+    expect(field).toHaveValue("10/15/2026");
+
+    // At the bound the pressed button keeps the focus - and does nothing
+    expect(next).toHaveFocus();
+    expect(next).toHaveAttribute("aria-disabled", "true");
+    await user.click(next);
+    expect(field).toHaveValue("10/15/2026");
+    await user.tab();
+    expect(next).toBeDisabled();
+
+    // Back to September - and no further
+    await user.click(previous);
+    expect(field).toHaveValue("09/15/2026");
+    expect(previous).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("puts a date before minDate on it", async () => {
+    const user = userEvent.setup();
+    render(
+      <Calendar
+        initialDate={new Date(2026, 9, 5)}
+        initialView="week"
+        minDate={d(30)}
+      />,
+    );
+
+    // The week before has the 30th - not the 28th
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+    expect(screen.getByRole("combobox", { name: "Go to date" })).toHaveValue(
+      "09/30/2026",
+    );
+  });
+
+  it("offers no Today out of minDate - maxDate", () => {
+    render(
+      <Calendar
+        initialDate={new Date(2100, 0, 15)}
+        minDate={new Date(2100, 0, 1)}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Today" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+  });
+
+  it("goes no further than maxDate with Page Down", async () => {
+    const user = userEvent.setup();
+    render(
+      <Calendar initialDate={d(24)} maxDate={d(30)} onDateClick={() => {}} />,
+    );
+
+    act(() =>
+      screen
+        .getByRole("button", { name: "Thursday, September 24, 2026" })
+        .focus(),
+    );
+    await user.keyboard("{PageDown}");
+    expect(screen.getByRole("grid", { name: "September 2026" })).toBeVisible();
+  });
+
+  it("leaves the focus where it is after a Page Down refused at maxDate", async () => {
+    const user = userEvent.setup();
+    render(
+      <Calendar initialDate={d(24)} maxDate={d(30)} onDateClick={() => {}} />,
+    );
+    const pressPageDown = async () => {
+      act(() =>
+        screen
+          .getByRole("button", { name: /^\w+, September 24, 2026$/ })
+          .focus(),
+      );
+      await user.keyboard("{PageDown}");
+    };
+
+    // The next month change - by the header - is no Page Down of the grid
+    await pressPageDown();
+    const previous = screen.getByRole("button", { name: "Previous" });
+    await user.click(previous);
+    expect(screen.getByRole("grid", { name: "August 2026" })).toBeVisible();
+    expect(previous).toHaveFocus();
+
+    // Nor one by the date field
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await pressPageDown();
+    const field = screen.getByRole("combobox", { name: "Go to date" });
+    await user.clear(field);
+    await user.type(field, "08/10/2026{Enter}");
+    expect(screen.getByRole("grid", { name: "August 2026" })).toBeVisible();
+    expect(field).toHaveFocus();
+  });
+
+  it("leaves the focus where it is after a Page Down a controlled date did not take", async () => {
+    const user = userEvent.setup();
+    const onDateClick = () => {};
+    // The app keeps its own date - it moves only by its own buttons
+    const { rerender } = render(
+      <Calendar
+        currentDate={d(24)}
+        onDateClick={onDateClick}
+        setCurrentDate={() => {}}
+      />,
+    );
+    act(() =>
+      screen
+        .getByRole("button", { name: "Thursday, September 24, 2026" })
+        .focus(),
+    );
+    await user.keyboard("{PageDown}");
+    expect(screen.getByRole("grid", { name: "September 2026" })).toBeVisible();
+
+    const previous = screen.getByRole("button", { name: "Previous" });
+    await user.click(previous);
+    rerender(
+      <Calendar
+        currentDate={new Date(2026, 7, 24)}
+        onDateClick={onDateClick}
+        setCurrentDate={() => {}}
+      />,
+    );
+    expect(screen.getByRole("grid", { name: "August 2026" })).toBeVisible();
+    expect(previous).toHaveFocus();
+  });
+
   it("marks today and the selected day of the month grid", () => {
     const today = new Date();
     const selected = new Date(
@@ -768,6 +912,63 @@ describe("Calendar from the keyboard", () => {
     expect(onDateClick).toHaveBeenCalledWith(d(25, 8));
   });
 
+  it.each(["week", "day", "month"] as const)(
+    "scrolls the focused slot or day out from under the sticky header (%s view)",
+    async (view) => {
+      const user = userEvent.setup();
+      // jsdom has no layout: an 80px header, the slots and days 20px under
+      // it, and 10px under the 60px time column of the week
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(
+        80,
+      );
+      vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(400);
+      vi.spyOn(Element.prototype, "clientWidth", "get").mockReturnValue(600);
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+        function (this: Element) {
+          return (
+            this.hasAttribute("data-slot") || this.hasAttribute("data-day")
+              ? { bottom: 124, left: 50, right: 150, top: 60 }
+              : { left: 0, top: 0 }
+          ) as DOMRect;
+        },
+      );
+      // Moved by the keyboard
+      const matches = Element.prototype.matches;
+      vi.spyOn(Element.prototype, "matches").mockImplementation(function (
+        this: Element,
+        selector: string,
+      ) {
+        return selector === ":focus-visible" || matches.call(this, selector);
+      });
+
+      const { container } = render(
+        <Calendar
+          // The day view has a header with an all-day event only
+          events={[{ ...event("Offsite", d(24), d(25)), allDay: true }]}
+          initialDate={d(24)}
+          initialView={view}
+          onDateClick={() => {}}
+        />,
+      );
+      const scroller =
+        view === "month"
+          ? container.querySelector<HTMLElement>("[role=grid]")!.parentElement!
+          : container.querySelector<HTMLElement>(`.${view}-view`)!;
+      act(() =>
+        container
+          .querySelector<HTMLElement>(
+            "[data-slot][tabindex='0'], [data-day][tabindex='0']",
+          )!
+          .focus(),
+      );
+      scroller.scrollTop = 500;
+      scroller.scrollLeft = 300;
+      await user.keyboard("{ArrowDown}");
+      expect(scroller.scrollTop).toBe(480);
+      expect(scroller.scrollLeft).toBe(view === "week" ? 290 : 300);
+    },
+  );
+
   it("lists the events a crowded day has no room for", async () => {
     const user = userEvent.setup();
     const onDateClick = vi.fn();
@@ -1051,6 +1252,31 @@ describe("Calendar order of events", () => {
     expect(screen.queryByText("C")).toBeNull();
     await user.click(screen.getByRole("button", { name: /^\+2 more,/ }));
     expect(within(screen.getByRole("dialog")).getByText("D")).toBeVisible();
+  });
+
+  it("shows only a few all-day events in the header of the day view", async () => {
+    const user = userEvent.setup();
+    // Many of them would make the sticky header taller than the view
+    render(
+      <Calendar
+        events={Array.from({ length: 20 }, (_, index) => ({
+          ...event(`Out of office ${index}`, d(24), d(25)),
+          allDay: true,
+        }))}
+        initialDate={d(24)}
+        initialView="day"
+      />,
+    );
+
+    expect(screen.getAllByTitle(/^Out of office/)).toHaveLength(2);
+    await user.click(
+      screen.getByRole("button", {
+        name: "+18 more, Thursday, September 24, 2026",
+      }),
+    );
+    expect(
+      within(screen.getByRole("dialog")).getByText("Out of office 19"),
+    ).toBeVisible();
   });
 });
 

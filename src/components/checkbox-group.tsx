@@ -71,14 +71,16 @@ export interface CheckboxGroupProps<
    * The most options that can be picked. Once reached, the other options
    * are disabled and the group says so. More of them in `value` make the
    * form invalid, with a message the browser shows on submit. Only the
-   * values of `options` count - see `onChange`.
+   * values of `options` count - see `onChange` - and not those of
+   * `disabled` options, which are not submitted.
    */
   max?: number;
   /**
    * The fewest options that must be picked - the browser refuses to submit
    * the form with fewer, and says so. `required` is `min={1}`. Only the
    * values of `options` count: a value no option has (one of a deleted
-   * record) is not submitted, so it picks nothing.
+   * record) is not submitted, so it picks nothing - nor does a picked
+   * `disabled` option, which is not submitted either.
    */
   min?: number;
   /**
@@ -311,9 +313,11 @@ export default function CheckboxGroup<
     [ref],
   );
 
-  // The values the options have - the form submits no other, so no other
-  // counts for `min` and `max`
-  const pickedCount = options.filter(isPicked).length;
+  // What the form submits counts for `min` and `max` - the values the
+  // options have, not those of disabled options
+  const pickedCount = disabled
+    ? 0
+    : options.filter((option) => isPicked(option) && !option.disabled).length;
   const limitReached = max !== undefined && pickedCount >= max;
   const isOptionDisabled = (option: CheckboxOption<T>) =>
     disabled || !!option.disabled || (limitReached && !isPicked(option));
@@ -361,12 +365,10 @@ export default function CheckboxGroup<
   const allPicked =
     changeableOptions.length > 0 &&
     changeablePicked === changeableOptions.length;
-  // All changeable options picked, with the picked ones that cannot change
-  const countWithAll = options.filter(
-    (option) => isPicked(option) || changeableOptions.includes(option),
-  ).length;
+  // With all of them picked, the changeable options are what counts
   const showSelectAll =
-    selectAll !== false && (max === undefined || countWithAll <= max);
+    selectAll !== false &&
+    (max === undefined || changeableOptions.length <= max);
 
   const toggleAll = (checked: boolean) => {
     const nextKeys = new Set(selectedKeys);
@@ -393,6 +395,8 @@ export default function CheckboxGroup<
           checked={allPicked}
           disabled={changeableOptions.length === 0}
           indeterminate={changeablePicked > 0 && !allPicked}
+          // No value of the group - the error is about the options
+          invalid={false}
           label={
             typeof selectAll === "string"
               ? selectAll

@@ -170,3 +170,36 @@ describe("Calendar rendered in another time zone than the browser's", () => {
     },
   );
 });
+
+describe("Calendar navigation bounds on the server", () => {
+  it("hydrates Today enabled, then disables it out of minDate - maxDate", async () => {
+    // Today of the server and of the browser may differ - known once hydrated
+    const calendar = (
+      <Calendar
+        initialDate={new Date(2100, 0, 15)}
+        initialView="agenda"
+        maxDate={new Date(2100, 11, 31)}
+        minDate={new Date(2100, 0, 1)}
+        viewOptions={["agenda", "month", "week", "day"]}
+      />
+    );
+    const html = renderToString(calendar);
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.append(container);
+    const onRecoverableError = vi.fn();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const root = await act(async () =>
+      hydrateRoot(container, calendar, { onRecoverableError }),
+    );
+    expect(onRecoverableError).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+    expect(
+      within(container).getByRole("button", { name: "Today" }),
+    ).toBeDisabled();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+});

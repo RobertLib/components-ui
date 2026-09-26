@@ -39,8 +39,16 @@ interface VirtualRowsOptions<T> {
   expandedRows: ReadonlySet<RowId>;
   /** The table has detail rows (`renderSubRow`). */
   hasSubRows: boolean;
-  /** Index of a row that stays rendered out of view - it has the focus. */
-  keepIndex: number;
+  /**
+   * Indexes of rows that stay rendered out of view - the one with the focus,
+   * the one being edited.
+   */
+  keepIndexes: number[];
+  /**
+   * Changes when the rows may have other heights (another density, other
+   * column widths) - the heights measured before are dropped.
+   */
+  layoutKey: string;
   /** The element that scrolls the table. */
   scrollRef: React.RefObject<HTMLElement | null>;
 }
@@ -60,18 +68,83 @@ function findIndex(offsets: Float64Array, position: number) {
 }
 
 /** Heights of rendered rows, by `data-measure-key`. */
-function readHeights(entries: ResizeObserverEntry[]) {
+function readHeights(elements: Iterable<Element>) {
   const heights: [string, number][] = [];
 
-  for (const entry of entries) {
-    const element = entry.target as HTMLElement;
-    const key = element.dataset.measureKey;
+  for (const element of elements) {
+    const key = (element as HTMLElement).dataset.measureKey;
     // A row on its way out of the page measures 0
     if (key === undefined || !element.isConnected) continue;
     heights.push([key, element.getBoundingClientRect().height]);
   }
 
   return heights;
+}
+
+/** Where each row starts in the body, and the height of the row itself. */
+interface RowsLayout {
+  /** Where each row starts - its detail row follows it - and where they end. */
+  offsets: Float64Array;
+  /** The height of each row without its detail row. */
+  rowHeights: Float64Array;
+  /** Table rows (rows and details) before each row. */
+  tableRows: Int32Array;
+}
+
+/**
+ * How far the top of the view - below the sticky rows of the header, the
+ * scroll padding of the container - is below the top of the body.
+ */
+function getViewTop(body: Element, container: HTMLElement) {
+  const padding = parseFloat(getComputedStyle(container).scrollPaddingTop) || 0;
+  return (
+    container.getBoundingClientRect().top +
+    padding -
+    body.getBoundingClientRect().top
+  );
+}
+
+/**
+ * The first row - or detail row - that starts at `top` in the body or
+ * below it, and how far below: the one cut by the top changes its height
+ * out of view. Read from a layout the rows were rendered by, so it holds
+ * also when they have been laid out anew since.
+ */
+function findAnchor({ offsets, rowHeights }: RowsLayout, top: number) {
+  const count = offsets.length - 1;
+  if (count === 0) return null;
+
+  let index = findIndex(offsets, Math.max(0, top));
+  let isSubRow = false;
+  const subRowStart = offsets[index] + rowHeights[index];
+  if (offsets[index] < top) {
+    if (subRowStart >= top && offsets[index + 1] > subRowStart) {
+      isSubRow = true;
+    } else if (index + 1 < count) {
+      index += 1;
+    }
+  }
+  const start = offsets[index] + (isSubRow ? rowHeights[index] : 0);
+
+  return { index, isSubRow, top: start - top };
+}
+
+/**
+ * The heights of the rows of `data` - the same map when it has no others.
+ * Rows gone (a filter, another page of a server) must not pile up, nor
+ * weigh in the height the rows not measured yet are estimated at.
+ */
+function pruneHeights<T extends { id: RowId }>(
+  heights: ReadonlyMap<string, number>,
+  data: T[],
+) {
+  const ids = new Set(data.map((row) => String(row.id)));
+  const next = new Map(
+    [...heights].filter(([key]) =>
+      ids.has(key.endsWith(SUB_ROW) ? key.slice(0, -SUB_ROW.length) : key),
+    ),
+  );
+  return next.size === heights.size ? heights : next;
 }
 
 /**
@@ -88,7 +161,8 @@ export default function useVirtualRows<T extends { id: RowId }>({
   estimatedHeight,
   expandedRows,
   hasSubRows,
-  keepIndex,
+  keepIndexes,
+  layoutKey,
   scrollRef,
 }: VirtualRowsOptions<T>) {
   const count = data.length;
@@ -102,7 +176,7 @@ export default function useVirtualRows<T extends { id: RowId }>({
     typeof ResizeObserver === "undefined"
       ? null
       : new ResizeObserver((entries) => {
-          const measured = readHeights(entries);
+          const measured = readHeights(entries.map((entry) => entry.target));
           if (measured.length === 0) return;
 
           setHeights((previous) => {
@@ -120,6 +194,38 @@ export default function useVirtualRows<T extends { id: RowId }>({
 
   useEffect(() => () => observer?.disconnect(), [observer]);
 
+  // The heights of rows measured under another density, or with a column
+  // resized, are no guide any more - the rendered rows are measured again
+  // right away (the observer reports only those whose size changed), the
+  // others estimated from them. The details keep theirs, their content is
+  // no row of cells.
+  const measuredLayoutRef = useRef(layoutKey);
+
+  useLayoutEffect(() => {
+    if (measuredLayoutRef.current === layoutKey) return;
+    measuredLayoutRef.current = layoutKey;
+    const body = bodyRef.current;
+    if (!enabled || !body) return;
+
+    const rendered = readHeights(
+      body.querySelectorAll(":scope > [data-measure-key]"),
+    );
+    setHeights(
+      (previous) =>
+        new Map([
+          ...[...previous].filter(([key]) => key.endsWith(SUB_ROW)),
+          ...rendered,
+        ]),
+    );
+  }, [bodyRef, enabled, layoutKey]);
+
+  // Only the rows there are
+  const [measuredData, setMeasuredData] = useState(data);
+  if (heights.size > 0 && measuredData !== data) {
+    setMeasuredData(data);
+    setHeights((previous) => pruneHeights(previous, data));
+  }
+
   /** Put on each rendered row - it is measured while it is in the page. */
   const measureRef = useCallback(
     (element: HTMLElement | null) => {
@@ -133,7 +239,7 @@ export default function useVirtualRows<T extends { id: RowId }>({
   // Where each row starts in the body - measured heights, estimated ones
   // for the rows not rendered yet - and how many table rows (a row and its
   // detail) come before it
-  const layout = useMemo(() => {
+  const layout = useMemo((): RowsLayout | null => {
     if (!enabled) return null;
 
     let measuredTotal = 0;
@@ -159,6 +265,7 @@ export default function useVirtualRows<T extends { id: RowId }>({
       : ESTIMATED_SUB_ROW_HEIGHT;
 
     const offsets = new Float64Array(count + 1);
+    const rowHeights = new Float64Array(count);
     const tableRows = new Int32Array(count + 1);
 
     for (let index = 0; index < count; index++) {
@@ -166,14 +273,15 @@ export default function useVirtualRows<T extends { id: RowId }>({
       const key = String(id);
       const isExpanded = hasSubRows && expandedRows.has(id);
 
+      rowHeights[index] = heights.get(key) ?? rowEstimate;
       offsets[index + 1] =
         offsets[index] +
-        (heights.get(key) ?? rowEstimate) +
+        rowHeights[index] +
         (isExpanded ? (heights.get(key + SUB_ROW) ?? subRowEstimate) : 0);
       tableRows[index + 1] = tableRows[index] + (isExpanded ? 2 : 1);
     }
 
-    return { offsets, tableRows };
+    return { offsets, rowHeights, tableRows };
   }, [
     count,
     data,
@@ -184,11 +292,56 @@ export default function useVirtualRows<T extends { id: RowId }>({
     heights,
   ]);
 
-  // The latest layout for the scroll handler, which runs between renders
-  const layoutRef = useRef(layout);
+  // The latest layout for the scroll handler, which runs between renders,
+  // and the rows it was worked out for
+  const layoutRef = useRef<{
+    data: T[];
+    expandedRows: ReadonlySet<RowId>;
+    layout: RowsLayout | null;
+  } | null>(null);
 
+  // Rows above the view that take another room than they did - measured
+  // for the first time, measured again with another density or column
+  // widths - must not move the rows in view: the first row (or detail)
+  // starting in the view stays where it is. Before the rows in view are
+  // worked out.
   useLayoutEffect(() => {
-    layoutRef.current = layout;
+    const previous = layoutRef.current;
+    layoutRef.current = { data, expandedRows, layout };
+
+    const body = bodyRef.current;
+    const container = scrollRef.current;
+    if (
+      !previous?.layout ||
+      !layout ||
+      previous.layout === layout ||
+      // Other rows - another filter or sorting shows them from the top -
+      // or a detail opened or closed, which moves the rows under it
+      previous.data !== data ||
+      previous.expandedRows !== expandedRows ||
+      !body ||
+      !container
+    ) {
+      return;
+    }
+
+    // The rows are laid out anew by now - where the view was is read from
+    // the layout they had, by the top of the view in the body
+    const viewTop = getViewTop(body, container);
+    const anchor = findAnchor(previous.layout, viewTop);
+    if (!anchor) return;
+
+    const { index, isSubRow } = anchor;
+    const start =
+      layout.offsets[index] + (isSubRow ? layout.rowHeights[index] : 0);
+    const shift = start - anchor.top - viewTop;
+    if (Math.abs(shift) < 0.01) return;
+
+    container.scrollTop += shift;
+    // Told at once - the scroll event comes a frame later, and the table
+    // puts a scroll it has not heard of back when the focus returns into
+    // its toolbar (from the density menu)
+    container.dispatchEvent(new Event("scroll"));
   });
 
   // The rows in view of the container, with a margin of half a view above
@@ -200,7 +353,7 @@ export default function useVirtualRows<T extends { id: RowId }>({
   const updateRange = useCallback(() => {
     const container = scrollRef.current;
     const body = bodyRef.current;
-    const offsets = layoutRef.current?.offsets;
+    const offsets = layoutRef.current?.layout?.offsets;
     if (!container || !body || !offsets) return;
 
     const viewHeight =
@@ -274,7 +427,10 @@ export default function useVirtualRows<T extends { id: RowId }>({
     };
   }, [bodyRef, enabled, scrollRef, updateRange]);
 
-  // What to render: all rows, or the rows in view (and the kept one) with
+  // By value - a new array of the same rows renders nothing new
+  const keepKey = keepIndexes.join(",");
+
+  // What to render: all rows, or the rows in view (and the kept ones) with
   // spacers holding the room of the others
   const segments = useMemo((): VirtualSegment[] => {
     if (!layout) {
@@ -286,11 +442,13 @@ export default function useVirtualRows<T extends { id: RowId }>({
     const start = Math.min(range.start, end);
     const indexes: number[] = [];
 
-    if (keepIndex !== -1 && keepIndex < start) indexes.push(keepIndex);
+    const kept = [...new Set(keepKey ? keepKey.split(",").map(Number) : [])]
+      .filter((index) => index >= 0 && index < count)
+      .sort((a, b) => a - b);
+
+    for (const index of kept) if (index < start) indexes.push(index);
     for (let index = start; index < end; index++) indexes.push(index);
-    if (keepIndex !== -1 && keepIndex >= end && keepIndex < count) {
-      indexes.push(keepIndex);
-    }
+    for (const index of kept) if (index >= end) indexes.push(index);
 
     const result: VirtualSegment[] = [];
     let next = 0;
@@ -316,7 +474,7 @@ export default function useVirtualRows<T extends { id: RowId }>({
     }
 
     return result;
-  }, [count, data, keepIndex, layout, range.end, range.start]);
+  }, [count, data, keepKey, layout, range.end, range.start]);
 
   return {
     measureRef: enabled ? measureRef : undefined,

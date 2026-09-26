@@ -374,9 +374,11 @@ export default function ModalDialog({
   // Rendered into the body: callers often sit inside a stacking context that
   // traps a `fixed` child (a sticky table cell, a transformed panel), which
   // would let sticky table headers and similar paint over the dialog.
+  // All of it is in the dialog for the overlays opened in it - also its
+  // title: a tooltip or popover there is not the page under the dialog
   return createPortal(
     <ButtonGroupContext value={null}>
-      <>
+      <OverlayContext value={childContext}>
         <div
           className={cn(
             "fixed inset-0 z-50 bg-black/50 transition-opacity",
@@ -431,11 +433,11 @@ export default function ModalDialog({
             }
           >
             <FooterSlotContext value={fitFooter ? footerSlot : null}>
-              <OverlayContext value={childContext}>{children}</OverlayContext>
+              {children}
             </FooterSlotContext>
           </div>
         </div>
-      </>
+      </OverlayContext>
     </ButtonGroupContext>,
     document.body,
   );

@@ -74,7 +74,9 @@ export default function TagsInputPage() {
               With a <code>name</code>, every value is submitted in a hidden
               input: <code>formData.getAll(name)</code>. The typed text is no
               value until it is added - use <code>addOnBlur</code> so that
-              clicking the submit button adds it.
+              clicking the submit button adds it. Text the field refuses stays
+              in the input and keeps the form from being submitted, with the
+              message at the input.
             </li>
             <li>
               With <code>required</code> the browser refuses to submit the form

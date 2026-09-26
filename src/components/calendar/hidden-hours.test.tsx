@@ -67,6 +67,17 @@ describe("Calendar events out of the hours shown", () => {
     },
   );
 
+  it("lists an event from the night before by its end", async () => {
+    const user = userEvent.setup();
+    render(<Calendar events={events} initialDate={d(24)} initialView="day" />);
+
+    await user.click(screen.getByRole("button", { name: /^\+2 earlier/ }));
+    const list = screen.getByRole("dialog");
+    // Not by its start at 10:00 PM - of the evening before
+    expect(within(list).getByText("until 1:00 AM")).toBeVisible();
+    expect(within(list).getByText("5:00 AM")).toBeVisible();
+  });
+
   it("offers nothing when all the events are in the hours shown", () => {
     render(
       <Calendar
@@ -132,7 +143,7 @@ describe("Calendar events out of the hours shown", () => {
   });
 });
 
-describe("Calendar today in the week view", () => {
+describe("Calendar today in the week and day views", () => {
   it("marks the day of today in the header", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(d(24, 12));
@@ -155,6 +166,34 @@ describe("Calendar today in the week view", () => {
     expect(
       screen.getByRole("button", { name: "Tuesday, September 22, 2026" }),
     ).not.toHaveAttribute("aria-current");
+  });
+
+  it("shows the day over the resources of the day view, today marked", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(d(24, 12));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+
+    const { container } = render(
+      <Calendar
+        initialDate={d(24)}
+        initialView="day"
+        resources={[
+          { id: "a", title: "Room A" },
+          { id: "b", title: "Room B" },
+        ]}
+      />,
+    );
+
+    const header = container.querySelector<HTMLElement>(
+      ".resource-view > .sticky",
+    )!;
+    expect(header).toHaveTextContent(/^Thu24Sep/);
+    expect(within(header).getByText("24")).toHaveAttribute(
+      "aria-current",
+      "date",
+    );
   });
 });
 

@@ -194,6 +194,31 @@ describe("getFieldError paths", () => {
     expect(getFieldError(payload, "items.0.email")).toBe("is invalid");
   });
 
+  it("gives a nested REST or JSON:API error only to the nested field", () => {
+    const rest = {
+      errors: [{ field: "company.name", message: "can't be blank" }],
+    };
+    expect(getFieldError(rest, "company.name")).toBe("can't be blank");
+    expect(getFieldError(rest, "name")).toBeUndefined();
+
+    const jsonApi = {
+      errors: [
+        {
+          detail: "is blank",
+          source: { pointer: "/data/attributes/address/street" },
+        },
+      ],
+    };
+    expect(getFieldError(jsonApi, "address.street")).toBe("is blank");
+    expect(getFieldError(jsonApi, "street")).toBeUndefined();
+
+    // A user error below an argument named like a record still matches
+    const graphql = {
+      userErrors: [{ field: ["address", "city"], message: "is blank" }],
+    };
+    expect(getFieldError(graphql, "city")).toBe("is blank");
+  });
+
   it("prefers the field's own path to one below an argument", () => {
     const payload = {
       userErrors: [

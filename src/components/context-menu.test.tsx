@@ -314,6 +314,40 @@ describe("ContextMenu from the keyboard", () => {
     expect(row).toHaveFocus();
   });
 
+  it("gives the focus to the next row when a pick deletes its row", async () => {
+    const user = userEvent.setup();
+    function Rows() {
+      const [rows, setRows] = useState(["A", "B", "C"]);
+      return (
+        <ul>
+          {rows.map((row) => (
+            <ContextMenu
+              aria-label={`Actions for ${row}`}
+              items={[
+                {
+                  label: "Delete",
+                  onClick: () =>
+                    setRows((current) => current.filter((x) => x !== row)),
+                },
+              ]}
+              key={row}
+            >
+              <li tabIndex={0}>Row {row}</li>
+            </ContextMenu>
+          ))}
+        </ul>
+      );
+    }
+    render(<Rows />);
+    screen.getByText("Row B").focus();
+
+    await user.keyboard("{Shift>}{F10}{/Shift}{Enter}");
+    await act(async () => {});
+    expect(screen.queryByText("Row B")).toBeNull();
+    // Not the page - the focus goes on from where the row was
+    expect(screen.getByText("Row C")).toHaveFocus();
+  });
+
   it("leaves the menu with Tab as if it were not there", async () => {
     const user = userEvent.setup();
     render(<FileRow />);

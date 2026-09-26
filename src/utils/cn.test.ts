@@ -96,6 +96,19 @@ describe("cn", () => {
       "justify-items-center justify-end",
     );
     expect(cn("font-mono font-bold", "font-sans")).toBe("font-bold font-sans");
+    // The color of a text shadow is not that of the text
+    expect(cn("text-neutral-900", "text-shadow-sky-300")).toBe(
+      "text-neutral-900 text-shadow-sky-300",
+    );
+    expect(cn("text-sm", "text-shadow-lg")).toBe("text-sm text-shadow-lg");
+    // The shadow and its color of their own
+    expect(cn("text-shadow-sky-300", "text-shadow-red-500/50")).toBe(
+      "text-shadow-red-500/50",
+    );
+    expect(cn("text-shadow-md text-shadow-sky-300", "text-shadow-lg/20")).toBe(
+      "text-shadow-sky-300 text-shadow-lg/20",
+    );
+    expect(cn("text-shadow-lg", "text-shadow-none")).toBe("text-shadow-none");
   });
 
   it("merges only classes under the same variants", () => {
@@ -109,6 +122,43 @@ describe("cn", () => {
     expect(cn("[&>svg]:size-4", "[&>svg]:size-5")).toBe("[&>svg]:size-5");
     expect(cn("data-[state=open]:p-2", "p-4")).toBe(
       "data-[state=open]:p-2 p-4",
+    );
+  });
+
+  it("keeps the order of the variants that move to other elements", () => {
+    // A hovered child, the children of a hovered element
+    expect(cn("*:hover:p-2", "hover:*:p-4")).toBe("*:hover:p-2 hover:*:p-4");
+    expect(cn("[&>svg]:hover:p-2", "hover:[&>svg]:p-4")).toBe(
+      "[&>svg]:hover:p-2 hover:[&>svg]:p-4",
+    );
+    expect(cn("before:hover:p-2", "hover:before:p-4")).toBe(
+      "before:hover:p-2 hover:before:p-4",
+    );
+    // Around them, the order of the others still does not matter
+    expect(cn("dark:hover:*:p-2", "hover:dark:*:p-4")).toBe("hover:dark:*:p-4");
+    expect(cn("*:md:hover:p-2", "*:hover:md:p-4")).toBe("*:hover:md:p-4");
+    // A query selects no other element - it applies wherever it stands
+    expect(cn("md:*:p-2", "*:md:p-4")).toBe("*:md:p-4");
+    expect(cn("md:before:p-2", "before:md:p-4")).toBe("before:md:p-4");
+    expect(cn("md:[&>svg]:size-4", "[&>svg]:md:size-5")).toBe(
+      "[&>svg]:md:size-5",
+    );
+    // `dark` may be a class - after a pseudo-element it would select nothing
+    expect(
+      cn("dark:placeholder:text-neutral-400", "placeholder:dark:text-red-400"),
+    ).toBe("dark:placeholder:text-neutral-400 placeholder:dark:text-red-400");
+    expect(cn("dark:*:text-white", "*:dark:text-black")).toBe(
+      "dark:*:text-white *:dark:text-black",
+    );
+    expect(cn("[@media(hover:none)]:*:p-2", "*:[@media(hover:none)]:p-4")).toBe(
+      "*:[@media(hover:none)]:p-4",
+    );
+    // Nor does an arbitrary variant with nothing after its `&`
+    expect(
+      cn("[fieldset:disabled_&]:hover:p-2", "hover:[fieldset:disabled_&]:p-4"),
+    ).toBe("hover:[fieldset:disabled_&]:p-4");
+    expect(cn("[&_p]:hover:p-2", "hover:[&_p]:p-4")).toBe(
+      "[&_p]:hover:p-2 hover:[&_p]:p-4",
     );
   });
 

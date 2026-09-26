@@ -10,8 +10,8 @@ import {
 } from "react";
 import {
   getNextTabbable,
-  getPreviousTabbable,
   getTabbableElements,
+  getTabStopsBeside,
 } from "../utils/tabbable";
 
 /**
@@ -39,6 +39,11 @@ interface OverlayEntry {
   /** Traps the focus (Dialog, slid-in Drawer). */
   modal: boolean;
   /**
+   * Handles Escape while it is the topmost overlay - all but a `useOverlay`
+   * without `onEscape`, under which an Escape is nobody's.
+   */
+  takesEscape: () => boolean;
+  /**
    * A tooltip - it takes Escape, but no press: a press outside of it is for
    * the overlay under it (the backdrop of a Sheet closes the Sheet).
    */
@@ -57,6 +62,32 @@ export const FOCUS_TRAP_EXEMPT_ATTRIBUTE = "data-focus-trap-exempt";
 /** The ids of the overlays around a component, outermost first. */
 export const OverlayContext = createContext<string[]>([]);
 
+// Called a moment after the stack changes - see `subscribeToOverlayStack`
+const stackListeners = new Set<() => void>();
+let isNotifyScheduled = false;
+
+const notifyStackChange = () => {
+  if (isNotifyScheduled || stackListeners.size === 0) return;
+  isNotifyScheduled = true;
+  // After the commit: the stack changes in insertion effects, which must
+  // not update any component
+  queueMicrotask(() => {
+    isNotifyScheduled = false;
+    for (const listener of stackListeners) listener();
+  });
+};
+
+/**
+ * Calls `listener` after the open overlays change - a tooltip shown under a
+ * modal dialog that has just opened hides. Returns what stops it.
+ */
+export function subscribeToOverlayStack(listener: () => void) {
+  stackListeners.add(listener);
+  return () => {
+    stackListeners.delete(listener);
+  };
+}
+
 // Effects run children first, so a Popover opened in the same commit as the
 // Dialog it is in registers before it. An overlay goes below the first one
 // rendered inside it - the stack follows nesting, then the order of opening.
@@ -73,6 +104,7 @@ const register = (entry: OverlayEntry) => {
     );
   }
   syncBackground();
+  notifyStackChange();
 };
 
 const unregister = (id: string) => {
@@ -80,6 +112,7 @@ const unregister = (id: string) => {
   if (index === -1) return;
   stack.splice(index, 1);
   syncBackground();
+  notifyStackChange();
 };
 
 /**
@@ -144,6 +177,29 @@ export const isTopmostOverlay = (
 export const hasModalOverlay = () => stack.some((entry) => entry.modal);
 
 /**
+ * Whether something in the overlays `ancestors` (outermost first) is out of
+ * reach: a modal overlay they are not part of is open above them - the page
+ * under a Dialog, or the Dialog under the ConfirmDialog opened from it.
+ */
+export function isBelowModalOverlay(ancestors: string[]) {
+  if (ancestors.some((id) => isTopmostOverlay(id, { modal: true }))) {
+    return false;
+  }
+  return hasModalOverlay();
+}
+
+/**
+ * Whether the topmost open overlay is none of `ancestors` and handles
+ * Escape - an Escape is for it (a popover, a menu, a tooltip open
+ * elsewhere), not for what is rendered in them. Under a panel that does
+ * nothing on Escape it is nobody's.
+ */
+export function hasOverlayAbove(ancestors: string[]) {
+  const topmost = stack.at(-1);
+  return !!topmost && topmost.takesEscape() && !ancestors.includes(topmost.id);
+}
+
+/**
  * Whether `node` is in the overlay `id` or in an overlay rendered inside it
  * (e.g. the list of an Autocomplete in a Popover, or a Dialog opened from
  * a button in a Popover), which are portals outside its elements - also in
@@ -201,34 +257,124 @@ export function noteFocusLoss(element: Element) {
 }
 
 /**
- * The Tab stops next to `element` in the page, the next one first - where
+ * The Tab stops next to `element` in the page, those after it first - where
  * the focus goes once `element` is gone too, e.g. the delete button of a
  * row the dialog it opened has deleted: to the row after it, else to the
- * one before.
+ * one before. See `getTabStopsBeside`: the first of them still in the page
+ * is next to what went away with `element`.
  */
-function getNeighborStops(element: HTMLElement) {
-  return [getNextTabbable(element), getPreviousTabbable(element)].filter(
-    (stop) => stop !== undefined,
+const getNeighborStops = (element: HTMLElement) => [
+  ...getTabStopsBeside(element, false),
+  ...getTabStopsBeside(element, true),
+];
+
+/** `targets` followed by the Tab stops next to the last of them. */
+function withNeighborStops(targets: HTMLElement[]) {
+  // Of those still in the page - a button of a popover panel that closed
+  // left its trigger
+  const outermost = targets.findLast((target) => target.isConnected);
+
+  return outermost
+    ? [...new Set([...targets, ...getNeighborStops(outermost)])]
+    : targets;
+}
+
+/**
+ * `getFocusReturnTargets` of `element`, followed by the Tab stops next to
+ * the last of them, for when all of them are gone by the time the focus
+ * goes back - the row a pick in its menu has deleted, with the menu button.
+ * Read them while `element` is still in the page.
+ */
+export const getFocusReturnTargetsWithNeighbors = (element: Element | null) =>
+  withNeighborStops(getFocusReturnTargets(element));
+
+// Where the focus goes back to from a dialog opened by the click of a
+// control that did not take the focus: Safari focuses no button it clicks -
+// the focus is on the page body then, or on the nearest focusable ancestor
+// of the button (the panel of a dialog it is in). Read at the click, while
+// the control is still in the page (a button in a popover panel that the
+// same click closes) - the control and the triggers of the overlays it is
+// in, which is cheap; the Tab stops next to them are read as a dialog opens.
+// Kept until the focus moves or a dialog uses it.
+let clickedTargets: HTMLElement[] | null = null;
+
+// What a click may focus, and so what the focus may go back to
+const CLICKABLE =
+  "a[href], button, input, select, textarea, summary, [tabindex]";
+
+const rememberClick = (event: MouseEvent) => {
+  const target = event.composedPath()[0];
+  const control = target instanceof Element ? target.closest(CLICKABLE) : null;
+  clickedTargets =
+    control instanceof HTMLElement && !control.contains(document.activeElement)
+      ? getFocusReturnTargets(control)
+      : null;
+};
+
+const forgetClick = () => {
+  clickedTargets = null;
+};
+
+// The listeners of the module in the page - replaced when the module is
+// evaluated again (hot module replacement in development)
+const CLICK_LISTENERS = Symbol.for("components-ui.overlay-stack.clicks");
+
+interface ClickListeners {
+  click: (event: MouseEvent) => void;
+  focusin: () => void;
+}
+
+// Once for the page, in a browser - before any handler of the click opens a
+// dialog, also one mounted only while open
+if (typeof document !== "undefined") {
+  const registry = document as unknown as Record<symbol, ClickListeners>;
+  const previous = registry[CLICK_LISTENERS];
+  if (previous) {
+    document.removeEventListener("click", previous.click, true);
+    document.removeEventListener("focusin", previous.focusin, true);
+  }
+  document.addEventListener("click", rememberClick, true);
+  document.addEventListener("focusin", forgetClick, true);
+  registry[CLICK_LISTENERS] = { click: rememberClick, focusin: forgetClick };
+}
+
+/**
+ * Whether the focus is where a click that did not focus its control left it
+ * - on the page body, or on a focusable ancestor of the control that is no
+ * Tab stop (WebKit focuses the panel of the dialog the button is in).
+ */
+function isLeftByClick(active: Element | null, control: HTMLElement) {
+  return (
+    !active ||
+    active === active.ownerDocument.body ||
+    (active instanceof HTMLElement &&
+      active.tabIndex < 0 &&
+      active !== control &&
+      active.contains(control))
   );
 }
 
 /**
  * `getFocusReturnTargets` of the focused element - or, when the focus has
  * just gone away with a closing overlay (see `noteFocusLoss`), of the
- * element that had it - followed by the Tab stops next to the last of them,
- * for when all of them are gone by the time the overlay closes.
+ * element that had it; when the focus is where the click of a control that
+ * did not take it left it, of that control (see `clickedTargets`) -
+ * followed by the Tab stops next to the last of them, for when all of them
+ * are gone by the time the overlay closes.
  */
 export function getActiveFocusReturnTargets() {
   const active = document.activeElement;
-  const targets =
-    (!active || active === document.body) && lostFocusTargets
-      ? lostFocusTargets
-      : getFocusReturnTargets(active);
-  const outermost = targets.at(-1);
+  const onBody = !active || active === document.body;
+  if (onBody && lostFocusTargets) return withNeighborStops(lostFocusTargets);
 
-  return outermost
-    ? [...new Set([...targets, ...getNeighborStops(outermost)])]
-    : targets;
+  const clicked = clickedTargets;
+  if (clicked && isLeftByClick(active, clicked[0])) {
+    // Used - no detached elements are kept
+    clickedTargets = null;
+    return withNeighborStops(clicked);
+  }
+
+  return getFocusReturnTargetsWithNeighbors(active);
 }
 
 /**
@@ -430,6 +576,8 @@ export function getNextTabStop(element: Element, skipped?: Element | null) {
 }
 
 interface OverlayLayerOptions {
+  /** Handles Escape (default) - see `OverlayEntry.takesEscape`. */
+  escape?: boolean;
   /** See `OverlayEntry.getElements`. */
   getElements: () => (Element | null | undefined)[];
   /** See `OverlayEntry.getFocusFallback`. */
@@ -448,6 +596,7 @@ interface OverlayLayerOptions {
 export function useOverlayLayer(
   open: boolean,
   {
+    escape = true,
     getElements,
     getFocusFallback,
     modal = false,
@@ -456,10 +605,10 @@ export function useOverlayLayer(
 ) {
   const id = useId();
   const ancestors = use(OverlayContext);
-  const optionsRef = useRef({ getElements, getFocusFallback });
+  const optionsRef = useRef({ escape, getElements, getFocusFallback });
 
   useLayoutEffect(() => {
-    optionsRef.current = { getElements, getFocusFallback };
+    optionsRef.current = { escape, getElements, getFocusFallback };
   });
 
   // Insertion effects run before the layout phase, in which an `autoFocus`
@@ -493,7 +642,7 @@ const createEntry = (
   ancestors: string[],
   { modal, tooltip }: Pick<OverlayEntry, "modal" | "tooltip">,
   optionsRef: React.RefObject<
-    Pick<OverlayLayerOptions, "getElements" | "getFocusFallback">
+    Pick<OverlayLayerOptions, "escape" | "getElements" | "getFocusFallback">
   >,
 ): OverlayEntry => ({
   ancestors,
@@ -501,6 +650,7 @@ const createEntry = (
   getFocusFallback: () => optionsRef.current.getFocusFallback?.(),
   id,
   modal,
+  takesEscape: () => optionsRef.current.escape !== false,
   tooltip,
 });
 
@@ -772,7 +922,9 @@ export interface UseOverlayOptions {
   modal?: boolean;
   /**
    * Called on Escape while the overlay is the topmost open one. That Escape
-   * is used up, so the overlays under it stay open.
+   * is used up, so the overlays under it stay open. Without it, an Escape
+   * while the overlay is open is for the shortcuts of the page
+   * (`useHotkeys`).
    */
   onEscape?: () => void;
   /** Whether the overlay is shown - it is in the stack only then. */
@@ -787,7 +939,13 @@ export interface UseOverlayOptions {
 
 /** What `useOverlay` returns. */
 export interface UseOverlayResult {
-  /** Whether the overlay is the topmost open one, e.g. before handling a key. */
+  /**
+   * Whether the overlay is the topmost open one - a tooltip shown in it
+   * aside - e.g. as a press on its backdrop begins: a press that closes a
+   * list open in it must not close the overlay too, a tooltip shown in it
+   * does not keep it open. (Escape goes to `onEscape` only while no tooltip
+   * is shown above it either.)
+   */
   isTopmost: () => boolean;
   /**
    * Render the content of the overlay in `<OverlayScope value={scope}>`, so
@@ -818,6 +976,8 @@ export function useOverlay({
   });
 
   const { childContext, id } = useOverlayLayer(open, {
+    // Without `onEscape`, an Escape under it is for the page (`useHotkeys`)
+    escape: onEscape !== undefined,
     getElements: () => [ref.current],
     modal,
   });
@@ -877,7 +1037,12 @@ export function useOverlay({
     };
   }, [isModalOpen, ref]);
 
-  return { isTopmost: () => isTopmostOverlay(id), scope: childContext };
+  // Tooltips aside, as in a Dialog: one stays while its trigger has the
+  // focus, which a press on the backdrop leaves there
+  return {
+    isTopmost: () => isTopmostOverlay(id, { press: true }),
+    scope: childContext,
+  };
 }
 
 /**

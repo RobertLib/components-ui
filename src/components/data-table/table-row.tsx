@@ -1,7 +1,7 @@
 import { isValidElement, useRef } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import CellEditor from "./cell-editor";
-import cn from "../../utils/cn";
+import cn, { joinTokens } from "../../utils/cn";
 import EdgeShadow from "./edge-shadow";
 import HighlightedText from "./highlight";
 import IconButton from "../icon-button";
@@ -211,6 +211,7 @@ export function TableRow<T extends { id: RowId }>({
   const labelledBy = (controlId: string) =>
     rowLabelId ? `${controlId} ${rowLabelId}` : undefined;
   const expandId = `${idPrefix}-expand-${rowIndex}`;
+  const detailId = `${idPrefix}-detail-${rowIndex}`;
   const selectId = `${idPrefix}-select-${rowIndex}`;
   const backgroundColor = getRowBackgroundColor?.(row);
   const rowStyle = backgroundColor ? { backgroundColor } : undefined;
@@ -256,6 +257,8 @@ export function TableRow<T extends { id: RowId }>({
           >
             <EdgeShadow side={leadingLayout(LEADING_KEYS.expand).shadow} />
             <IconButton
+              // Only at a detail that is shown
+              aria-controls={isExpanded ? detailId : undefined}
               aria-expanded={isExpanded}
               aria-label={expandLabel}
               aria-labelledby={labelledBy(expandId)}
@@ -336,6 +339,10 @@ export function TableRow<T extends { id: RowId }>({
               ? getShownValue(state, row, getColumnValue(row, column))
               : NO_VALUE;
           const columnName = column.labelTitle ?? column.label;
+          const messageId =
+            state?.status === "failed" && !isEditing
+              ? `${idPrefix}-message-${rowIndex}-${columnIndex}`
+              : undefined;
 
           let content: React.ReactNode;
 
@@ -419,13 +426,15 @@ export function TableRow<T extends { id: RowId }>({
               );
             }
 
+            // Announced once by the table - a row rendered again must not
+            // announce it again; the cell is described by it
             if (state?.status === "failed") {
               content = (
                 <>
                   {content}
                   <span
                     className="block text-xs text-danger-700 dark:text-danger-400"
-                    role="alert"
+                    id={messageId}
                   >
                     {state.message}
                   </span>
@@ -437,9 +446,10 @@ export function TableRow<T extends { id: RowId }>({
           return (
             <td
               aria-busy={isPending || undefined}
-              aria-describedby={
-                isEditableCell && !isEditing ? editHintId : undefined
-              }
+              aria-describedby={joinTokens(
+                isEditableCell && !isEditing && editHintId,
+                messageId,
+              )}
               className={cn(
                 "px-2",
                 densityClass,
@@ -549,6 +559,7 @@ export function TableRow<T extends { id: RowId }>({
             measureRef ? getMeasureKey(row.id, true) : undefined
           }
           data-row-index={rowIndex}
+          id={detailId}
           ref={measureRef}
         >
           <td colSpan={columnCount} className="p-4">

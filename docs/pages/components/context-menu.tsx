@@ -39,8 +39,10 @@ export default function ContextMenuPage() {
             <li>
               The menu closes on Escape (a submenu first), on a press outside,
               when the page scrolls or resizes, and after a pick. The focus goes
-              back to where it was before the menu opened. Tab leaves the menu
-              as if it were not there, Shift + Tab goes back to that element.
+              back to where it was before the menu opened - to the Tab stop next
+              to it when the pick removed that element (a deleted row). Tab
+              leaves the menu as if it were not there, Shift + Tab goes back to
+              that element.
             </li>
             <li>
               Right to left - the page, or a part of it with{" "}

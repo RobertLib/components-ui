@@ -547,9 +547,12 @@ function readToolState(
   const inTable =
     !!table && cellOf(editor, range.endContainer)?.closest("table") === table;
   const boldBlock = closestIn(editor, range.startContainer, BOLD_BLOCKS);
+  // Also a selection across several headings or header cells - the browser
+  // would "unbold" them with a style the value does not keep
   const inBoldBlock =
-    !!boldBlock &&
-    boldBlock === closestIn(editor, range.endContainer, BOLD_BLOCKS);
+    (!!boldBlock &&
+      boldBlock === closestIn(editor, range.endContainer, BOLD_BLOCKS)) ||
+    (!range.collapsed && isAllIn(editor, range, BOLD_BLOCKS));
   const inLink = !!linkAt(editor, range);
   const inCode = range.collapsed
     ? !!closestIn(editor, range.startContainer, "code")
@@ -909,6 +912,11 @@ export default function RichTextEditor({
   // Counts the inputs of a controlled editor - an input the parent did not
   // take into its `value` is undone, like in a controlled native field
   const [inputCount, setInputCount] = useState(0);
+  // Counts the resets of the form, and the one the content was shown after
+  // - a reset shows it anew also when the value stays empty: an empty list
+  // or table has no text either
+  const [resetCount, setResetCount] = useState(0);
+  const shownResetCount = useRef(0);
   // The content of the editor normalized last, and the value it gave - an
   // input normalizes it once, not again for the effect after it
   const normalized = useRef<{
@@ -948,8 +956,12 @@ export default function RichTextEditor({
 
     const toolsChanged = shownFormatKey.current !== formatKey;
     shownFormatKey.current = formatKey;
+    const isReset = shownResetCount.current !== resetCount;
+    shownResetCount.current = resetCount;
     const replaces =
-      toolsChanged || content !== normalizeEditor(editor.innerHTML, formatKey);
+      toolsChanged ||
+      isReset ||
+      content !== normalizeEditor(editor.innerHTML, formatKey);
     if (replaces) {
       editor.innerHTML = content;
       pendingCode.current = null;
@@ -968,11 +980,14 @@ export default function RichTextEditor({
       // The tools of a loaded table
       updateToolStateRef.current();
     }
-  }, [content, formatKey, inputCount]);
+  }, [content, formatKey, inputCount, resetCount]);
 
   // `form.reset()` - also the one after a React form action - brings back
   // the `defaultValue` of an uncontrolled editor, like a native field does
-  const formResetRef = useFormReset(() => setEntered(null), form);
+  const formResetRef = useFormReset(() => {
+    setEntered(null);
+    setResetCount((count) => count + 1);
+  }, form);
   const wrapperCallbackRef = useCallback(
     (element: HTMLDivElement | null) => {
       wrapperRef.current = element;
@@ -1152,6 +1167,21 @@ export default function RichTextEditor({
       }
       const restored = bookmark ? resolveBookmark(bookmark, editor) : null;
       if (restored) select(restored);
+      return true;
+    });
+
+  // Headings and header cells stay bold - of a selection that reaches past
+  // them, the browser "unbolds" them with a style the value does not keep
+  const toggleBold = () =>
+    runCommand((editor) => {
+      execCommand("bold");
+      for (const element of Array.from(
+        editor.querySelectorAll<HTMLElement>(
+          `:is(${BOLD_BLOCKS}) [style*="font-weight"]`,
+        ),
+      )) {
+        element.style.removeProperty("font-weight");
+      }
       return true;
     });
 
@@ -1379,6 +1409,8 @@ export default function RichTextEditor({
         redo();
         break;
       case "bold":
+        toggleBold();
+        break;
       case "italic":
         executeCommand(tool);
         break;

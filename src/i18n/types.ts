@@ -260,6 +260,8 @@ export interface Messages {
     moveColumn: string;
     noData: string;
     openSearch: string;
+    /** The pagination of a table with a name (`aria-label`) - `{label}` is the name. */
+    paginationLabel: string;
     pinLeft: string;
     pinRight: string;
     region: string;
@@ -350,6 +352,18 @@ export interface Messages {
     placeholderTokens: Partial<Record<DatePatternToken, string>>;
     previousMonth: string;
     previousYear: string;
+    /**
+     * Validity message of a value after `max` - `{max}` is the limit as the
+     * field shows values. The form cannot be submitted with it, as with a
+     * native input.
+     */
+    rangeOverflow: string;
+    /**
+     * Validity message of a value before `min` - `{min}` is the limit as the
+     * field shows values. Also of a time out of a range over midnight
+     * (22:00 - 06:00).
+     */
+    rangeUnderflow: string;
     /** The date popup, and its day grid in the date-time popup. */
     selectDate: string;
     /** The date-time popup. */

@@ -3,10 +3,16 @@ import Pagination, {
   type PaginationDirection,
 } from "../pagination";
 import Select from "../select";
+import { formatMessage } from "../../i18n/format";
 import { isSameFilters, resetPagination, type DataTableQuery } from "./query";
+import { useId } from "react";
 import { useMessages } from "../../providers/ui-context";
 
 interface TableFooterProps {
+  /** Name of the table - the pagination is named after it. */
+  label?: string;
+  /** Id of the element naming the table - instead of `label`. */
+  labelledBy?: string;
   /** The rows of a requested page are loading - paging waits meanwhile. */
   loading?: boolean;
   /** The page actually shown - may differ from `query.page` client-side. */
@@ -24,6 +30,8 @@ interface TableFooterProps {
 }
 
 export function TableFooter({
+  label,
+  labelledBy,
   loading,
   page,
   pageInfo,
@@ -33,6 +41,7 @@ export function TableFooter({
   updateQuery,
 }: TableFooterProps) {
   const messages = useMessages();
+  const paginationWordId = useId();
 
   const sizes = pageSizeOptions.includes(query.pageSize)
     ? pageSizeOptions
@@ -57,6 +66,18 @@ export function TableFooter({
   // A position reached by a cursor - `pageInfo` without cursors pages by
   // numbers (an offset API without a total)
   const isAtCursor = query.after !== null || query.before !== null;
+
+  // The pagination of a named table has its name - several tables of a
+  // page have several paginations. Unnamed, it keeps its own name.
+  const navNameProps = label
+    ? {
+        "aria-label": formatMessage(messages.dataTable.paginationLabel, {
+          label,
+        }),
+      }
+    : labelledBy
+      ? { "aria-labelledby": `${paginationWordId} ${labelledBy}` }
+      : {};
 
   const handlePageChange = (
     direction: PaginationDirection,
@@ -152,7 +173,13 @@ export function TableFooter({
         value={query.pageSize}
       />
 
+      {!label && labelledBy && (
+        <span hidden id={paginationWordId}>
+          {messages.pagination.label}
+        </span>
+      )}
       <Pagination
+        {...navNameProps}
         currentPage={page}
         loading={loading}
         onChange={handlePageChange}

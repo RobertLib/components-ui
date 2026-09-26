@@ -148,6 +148,7 @@ export default function GraphQLTable() {
         </Alert>
       )}
       <DataTable
+        aria-label="People from the GraphQL API"
         columns={columns}
         data={result?.people?.nodes ?? []}
         emptyMessage={result?.error ? "Nothing loaded" : undefined}

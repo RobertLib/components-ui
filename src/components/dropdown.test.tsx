@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import Dialog from "./dialog";
 import Dropdown from "./dropdown";
@@ -138,6 +139,83 @@ describe("Dropdown", () => {
 
     expect(edit).toHaveBeenCalledTimes(1);
     expect(trigger).toHaveFocus();
+  });
+
+  it("gives the focus to the next row when a pick deletes its row", async () => {
+    const user = userEvent.setup();
+    function Rows() {
+      const [rows, setRows] = useState(["A", "B", "C"]);
+      return (
+        <ul>
+          {rows.map((row) => (
+            <li key={row}>
+              Row {row}
+              <Dropdown
+                buttonTrigger
+                items={[
+                  {
+                    label: "Delete",
+                    onClick: () =>
+                      setRows((current) => current.filter((x) => x !== row)),
+                  },
+                ]}
+                trigger={<button type="button">Actions {row}</button>}
+              />
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    render(<Rows />);
+    screen.getByRole("button", { name: "Actions B" }).focus();
+
+    // The menu goes with its row, the menu button too
+    await user.keyboard("{Enter}{Enter}");
+    await act(async () => {});
+    expect(screen.queryByText("Row B")).toBeNull();
+    expect(screen.getByRole("button", { name: "Actions C" })).toHaveFocus();
+  });
+
+  it("gives the focus to the next row past a second button of the deleted row", async () => {
+    const user = userEvent.setup();
+    function Rows() {
+      const [rows, setRows] = useState(["A", "B", "C"]);
+      return (
+        <ul>
+          {rows.map((row) => (
+            <li key={row}>
+              Row {row}
+              <Dropdown
+                buttonTrigger
+                items={[
+                  {
+                    label: "Delete",
+                    onClick: () =>
+                      setRows((current) => current.filter((x) => x !== row)),
+                  },
+                ]}
+                trigger={<button type="button">Actions {row}</button>}
+              />
+              <button type="button">Open {row}</button>
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    render(<Rows />);
+
+    // The first row - nothing before it
+    screen.getByRole("button", { name: "Actions A" }).focus();
+    await user.keyboard("{Enter}{Enter}");
+    await act(async () => {});
+    expect(screen.queryByText("Row A")).toBeNull();
+    expect(screen.getByRole("button", { name: "Actions B" })).toHaveFocus();
+
+    // A row in the middle - on to the next one, not back
+    await user.keyboard("{Enter}{Enter}");
+    await act(async () => {});
+    expect(screen.queryByText("Row B")).toBeNull();
+    expect(screen.getByRole("button", { name: "Actions C" })).toHaveFocus();
   });
 
   it("picks the active item with Space and jumps with Home and End", async () => {

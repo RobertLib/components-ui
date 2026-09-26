@@ -285,6 +285,7 @@ const SHOW_ELEMENT = 0x1;
 const SHOW_TEXT = 0x4;
 const FILTER_ACCEPT = 1;
 const FILTER_REJECT = 2;
+const FILTER_SKIP = 3;
 
 // A table beyond these limits is too big to edit - one row of cells with
 // `colspan="50"` and many rows under it would make millions of cells. Its
@@ -299,11 +300,6 @@ const MAX_DEPTH = 100;
 
 // Whitespace of HTML - not the no-break space of an intentionally empty line
 const BLANK = /^[ \t\n\f\r]*$/;
-
-// Elements of the source that hold blocks rather than text, as a selector
-const SOURCE_BLOCK_SELECTOR = [...SOURCE_BLOCKS]
-  .map((tag) => tag.toLowerCase())
-  .join();
 
 /**
  * Whether a link is safe to follow - an absolute one of `http:`, `https:`,
@@ -363,6 +359,16 @@ interface CopyState {
 }
 
 /**
+ * The elements under `root` in document order - by `getElementsByTagName`,
+ * not a selector: jsdom gives every document that is queried by one a
+ * selector engine, whose listeners on its window are never removed. A
+ * server sanitizing with one jsdom window would leak them on every call,
+ * and get slower with each.
+ */
+const elementsOf = (root: Element) =>
+  Array.from(root.getElementsByTagName("*"));
+
+/**
  * The elements that hold blocks at any depth - found in one walk up from
  * each block, which stops where an earlier walk went, instead of a search
  * in every element that would repeat for each element around it.
@@ -370,9 +376,9 @@ interface CopyState {
 function findBlockHolders(root: Element) {
   const holders = new Set<Element>();
 
-  for (const block of Array.from(
-    root.querySelectorAll(SOURCE_BLOCK_SELECTOR),
-  )) {
+  for (const block of elementsOf(root)) {
+    if (!SOURCE_BLOCKS.has(block.tagName)) continue;
+
     let parent = block.parentElement;
     while (parent && !holders.has(parent)) {
       holders.add(parent);
@@ -400,6 +406,31 @@ const isNumbering = (marker: string) =>
   /\d/.test(marker) || /^\(?[a-z]{1,4}[.)]$/i.test(marker);
 
 /**
+ * The paragraphs of Word's lists - not those inside another one, which
+ * Word never writes: made items one by one, each of hundreds of nested
+ * paragraphs would move all the paragraphs inside it again.
+ */
+function findWordListParagraphs(root: Element) {
+  const paragraphs: Element[] = [];
+  const walker = root.ownerDocument.createTreeWalker(root, SHOW_ELEMENT, {
+    acceptNode: (node) => {
+      const element = node as Element;
+      const isListParagraph =
+        (element.tagName === "P" || element.tagName === "DIV") &&
+        WORD_LIST_ITEM.test(element.getAttribute("style") ?? "");
+      if (!isListParagraph) return FILTER_SKIP;
+
+      paragraphs.push(element);
+      // Nothing inside it is a paragraph of its own
+      return FILTER_REJECT;
+    },
+  });
+  while (walker.nextNode());
+
+  return paragraphs;
+}
+
+/**
  * Word's lists as lists. Word writes the items as paragraphs, with their
  * list and level in the style and the bullet or number as text of their
  * own - consecutive items become a list (numbered by their numbers), a
@@ -410,16 +441,14 @@ function convertWordLists(root: Element) {
   // The lists the next item can go on - the outermost first
   let open: WordList[] = [];
 
-  for (const paragraph of Array.from(
-    root.querySelectorAll('p[style*="mso-list"], div[style*="mso-list"]'),
-  )) {
+  for (const paragraph of findWordListParagraphs(root)) {
     const match = WORD_LIST_ITEM.exec(paragraph.getAttribute("style") ?? "");
     if (!match) continue;
 
     const id = match[1];
     const level = Number(match[2]);
     let numbered = false;
-    for (const marker of Array.from(paragraph.querySelectorAll("[style]"))) {
+    for (const marker of elementsOf(paragraph)) {
       if (!WORD_LIST_MARKER.test(marker.getAttribute("style") ?? "")) continue;
       numbered ||= isNumbering((marker.textContent ?? "").replace(/\s/g, ""));
       marker.remove();
@@ -1411,10 +1440,11 @@ function withoutBlankAroundBlocks(nodes: Node[]) {
  *
  * Needs `DOMParser` - it runs in the browser, and on a server with a
  * global `DOMParser` (e.g. jsdom's: `globalThis.DOMParser = new
- * JSDOM().window.DOMParser`), which is all it takes of a DOM. It throws on
- * a server without one (importing it is safe anywhere). A page rendered on
- * the server without it calls it once it is hydrated - see the docs of
- * RichTextEditor.
+ * JSDOM().window.DOMParser`), which is all it takes of a DOM - limit the
+ * size of the input there, jsdom's parser slows down with the square of
+ * the nesting. It throws on a server without one (importing it is safe
+ * anywhere). A page rendered on the server without it calls it once it is
+ * hydrated - see the docs of RichTextEditor.
  */
 export default function sanitizeRichText(
   html: string,

@@ -56,14 +56,17 @@ export default function CheckboxGroupPage() {
               without one, name the <code>group</code> with{" "}
               <code>aria-label</code> or <code>aria-labelledby</code>. The{" "}
               <code>description</code> and the <code>error</code> describe the
-              group, the <code>error</code> also marks the checkboxes invalid.
+              group, the <code>error</code> also marks the checkboxes of the
+              options invalid (not the &quot;Select all&quot;).
             </li>
             <li>
               The checkboxes share <code>name</code> and submit the picked
               values under it: <code>formData.getAll(name)</code>. The
               checkboxes are not <code>required</code> one by one - the group
               counts them, and the first checkbox that can be changed carries
-              the message the browser shows.
+              the message the browser shows. A picked <code>disabled</code>{" "}
+              option is not submitted, so it counts for neither <code>min</code>{" "}
+              nor <code>max</code>.
             </li>
             <li>
               The props mirror <code>RadioGroup</code> - <code>dim</code>,{" "}

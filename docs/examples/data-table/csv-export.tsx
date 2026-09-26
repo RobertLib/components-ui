@@ -31,6 +31,7 @@ export default function CsvExport() {
 
   return (
     <DataTable
+      aria-label="People to export"
       clientSide
       columns={columns}
       data={people}

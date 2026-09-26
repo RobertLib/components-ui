@@ -1,5 +1,259 @@
 # Changelog
 
+## 0.2.2
+
+A third review of the whole library, area by area - what it found is fixed
+and covered by tests, and checked in a browser.
+
+### Upgrading
+
+- In a modal overlay of your own (`useOverlay({ modal: true })`), tooltips
+  show only in content wrapped in `OverlayScope` - like the shortcuts of
+  `useHotkeys`. A tooltip of the page behind a modal no longer shows over
+  it, and one shown as a modal opens hides.
+- `useOverlay().isTopmost()` leaves tooltips aside, as a Dialog does: a
+  tooltip shown in the overlay no longer makes it "not topmost", so a press
+  on its backdrop closes it.
+- **Slider** - as in a native range input, the largest value is the last
+  step within `max`: with a `max` of 10 and a `step` of 3 the thumb stops at
+  9 (the arrow keys went on to 10, End then moved it back to 9). A `value`
+  of the parent past that step stays as it is.
+- **TagsInput** keeps its form from being submitted while its input holds
+  text it refused (a duplicate, one past `maxTags`, one `validate` refused),
+  with the message at the input - with `addOnBlur`, a click on the submit
+  button submitted the form without that text.
+- **DateTimePicker** and **DateRangePicker** are invalid, like native date
+  inputs, while their value is outside `min` / `max` - a default value or
+  one of the parent: the form cannot be submitted, and the browser says the
+  limit. A complete custom locale needs the new texts
+  `dateTimePicker.rangeOverflow` and `dateTimePicker.rangeUnderflow`
+  (locales made with `createLocale` get them from their base locale).
+- **DataTable** - a refused `onCellEdit` is announced once by a live region
+  of the table; the message under the cell is plain text, no longer
+  `role="alert"` (tests find it by its text), and it goes away once the
+  cell holds another value or its row leaves `data`. A URL or
+  `defaultQuery` sorting by a column that is not `sortable` or is hidden no
+  longer sorts a `clientSide` table, and hiding the sorted column drops the
+  sorting. A complete custom locale needs the new text
+  `dataTable.paginationLabel` (locales made with `createLocale` get it from
+  their base locale).
+- **TreeView** - a tree of links (items with `href`) given no `selected`,
+  `defaultSelected`, `onSelectedChange` or `name` no longer selects the
+  item a click follows - its `selectionMode` defaults to `none` there;
+  pass `selectionMode="single"` to keep selecting.
+
+### New features
+
+- **DateRangePicker** reads a range with the month written once, where the
+  date format has it: `24.–30.9.2026` or `24 - 30.9.` in Czech,
+  `9/24 – 30/2026` or `9/24 to 30` in English (`9/24 - 30` stays the day
+  September 24, 2030, of a two-digit year).
+- **DataTable** - `aria-label` (or `aria-labelledby`) names the region, the
+  `<table>` and its pagination ("People pagination"), so several tables of
+  a page are told apart.
+- **Calendar** - Previous, Next, Today and Page Up / Page Down go no
+  further than the periods with days of `minDate` - `maxDate`, and put the
+  date on the first or last of those days; a button at a bound is disabled
+  (it keeps the focus as `aria-disabled` when it was just pressed). The day
+  view with `resources` shows its day over the resource columns, today
+  marked.
+
+### Fixed
+
+- **useHotkeys** - an `escape` shortcut waits while a popover, menu, context
+  menu or tooltip the component is not in is open: that Escape closes the
+  overlay. Before, the shortcut took it (the menu stayed open), or - with
+  `preventDefault: false` - one Escape closed the menu and ran the shortcut.
+  A panel of your own without `onEscape` leaves the Escape to the shortcut.
+- **ContextMenu** and **Dropdown** - a pick that removes the row the menu
+  was opened from (with its menu button) gives the focus to the Tab stop
+  next to the row - the next row, also past other buttons of the deleted
+  row - instead of dropping it to the page.
+- **Tooltip** - a tooltip no longer shows over a modal dialog it is not in:
+  neither one whose delay ends after the dialog opened (by a shortcut, with
+  the pointer resting on its trigger), nor one already shown - it hides.
+- **Popover** - a click popover has no hover bridge any more: a click in the
+  gap between the trigger and the panel closes it and reaches the page
+  under it. A `buttonTrigger` that turns `disabled` closes the open panel -
+  the menu of a **SplitButton** closes as its action starts (`loading`,
+  `disabled`). On phones the panel flips by the room the on-screen keyboard
+  leaves (the visual viewport).
+- **Dialog**, **Sheet**, `useConfirm()` and the drawer slid in on phones give
+  the focus back to the button they were opened from also in Safari, which
+  does not focus a clicked button - also a dialog mounted only while open,
+  one opened from a button of a popover the same click closes, and one
+  opened from a button in another dialog or sheet.
+- **Forms** - a form reset a listener cancels (`onReset` calling
+  `preventDefault()`, e.g. after "Discard your changes?") leaves every field
+  alone, as it leaves native fields: Input, Textarea, Select, NumberInput,
+  Autocomplete, TagsInput, PinInput, RadioGroup, CheckboxGroup,
+  SegmentedControl, Slider, the pickers, FileUpload and RichTextEditor went
+  back to their `defaultValue` anyway.
+- **PinInput** - a code that gets shorter under the focus (cleared by the
+  parent after the server rejected it, or reset) moves the focus back to the
+  first empty cell; the focus stayed in the last cell, typed characters went
+  elsewhere and Backspace took several presses.
+- **NumberInput**:
+  - a negative number in Arabic of Egypt or Saudi Arabia (`ar-EG`,
+    `ar-SA`) could not be edited - every key was refused,
+  - the arrow and Page keys stepped the value while an input method (IME)
+    was composing text,
+  - a `step` finer than the fraction digits of the format (0.0001) did not
+    step at all - the value keeps the digits of the step now, unless the
+    options set them,
+  - a pasted "1,234,567" in Czech and "1.234.567" in English are 1234567
+    instead of being refused.
+- **CheckboxGroup** - a picked `disabled` option, which is not submitted, no
+  longer counts for `required`, `min` and `max`; the `error` no longer marks
+  the "Select all" checkbox invalid.
+- **Checkbox** - `indeterminate` going from `true` to `undefined`
+  (`indeterminate={partly || undefined}`) clears the partly checked state.
+- `getFieldError` gives the error of a nested field in a REST `field` or a
+  JSON:API pointer (`company.name`, `/data/attributes/address/street`) no
+  longer to a top-level field of the same name - only a GraphQL user error
+  is matched below its argument.
+- **DateRangePicker** - a range typed without years could be split inside
+  the first day and read as another range without a word: `9/24 - 9/30`
+  became 04/09/2030 – 09/02/2030, `1.12 - 5.12` a range in 2012; the digits
+  of a year are no longer split into a day and a two-digit year
+  (`10/2026` is no October 20, 2026).
+- **DateTimePicker** - a day typed alone into a date-time field with a
+  `min` or `max` time on that day was refused as out of the range; it is
+  moved into the range like the same day picked in the popup (`24.9.2026`
+  with `min="2026-09-24T10:00"` is 10:00).
+- **DateTimePicker** and **DateRangePicker** - a text typed but not yet
+  taken stayed in the field when the value it already had was picked in
+  the popup (the selected day, hour or range), and leaving the field then
+  took the text instead of the pick.
+- The placeholders and the format hints of the pickers left the separator
+  after bracketed text of a pattern: `[KW] WW YYYY` showed ` WW YYYY`.
+- **DataTable**:
+  - a group action that dropped the selection (`autoResetSelectedRows`)
+    and "Clear selection" dropped the focus to the page - the button keeps
+    it (`aria-disabled`); "Clear selection", and an action removing every
+    row, give it to the "select all" checkbox,
+  - a DataTable in `renderSubRow` (master-detail) broke the arrow keys of
+    the outer table and put the focus of a deleted row into the nested one,
+  - Tab in an edited cell of a virtualized table lost the editing when the
+    next editable cell was far down - its row is rendered and edited,
+  - a virtualized table kept the row heights measured before another
+    density or a resized column, and of rows gone - a wrong scrollbar and
+    jumps while scrolling; it measures the rows again while a view of
+    another width keeps them, and rows above the view that take another
+    room than estimated - measured again, or for the first time while
+    scrolling up - leave the first row (or detail) under the header where
+    it is,
+  - the message of a refused save stayed after a refetch brought another
+    value and was announced again whenever its row was rendered again - it
+    is announced once and leaves the live region afterwards,
+  - Escape during an IME composition in the global search and in a text
+    filter closed or emptied it, and Enter confirming a word saved an
+    edited cell - also Safari's key ending the composition,
+  - the info of a header (`labelInfo`) opened on hover only - it is a Tab
+    stop now, opening on keyboard focus; the expand button points
+    `aria-controls` at its detail row,
+  - a hand-edited URL sorting by a column that is not sortable sorted
+    client-side and marked the header with `aria-sort`.
+- **useDataTableQuery** returned a new query object whenever any
+  parameter of the URL changed (another table's, the app's) - an effect
+  fetching on `[query]` fetched again; an equal query set in React state
+  keeps the object too.
+- **Calendar**:
+  - a slot or day the arrow keys moved to, or an event reached by Tab,
+    could end up hidden under the sticky header of the week, day and month
+    views, or under the time column of a week scrolled sideways (resources,
+    phones) - it is now scrolled into view below and beside them,
+  - the day view listed every all-day event in its sticky header - with
+    many of them it covered the whole time grid; it shows two and "+N more",
+    like the week view,
+  - "+N earlier" listed a night event from the day before by its start
+    (10:00 PM) - it now says "until" its end,
+  - the agenda did not open at today when its events came after the first
+    render without `loading`.
+- **sanitizeRichText** on a server with jsdom's `DOMParser` leaked memory
+  and got slower with every call (jsdom kept listeners of every document
+  queried by a selector on its window) - one jsdom window now serves any
+  number of calls. Word list paragraphs nested in each other no longer take
+  minutes there: only the outermost one is an item, the ones inside it its
+  lines.
+- **RichTextEditor**:
+  - a form reset cleared no list, table or rule without text - the value
+    was empty before and after,
+  - the bold tool was on for a selection across several headings or header
+    cells, and "unbolded" them with a style the value does not keep; a
+    selection reaching past a heading leaves the heading bold.
+- **FileUpload**:
+  - of several files uploaded one after another (also by an `upload` that
+    settles at once) or refused together, the later ones went to the
+    `onUpload`, `onRemove`, `onError` and `upload` of an earlier render - a
+    handler adding to the state of the parent lost files; the parent now
+    renders each file before the next one is reported,
+  - an empty token of `accept` (`".pdf,"`) let through any file without a
+    type.
+- **cn** no longer drops a text color for a later `text-shadow-<color>`
+  (`cn("text-neutral-900", "text-shadow-sky-300")` keeps both) - text
+  shadows and their colors are groups of their own (`text-shadow-md` gives
+  way to a later `text-shadow-lg/20`, `text-shadow-sky-300` to
+  `text-shadow-red-500`). Classes whose variants that move to another
+  element stand in another order are no longer merged: `*:hover:p-2` (a
+  hovered child) and `hover:*:p-4` (the children of a hovered element) are
+  both kept, as are `before:` and `[&>svg]:`. Media, container and feature
+  queries (`md:`, `max-md:`, `@md:`, `print:`, `[@media…]:` …)
+  still apply in any order - `md:*:p-2` gives way to `*:md:p-4`.
+- **Splitter** - a dragged handle stays under the pointer also in a
+  splitter with padding, borders or a gap, and with panes that have padding
+  (`paneClassName`); it lagged behind before. A pane whose content scrolls
+  with nothing in it to focus is a Tab stop, so that the keyboard can scroll
+  it in Safari too.
+- **CollapsibleContent** with a `duration` under 10 ms (`0` to show the
+  content at once) no longer keeps the content at the fixed height it
+  measured while opening - content that grew later overflowed it.
+- **TreeView** - a tree of links (items with `href`) given no `selected`,
+  `defaultSelected`, `onSelectedChange` or `name` is a navigation: a click
+  follows the link without selecting the item, which stayed highlighted
+  like the current page once the page changed elsewhere (the back button).
+  Its `selectionMode` defaults to `none` there, so Space follows a link
+  too; pass `selectionMode="single"` to keep selecting. The links of
+  `items` decide it: a tree of folders whose links `loadChildren` brings
+  later keeps selecting. A tree with `selectionMode="none"` shows no selection,
+  also of a `selected` given to it.
+
+### Documentation
+
+- Hooks & utilities: an `escape` shortcut waits for open overlays; the
+  example no longer turns off `preventDefault` for it. Dialog: the custom
+  overlay example checks `isTopmost()` as a press on its backdrop begins, so
+  that a click that closes the list of its Autocomplete leaves the panel
+  open; `OverlayScope` also lets tooltips and shortcuts work in a modal
+  overlay of your own, and without `onEscape` the Escape stays with the
+  page. Popover, Dropdown and ContextMenu describe where the focus goes when
+  a pick removes the trigger.
+- Forms & validation: which fields enforce `required` (not `TreeView`),
+  `PinInput` reports a string. NumberInput: the digits of a fine `step`,
+  repeated separators; Slider: the last step within `max`; PinInput: the
+  focus after a cleared code; TagsInput: refused text blocks the submit;
+  CheckboxGroup: disabled picked options and the error of "Select all".
+- DateTimePicker: `step` applies in `native` mode only (the custom pickers
+  take `minuteStep`), `min` / `max` validity; `am` / `pm` are read by a
+  12-hour format only. DateRangePicker: the month written once, `min` /
+  `max` validity. Localization: which formats read `am` / `pm`.
+- DataTable: naming several tables, the focus of the group actions and of
+  "Clear selection", the keyboard access of `labelInfo`, what a refusal
+  message does, sorting the user cannot see, the stable query of
+  `useDataTableQuery`; the examples name their tables.
+- Calendar: moving and resizing events takes a pointer - offer another way
+  (WCAG 2.5.7), e.g. a dialog opened by `onEventClick`; the navigation
+  bounds of `minDate` / `maxDate`. The recurring example moves a whole
+  series by days and clock time, so it keeps its time over a daylight
+  saving change.
+- Rich text: limit the size of the HTML sanitized on a server with jsdom,
+  whose parser slows down with the square of the nesting.
+- FileUpload: the presigned upload checks the response of the API, and the
+  thumbnails example releases the object URLs of removed files.
+- TreeView: when Enter, Space and a click follow a link, and the navigation
+  default. Splitter: the Tab stop of a scrolling pane. The Progress of the
+  palette preview on Theming has an accessible name.
+
 ## 0.2.1
 
 A second review of the whole library, area by area - what it found is fixed

@@ -19,6 +19,7 @@ import Popover from "./popover";
 import Tooltip from "./tooltip";
 import SnackbarProvider from "../providers/snackbar-provider";
 import { useSnackbar } from "../providers/snackbar-context";
+import useHotkeys from "../hooks/use-hotkeys";
 
 const noop = () => {};
 
@@ -470,6 +471,147 @@ describe("Dialog in the overlay stack", () => {
 });
 
 describe("Dialog giving the focus back", () => {
+  it("reads no Tab stops of the page at a click, only as it opens", async () => {
+    function Page() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button">Bold</button>
+          <button onClick={() => setOpen(true)} type="button">
+            Rename
+          </button>
+          <Dialog onClose={() => setOpen(false)} open={open} title="Rename">
+            <input aria-label="Name" />
+          </Dialog>
+        </>
+      );
+    }
+    render(<Page />);
+    const bold = screen.getByRole("button", { name: "Bold" });
+    const rename = screen.getByRole("button", { name: "Rename" });
+    const query = vi.spyOn(document.body, "querySelectorAll");
+
+    // A click that leaves the focus where it is (Safari) opens nothing - it
+    // costs nothing in a long page either
+    fireEvent.click(bold);
+    expect(query).not.toHaveBeenCalled();
+
+    fireEvent.click(rename);
+    await waitFor(() =>
+      expect(document.activeElement).toHaveAccessibleName("Name"),
+    );
+    expect(query).toHaveBeenCalled();
+    query.mockRestore();
+
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(rename).toHaveFocus();
+  });
+
+  it("gives it to the button it was opened from also when Safari did not focus it", async () => {
+    function Page() {
+      const [open, setOpen] = useState(false);
+      useHotkeys([["n", () => setOpen(true)]]);
+      return (
+        <>
+          <input aria-label="Search" />
+          <button type="button">Bold</button>
+          <button onClick={() => setOpen(true)} type="button">
+            Rename
+          </button>
+          {/* Mounted only while open - no overlay is in the page before */}
+          {open && (
+            <Dialog onClose={() => setOpen(false)} open title="Rename">
+              <input aria-label="Name" />
+            </Dialog>
+          )}
+        </>
+      );
+    }
+    render(<Page />);
+    const rename = screen.getByRole("button", { name: "Rename" });
+
+    // Safari focuses no button it clicks - the focus stays on the page
+    fireEvent.pointerDown(rename);
+    fireEvent.click(rename);
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveFocus(),
+    );
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(rename).toHaveFocus();
+
+    // A click the focus has moved on from since is none to go back to - the
+    // dialog opens by a shortcut
+    act(() => rename.blur());
+    const bold = screen.getByRole("button", { name: "Bold" });
+    fireEvent.click(bold);
+    act(() => screen.getByRole("textbox", { name: "Search" }).focus());
+    act(() => (document.activeElement as HTMLElement).blur());
+    fireEvent.keyDown(document.body, { key: "n" });
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveFocus(),
+    );
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(bold).not.toHaveFocus();
+  });
+
+  it.each([
+    ["Chrome (the pressed button takes the focus)", true],
+    ["Safari (it does not)", false],
+  ])(
+    "gives it to the trigger of a popover the same click closed - %s",
+    async (_, focuses) => {
+      function Page() {
+        const [popoverOpen, setPopoverOpen] = useState(false);
+        const [dialogOpen, setDialogOpen] = useState(false);
+        return (
+          <>
+            <Popover
+              onOpenChange={setPopoverOpen}
+              open={popoverOpen}
+              trigger="More"
+              triggerType="click"
+            >
+              <button
+                onClick={() => {
+                  setPopoverOpen(false);
+                  setDialogOpen(true);
+                }}
+                type="button"
+              >
+                Delete…
+              </button>
+            </Popover>
+            {/* After the popover: the button is gone as the dialog opens */}
+            <Dialog
+              onClose={() => setDialogOpen(false)}
+              open={dialogOpen}
+              title="Delete"
+            >
+              <input aria-label="Reason" />
+            </Dialog>
+          </>
+        );
+      }
+      render(<Page />);
+      const press = (button: HTMLElement) => {
+        fireEvent.pointerDown(button);
+        fireEvent.mouseDown(button);
+        if (focuses) act(() => button.focus());
+        fireEvent.mouseUp(button);
+        fireEvent.click(button);
+      };
+
+      const trigger = screen.getByRole("button", { name: "More" });
+      press(trigger);
+      press(await screen.findByRole("button", { name: "Delete…" }));
+      await waitFor(() =>
+        expect(screen.getByRole("textbox", { name: "Reason" })).toHaveFocus(),
+      );
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+      expect(trigger).toHaveFocus();
+    },
+  );
+
   it("keeps a popover it was opened from open under it, also rendered elsewhere", async () => {
     const user = userEvent.setup();
 

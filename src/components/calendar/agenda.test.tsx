@@ -441,6 +441,42 @@ describe("Calendar agenda", () => {
   });
 });
 
+describe("Calendar agenda scrolled to today", () => {
+  it("scrolls once the events come - also without loading", () => {
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(2000);
+    vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(600);
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Element) {
+        const date = this.getAttribute("data-date");
+        return { top: date ? Number(date.slice(-2)) * 10 : 0 } as DOMRect;
+      },
+    );
+
+    // Fetched after the first render, without `loading`
+    const { container, rerender } = render(
+      <Calendar events={[]} initialDate={d(24)} initialView="agenda" />,
+    );
+    const scroller = container.querySelector<HTMLElement>(".agenda-view")!;
+    expect(scroller.scrollTop).toBe(0);
+
+    rerender(
+      <Calendar events={events} initialDate={d(24)} initialView="agenda" />,
+    );
+    expect(scroller.scrollTop).toBe(240);
+
+    // Not again with the next events of the period
+    scroller.scrollTop = 0;
+    rerender(
+      <Calendar
+        events={[...events, event("Lunch", d(24, 12), d(24, 13))]}
+        initialDate={d(24)}
+        initialView="agenda"
+      />,
+    );
+    expect(scroller.scrollTop).toBe(0);
+  });
+});
+
 describe("Calendar agenda navigation", () => {
   /** The period label of the header. */
   const period = () => screen.queryByRole("heading", { level: 2 });

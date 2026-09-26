@@ -2,6 +2,7 @@ import {
   addDays,
   getISOWeek,
   getISOWeeksInYear,
+  isDayBeforeMonth,
   isValidDay,
   pad2,
   padYear,
@@ -9,8 +10,11 @@ import {
   parsePattern,
   toISODate,
   toISOTime,
+  withoutMonth,
   type DayPeriods,
 } from "../../utils/date";
+import { formatMessage } from "../../i18n/format";
+import type { Messages } from "../../i18n/types";
 import type { DateTimePickerType } from ".";
 
 /** Splits `HH:mm` (optionally with seconds) into its parts. */
@@ -60,6 +64,28 @@ export const isTimeInRange = (time: string, min?: string, max?: string) =>
   min && max && min > max
     ? time >= min || time <= max
     : isInRange(time, min, max);
+
+/**
+ * The validity message of a value out of `min` / `max` - `""` for one in
+ * them, or for no value. The values compare as strings of one fixed-width
+ * format, like in `clampValue`; `format` writes a limit as the field shows
+ * values.
+ */
+export function getRangeMessage(
+  messages: Messages["dateTimePicker"],
+  value: string | undefined,
+  { max, min }: { max?: string; min?: string },
+  format: (limit: string) => string,
+) {
+  if (!value) return "";
+  if (min && value < min) {
+    return formatMessage(messages.rangeUnderflow, { min: format(min) });
+  }
+  if (max && value > max) {
+    return formatMessage(messages.rangeOverflow, { max: format(max) });
+  }
+  return "";
+}
 
 /** The minutes the time lists offer for `step`: 15 - `00`, `15`, `30`, `45`. */
 export const getMinuteOptions = (step: number) =>
@@ -275,6 +301,15 @@ interface TypedDay {
   year?: number;
 }
 
+/**
+ * Whether a day of a range typed with separators has each of its `count`
+ * numbers apart - only digits typed without any separator run together.
+ * `10/2026` is no October 20, 2026 (2026 split into the 20th and 26), but
+ * the day 10 of `9/5 – 10/2026`.
+ */
+const hasSeparateNumbers = (text: string, count: number) =>
+  !/\D/.test(text) || text.match(/\d+/g)?.length === count;
+
 /** A day typed in the date `pattern` or in ISO 8601 - `null` for no day. */
 function readDay(text: string, pattern: string, today: Date): TypedDay | null {
   const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
@@ -283,8 +318,28 @@ function readDay(text: string, pattern: string, today: Date): TypedDay | null {
   }
 
   const parts = parsePattern(text, pattern, undefined, today.getFullYear());
-  return parts?.day !== undefined && parts.month !== undefined
+  return parts?.day !== undefined &&
+    parts.month !== undefined &&
+    hasSeparateNumbers(text, parts.year === undefined ? 2 : 3)
     ? { day: parts.day, month: parts.month, year: parts.year }
+    : null;
+}
+
+/**
+ * A day typed without its month, in the date `pattern` without it - the
+ * month comes from the other day of the range: `24` of `24.–30.9.`, `30`
+ * or `30/2026` of `9/24–30/2026`. `null` for no day.
+ */
+function readDayAlone(text: string, pattern: string, today: Date) {
+  const parts = parsePattern(
+    text,
+    withoutMonth(pattern),
+    undefined,
+    today.getFullYear(),
+  );
+  return parts?.day !== undefined &&
+    hasSeparateNumbers(text, parts.year === undefined ? 1 : 2)
+    ? { day: parts.day, year: parts.year }
     : null;
 }
 
@@ -350,8 +405,11 @@ function orderTypedDays(first: TypedDay, second: TypedDay, today: Date) {
  * as forgivingly as by `parseDisplayValue` - also in ISO 8601, with the year
  * left out or of two digits (`24.9. – 30.9.`, see `orderTypedDays` for the
  * years left out); a reversed pair is swapped, and one day alone
- * (`24.9.2026 –`) is a range of that day. `null` when the text is no range
- * of real days.
+ * (`24.9.2026 –`) is a range of that day. The month may be written once,
+ * where the pattern has it, when something the date does not use stands
+ * between the days: `24.–30.9.2026` or `24 - 30.9.` for a day before the
+ * month, `9/24–30/2026` for a month before the day. `null` when the text is
+ * no range of real days.
  */
 export function parseDisplayRange(
   text: string,
@@ -365,24 +423,62 @@ export function parseDisplayRange(
   const single = parseDisplayValue(typed, pattern, "date", undefined, today);
   if (single) return { end: single, start: single };
 
-  // The first place the text splits at into two days - what stands between
-  // them left out. Short texts, so trying every place costs nothing.
-  for (let index = 1; index < typed.length; index++) {
-    const first = readDay(
-      typed.slice(0, index).replace(/\D+$/, ""),
-      pattern,
-      today,
-    );
-    if (!first) continue;
+  // The text splits into two days after one of its numbers - a split inside
+  // a number would give the second day digits of the first: "9/2" and
+  // "4 - 9/30" (April 9, 2030) are no days of "9/24 - 9/30". Days typed as
+  // digits alone split anywhere. Short texts, so trying every place costs
+  // nothing.
+  const digitsOnly = /^\d+$/.test(typed);
+  const dayFirst = isDayBeforeMonth(pattern);
+  // What the date itself writes between its numbers - the month written
+  // once needs something else between the days (`24.–30.9.`), "31.9 3.10"
+  // is no day 31 and 9.3.2010
+  const dateSeparators = pattern.replace(/\[[^\]]*]|[A-Za-z]/g, "");
+  let sharedMonth: { end: string; start: string } | null = null;
 
-    const second = readDay(
-      typed.slice(index).replace(/^\D+/, ""),
+  for (let index = 1; index < typed.length; index++) {
+    if (
+      !/\d/.test(typed[index - 1]) ||
+      (!digitsOnly && /\d/.test(typed[index]))
+    ) {
+      continue;
+    }
+
+    const firstText = typed.slice(0, index);
+    const between = /^\D*/.exec(typed.slice(index))?.[0] ?? "";
+    const secondText = typed.slice(index + between.length);
+    const first = readDay(firstText, pattern, today);
+    const second = readDay(secondText, pattern, today);
+    const range = first && second && orderTypedDays(first, second, today);
+    if (range) return range;
+
+    // Two days that are whole come first - the month written once is read
+    // only when the text is no such pair. The day without the month takes
+    // it, and a year left out, from the other day.
+    if (
+      sharedMonth ||
+      digitsOnly ||
+      [...between].every((char) => dateSeparators.includes(char))
+    ) {
+      continue;
+    }
+    const alone = readDayAlone(
+      dayFirst ? firstText : secondText,
       pattern,
       today,
     );
-    const range = second && orderTypedDays(first, second, today);
-    if (range) return range;
+    const whole = dayFirst ? second : first;
+    if (!alone || !whole) continue;
+
+    const day = {
+      ...alone,
+      month: whole.month,
+      year: alone.year ?? whole.year,
+    };
+    sharedMonth = dayFirst
+      ? orderTypedDays(day, whole, today)
+      : orderTypedDays(whole, day, today);
   }
 
-  return null;
+  return sharedMonth;
 }

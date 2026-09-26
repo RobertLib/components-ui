@@ -6,6 +6,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Dialog from "./dialog";
 import Drawer from "./drawer";
+import Tooltip from "./tooltip";
 import DrawerProvider from "../providers/drawer-provider";
 import { useDrawer } from "../providers/drawer-context";
 import UIProvider from "../providers/ui-provider";
@@ -342,6 +343,52 @@ describe("Drawer slid in on a phone", () => {
     );
     expect(toggle).toHaveFocus();
     expect(document.body.style.overflow).toBe("");
+  });
+
+  it("gives the focus back to its toggle when Safari did not focus it on the click", async () => {
+    renderOnPhone();
+
+    // Safari focuses no button it clicks - the focus stays on the page
+    const toggle = screen.getByRole("button", { name: "Menu" });
+    fireEvent.pointerDown(toggle);
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Help" })).toHaveFocus();
+
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(toggle).toHaveFocus();
+  });
+
+  it("shows a tooltip of its header - which is in the drawer", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        addEventListener: () => {},
+        matches: true,
+        media: query,
+        removeEventListener: () => {},
+      })),
+    );
+    render(
+      <UIProvider router={{ pathname: "/", search: "" }}>
+        <DrawerProvider storageKey={null}>
+          <Toggle />
+          <Drawer
+            header={
+              <Tooltip delay={0} title="Your account">
+                <button type="button">Account</button>
+              </Tooltip>
+            }
+            items={[{ href: "/users", label: "Users" }]}
+          />
+        </DrawerProvider>
+      </UIProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Account" }));
+    await act(() => sleep(5));
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Your account");
   });
 
   it("is a modal dialog with its backdrop right before it", async () => {

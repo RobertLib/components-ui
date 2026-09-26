@@ -9,6 +9,7 @@ export default function Selection() {
 
   return (
     <DataTable
+      aria-label="People to email"
       autoResetSelectedRows
       clientSide
       columns={columns}

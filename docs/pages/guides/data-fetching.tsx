@@ -181,7 +181,10 @@ export default function DataFetchingGuide() {
             Both tables would work the same with{" "}
             <code>useDataTableQuery({"{ syncWithUrl: true }"})</code> - the
             query then survives a reload and the back button (see{" "}
-            <Link to="/components/data-table">DataTable</Link>).
+            <Link to="/components/data-table">DataTable</Link>). It stays the
+            same object while only other parameters of the URL change, so the
+            effect fetches again for a new query only - also with several tables
+            of a page (<code>urlPrefix</code>).
           </p>
         </Callout>
 

@@ -45,10 +45,14 @@ const scroller = () => {
   return element;
 };
 
+// The height of a row in the layout below - a test may change it
+let rowHeight = 30;
+
 // The layout jsdom has not: a 300px high view of the table, whose body
 // starts 100px below the top of the scrolled content; rows are 30px high,
 // details 90px
 beforeEach(() => {
+  rowHeight = 30;
   vi.stubGlobal("ResizeObserver", MeasuringObserver);
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
     function (this: Element) {
@@ -57,7 +61,9 @@ beforeEach(() => {
       }
       const key = this.getAttribute("data-measure-key");
       if (key !== null) {
-        return { height: key.endsWith("\u0000sub") ? 90 : 30 } as DOMRect;
+        return {
+          height: key.endsWith("\u0000sub") ? 90 : rowHeight,
+        } as DOMRect;
       }
       return { height: 0, top: 0, width: 0 } as DOMRect;
     },
@@ -318,6 +324,137 @@ describe("DataTable virtualization", () => {
     expect(screen.getByRole("table")).toHaveAttribute("aria-rowcount", "10002");
     const summary = within(screen.getAllByRole("rowgroup")[2]).getByRole("row");
     expect(summary).toHaveAttribute("aria-rowindex", "10002");
+  });
+
+  it("measures the rows again with another density", async () => {
+    const user = userEvent.setup();
+    render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={manyRows}
+        pagination={false}
+        virtualized
+      />,
+    );
+    scrollTo(0);
+
+    // Compact rows are lower - the observer reports no row that stays
+    // rendered, the table measures them itself
+    rowHeight = 20;
+    await user.click(screen.getByRole("button", { name: "Row density" }));
+    await user.click(screen.getByRole("button", { name: "Compact" }));
+
+    const indexes = renderedIndexes();
+    expect(spacers().at(-1)?.firstElementChild).toHaveStyle({
+      height: `${(10_000 - indexes.at(-1)! - 1) * 20}px`,
+    });
+  });
+
+  it("keeps the row at the top of the view there with another density", async () => {
+    const user = userEvent.setup();
+    render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={manyRows}
+        pagination={false}
+        virtualized
+      />,
+    );
+    scrollTo(100 + 5000 * 30);
+    expect(renderedIndexes()).toContain(5000);
+
+    // Lower rows - those above the view take less room, so the table
+    // scrolls up by it, to the same row
+    rowHeight = 20;
+    await user.click(screen.getByRole("button", { name: "Row density" }));
+    await user.click(screen.getByRole("button", { name: "Compact" }));
+
+    expect(scroller().scrollTop).toBe(100 + 5000 * 20);
+    expect(renderedIndexes()).toContain(5000);
+  });
+
+  it("does not scroll when a column is resized with a detail at the top", async () => {
+    const user = userEvent.setup();
+    render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={manyRows}
+        expandedByDefault
+        pagination={false}
+        renderSubRow={(row) => `Detail of ${row.name}`}
+        virtualized
+      />,
+    );
+    // The top of the view in the middle of the detail of row 5000
+    const top = 100 + 5000 * 120 + 30 + 45;
+    scrollTo(top);
+
+    // The rows keep their heights - nothing moves
+    screen.getByRole("separator", { name: "Resize Name" }).focus();
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+
+    expect(scroller().scrollTop).toBe(top);
+  });
+
+  it("keeps the measured heights when only the view gets wider", () => {
+    render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={manyRows}
+        pagination={false}
+        virtualized
+      />,
+    );
+    scrollTo(0);
+
+    // A resized window, a sidebar closed - the rows keep their heights, and
+    // a table scrolled down does not jump
+    rowHeight = 20;
+    Object.defineProperty(scroller(), "clientWidth", {
+      configurable: true,
+      value: 500,
+    });
+    scrollTo(0);
+
+    const indexes = renderedIndexes();
+    expect(spacers().at(-1)?.firstElementChild).toHaveStyle({
+      height: `${(10_000 - indexes.at(-1)! - 1) * 30}px`,
+    });
+  });
+
+  it("forgets the heights of rows that are gone", () => {
+    const { rerender } = render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={manyRows}
+        pagination={false}
+        virtualized
+      />,
+    );
+    scrollTo(0);
+
+    // Other rows, lower - the rows of before weigh in no estimate
+    rowHeight = 10;
+    const otherRows = manyRows.map((row) => ({ ...row, id: row.id + 20_000 }));
+    rerender(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={otherRows}
+        pagination={false}
+        virtualized
+      />,
+    );
+
+    const indexes = renderedIndexes();
+    expect(spacers().at(-1)?.firstElementChild).toHaveStyle({
+      height: `${(10_000 - indexes.at(-1)! - 1) * 10}px`,
+    });
   });
 
   it("renders every row without virtualized", () => {

@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useState } from "react";
 import Button from "../button";
 import cn from "../../utils/cn";
 import DateTimePicker from "../datetime-picker";
@@ -21,6 +22,12 @@ import { useLocale } from "../../providers/ui-context";
 export interface CalendarHeaderProps {
   /** What the agenda view lists - its period label. */
   agendaPeriod: CalendarAgendaPeriod;
+  /** Next goes to days of `minDate` - `maxDate`. */
+  canGoNext: boolean;
+  /** Previous goes to days of `minDate` - `maxDate`. */
+  canGoPrevious: boolean;
+  /** The period of today has days of `minDate` - `maxDate`. */
+  canGoToday: boolean;
   /** The day the calendar shows - in the date field and the period label. */
   currentDate: Date;
   /** The latest date the date field offers. */
@@ -43,8 +50,14 @@ export interface CalendarHeaderProps {
   viewOptions: CalendarView[];
 }
 
+/** A button of the navigation. */
+type NavButton = "next" | "previous" | "today";
+
 export default function CalendarHeader({
   agendaPeriod,
+  canGoNext,
+  canGoPrevious,
+  canGoToday,
   currentDate,
   maxDate,
   minDate,
@@ -60,6 +73,28 @@ export default function CalendarHeader({
   const { messages } = locale;
   // The agenda shows a period of its own
   const period = view === "agenda" ? agendaPeriod : view;
+
+  // The button with the focus - one that gets to `minDate` / `maxDate` must
+  // not drop it to the page
+  const [focused, setFocused] = useState<NavButton | null>(null);
+
+  // A button that would leave the days of `minDate` - `maxDate` is
+  // `disabled` - unless it has the focus, which it keeps (`aria-disabled`)
+  // until the focus moves on, like the buttons of `Pagination`
+  const navButtonProps = (button: NavButton, available: boolean) => {
+    const isKept = !available && focused === button;
+
+    return {
+      "aria-disabled": isKept || undefined,
+      disabled: !available && !isKept,
+      onBlur: () => setFocused(null),
+      onFocus: () => setFocused(button),
+    };
+  };
+  const keptClassName = (button: NavButton, available: boolean) =>
+    !available && focused === button
+      ? "cursor-not-allowed opacity-60"
+      : undefined;
 
   const formattedDate = (() => {
     switch (period) {
@@ -114,18 +149,27 @@ export default function CalendarHeader({
         <div className="flex items-center gap-1">
           <Button
             aria-label={messages.calendar.previous}
+            className={keptClassName("previous", canGoPrevious)}
             onClick={onPrevious}
+            {...navButtonProps("previous", canGoPrevious)}
             size="icon"
             variant="ghost"
           >
             <ChevronLeft size={16} />
           </Button>
-          <Button className="px-2!" onClick={onToday} variant="ghost">
+          <Button
+            className={cn("px-2!", keptClassName("today", canGoToday))}
+            onClick={onToday}
+            {...navButtonProps("today", canGoToday)}
+            variant="ghost"
+          >
             {messages.calendar.today}
           </Button>
           <Button
             aria-label={messages.calendar.next}
+            className={keptClassName("next", canGoNext)}
             onClick={onNext}
+            {...navButtonProps("next", canGoNext)}
             size="icon"
             variant="ghost"
           >

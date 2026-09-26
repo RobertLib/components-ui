@@ -39,8 +39,10 @@ export default function CalendarPage() {
             UTC day only when both the start and the end are one. They may come
             in any order: all-day events are listed first, then by start. Switch
             the views in the header, or go back to today; a crowded day of the
-            month (and of the all-day row of the week) shows "+N more", which
-            opens the list of all its events.
+            month (and of the all-day row of the week and day views) shows "+N
+            more", which opens the list of all its events. <code>minDate</code>{" "}
+            / <code>maxDate</code> disable the days out of them, and Previous,
+            Next and Today go no further than the periods with them.
           </p>
         }
         name="calendar/basic"
@@ -78,7 +80,8 @@ export default function CalendarPage() {
             <code>dayStartHour</code> / <code>dayEndHour</code> set the hours of
             the week and day views (7 – 22 by default); an event wholly out of
             them has no row there - the header of its day offers it as "+N
-            earlier" or "+N later", which opens the list of them.{" "}
+            earlier" or "+N later", which opens the list of them - a night event
+            running into the day from the one before is listed "until" its end.{" "}
             <code>viewOptions</code> limits the views.
           </p>
         }
@@ -133,11 +136,12 @@ export default function CalendarPage() {
             <p>
               With <code>resources</code> (rooms, people, vehicles - an{" "}
               <code>id</code>, a <code>title</code> and a <code>color</code>)
-              the day view shows a column for each, and the week view one for
-              each resource of every day. An event goes into the column of its{" "}
-              <code>resourceId</code> and takes the color of its resource unless
-              it has its own; events of no resource are left out of the columns.
-              Dragging an event to another column moves it to that resource -{" "}
+              the day view shows a column for each (under its day, today
+              marked), and the week view one for each resource of every day. An
+              event goes into the column of its <code>resourceId</code> and
+              takes the color of its resource unless it has its own; events of
+              no resource are left out of the columns. Dragging an event to
+              another column moves it to that resource -{" "}
               <code>onEventDrop</code> gets it as <code>newResourceId</code>{" "}
               (resizes report the resource too), a range picked in a column
               comes with its <code>resourceId</code>, and so does{" "}
@@ -243,13 +247,23 @@ export default function CalendarPage() {
           previous or next month - with Shift of the year. "+N more" and "+N
           earlier / later" are named with their day. Today is marked (
           <code>aria-current</code>) in the month and week views and in the
-          agenda. With <code>onSlotDragEnd</code>, Shift + arrow up / down
+          agenda (and over the resources of the day view). The focused slot or
+          event is scrolled into view below the sticky header and right of the
+          time column. With <code>onSlotDragEnd</code>, Shift + arrow up / down
           select slots from the focused one and Enter or Space create the range,
           Escape drops the selection; without <code>onDateClick</code>, Enter or
           Space on a slot create a range of that slot. The agenda is a list of
           days, each a list of its events named by the heading of the day. The
           header announces the period Previous, Next and Today move to - in the
           day view, whose day the date field shows, to screen readers only.
+        </p>
+        <p>
+          Moving and resizing events takes a pointer: a drag has no keyboard
+          equivalent in the calendar itself. Offer another way to change the
+          times - WCAG 2.5.7 asks for one that works with a single click or tap
+          - e.g. open a dialog with the times of the event from{" "}
+          <code>onEventClick</code> (which Enter and Space call too) and save
+          them like a drop.
         </p>
       </Callout>
 

@@ -1,9 +1,10 @@
 import { screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getNextTabbable,
   getPreviousTabbable,
   getTabbableElements,
+  getTabStopsBeside,
 } from "./tabbable";
 
 const mount = (html: string) => {
@@ -146,5 +147,55 @@ describe("getPreviousTabbable", () => {
 
     const first = screen.getByText("First");
     expect(getPreviousTabbable(first)).toBeUndefined();
+  });
+});
+
+describe("getTabStopsBeside", () => {
+  it("finds the stop next to each ancestor - the next row past a button of the row", () => {
+    mount(`
+      <button>Before</button>
+      <ul>
+        <li id="a"><button>Actions A</button><button>Open A</button></li>
+        <li id="b"><button>Actions B</button><button>Open B</button></li>
+      </ul>
+      <button>After</button>
+    `);
+    const actionsA = screen.getByText("Actions A");
+
+    // Past the button, the row, the list
+    expect(names(getTabStopsBeside(actionsA, false))).toEqual([
+      "Open A",
+      "Actions B",
+      "After",
+    ]);
+    expect(names(getTabStopsBeside(actionsA, true))).toEqual(["Before"]);
+    expect(names(getTabStopsBeside(screen.getByText("After"), false))).toEqual(
+      [],
+    );
+  });
+});
+
+describe("finding the Tab stops next to an element", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("compares it with a few elements of a long table, not with all", () => {
+    // Each comparison may walk the rows - comparing with every element grew
+    // worse than linear
+    mount(
+      `<table>${Array.from(
+        { length: 1000 },
+        (_, row) => `<tr><td><button>Row ${row}</button></td></tr>`,
+      ).join("")}</table>`,
+    );
+    const compare = vi.spyOn(Node.prototype, "compareDocumentPosition");
+    const middle = screen.getByText("Row 500");
+
+    expect(getNextTabbable(middle)?.textContent).toBe("Row 501");
+    expect(names(getTabStopsBeside(middle, true))[0]).toBe("Row 499");
+    // Its own comparisons - the DOM of the tests compares on its own too
+    const own = compare.mock.contexts.filter((node) => node === middle);
+    expect(own.length).toBeLessThan(50);
   });
 });

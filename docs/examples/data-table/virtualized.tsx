@@ -14,6 +14,7 @@ const columns: Column<Person>[] = personColumns.map((column) =>
 export default function Virtualized() {
   return (
     <DataTable
+      aria-label="10 000 people"
       clientSide
       columns={columns}
       data={manyPeople}

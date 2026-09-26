@@ -15,11 +15,13 @@ import { pointRect, type AnchorRect, type Point } from "./menu/position";
 import { isSkippedEntry, type DropdownEntry } from "./menu/types";
 import {
   getDirection,
+  getFocusReturnTargetsWithNeighbors,
   isEscapeKey,
   isInOverlayTree,
   isTopmostOverlay,
   noteFocusLoss,
   OverlayContext,
+  returnFocus,
   useOverlayLayer,
 } from "./overlay-stack";
 
@@ -64,6 +66,12 @@ interface OpenMenu {
   highlight: boolean;
   /** Where the focus goes back once the menu closes. */
   returnFocus: HTMLElement | null;
+  /**
+   * Where the focus in the menu goes once it is gone, best first: to
+   * `returnFocus`, or when a pick removed it (a deleted row) to the Tab stop
+   * next to it - read while it is still there.
+   */
+  returnTargets: HTMLElement[];
 }
 
 // A touch held this long opens the menu
@@ -175,19 +183,21 @@ function useLongPress(
 /**
  * Rendered in the menu. When the menu goes away with the focus in it -
  * after a pick, on a click outside - the focus goes back to where it was
- * before the menu opened, instead of to the page.
+ * before the menu opened (or next to it, when the pick removed it) instead
+ * of to the page.
  */
 function FocusRescue({
-  onRescue,
   panelId,
+  targets,
 }: {
-  onRescue: () => void;
   panelId: string;
+  /** Where the focus goes, best first. */
+  targets: HTMLElement[];
 }) {
-  const onRescueRef = useRef(onRescue);
+  const targetsRef = useRef(targets);
 
   useLayoutEffect(() => {
-    onRescueRef.current = onRescue;
+    targetsRef.current = targets;
   });
 
   useLayoutEffect(
@@ -200,10 +210,11 @@ function FocusRescue({
       // the page body - it gives it back to where this focus would go
       noteFocusLoss(active);
 
+      const targets = targetsRef.current;
       queueMicrotask(() => {
         const current = document.activeElement;
         if (!panel.isConnected && (!current || current === document.body)) {
-          onRescueRef.current();
+          returnFocus(targets);
         }
       });
     },
@@ -278,15 +289,16 @@ export default function ContextMenu({
     if (menu) return;
 
     const active = document.activeElement;
+    const focused =
+      active instanceof HTMLElement && active !== document.body ? active : null;
     setMenu({
       anchor,
       dir: getDirection(target),
       gap,
       highlight,
-      returnFocus:
-        active instanceof HTMLElement && active !== document.body
-          ? active
-          : null,
+      returnFocus: focused,
+      // Read now: a row a pick deletes leaves the page before the menu
+      returnTargets: getFocusReturnTargetsWithNeighbors(focused),
     });
     onOpenChange?.(true);
   };
@@ -484,7 +496,7 @@ export default function ContextMenu({
               onClose={closeMenu}
             />
           </OverlayContext>
-          <FocusRescue onRescue={giveFocusBack} panelId={panelId} />
+          <FocusRescue panelId={panelId} targets={menu.returnTargets} />
         </MenuPopup>
       )}
     </>

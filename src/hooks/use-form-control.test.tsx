@@ -111,6 +111,57 @@ describe("useFormReset", () => {
     expect(latest).toHaveBeenCalledTimes(1);
   });
 
+  it("calls no callback for a reset a listener cancels", async () => {
+    const user = userEvent.setup();
+    const onReset = vi.fn();
+
+    function Tracker() {
+      const resetRef = useFormReset(onReset);
+      return <div ref={resetRef} />;
+    }
+
+    const { rerender } = render(
+      // A React `onReset` runs at the root - after the form's own listeners
+      <form onReset={(event) => event.preventDefault()}>
+        <Tracker />
+        <button type="reset">Reset</button>
+      </form>,
+    );
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    expect(onReset).not.toHaveBeenCalled();
+
+    rerender(
+      <form onReset={() => {}}>
+        <Tracker />
+        <button type="reset">Reset</button>
+      </form>,
+    );
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    expect(onReset).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls the callback a task later when a listener stops the reset event", async () => {
+    vi.useFakeTimers();
+    const onReset = vi.fn();
+
+    function Tracker() {
+      const resetRef = useFormReset(onReset);
+      return <div ref={resetRef} />;
+    }
+
+    render(
+      <form aria-label="Order" onReset={(event) => event.stopPropagation()}>
+        <Tracker />
+      </form>,
+    );
+    screen.getByRole<HTMLFormElement>("form").reset();
+    expect(onReset).not.toHaveBeenCalled();
+
+    vi.runAllTimers();
+    expect(onReset).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
   it("follows the form attribute of a field and stops after unmount", async () => {
     const user = userEvent.setup();
     const onReset = vi.fn();

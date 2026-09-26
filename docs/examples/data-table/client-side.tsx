@@ -28,6 +28,9 @@ export default function ClientSide() {
           </IconButton>
         </div>
       )}
+      // Names the region, the table and its pagination - several tables of
+      // a page are told apart by it
+      aria-label="People"
       clientSide
       columns={personColumns}
       data={people}

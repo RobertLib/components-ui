@@ -63,6 +63,20 @@ describe("DataTable filter fields", () => {
     }
   });
 
+  it("leaves an Escape ending an IME composition to the input method", () => {
+    render(<DataTable clientSide columns={columns} data={rows} />);
+    const field = screen.getByRole("searchbox", { name: "Filter Name" });
+    fireEvent.change(field, { target: { value: "にほ" } });
+
+    fireEvent.keyDown(field, { isComposing: true, key: "Escape" });
+    // Safari sends the key ending the composition after it
+    fireEvent.keyDown(field, { key: "Escape", keyCode: 229 });
+    expect(field).toHaveValue("にほ");
+
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(field).toHaveValue("");
+  });
+
   it("drops a filter typed from scratch when the filters are cleared", () => {
     vi.useFakeTimers();
     try {

@@ -33,7 +33,7 @@ const keys: [React.ReactNode, string][] = [
   ],
   [
     <Kbd key="space">Space</Kbd>,
-    "Selects, toggles the selection or the checkbox",
+    "Selects, toggles the selection or the checkbox - in a tree that does neither, follows a link or toggles like a click",
   ],
   [<Kbd key="star">*</Kbd>, "Expands all siblings of the focused item"],
   [
@@ -145,12 +145,19 @@ export default function TreeViewPage() {
         description={
           <p>
             Items with an <code>href</code> are links rendered with the{" "}
-            <code>Link</code> of the router - Enter, Space or a click follow
-            them, and a parent also expands. The item of the current page is
-            marked (<code>aria-current="page"</code>), and an uncontrolled tree
-            expands to it - at first and whenever the page changes. Of items
-            that link to the same path with different queries, the one whose
-            query the page has is the current one.
+            <code>Link</code> of the router - Enter or a click follows them, and
+            a parent also expands. The item of the current page is marked (
+            <code>aria-current="page"</code>), and an uncontrolled tree expands
+            to it - at first and whenever the page changes. Of items that link
+            to the same path with different queries, the one whose query the
+            page has is the current one. A tree of links is a navigation:
+            without <code>selected</code>, <code>defaultSelected</code>,{" "}
+            <code>onSelectedChange</code> and <code>name</code> it selects
+            nothing (<code>selectionMode</code> defaults to <code>none</code>),
+            and Space follows a link too. The links of <code>items</code> decide
+            it - links that <code>loadChildren</code> brings later into a tree
+            of folders leave it selecting. A tree that selects - or checks -
+            uses Space for that.
           </p>
         }
         name="tree-view/navigation"

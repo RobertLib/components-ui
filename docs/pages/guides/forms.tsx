@@ -140,8 +140,13 @@ export default function FormsGuide() {
             <code>Slider</code>, <code>TagsInput</code> and{" "}
             <code>TreeView</code> render hidden inputs (
             <code>CheckboxGroup</code> and <code>SegmentedControl</code> are
-            native checkboxes and radios), and a hidden validation input makes
-            the browser enforce <code>required</code>.
+            native checkboxes and radios). With <code>required</code> the
+            browser refuses to submit a field without a value and says why -
+            also <code>Autocomplete</code>, the pickers, <code>FileUpload</code>
+            , <code>NumberInput</code>, <code>PinInput</code>,{" "}
+            <code>RichTextEditor</code> and <code>TagsInput</code>. A{" "}
+            <code>Slider</code> always has a value, and <code>TreeView</code>{" "}
+            has no <code>required</code>.
           </p>
         </Prose>
         <Example
@@ -158,12 +163,13 @@ export default function FormsGuide() {
             Text fields, selects and pickers call <code>onChange</code> with an
             event (<code>event.target.value</code>), <code>Autocomplete</code>{" "}
             with the value and the selected item, <code>NumberInput</code> with
-            a <code>number</code> (or <code>null</code>),{" "}
-            <code>CheckboxGroup</code> and <code>TagsInput</code> with an array,{" "}
-            <code>Slider</code> with a number or a <code>[start, end]</code>{" "}
-            pair, <code>DateRangePicker</code> with{" "}
-            <code>{"{ start, end }"}</code> (or <code>null</code>) and{" "}
-            <code>RichTextEditor</code> with the HTML.
+            a <code>number</code> (or <code>null</code>), <code>PinInput</code>{" "}
+            with the code (a string), <code>CheckboxGroup</code> and{" "}
+            <code>TagsInput</code> with an array, <code>Slider</code> with a
+            number or a <code>[start, end]</code> pair,{" "}
+            <code>DateRangePicker</code> with <code>{"{ start, end }"}</code>{" "}
+            (or <code>null</code>) and <code>RichTextEditor</code> with the
+            HTML.
           </p>
         </Prose>
       </Section>

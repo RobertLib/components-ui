@@ -420,6 +420,44 @@ describe("DateRangePicker typing", () => {
     });
   });
 
+  it("takes days typed without years, and the month written once", async () => {
+    const { input, onChange, user } = renderCzech();
+
+    // Never "1.1" and "2 - 5.12" (May 2, 2012)
+    await user.type(input, "1.12 - 5.12{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith({
+      end: "2026-12-05",
+      start: "2026-12-01",
+    });
+
+    await user.clear(input);
+    await user.type(input, "24.–30.9.2026{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith({
+      end: "2026-09-30",
+      start: "2026-09-24",
+    });
+  });
+
+  it("reads US days typed without years", async () => {
+    const { input, onChange, user } = renderPicker();
+
+    // Never "9/2" and "4 - 9/30" (April 9, 2030)
+    await user.type(input, "9/24 - 9/30{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith({
+      end: "2026-09-30",
+      start: "2026-09-24",
+    });
+    expect(input).toHaveValue("09/24/2026 – 09/30/2026");
+
+    // The month written once - never October 20, 2026 of "10/2026"
+    await user.clear(input);
+    await user.type(input, "9/5 – 10/2026{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith({
+      end: "2026-09-10",
+      start: "2026-09-05",
+    });
+  });
+
   it("swaps a reversed pair, and takes one day as a range of it", async () => {
     const { input, onChange, user } = renderCzech();
 
@@ -747,6 +785,48 @@ describe("DateRangePicker in forms", () => {
     expect(
       screen.queryByRole("button", { name: "Clear value" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("is invalid with a range out of min and max, like a native input", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Report">
+        <DateRangePicker
+          defaultValue={september}
+          label="Period"
+          max="2026-09-20"
+          min="2026-09-05"
+        />
+      </form>,
+    );
+
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Report" });
+    const input = screen.getByRole("combobox", { name: "Period:" });
+    expect(form.checkValidity()).toBe(false);
+    expect(input).toHaveProperty(
+      "validationMessage",
+      "Enter a value of 09/05/2026 or later.",
+    );
+
+    await user.clear(input);
+    await user.type(input, "9/10/2026 - 9/20/2026{Enter}");
+    expect(form.checkValidity()).toBe(true);
+  });
+
+  it("drops a typed text for the range it has picked again", async () => {
+    const { input, onChange, user } = renderPicker({
+      defaultValue: september,
+    });
+
+    await user.click(input);
+    await settle();
+    await user.clear(input);
+    await user.type(input, "9/5/2026 - 9/6/2026");
+    await user.click(day("September 1, 2026"));
+    await user.click(day("September 30, 2026"));
+    expect(input).toHaveValue("09/01/2026 – 09/30/2026");
+    await user.tab();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("belongs to the form of its form attribute, and is reset with it", async () => {

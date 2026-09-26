@@ -25,7 +25,9 @@ export type CellEditState<T> =
       /**
        * Refused - the message shows, and so does the value the cell had
        * before while the row still has the refused one (an optimistic
-       * update of the app), until the next save of the cell.
+       * update of the app). Until the next save of the cell, or while the
+       * cell holds the refused value or the one before it - a refetch
+       * with another value, or one without the row, drops it.
        */
       message: string;
       previous: unknown;

@@ -94,12 +94,14 @@ export interface CalendarProps {
   loading?: boolean;
   /**
    * Days after it are disabled - they cannot be picked, and events are
-   * neither dropped on them nor moved or resized there.
+   * neither dropped on them nor moved or resized there. The navigation
+   * (Next, Today, Page Down) goes no further than the period with it.
    */
   maxDate?: Date;
   /**
    * Days before it are disabled - they cannot be picked, and events are
-   * neither dropped on them nor moved or resized there.
+   * neither dropped on them nor moved or resized there. The navigation
+   * (Previous, Today, Page Up) goes no further than the period with it.
    */
   minDate?: Date;
   /**
@@ -116,10 +118,15 @@ export interface CalendarProps {
   onEventClick?: (event: CalendarEvent) => void;
   /**
    * Enables dragging events to another time or day (week and day views) -
-   * and to another resource, with `newResourceId`.
+   * and to another resource, with `newResourceId`. Dragging needs a
+   * pointer: offer another way to change the times too, e.g. a dialog
+   * opened by `onEventClick`.
    */
   onEventDrop?: (change: EventTimeChange) => void;
-  /** Enables resizing events by their top and bottom edge. */
+  /**
+   * Enables resizing events by their top and bottom edge - by a pointer,
+   * like `onEventDrop`.
+   */
   onEventResize?: (change: EventTimeChange) => void;
   /**
    * Enables selecting a time range by dragging over empty slots, e.g. to
@@ -271,6 +278,42 @@ export default function Calendar({
     [controlledView, onViewChange],
   );
 
+  // A step of the navigation - a period of the view
+  const step = view === "agenda" ? agendaPeriod : view;
+
+  // The navigation goes towards the days of `minDate` - `maxDate`, not to a
+  // period without one of them - also from a date out of them - and puts
+  // the date on the first or the last of them
+  const canNavigateTo = (date: Date) => {
+    const { end, start } = getVisibleRange(
+      date,
+      "agenda",
+      locale.weekStartsOn,
+      {
+        agendaPeriod: step,
+      },
+    );
+    return date < currentDate
+      ? !minDate || end > minDate
+      : !maxDate || start <= maxDate;
+  };
+  const navigate = (date: Date) => {
+    if (!canNavigateTo(date)) return false;
+    changeDate(
+      minDate && date < minDate
+        ? new Date(minDate)
+        : maxDate && date > maxDate
+          ? new Date(maxDate)
+          : date,
+    );
+    return true;
+  };
+
+  const previousDate = shiftDate(currentDate, step, -1);
+  const nextDate = shiftDate(currentDate, step, 1);
+  const canGoPrevious = canNavigateTo(previousDate);
+  const canGoNext = canNavigateTo(nextDate);
+
   // The days the view paints - recurring events repeat within them
   const range = getVisibleRange(currentDate, view, locale.weekStartsOn, {
     agendaPeriod,
@@ -320,7 +363,7 @@ export default function Calendar({
     onEventClick,
     onEventDrop,
     onEventResize,
-    onNavigate: changeDate,
+    onNavigate: navigate,
     onSlotDragEnd,
     renderEventActions,
     renderEventIcon,
@@ -328,9 +371,6 @@ export default function Calendar({
     stickyHeader,
     visibleRange,
   };
-
-  // A step of the navigation - a period of the view
-  const step = view === "agenda" ? agendaPeriod : view;
 
   return (
     <div
@@ -341,13 +381,18 @@ export default function Calendar({
     >
       <CalendarHeader
         agendaPeriod={agendaPeriod}
+        canGoNext={canGoNext}
+        canGoPrevious={canGoPrevious}
+        // Today of the server and of the browser may differ - known once
+        // the page is hydrated
+        canGoToday={!isHydrated || canNavigateTo(new Date())}
         currentDate={currentDate}
         maxDate={maxDate}
         minDate={minDate}
         onDateSelect={changeDate}
-        onNext={() => changeDate(shiftDate(currentDate, step, 1))}
-        onPrevious={() => changeDate(shiftDate(currentDate, step, -1))}
-        onToday={() => changeDate(new Date())}
+        onNext={() => navigate(nextDate)}
+        onPrevious={() => navigate(previousDate)}
+        onToday={() => navigate(new Date())}
         onViewChange={handleViewChange}
         view={view}
         viewOptions={viewOptions}

@@ -41,7 +41,7 @@ const [columns, setColumns] = useLocalStorage<string[]>("orders-columns", [], {
 const hotkeysSyntax = `useHotkeys([
   ["mod+k", openSearch, { allowInFields: true }], // ⌘K / Ctrl+K, also while typing
   ["?", showHelp],                                // not while typing into a field
-  ["escape", closePanel, { preventDefault: false }],
+  ["escape", closePanel],                         // after an open menu or popover
 ], { enabled: !saving });`;
 
 const ariaShortcuts = `import { formatShortcut, toAriaKeyShortcuts, useIsApplePlatform } from "components-ui";
@@ -224,6 +224,11 @@ export default function UtilitiesGuide() {
             <li>
               The shortcuts of the page do not work while a modal dialog is open
               - those of a component inside the dialog do.
+            </li>
+            <li>
+              An <code>escape</code> shortcut waits while a popover, a menu or a
+              tooltip it is not inside is open: that Escape closes the overlay,
+              the next one runs the shortcut - one Escape does one thing.
             </li>
           </ul>
         </Prose>

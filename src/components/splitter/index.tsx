@@ -10,6 +10,7 @@ import {
 } from "react";
 import cn from "../../utils/cn";
 import logger from "../../utils/logger";
+import { getTabbableElements } from "../../utils/tabbable";
 import { attachRef } from "../../hooks/use-form-control";
 import { formatMessage, toIntlLocale } from "../../i18n/format";
 import { useLocale } from "../../providers/ui-context";
@@ -68,7 +69,10 @@ export interface SplitterProps extends Omit<
    * `vertical` - stacked (give the splitter a height).
    */
   orientation?: "horizontal" | "vertical";
-  /** Classes of every pane - they scroll their content by default. */
+  /**
+   * Classes of every pane - they scroll their content by default, and a
+   * pane that scrolls with nothing to focus in it is a Tab stop.
+   */
   paneClassName?: string;
   /**
    * Names of the panes, by index - a handle is named after the pane before
@@ -150,6 +154,59 @@ function releasePointer(element: Element, pointerId: number) {
     // A pointer that is gone already
   }
 }
+
+/** The sum of the lengths of CSS `properties` of `element`, in pixels. */
+function sumLengths(element: Element, properties: string[]) {
+  const style = getComputedStyle(element);
+  return properties.reduce(
+    (sum, property) =>
+      sum + (parseFloat(style.getPropertyValue(property)) || 0),
+    0,
+  );
+}
+
+/**
+ * The pixels the sizes of the panes are percentages of: the content box of
+ * the splitter without the handles and the gaps between its children, and
+ * without the padding and borders of the panes - which the panes keep at
+ * any size.
+ */
+function measureAvailable(root: HTMLElement, horizontal: boolean) {
+  const [start, end, gap, size] = horizontal
+    ? (["left", "right", "column-gap", "offsetWidth"] as const)
+    : (["top", "bottom", "row-gap", "offsetHeight"] as const);
+  const edges = [
+    `padding-${start}`,
+    `padding-${end}`,
+    `border-${start}-width`,
+    `border-${end}-width`,
+  ];
+  const children = Array.from(root.children);
+  const rect = root.getBoundingClientRect();
+
+  return children.reduce(
+    (available, child) =>
+      available -
+      (child.hasAttribute("data-splitter-handle")
+        ? (child as HTMLElement)[size]
+        : sumLengths(child, edges)),
+    (horizontal ? rect.width : rect.height) -
+      sumLengths(root, edges) -
+      sumLengths(root, [gap]) * Math.max(children.length - 1, 0),
+  );
+}
+
+/**
+ * Whether a pane scrolls with nothing in it to focus - Safari leaves such a
+ * pane out of the Tab order, so the keyboard could not scroll it.
+ */
+const needsTabStop = (pane: HTMLElement) =>
+  (pane.scrollHeight > pane.clientHeight ||
+    pane.scrollWidth > pane.clientWidth) &&
+  getTabbableElements(pane).length === 0;
+
+const sameFlags = (a: readonly boolean[], b: readonly boolean[]) =>
+  a.length === b.length && a.every((flag, index) => flag === b[index]);
 
 /**
  * Keeps the resize cursor over the whole page during a drag, and the text
@@ -326,6 +383,52 @@ export default function Splitter({
     [],
   );
 
+  // The panes that scroll with nothing to focus in them - they get a Tab
+  // stop, so that the keyboard can scroll them in every browser
+  const [scrollablePanes, setScrollablePanes] = useState<readonly boolean[]>(
+    [],
+  );
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+
+    const getPanes = () =>
+      Array.from(
+        root.querySelectorAll<HTMLElement>(":scope > [data-splitter-pane]"),
+      );
+    const update = () => {
+      const next = getPanes().map(needsTabStop);
+      setScrollablePanes((current) =>
+        sameFlags(current, next) ? current : next,
+      );
+    };
+
+    // A pane scrolls once its content outgrows it - the children of the
+    // pane change their size as the content does
+    const resizeObserver = new ResizeObserver(update);
+    const observe = () => {
+      resizeObserver.disconnect();
+      for (const pane of getPanes()) {
+        resizeObserver.observe(pane);
+        for (const child of pane.children) resizeObserver.observe(child);
+      }
+    };
+    // Other content, or content that can take the focus
+    const mutationObserver = new MutationObserver(() => {
+      observe();
+      update();
+    });
+    mutationObserver.observe(root, { childList: true, subtree: true });
+
+    observe();
+    update();
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [count]);
+
   const handlePointerDown = (
     event: React.PointerEvent<HTMLDivElement>,
     handle: number,
@@ -333,16 +436,7 @@ export default function Splitter({
     const root = rootRef.current;
     if (!root || event.button !== 0 || !event.isPrimary) return;
 
-    const handles = root.querySelectorAll<HTMLElement>(
-      ":scope > [data-splitter-handle]",
-    );
-    const handlesSize = Array.from(handles).reduce(
-      (sum, element) =>
-        sum + (horizontal ? element.offsetWidth : element.offsetHeight),
-      0,
-    );
-    const rect = root.getBoundingClientRect();
-    const available = (horizontal ? rect.width : rect.height) - handlesSize;
+    const available = measureAvailable(root, horizontal);
     if (available <= 0) return;
 
     // No text selection, no native drag - the handle takes the focus
@@ -572,16 +666,18 @@ export default function Splitter({
             )}
             <div
               className={cn(
-                "min-h-0 min-w-0 grow-(--splitter-pane-size) basis-0 overflow-auto",
+                "min-h-0 min-w-0 grow-(--splitter-pane-size) basis-0 overflow-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-500",
                 stacks &&
                   "max-md:grow-0 max-md:basis-auto max-md:overflow-visible",
                 // Collapsed also on phones, where the panes are stacked
                 collapsed && stacks && "max-md:hidden",
                 paneClassName,
               )}
+              data-splitter-pane=""
               id={paneId(index)}
               inert={collapsed}
               style={{ "--splitter-pane-size": size } as React.CSSProperties}
+              tabIndex={scrollablePanes[index] ? 0 : undefined}
             >
               {pane}
             </div>

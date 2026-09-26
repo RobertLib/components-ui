@@ -1,5 +1,11 @@
 import { Calendar, Clock, X } from "lucide-react";
-import { useId, useImperativeHandle, useRef, useState } from "react";
+import {
+  useId,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "../form-description";
 import FormError from "../form-error";
@@ -73,8 +79,18 @@ interface PickerFieldProps extends Omit<
    * Such a text is dropped, and a message under the field says why.
    */
   parseText: (text: string) => ParsedText;
+  /**
+   * Values picked in the popup so far (`usePickerPopup`) - a typed text
+   * gives way to each pick, also of the value the field has already.
+   */
+  pickCount: number;
   /** Accessible name of the popup, e.g. "Select date". */
   popupLabel: string;
+  /**
+   * Why the value is out of `min` / `max` - the field is invalid with it,
+   * like a native input (a submit is blocked). `""` for a value in them.
+   */
+  rangeMessage: string;
 }
 
 /**
@@ -112,8 +128,10 @@ export default function PickerField({
   onValueChange,
   panelClassName,
   parseText,
+  pickCount,
   placeholder,
   popupLabel,
+  rangeMessage,
   readOnly,
   required,
   value,
@@ -134,6 +152,7 @@ export default function PickerField({
   // value (a pick in the popup, a reset) replaces it.
   const [text, setText] = useState<string | null>(null);
   const [textValue, setTextValue] = useState(value);
+  const [textPickCount, setTextPickCount] = useState(pickCount);
   // The last typed text that gave no value - said under the field until
   // the typing goes on or the value changes
   const [rejected, setRejected] = useState<{
@@ -142,11 +161,28 @@ export default function PickerField({
   } | null>(null);
   const rejectedId = `${inputId}-rejected`;
 
-  if (value !== textValue) {
+  if (value !== textValue || pickCount !== textPickCount) {
     setTextValue(value);
+    setTextPickCount(pickCount);
     setText(null);
     setRejected(null);
   }
+
+  // A value out of `min` / `max` makes the form invalid, as in a native
+  // input - one of the parent, or a default one. The message the field set
+  // last is the one it clears - one the page set stays.
+  const rangeMessageRef = useRef("");
+
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+
+    if (rangeMessage) input.setCustomValidity(rangeMessage);
+    else if (input.validationMessage === rangeMessageRef.current) {
+      input.setCustomValidity("");
+    }
+    rangeMessageRef.current = rangeMessage;
+  }, [inputRef, rangeMessage]);
 
   useImperativeHandle(fieldRef, () => inputRef.current as HTMLInputElement, [
     inputRef,

@@ -249,9 +249,10 @@ export interface CalendarViewProps {
   /** An event tile was clicked. */
   onEventClick?: (event: CalendarEvent) => void;
   /**
-   * Moves the calendar to another date - Page Up / Down of the month view.
+   * Moves the calendar to another date - Page Up / Down of the month view;
+   * not to a period out of `minDate` - `maxDate`. Returns whether it moved.
    */
-  onNavigate?: (date: Date) => void;
+  onNavigate?: (date: Date) => boolean;
   /** An event was dragged to another time or day. */
   onEventDrop?: (change: EventTimeChange) => void;
   /** An event was resized by its top or bottom edge. */

@@ -125,6 +125,60 @@ function watchValueWrites(element: FieldElement, onWrite: () => void) {
   };
 }
 
+// Reset events that reached the root of their form's document - settled
+// there by each watcher of the form
+const resetsAtRoot = new WeakSet<Event>();
+// Reset events a task waits for, in case a listener stops them on their way
+// to the root
+const resetsAwaited = new WeakSet<Event>();
+// The callbacks watching the resets of a form. A field rendered with a new
+// ref during a reset (a state update of `onReset` renders before the event
+// reaches the root) watches anew - the watchers alive at the end count.
+const resetWatchers = new WeakMap<HTMLFormElement, Set<() => void>>();
+
+/**
+ * Calls `onReset` after a reset of `form` that was not canceled. The event
+ * reaches the form before the listeners of the page - a React `onReset`
+ * that calls `preventDefault()` runs at the root - so it is settled once it
+ * reaches the root of the form's document, or a task later when a listener
+ * stopped it on its way there. Returns what stops the watch.
+ */
+function watchFormReset(form: HTMLFormElement, onReset: () => void) {
+  const root = form.getRootNode();
+  const watchers = resetWatchers.get(form) ?? new Set();
+  resetWatchers.set(form, watchers);
+  // A function of its own - the same callback may watch twice
+  const watcher = () => onReset();
+  watchers.add(watcher);
+
+  const handleFormReset = (event: Event) => {
+    if (resetsAwaited.has(event)) return;
+    resetsAwaited.add(event);
+
+    setTimeout(() => {
+      if (resetsAtRoot.has(event) || event.defaultPrevented) return;
+      for (const current of resetWatchers.get(form) ?? []) current();
+    });
+  };
+
+  // By its target, not by an event seen at the form - a watcher that
+  // started while the event was on its way still gets it here
+  const handleRootReset = (event: Event) => {
+    if (event.target !== form) return;
+    resetsAtRoot.add(event);
+    if (!event.defaultPrevented) onReset();
+  };
+
+  form.addEventListener("reset", handleFormReset);
+  root.addEventListener("reset", handleRootReset);
+
+  return () => {
+    watchers.delete(watcher);
+    form.removeEventListener("reset", handleFormReset);
+    root.removeEventListener("reset", handleRootReset);
+  };
+}
+
 /** Whether `element` shows a value of its own - not a checkbox or a radio. */
 const holdsValue = (element: FieldElement) =>
   !(
@@ -144,7 +198,8 @@ const sameValue = (a: FieldValue | undefined, b: FieldValue | undefined) =>
  * group): it keeps the field's own `ref` prop working, and makes a form
  * reset - `form.reset()`, also the one after a React form action - bring
  * back the `defaultValue` of an uncontrolled field and leave a controlled one
- * showing its `value`.
+ * showing its `value`. A reset a listener cancels (`preventDefault()`)
+ * changes nothing, as in a native field.
  *
  * With `followScriptWrites`, for an element that shows the value itself (an
  * input, a textarea, a select), a value a script writes into an uncontrolled
@@ -238,11 +293,13 @@ export function useFormControl<T extends FieldElement = FieldElement>({
       const detachRef = attachRef(ref, element);
 
       if (element) elements.current.add(element);
-      form?.addEventListener("reset", handleReset);
+      const stopResetWatch = form
+        ? watchFormReset(form, handleReset)
+        : undefined;
 
       return () => {
         if (element) elements.current.delete(element);
-        form?.removeEventListener("reset", handleReset);
+        stopResetWatch?.();
         detachRef();
         stopWatching?.();
       };
@@ -300,11 +357,17 @@ export function useCheckedControl({
   ref,
 }: {
   checked?: boolean;
-  /** Left alone when `undefined` - the page may set it itself. */
+  /**
+   * Left alone while `undefined` - the page may set it itself - after
+   * clearing it once when it goes from `true` to `undefined`
+   * (`indeterminate={partly || undefined}`).
+   */
   indeterminate?: boolean;
   ref?: React.Ref<HTMLInputElement>;
 }) {
   const element = useRef<HTMLInputElement | null>(null);
+  // Whether the last render made the checkbox partly checked
+  const wasIndeterminate = useRef(false);
 
   const checkboxRef = useCallback(
     (checkbox: HTMLInputElement | null) => {
@@ -325,8 +388,14 @@ export function useCheckedControl({
 
     if (checked !== undefined) setDefaultChecked(checkbox, checked);
 
-    // A click clears it - every render puts it back while the prop says so
-    if (indeterminate !== undefined) checkbox.indeterminate = indeterminate;
+    // A click clears it - every render puts it back while the prop says so.
+    // The prop going away takes back the partly checked state it set.
+    if (indeterminate !== undefined) {
+      checkbox.indeterminate = indeterminate;
+    } else if (wasIndeterminate.current) {
+      checkbox.indeterminate = false;
+    }
+    wasIndeterminate.current = indeterminate === true;
   });
 
   return checkboxRef;
@@ -395,8 +464,11 @@ function findForm(element: Element, formId: string) {
 
 /**
  * Calls `onReset` when the form around an element is reset - `form.reset()`,
- * a reset button, or React after a form action. For fields that keep their
- * value outside of a native form control (hidden inputs, `contentEditable`).
+ * a reset button, or React after a form action - once the reset event has
+ * passed the listeners of the page; not for a reset one of them canceled
+ * (`preventDefault()`), which leaves native fields alone too. For fields that
+ * keep their value outside of a native form control (hidden inputs,
+ * `contentEditable`).
  *
  * Put the returned ref on an element inside the form (a field element also
  * follows its `form` attribute) - or anywhere, with the id of the form as
@@ -421,10 +493,7 @@ export function useFormReset(onReset: () => void, formId?: string) {
             : element.closest("form");
       if (!form) return;
 
-      const handleReset = () => onResetRef.current();
-      form.addEventListener("reset", handleReset);
-
-      return () => form.removeEventListener("reset", handleReset);
+      return watchFormReset(form, () => onResetRef.current());
     },
     [formId],
   );

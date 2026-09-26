@@ -9,7 +9,7 @@ import {
   getCalendarDay,
   getVisibleRange,
 } from "./date-utils";
-import { createDayFormat, isOnDay } from "./utils";
+import { createDayFormat, isOnDay, revealFocus } from "./utils";
 import {
   addMonths,
   dateOf,
@@ -122,6 +122,9 @@ export default function MonthView({
   const [focusedMonth, setFocusedMonth] = useState(currentDate);
   const moveFocusRef = useRef(false);
   const gridRef = useRef<HTMLDivElement>(null);
+  // The weekdays stay on top of the scrolling month - the focus below them
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
 
   if (
     focusedMonth.getMonth() !== currentDate.getMonth() ||
@@ -141,10 +144,29 @@ export default function MonthView({
   }, [focusedDate]);
 
   // A day button focused by a click or a screen reader - the tab stop and
-  // the arrow keys go on from it
+  // the arrow keys go on from it. One focused by the keyboard shows below
+  // the weekdays.
   const handleGridFocus = (event: React.FocusEvent) => {
+    revealFocus(
+      event.target,
+      scrollRef.current,
+      stickyHeader ? (headerRef.current?.offsetHeight ?? 0) : 0,
+    );
+
     const day = dayOf(event.target);
     if (day && !isSameDay(day, focusedDate)) setFocusedDate(day);
+  };
+
+  // The focus left the grid - for the header, the date field. A month that
+  // Page Up / Down asked for and a controlled `currentDate` did not take
+  // must not pull it back when the month changes another way.
+  const handleGridBlur = (event: React.FocusEvent) => {
+    if (!(
+      event.relatedTarget instanceof Node &&
+      event.currentTarget.contains(event.relatedTarget)
+    )) {
+      moveFocusRef.current = false;
+    }
   };
 
   const handleGridKeyDown = (event: React.KeyboardEvent) => {
@@ -159,8 +181,10 @@ export default function MonthView({
       if (!onNavigate) return;
       const offset =
         (event.key === "PageUp" ? -1 : 1) * (event.shiftKey ? 12 : 1);
+      // The day of the new month takes the focus - unless the calendar
+      // stays, at `minDate` / `maxDate`
       moveFocusRef.current = true;
-      onNavigate(addMonths(day, offset));
+      if (!onNavigate(addMonths(day, offset))) moveFocusRef.current = false;
       return;
     }
 
@@ -200,6 +224,7 @@ export default function MonthView({
         "relative",
         stickyHeader ? "h-150 overflow-y-auto" : "h-full",
       )}
+      ref={scrollRef}
     >
       {/* Loading overlay */}
       {loading && (
@@ -218,6 +243,7 @@ export default function MonthView({
             "grid grid-cols-7 border-b border-neutral-200 dark:border-neutral-800",
             stickyHeader && "sticky top-0 z-10 bg-surface dark:bg-surface-dark",
           )}
+          ref={headerRef}
           role="row"
         >
           {weekdayNames.map((day, index) => (
@@ -234,6 +260,7 @@ export default function MonthView({
 
         <div
           className={cn("grid grid-rows-6", !stickyHeader && "h-full")}
+          onBlur={handleGridBlur}
           onFocus={handleGridFocus}
           onKeyDown={handleGridKeyDown}
           ref={gridRef}

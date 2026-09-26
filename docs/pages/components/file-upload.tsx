@@ -13,6 +13,7 @@ const upload: FileUploadProps["upload"] = async (file, { onProgress, signal }) =
     body: JSON.stringify({ filename: file.name, contentType: file.type }),
     signal,
   });
+  if (!response.ok) throw new Error(\`Upload refused: \${response.status}\`);
   const { uploadUrl, signedId } = await response.json();
 
   await uploadWithProgress(uploadUrl, file, {

@@ -76,12 +76,17 @@ export default function DateRangePickerPage() {
             <code>1.9.2026 30.9.2026</code>) - also days in ISO 8601 (
             <code>2026-09-01/2026-09-30</code>). A year left out comes from the
             other day: <code>28.12. – 3.1.</code> ends in the next year,{" "}
-            <code>28.12. – 3.1.2027</code> starts in the one before. A reversed
-            pair is swapped, and one day alone is a range of that day. Enter or
-            leaving the field takes the text; one that is no allowed range (a
-            day that does not exist, out of <code>min</code> / <code>max</code>,
-            too short or too long) is dropped - the field shows the range again,
-            and a message under it says why.
+            <code>28.12. – 3.1.2027</code> starts in the one before. The month
+            may be written once, where the date format has it, with a dash, a
+            word or a space between the days: <code>24.–30.9.2026</code> or{" "}
+            <code>24 - 30.9.</code> in Czech; in English with the year or a word
+            (<code>9/24 – 30/2026</code>, <code>9/24 to 30</code>) -{" "}
+            <code>9/24 - 30</code> is the day September 24, 2030, of a two-digit
+            year. A reversed pair is swapped, and one day alone is a range of
+            that day. Enter or leaving the field takes the text; one that is no
+            allowed range (a day that does not exist, out of <code>min</code> /{" "}
+            <code>max</code>, too short or too long) is dropped - the field
+            shows the range again, and a message under it says why.
           </p>
         </Prose>
       </Section>
@@ -140,11 +145,13 @@ export default function DateRangePickerPage() {
         description={
           <p>
             <code>min</code> / <code>max</code> (<code>YYYY-MM-DD</code>)
-            disable the days outside them. <code>minDays</code> /{" "}
-            <code>maxDays</code> limit the length of the range, counting both
-            ends (a week is 7 days): once the first day is picked, the days that
-            would make the range too short or too long cannot end it - they can
-            still take the keyboard focus, so the arrow keys move over them.
+            disable the days outside them, and a range reaching out of them - a
+            default one or one of the parent - makes the field invalid, as with
+            a native date input. <code>minDays</code> / <code>maxDays</code>{" "}
+            limit the length of the range, counting both ends (a week is 7
+            days): once the first day is picked, the days that would make the
+            range too short or too long cannot end it - they can still take the
+            keyboard focus, so the arrow keys move over them.
           </p>
         }
         name="date-range-picker/limits"
@@ -156,11 +163,11 @@ export default function DateRangePickerPage() {
           <p>
             <code>startName</code> and <code>endName</code> submit the days in
             hidden inputs, <code>name</code> the range as one ISO 8601 interval
-            - an empty value without a range. <code>required</code> is enforced
-            by the browser, <code>form.reset()</code> brings back the{" "}
-            <code>defaultValue</code> (a controlled picker keeps its{" "}
-            <code>value</code>), and <code>form</code> ties the picker to a form
-            elsewhere in the page.
+            - an empty value without a range. <code>required</code>,{" "}
+            <code>min</code> and <code>max</code> are enforced by the browser,{" "}
+            <code>form.reset()</code> brings back the <code>defaultValue</code>{" "}
+            (a controlled picker keeps its <code>value</code>), and{" "}
+            <code>form</code> ties the picker to a form elsewhere in the page.
           </p>
         }
         name="date-range-picker/form"

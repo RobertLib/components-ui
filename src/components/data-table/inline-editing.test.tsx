@@ -64,6 +64,10 @@ const cell = (row: number, column: number) =>
     within(screen.getAllByRole("rowgroup")[1]).getAllByRole("row")[row],
   ).getAllByRole("cell")[column];
 
+/** What the table announced last about a refused change. */
+const announcement = () =>
+  document.querySelector('[aria-live="assertive"]')?.textContent;
+
 /** A table that saves the edits into its rows, like an app would. */
 function EditableTable({
   onCellEdit,
@@ -227,20 +231,19 @@ describe("DataTable inline editing", () => {
     await act(async () => fail(new Error("The name is taken.")));
 
     expect(cell(0, 0)).not.toHaveAttribute("aria-busy");
-    expect(cell(0, 0)).toHaveTextContent("Adam");
-    expect(within(cell(0, 0)).getByRole("alert")).toHaveTextContent(
-      "The name is taken.",
-    );
+    expect(cell(0, 0)).toHaveTextContent(/^AdamThe name is taken\.$/);
+    // Announced by the table, and the description of the cell
+    expect(announcement()).toBe("The name is taken.");
+    expect(cell(0, 0)).toHaveAccessibleDescription(/The name is taken\./);
 
     // Another try forgets the message; a failure without one says so generally
     await user.dblClick(cell(0, 0));
-    expect(within(cell(0, 0)).queryByRole("alert")).toBeNull();
+    expect(cell(0, 0)).not.toHaveTextContent("The name is taken.");
     await user.keyboard("{Control>}a{/Control}Iva{Enter}");
     await act(async () => fail(undefined));
 
-    expect(within(cell(0, 0)).getByRole("alert")).toHaveTextContent(
-      "The change could not be saved.",
-    );
+    expect(cell(0, 0)).toHaveTextContent("The change could not be saved.");
+    expect(announcement()).toBe("The change could not be saved.");
   });
 
   it("shows the old value and the message when an optimistic update fails", async () => {
@@ -271,11 +274,8 @@ describe("DataTable inline editing", () => {
     await user.keyboard("{Control>}a{/Control}Eva{Enter}");
 
     await waitFor(() =>
-      expect(within(cell(0, 0)).getByRole("alert")).toHaveTextContent(
-        "The name is taken.",
-      ),
+      expect(cell(0, 0)).toHaveTextContent(/^AdamThe name is taken\.$/),
     );
-    expect(cell(0, 0)).toHaveTextContent(/^AdamThe name is taken\.$/);
     // Editing starts from the value shown
     await user.dblClick(cell(0, 0));
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Adam");
@@ -312,8 +312,94 @@ describe("DataTable inline editing", () => {
     await act(async () => fail(new Error("Offline")));
 
     expect(cell(0, 0)).not.toHaveAttribute("aria-busy");
-    expect(cell(0, 0)).toHaveTextContent("Adam");
-    expect(within(cell(0, 0)).getByRole("alert")).toHaveTextContent("Offline");
+    expect(cell(0, 0)).toHaveTextContent(/^AdamOffline$/);
+  });
+
+  it("drops a refusal once the cell holds another value, and announces it once", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const onCellEdit = () => Promise.reject(new Error("Refused."));
+    const { rerender } = render(
+      <DataTable
+        columns={columns}
+        data={rows}
+        defaultQuery={{ pageSize: 1 }}
+        onCellEdit={onCellEdit}
+      />,
+    );
+
+    await user.dblClick(cell(0, 0));
+    await user.keyboard("{Control>}a{/Control}Eva{Enter}");
+    await waitFor(() => expect(cell(0, 0)).toHaveTextContent("Refused."));
+    // Plain text in the cell - a row rendered again is announced nothing
+    expect(within(cell(0, 0)).queryByRole("alert")).toBeNull();
+    const region = document.querySelector('[aria-live="assertive"]');
+    const announced = region?.firstChild;
+    expect(announced).toHaveTextContent("Refused.");
+
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    expect(cell(0, 0)).toHaveTextContent("Refused.");
+    expect(region?.firstChild).toBe(announced);
+
+    // Much later another user renames the row - a refetch brings it
+    rerender(
+      <DataTable
+        columns={columns}
+        data={[{ ...rows[0], name: "Bob" }, rows[1]]}
+        defaultQuery={{ pageSize: 1 }}
+        onCellEdit={onCellEdit}
+      />,
+    );
+    expect(cell(0, 0)).toHaveTextContent(/^Bob$/);
+    // Nor does the table keep the refusal as its text, read in browse mode
+    expect(region).toHaveTextContent("");
+  });
+
+  it("clears the announcement of a refusal once it was announced", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      render(
+        <DataTable
+          columns={columns}
+          data={rows}
+          onCellEdit={() => Promise.reject(new Error("Refused."))}
+        />,
+      );
+
+      fireEvent.doubleClick(cell(0, 0));
+      const field = screen.getByRole("textbox", { name: "Name" });
+      fireEvent.change(field, { target: { value: "Eva" } });
+      fireEvent.keyDown(field, { key: "Enter" });
+      await act(async () => {});
+      expect(announcement()).toBe("Refused.");
+
+      act(() => vi.advanceTimersByTime(5000));
+      expect(announcement()).toBe("");
+      expect(cell(0, 0)).toHaveTextContent(/^AdamRefused\.$/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves an Enter ending an IME composition to the input method", async () => {
+    const user = userEvent.setup();
+    const onCellEdit = vi.fn();
+    render(<DataTable columns={columns} data={rows} onCellEdit={onCellEdit} />);
+
+    await user.dblClick(cell(0, 0));
+    const field = screen.getByRole("textbox", { name: "Name" });
+    fireEvent.change(field, { target: { value: "にほん" } });
+
+    fireEvent.keyDown(field, { isComposing: true, key: "Enter" });
+    // Safari sends the key ending the composition after it
+    fireEvent.keyDown(field, { key: "Enter", keyCode: 229 });
+    expect(field).toBeInTheDocument();
+    expect(onCellEdit).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(field, { key: "Enter", keyCode: 13 });
+    expect(onCellEdit).toHaveBeenCalledWith(rows[0], "name", "にほん");
   });
 
   it("shows a saved value over a refetch that does not have it yet", async () => {

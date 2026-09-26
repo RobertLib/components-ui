@@ -6,6 +6,7 @@ import sanitizeRichText, {
   sanitizeRichTextParagraphs,
   type RichTextFormat,
 } from "./sanitize-rich-text";
+import { fuzzSanitizer } from "../test/sanitize-fuzz";
 
 // The formats of the editor before tables, lists and headings
 const BASIC: RichTextFormat[] = ["bold", "italic", "link"];
@@ -347,6 +348,28 @@ describe("sanitizeRichText of pasted content", () => {
     );
   });
 
+  it("makes a list paragraph inside another one part of its item", () => {
+    // Word never nests them - nested hundreds deep, each moved all the ones
+    // inside it again, which took a server with jsdom minutes
+    const item = (text: string) =>
+      `<div style="mso-list:l1 level1"><span style="mso-list:Ignore">1.</span>${text}`;
+    expect(sanitizeRichText(item("One") + item("Two"))).toBe(
+      "<ol><li>One<br>Two</li></ol>",
+    );
+
+    const time = (html: string) => {
+      const start = performance.now();
+      sanitizeRichText(html);
+      return performance.now() - start;
+    };
+    const nested = time(item("x").repeat(700));
+    // The same nesting without the lists of Word
+    const plain = time(
+      '<div style="color:red"><span style="color:blue">1.</span>x'.repeat(700),
+    );
+    expect(nested).toBeLessThan(plain * 4 + 100);
+  });
+
   it("reads the text styles of other editors", () => {
     expect(
       sanitizeRichText(
@@ -474,6 +497,10 @@ describe("sanitizeRichText of hostile content", () => {
     expect(
       count(sanitizeRichText(`<ul><li>${"<div>".repeat(95)}${lines}`), "br"),
     ).toBe(3_000);
+  });
+
+  it("keeps random hostile markup to the allowed elements, the same again", () => {
+    expect(fuzzSanitizer(300)).toEqual([]);
   });
 
   it("copies long runs of nodes", () => {

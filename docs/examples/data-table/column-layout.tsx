@@ -19,6 +19,7 @@ export default function ColumnLayout() {
 
   return (
     <DataTable
+      aria-label="People with pinned columns"
       clientSide
       columns={columns}
       data={people}

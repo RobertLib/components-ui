@@ -77,6 +77,7 @@ export default function InlineEditing() {
 
   return (
     <DataTable
+      aria-label="Employees"
       clientSide
       columns={columns}
       data={rows}

@@ -135,8 +135,11 @@ export interface TreeViewProps<T extends TreeItem = TreeItem> extends Omit<
   /**
    * `single` - a click, Enter or Space selects an item; `multiple` - they
    * toggle it, Shift selects a range and Ctrl / ⌘ + A all; `none` - nothing
-   * is selected, a click toggles a parent. Defaults to `single`, in a
-   * `checkable` tree to `none`.
+   * is selected, a click toggles a parent. Defaults to `single` - to `none`
+   * in a `checkable` tree, and in a navigation: a tree of links (items with
+   * `href`) without `selected`, `defaultSelected`, `onSelectedChange` and
+   * `name`. The links of `items` decide it - links that `loadChildren`
+   * brings later leave a tree of folders selecting.
    */
   selectionMode?: "none" | "single" | "multiple";
 }
@@ -162,6 +165,11 @@ const encodeId = (id: TreeItemId) =>
   typeof id === "number"
     ? `n${id}`
     : `s${id.replace(/[^a-zA-Z0-9-]/g, (char) => `_${char.charCodeAt(0).toString(16)}`)}`;
+
+/** Whether any of the items given - not those loaded later - is a link. */
+function hasLinks(items: readonly TreeItem[]): boolean {
+  return items.some((item) => item.href || hasLinks(item.children ?? []));
+}
 
 /** Indentation of the rows of a level - the chevron column of each level. */
 const indent = (level: number) => `${(level - 1) * 1.25 + 0.25}rem`;
@@ -242,11 +250,25 @@ export default function TreeView<T extends TreeItem>({
   const messages = useMessages();
   const { Link, pathname, search } = useRouter();
   const baseId = useId();
-  const selectionMode = selectionModeProp ?? (checkable ? "none" : "single");
 
   const { forgetError, forgetErrors, load, loads } =
     useLazyChildren(loadChildren);
   const index = indexTree(items, loads, disabled);
+
+  // A tree of links given nothing to select is a navigation: the item of
+  // the current page is marked, and a click follows its link without
+  // selecting it - a selected item would stay marked as a second current
+  // page once the page changes elsewhere (the back button). Only by the
+  // links of `items`: links that `loadChildren` brings later do not switch
+  // how a tree of folders behaves while it is used.
+  const isNavigation =
+    selectedProp === undefined &&
+    defaultSelected === undefined &&
+    !onSelectedChange &&
+    name === undefined &&
+    hasLinks(items);
+  const selectionMode =
+    selectionModeProp ?? (checkable || isNavigation ? "none" : "single");
 
   // The item of the current page - its ancestors expand
   const currentId = findCurrentItem(index.byId, pathname, search);
@@ -287,7 +309,9 @@ export default function TreeView<T extends TreeItem>({
   const selectedIds: readonly TreeItemId[] = isSelectedControlled
     ? selectedProp
     : internalSelected;
-  const selectedSet = new Set(selectedIds);
+  // A tree that selects nothing shows no selection - also of a `selected`
+  const selectedSet =
+    selectionMode === "none" ? EMPTY_IDS : new Set(selectedIds);
 
   // Checked
   const isCheckedControlled = checkedProp !== undefined;

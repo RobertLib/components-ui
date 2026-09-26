@@ -159,6 +159,46 @@ describe("Slider", () => {
     expect(onChange).toHaveBeenLastCalledWith(20);
   });
 
+  it("goes up to the last step within a max off the steps", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <Slider
+        aria-label="Volume"
+        defaultValue={6}
+        max={10}
+        onChange={onChange}
+        step={3}
+      />,
+    );
+
+    await user.tab();
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+    expect(screen.getByRole("slider")).toHaveAttribute("aria-valuenow", "9");
+    // End stays there - it does not move the thumb back
+    await user.keyboard("{End}");
+    expect(screen.getByRole("slider")).toHaveAttribute("aria-valuenow", "9");
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a value of the parent past the last step going up", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <Slider
+        aria-label="Volume"
+        max={10}
+        onChange={onChange}
+        step={3}
+        value={10}
+      />,
+    );
+
+    await user.tab();
+    await user.keyboard("{ArrowRight}{End}");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   describe("range", () => {
     it("names the two thumbs and bounds them by each other", () => {
       render(<Slider defaultValue={[20, 80]} label="Price" minDistance={10} />);
@@ -551,6 +591,22 @@ describe("Slider", () => {
     act(() => getForm().reset());
     expect(screen.getByRole("slider")).toHaveAttribute("aria-valuenow", "30");
     expect(new FormData(getForm()).get("volume")).toBe("30");
+  });
+
+  it("keeps its value when a listener cancels the form reset", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Settings" onReset={(event) => event.preventDefault()}>
+        <Slider aria-label="Volume" defaultValue={30} name="volume" />
+      </form>,
+    );
+
+    screen.getByRole("slider").focus();
+    await user.keyboard("{ArrowUp}");
+
+    act(() => getForm().reset());
+    expect(screen.getByRole("slider")).toHaveAttribute("aria-valuenow", "31");
+    expect(new FormData(getForm()).get("volume")).toBe("31");
   });
 
   it("writes the values of a fine step with all their digits", () => {

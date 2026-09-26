@@ -3,6 +3,7 @@ import PickerField from "./picker-field";
 import TimeLists from "./time-lists";
 import {
   clampValue,
+  getRangeMessage,
   isInRange,
   normalizeDateTime,
   parseDisplayValue,
@@ -21,10 +22,6 @@ import {
 import { useLocale } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
 
-/** `date` (`YYYY-MM-DD`) at `hours:minutes` - `null` without a date. */
-const withTime = (date: string | null, hours: string, minutes: string) =>
-  date && `${date}T${hours}:${minutes}`;
-
 /** `type="datetime-local"` - value `YYYY-MM-DDTHH:mm`. */
 export default function DateTimePanelPicker({
   max,
@@ -42,8 +39,10 @@ export default function DateTimePanelPicker({
     contentRef,
     inputRef,
     isOpen,
+    markPicked,
     onOpenChange,
     openedByKeyboard,
+    pickCount,
   } = usePickerPopup(!props.disabled && !props.readOnly);
 
   const dayPeriods = getDayPeriods(locale.code);
@@ -57,52 +56,61 @@ export default function DateTimePanelPicker({
   // A limit without a time allows its whole day
   const minValue = normalizeDateTime(min, "00:00");
   const maxValue = normalizeDateTime(max, "23:59");
+  const minDay = minValue?.slice(0, 10);
+  const maxDay = maxValue?.slice(0, 10);
 
   // The day the time lists set - without a picked one today, moved into the
   // allowed days. Local date - toISOString() would give the UTC one.
-  const day =
-    datePart ||
-    clampValue(
-      toISODate(new Date()),
-      minValue?.slice(0, 10),
-      maxValue?.slice(0, 10),
-    );
+  const day = datePart || clampValue(toISODate(new Date()), minDay, maxDay);
 
   // The time part of a limit applies on its own day only
   const timeLimit = (limit: string | undefined) =>
     limit?.startsWith(day) ? limit.slice(11) : undefined;
 
-  // Kept inside the range, on the minute step
-  const change = (date: string, newHours: string, newMinutes: string) =>
-    onValueChange(
-      snapDateTime(
-        clampValue(`${date}T${newHours}:${newMinutes}`, minValue, maxValue),
-        minuteStep,
-        minValue,
-        maxValue,
-      ),
+  // `date` at a time - kept inside the range, on the minute step
+  const toAllowed = (date: string, newHours: string, newMinutes: string) =>
+    snapDateTime(
+      clampValue(`${date}T${newHours}:${newMinutes}`, minValue, maxValue),
+      minuteStep,
+      minValue,
+      maxValue,
     );
 
-  const displayValue = selectedDate
-    ? formatPattern(
-        locale.formats.dateTime,
-        {
-          day: selectedDate.getDate(),
-          hours: Number(hours),
-          minutes: Number(minutes),
-          month: selectedDate.getMonth() + 1,
-          year: selectedDate.getFullYear(),
-        },
-        dayPeriods,
-      )
-    : "";
+  // A day or a time picked in the popup
+  const change = (date: string, newHours: string, newMinutes: string) => {
+    markPicked();
+    onValueChange(toAllowed(date, newHours, newMinutes));
+  };
+
+  /** A date-time (`YYYY-MM-DDTHH:mm`) as the field shows it. */
+  const formatValue = (dateTime: string) => {
+    const date = parseISODate(dateTime);
+    const parts = parseTime(dateTime.slice(11));
+    return date
+      ? formatPattern(
+          locale.formats.dateTime,
+          {
+            day: date.getDate(),
+            hours: Number(parts?.hours ?? 0),
+            minutes: Number(parts?.minutes ?? 0),
+            month: date.getMonth() + 1,
+            year: date.getFullYear(),
+          },
+          dayPeriods,
+        )
+      : dateTime;
+  };
+
+  const selectedValue = selectedDate
+    ? `${toISODate(selectedDate)}T${hours}:${minutes}`
+    : undefined;
 
   return (
     <PickerField
       {...props}
       ariaLabel={props.ariaLabel ?? messages.openCalendar}
       contentRef={contentRef}
-      displayValue={displayValue}
+      displayValue={selectedValue ? formatValue(selectedValue) : ""}
       format={formatPlaceholder(
         locale.formats.dateTime,
         messages.placeholderTokens,
@@ -114,27 +122,36 @@ export default function DateTimePanelPicker({
       onOpenChange={onOpenChange}
       onValueChange={onValueChange}
       parseText={(text) => {
-        const typed =
-          parseDisplayValue(
-            text,
-            locale.formats.dateTime,
-            "datetime-local",
-            dayPeriods,
-          ) ??
-          // A day alone keeps the time - like a day picked in the popup
-          withTime(
-            parseDisplayValue(text, locale.formats.date, "date"),
-            hours,
-            minutes,
-          );
-        if (!typed) return { error: "format" };
-        // An allowed date-time goes onto the minute step
-        return isInRange(typed, minValue, maxValue)
-          ? { value: snapDateTime(typed, minuteStep, minValue, maxValue) }
+        const typed = parseDisplayValue(
+          text,
+          locale.formats.dateTime,
+          "datetime-local",
+          dayPeriods,
+        );
+        if (typed) {
+          // An allowed date-time goes onto the minute step
+          return isInRange(typed, minValue, maxValue)
+            ? { value: snapDateTime(typed, minuteStep, minValue, maxValue) }
+            : { error: "range" };
+        }
+
+        // A day alone is taken like a day picked in the popup: with the
+        // time it had, moved into `min` / `max` on their days
+        const typedDay = parseDisplayValue(text, locale.formats.date, "date");
+        if (!typedDay) return { error: "format" };
+        return isInRange(typedDay, minDay, maxDay)
+          ? { value: toAllowed(typedDay, hours, minutes) }
           : { error: "range" };
       }}
+      pickCount={pickCount}
       placeholder={placeholder}
       popupLabel={messages.selectDateTime}
+      rangeMessage={getRangeMessage(
+        messages,
+        selectedValue,
+        { max: maxValue, min: minValue },
+        formatValue,
+      )}
       value={value}
     >
       {/* Side by side from the `sm` breakpoint up, stacked on phones */}

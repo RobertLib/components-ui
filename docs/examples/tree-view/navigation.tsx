@@ -36,7 +36,8 @@ export default function Navigation() {
   return (
     <DemoRouter className="max-w-xs" initialPath="/sales/invoices">
       <nav aria-label="Sections">
-        <TreeView aria-label="Sections" items={sections} selectionMode="none" />
+        {/* A tree of links selects nothing - the current page is marked */}
+        <TreeView aria-label="Sections" items={sections} />
       </nav>
     </DemoRouter>
   );

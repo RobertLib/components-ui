@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createDataTableQuery,
   DEFAULT_PAGE_SIZE_OPTIONS,
+  isSameQuery,
   readQueryFromSearch,
   writeQueryToSearch,
   type DataTableQuery,
@@ -99,6 +100,22 @@ function documentHash(pathname: string) {
 }
 
 /**
+ * `query`, as the same object while it asks for the same rows - an app
+ * fetching in `useEffect(…, [query])` must not fetch again when only other
+ * parameters of the URL change (another table's, the app's).
+ */
+function useSameQuery(query: DataTableQuery | null) {
+  const [previous, setPrevious] = useState(query);
+  const isSame =
+    previous === query ||
+    (previous !== null && query !== null && isSameQuery(previous, query));
+
+  if (!isSame) setPrevious(query);
+
+  return isSame ? previous : query;
+}
+
+/**
  * State for a controlled `DataTable` - in React state, or in the URL with
  * `syncWithUrl`:
  *
@@ -134,7 +151,7 @@ export default function useDataTableQuery({
     createDataTableQuery(stableDefaults),
   );
 
-  const urlQuery = useMemo(
+  const parsedUrlQuery = useMemo(
     () =>
       syncWithUrl
         ? readQueryFromSearch(routerSearch, {
@@ -145,6 +162,7 @@ export default function useDataTableQuery({
         : null,
     [routerSearch, stablePageSizes, stableDefaults, syncWithUrl, urlPrefix],
   );
+  const urlQuery = useSameQuery(parsedUrlQuery);
 
   // Read by `setQuery`, which may run several times before a re-render - and
   // before a router that updates `search` asynchronously catches up
@@ -182,9 +200,11 @@ export default function useDataTableQuery({
   const setQuery = useCallback<SetDataTableQuery>(
     (next) => {
       if (!syncWithUrl) {
-        setLocalQuery((previous) =>
-          typeof next === "function" ? next(previous) : next,
-        );
+        setLocalQuery((previous) => {
+          const resolved = typeof next === "function" ? next(previous) : next;
+          // An equal query keeps the object - and fetches nothing again
+          return isSameQuery(previous, resolved) ? previous : resolved;
+        });
         return;
       }
 

@@ -62,6 +62,29 @@ describe("CollapsibleContent", () => {
     expect(content?.style.height).toBe("auto");
   });
 
+  it.each([0, 5])(
+    "ends an opening of %i ms at the natural height",
+    (duration) => {
+      vi.useFakeTimers();
+      const { rerender } = render(
+        <CollapsibleContent duration={duration} id="content" isOpen={false}>
+          Details
+        </CollapsibleContent>,
+      );
+      rerender(
+        <CollapsibleContent duration={duration} id="content" isOpen>
+          Details
+        </CollapsibleContent>,
+      );
+      act(() => vi.advanceTimersByTime(20));
+
+      // Not the height measured for the animation, which comes after 10 ms
+      const content = document.getElementById("content");
+      expect(content?.style.height).toBe("auto");
+      expect(content?.style.overflow).toBe("");
+    },
+  );
+
   it("clips the content only while it animates", () => {
     vi.useFakeTimers();
     const { rerender } = render(<Example isOpen onHeight={() => {}} />);

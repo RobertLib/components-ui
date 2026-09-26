@@ -9,6 +9,7 @@ const columns = personColumns.slice(0, 5);
 export default function Density() {
   return (
     <DataTable
+      aria-label="People in compact rows"
       clientSide
       columns={columns}
       data={people}

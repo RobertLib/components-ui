@@ -16,7 +16,9 @@ export default function SliderPage() {
         description={
           <p>
             A value between <code>min</code> and <code>max</code> on steps of{" "}
-            <code>step</code>. <code>formatValue</code> writes it - above the
+            <code>step</code> - as in a native range input, the largest value is
+            the last step within <code>max</code> (9 with a <code>max</code> of
+            10 and steps of 3). <code>formatValue</code> writes it - above the
             thumb while it is dragged, hovered or focused from the keyboard,
             next to the label with <code>showValue</code>, and for screen
             readers (<code>aria-valuetext</code>).{" "}

@@ -76,12 +76,16 @@ export default function CollapsibleContent({
       );
 
       // After animation completes, remove fixed height - and the clipping,
-      // which would cut the focus rings at the edges of the content
+      // which would cut the focus rings at the edges of the content. Not
+      // before the height above is set, which would then stay for good.
       timers.push(
-        setTimeout(() => {
-          element.style.height = "auto";
-          element.style.overflow = "";
-        }, duration),
+        setTimeout(
+          () => {
+            element.style.height = "auto";
+            element.style.overflow = "";
+          },
+          Math.max(duration, 10),
+        ),
       );
     } else {
       // If closing, first set fixed height

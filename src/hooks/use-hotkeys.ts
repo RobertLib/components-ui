@@ -1,7 +1,7 @@
 import { use, useEffect, useLayoutEffect, useRef } from "react";
 import {
-  hasModalOverlay,
-  isTopmostOverlay,
+  hasOverlayAbove,
+  isBelowModalOverlay,
   OverlayContext,
 } from "../components/overlay-stack";
 import { matchesShortcut } from "../utils/shortcut";
@@ -79,19 +79,6 @@ function isTypingTarget(element: EventTarget | null) {
   );
 }
 
-/**
- * Whether a shortcut registered in the overlays `ancestors` (outermost
- * first) is out of reach: a modal dialog they are not part of is open above
- * them. The shortcuts of the page do not work under a dialog - those of a
- * component in the dialog do.
- */
-function isBelowModal(ancestors: string[]) {
-  if (ancestors.some((id) => isTopmostOverlay(id, { modal: true }))) {
-    return false;
-  }
-  return hasModalOverlay();
-}
-
 interface Latest {
   ancestors: string[];
   hotkeys: Hotkey[];
@@ -117,7 +104,16 @@ function handleKeyDown(
     ([shortcut, , options]) =>
       (!inField || options?.allowInFields) && matchesShortcut(event, shortcut),
   );
-  if (!hotkey || isBelowModal(ancestors)) return;
+  // The shortcuts of the page do not work under a modal dialog - those of a
+  // component in the dialog do. An Escape is for the topmost overlay: a
+  // popover, menu or tooltip open elsewhere closes first.
+  if (
+    !hotkey ||
+    isBelowModalOverlay(ancestors) ||
+    (event.key === "Escape" && hasOverlayAbove(ancestors))
+  ) {
+    return;
+  }
 
   const [, handler, options] = hotkey;
   if (options?.preventDefault ?? preventDefault) event.preventDefault();
@@ -132,8 +128,10 @@ function handleKeyDown(
  * Keys typed into a text field do not count, unless the shortcut allows it
  * (`allowInFields`). A key press the page has already handled
  * (`preventDefault()`) does not count either, and the shortcuts do not work
- * under a modal dialog - unless the component is in it. One key press calls
- * one shortcut, the first that matches.
+ * under a modal dialog - unless the component is in it. An `escape`
+ * shortcut waits while a popover, menu or tooltip the component is not in is
+ * open: that Escape closes the overlay. One key press calls one shortcut,
+ * the first that matches.
  */
 export default function useHotkeys(
   hotkeys: Hotkey[],

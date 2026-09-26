@@ -1,5 +1,6 @@
 import PickerField from "./picker-field";
 import {
+  getRangeMessage,
   isTimeInRange,
   normalizeTime,
   parseDisplayValue,
@@ -8,6 +9,7 @@ import {
 } from "./parse";
 import TimeLists from "./time-lists";
 import usePickerPopup from "./use-picker-popup";
+import { formatMessage } from "../../i18n/format";
 import {
   formatPattern,
   formatPlaceholder,
@@ -34,8 +36,10 @@ export default function TimePicker({
     contentRef,
     inputRef,
     isOpen,
+    markPicked,
     onOpenChange,
     openedByKeyboard,
+    pickCount,
   } = usePickerPopup(!props.disabled && !props.readOnly);
 
   const dayPeriods = getDayPeriods(locale.code);
@@ -44,20 +48,39 @@ export default function TimePicker({
   const minTime = normalizeTime(min);
   const maxTime = normalizeTime(max);
 
+  /** A time (`HH:mm`) as the field shows it. */
+  const formatValue = (hoursAndMinutes: string) => {
+    const parts = parseTime(hoursAndMinutes);
+    return parts
+      ? formatPattern(
+          locale.formats.time,
+          { hours: Number(parts.hours), minutes: Number(parts.minutes) },
+          dayPeriods,
+        )
+      : hoursAndMinutes;
+  };
+
+  const selectedTime = time ? `${time.hours}:${time.minutes}` : undefined;
+  // A time out of a range over midnight is before its start, and after its
+  // end - the start is said
+  const rangeMessage =
+    selectedTime && minTime && maxTime && minTime > maxTime
+      ? isTimeInRange(selectedTime, minTime, maxTime)
+        ? ""
+        : formatMessage(messages.rangeUnderflow, { min: formatValue(minTime) })
+      : getRangeMessage(
+          messages,
+          selectedTime,
+          { max: maxTime, min: minTime },
+          formatValue,
+        );
+
   return (
     <PickerField
       {...props}
       ariaLabel={props.ariaLabel ?? messages.selectTime}
       contentRef={contentRef}
-      displayValue={
-        time
-          ? formatPattern(
-              locale.formats.time,
-              { hours: Number(time.hours), minutes: Number(time.minutes) },
-              dayPeriods,
-            )
-          : ""
-      }
+      displayValue={selectedTime ? formatValue(selectedTime) : ""}
       format={formatPlaceholder(
         locale.formats.time,
         messages.placeholderTokens,
@@ -82,8 +105,10 @@ export default function TimePicker({
           ? { value: snapTime(typed, minuteStep, minTime, maxTime) }
           : { error: "range" };
       }}
+      pickCount={pickCount}
       placeholder={placeholder}
       popupLabel={messages.selectTime}
+      rangeMessage={rangeMessage}
       value={value}
     >
       {/* The popup is named so already */}
@@ -101,11 +126,12 @@ export default function TimePicker({
         min={minTime}
         minuteStep={minuteStep}
         minutes={time?.minutes ?? null}
-        onChange={(hours, minutes) =>
+        onChange={(hours, minutes) => {
+          markPicked();
           onValueChange(
             snapTime(`${hours}:${minutes}`, minuteStep, minTime, maxTime),
-          )
-        }
+          );
+        }}
         onEscape={close}
       />
     </PickerField>

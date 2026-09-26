@@ -36,13 +36,18 @@ function fakeUpload(
 }
 
 export default function Preview() {
-  // The demo keeps the "stored" files in memory - released when it goes away
+  // The demo keeps the "stored" files in memory - released when a file is
+  // removed and when the demo goes away
   const objectUrls = useRef(new Set<string>());
 
   useEffect(() => {
     const urls = objectUrls.current;
     return () => urls.forEach((url) => URL.revokeObjectURL(url));
   }, []);
+
+  const release = (url: string | null | undefined) => {
+    if (url && objectUrls.current.delete(url)) URL.revokeObjectURL(url);
+  };
 
   return (
     <FileUpload
@@ -57,6 +62,7 @@ export default function Preview() {
       maxFiles={5}
       multiple
       name="photos"
+      onRemove={(file) => release(file.url)}
       onUpload={(file) => {
         if (file.url) objectUrls.current.add(file.url);
       }}

@@ -336,6 +336,16 @@ function utilityGroup(utility: string): string | undefined {
   return undefined;
 }
 
+/** `lg`, `lg/20`, `none` - the shadow of the text of `text-shadow-…`. */
+const TEXT_SHADOW =
+  /^(?:(?:2xs|xs|sm|md|lg)(?:\/(?:\d+|\[[^\]]*\]|\([^)]*\)))?|none)$/;
+
+/** The group of `text-shadow-{value}` - the shadow or its color. */
+function textShadowGroup(value: string): string | undefined {
+  if (TEXT_SHADOW.test(value)) return "text-shadow";
+  return isColor(value) ? "text-shadow-color" : undefined;
+}
+
 /** The group of `prefix-value`, e.g. `text` + `sm` - `font-size`. */
 function prefixedGroup(prefix: string, value: string): string | undefined {
   if (!value) return undefined;
@@ -398,6 +408,9 @@ function prefixedGroup(prefix: string, value: string): string | undefined {
       }
       if (/^(?:wrap|nowrap|balance|pretty)$/.test(value)) return "text-wrap";
       if (/^(?:ellipsis|clip)$/.test(value)) return "text-overflow";
+      // `text-shadow-lg`, `text-shadow-sky-300` - the shadow of the text
+      // and its color, not the color of the text
+      if (/^shadow(?:-|$)/.test(value)) return textShadowGroup(value.slice(7));
       if (isColor(value)) return "text-color";
       return /^[[(]/.test(value) && isLength(value) ? "font-size" : undefined;
     case "bg":
@@ -458,8 +471,8 @@ function prefixedGroup(prefix: string, value: string): string | undefined {
 }
 
 /**
- * What a class conflicts by: its variants (in any order - `dark:hover:` is
- * `hover:dark:`), whether it is important, and its group.
+ * What a class conflicts by: its variants (mostly in any order -
+ * `dark:hover:` is `hover:dark:`), whether it is important, and its group.
  */
 interface ClassConflict {
   /** The variants and `!` - classes conflict only under the same ones. */
@@ -487,6 +500,65 @@ function splitVariants(className: string): string[] {
   return parts;
 }
 
+/**
+ * Variants that move to other elements - children, pseudo-elements.
+ * Tailwind applies the variants from left to right, so their place among
+ * the others matters: `*:hover:` styles a hovered child, `hover:*:` the
+ * children of a hovered element.
+ */
+const ORDER_SENSITIVE_VARIANT =
+  /^(?:\*|\*\*|after|backdrop|before|details-content|file|first-letter|first-line|marker|placeholder|selection)$/;
+
+/**
+ * Whether an arbitrary variant moves to another element: something follows
+ * its `&` - `[&>svg]`, `[&_p]`, `[&::marker]` - or it has none. `[&.active]`
+ * and `[fieldset:disabled_&]` stay with the element of the class.
+ */
+function isMovingArbitraryVariant(variant: string) {
+  if (!/^\[.*\]$/.test(variant)) return false;
+
+  const selector = variant.slice(1, -1);
+  const self = selector.lastIndexOf("&");
+  return self === -1 || /[_\s>+~]|::/.test(selector.slice(self + 1));
+}
+
+/**
+ * Variants of a media, container or feature query (also their `not-`) -
+ * they select no other element, so they apply the same wherever they
+ * stand: `md:*:` is `*:md:`. Not `dark`, a media query only by default -
+ * made a class (`@custom-variant dark`), `placeholder:dark:` is a selector
+ * no browser takes, `dark:placeholder:` one that works.
+ */
+const AT_RULE_VARIANT =
+  /^(?:not-)?(?:sm|md|lg|xl|2xl|(?:max|min)-.+|@.+|motion-(?:safe|reduce)|print|portrait|landscape|supports-.+|contrast-(?:more|less)|forced-colors|inverted-colors|(?:any-)?pointer-(?:fine|coarse|none)|noscript|starting|\[@(?:media|supports|container)[^\]]*\])$/;
+
+/**
+ * The variants as one text: the queries in any order, the others sorted
+ * between the order-sensitive ones.
+ */
+function variantScope(variants: string[]) {
+  const queries: string[] = [];
+  const scope: string[] = [];
+  let run: string[] = [];
+
+  for (const variant of variants) {
+    if (AT_RULE_VARIANT.test(variant)) {
+      queries.push(variant);
+    } else if (
+      ORDER_SENSITIVE_VARIANT.test(variant) ||
+      isMovingArbitraryVariant(variant)
+    ) {
+      scope.push(...run.sort(), variant);
+      run = [];
+    } else {
+      run.push(variant);
+    }
+  }
+  scope.push(...run.sort());
+
+  return `${queries.sort().join(":")};${scope.join(":")}`;
+}
+
 /** `undefined` for a class that conflicts with nothing. */
 function parseClass(className: string): ClassConflict | undefined {
   const parts = splitVariants(className);
@@ -503,7 +575,7 @@ function parseClass(className: string): ClassConflict | undefined {
 
   return {
     group,
-    scope: `${parts.sort().join(":")}${important ? "!" : ""}|`,
+    scope: `${variantScope(parts)}${important ? "!" : ""}|`,
   };
 }
 

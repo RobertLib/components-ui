@@ -301,6 +301,14 @@ export default function RichTextEditorPage() {
             below, or sanitizes the HTML on the server with a library of its
             own.
           </p>
+          <p>
+            One jsdom window serves any number of calls. Limit the size of the
+            HTML before you sanitize it there - to what the longest document of
+            your editor needs, e.g. 100 KB: the parser of jsdom slows down with
+            the square of the nesting of the tags, so a few hundred kilobytes of
+            deeply nested tags would keep the server busy for minutes (a browser
+            stops nesting at 512 levels).
+          </p>
         </Callout>
         <CodeBlock code={serverRendering} />
       </Section>

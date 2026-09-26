@@ -1,5 +1,5 @@
 import { attachRef, useFormReset } from "../hooks/use-form-control";
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
@@ -233,14 +233,32 @@ export default function PinInput({
     focusCell(index);
   };
 
+  // A code that got shorter under the focus - cleared by the parent after a
+  // rejected code, or reset - moves the focus back to the first empty cell
+  useLayoutEffect(() => {
+    const group = groupRef.current;
+    if (!group) return;
+
+    const cells = Array.from(group.querySelectorAll("input"));
+    const focused = cells.findIndex(
+      (cell) => cell === group.ownerDocument.activeElement,
+    );
+    if (focused > activeIndex) focusCell(activeIndex);
+  });
+
+  // The cell a key, a change or a paste acts on - a cell past the first
+  // empty one (the parent refused a character) acts on the empty one
+  const targetIndex = (index: number) => Math.min(index, activeIndex);
+
   const handleKeyDown = (
-    index: number,
+    cellIndex: number,
     event: React.KeyboardEvent<HTMLInputElement>,
   ) => {
     // The keys of an input method editor (IME) composing text
     if (event.nativeEvent.isComposing) return;
 
     const { key } = event;
+    const index = targetIndex(cellIndex);
 
     switch (key) {
       case "Backspace":
@@ -290,9 +308,10 @@ export default function PinInput({
   };
 
   const handleChange = (
-    index: number,
+    cellIndex: number,
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
+    const index = targetIndex(cellIndex);
     const text = event.target.value;
     const current = code[index] ?? "";
 
@@ -404,7 +423,7 @@ export default function PinInput({
             onKeyDown={(event) => handleKeyDown(index, event)}
             onPaste={(event) => {
               event.preventDefault();
-              insert(index, event.clipboardData.getData("text"));
+              insert(targetIndex(index), event.clipboardData.getData("text"));
             }}
             placeholder={placeholder}
             ref={index === 0 ? firstCellRef : undefined}

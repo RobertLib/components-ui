@@ -66,6 +66,17 @@ export interface DateTimePickerProps extends Omit<
   /** Text of the label above the field - also its accessible name. */
   label?: string;
   /**
+   * The latest value, in the value format (see `type`) - the popup offers
+   * nothing after it, and a later value makes the field invalid, like a
+   * native input (a submit is blocked).
+   */
+  max?: number | string;
+  /**
+   * The earliest value, in the value format - see `max`. A time range whose
+   * `min` comes after its `max` (`22:00` - `06:00`) spans midnight.
+   */
+  min?: number | string;
+  /**
    * `custom` (default) - the library's popup, formatted by the locale;
    * `native` - the browser's own `<input type="date">` & co.
    */
@@ -95,6 +106,12 @@ export interface DateTimePickerProps extends Omit<
   onFocus?: React.FocusEventHandler<HTMLInputElement>;
   /** Shorthand for `minuteStep={15}`. */
   quarterMinutesOnly?: boolean;
+  /**
+   * The `step` of the native input, only in `native` mode (in seconds for a
+   * time) - it overrides `minuteStep` there. The custom pickers leave it
+   * out: their minutes come from `minuteStep`.
+   */
+  step?: number | string;
   /**
    * The visible text field - e.g. for `focus()`. Its `value` is the text it
    * shows (`24.09.2026`); the value itself comes with `onChange` and, with a

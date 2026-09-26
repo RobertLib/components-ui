@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import cn from "../../utils/cn";
-import { isInRange, parseDisplayValue } from "./parse";
+import { getRangeMessage, isInRange, parseDisplayValue } from "./parse";
 import PickerField from "./picker-field";
 import usePickerPopup from "./use-picker-popup";
 import {
@@ -252,20 +252,26 @@ export default function MonthPicker({
     contentRef,
     inputRef,
     isOpen,
+    markPicked,
     onOpenChange,
     openedByKeyboard,
+    pickCount,
   } = usePickerPopup(!props.disabled && !props.readOnly);
 
   const selected = parseMonth(value);
+
+  /** A month (`YYYY-MM`) as the field shows it. */
+  const formatValue = (month: string) => {
+    const parts = parseMonth(month);
+    return parts ? formatPattern(locale.formats.month, parts) : month;
+  };
 
   return (
     <PickerField
       {...props}
       ariaLabel={props.ariaLabel ?? messages.selectMonth}
       contentRef={contentRef}
-      displayValue={
-        selected ? formatPattern(locale.formats.month, selected) : ""
-      }
+      displayValue={selected ? formatValue(value) : ""}
       format={formatPlaceholder(
         locale.formats.month,
         messages.placeholderTokens,
@@ -284,8 +290,17 @@ export default function MonthPicker({
           ? { value: typed }
           : { error: "range" };
       }}
+      pickCount={pickCount}
       placeholder={placeholder}
       popupLabel={messages.selectMonth}
+      rangeMessage={getRangeMessage(
+        messages,
+        selected
+          ? `${padYear(selected.year)}-${pad2(selected.month)}`
+          : undefined,
+        { max, min },
+        formatValue,
+      )}
       value={value}
     >
       <MonthGrid
@@ -294,6 +309,7 @@ export default function MonthPicker({
         min={parseMonth(min)}
         onEscape={close}
         onSelect={(year, month) => {
+          markPicked();
           onValueChange(`${padYear(year)}-${pad2(month)}`);
           close();
         }}

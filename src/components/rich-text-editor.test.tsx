@@ -208,6 +208,33 @@ describe("RichTextEditor values", () => {
     expect(editor().innerHTML).toBe("<p>Ada</p>");
   });
 
+  it("clears a list or table without text when the form is reset", async () => {
+    const user = userEvent.setup();
+    render(
+      <form>
+        <RichTextEditor
+          label="Note"
+          name="note"
+          toolbar={["bulletList", "table"]}
+        />
+        <RichTextEditor label="Summary" toolbar={["table"]} value="" />
+        <button type="reset">Reset</button>
+      </form>,
+    );
+    const other = screen.getByRole("textbox", { name: /Summary/ });
+
+    // Started, but nothing typed yet - the value is empty before and after
+    editor().innerHTML = "<ul><li><br></li></ul>";
+    fireEvent.input(editor());
+    other.innerHTML = "<table><tbody><tr><td><br></td></tr></tbody></table>";
+    fireEvent.input(other);
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+
+    expect(editor().innerHTML).toBe("");
+    // A controlled editor shows its value again
+    expect(other.innerHTML).toBe("");
+  });
+
   it("is reset after a form action", async () => {
     const user = userEvent.setup();
     const action = vi.fn();
@@ -1421,6 +1448,39 @@ describe("RichTextEditor blocks", () => {
     selectText("bold", "text");
     expect(tool("Bold")).toHaveAttribute("aria-pressed", "false");
     expect(tool("Clear formatting")).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("has no bold to add to several headings or header cells", () => {
+    render(
+      <RichTextEditor
+        defaultValue={
+          "<h2>Plan</h2><h3>Steps</h3><p>Text</p>" +
+          "<table><thead><tr><th>Name</th><th>Age</th></tr></thead></table>"
+        }
+        label="Note"
+        toolbar={["bold", "heading2", "heading3", "table"]}
+      />,
+    );
+
+    // The browser would "unbold" them with a style the value does not keep
+    selectText("Plan", "Steps");
+    expect(tool("Bold")).toHaveAttribute("aria-disabled", "true");
+    selectText("Name", "Age");
+    expect(tool("Bold")).toHaveAttribute("aria-disabled", "true");
+
+    selectText("Steps", "Text");
+    expect(tool("Bold")).not.toHaveAttribute("aria-disabled");
+
+    // Chrome "unbolds" the heading of a selection reaching past it - the
+    // heading stays bold
+    document.execCommand = vi.fn(() => {
+      const heading = editor().querySelector("h3") as HTMLElement;
+      heading.innerHTML = `<span style="font-weight: normal">${heading.innerHTML}</span>`;
+      return true;
+    });
+    fireEvent.keyDown(editor(), { ctrlKey: true, key: "b" });
+    expect(document.execCommand).toHaveBeenCalledWith("bold", false, undefined);
+    expect(editor().querySelector("h3 span")?.getAttribute("style")).toBe("");
   });
 
   it("indents and outdents list items", async () => {

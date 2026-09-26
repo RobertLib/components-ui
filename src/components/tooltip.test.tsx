@@ -1,10 +1,13 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Button from "./button";
+import Dialog from "./dialog";
 import Dropdown from "./dropdown";
 import Popover from "./popover";
 import Tooltip from "./tooltip";
+import useHotkeys from "../hooks/use-hotkeys";
 
 describe("Tooltip", () => {
   it("shows on keyboard focus and hides on Escape", async () => {
@@ -112,6 +115,93 @@ describe("Tooltip and Escape", () => {
 describe("Tooltip hover", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("stays hidden under a modal dialog opened before its delay is over", () => {
+    vi.useFakeTimers();
+    function Page() {
+      const [open, setOpen] = useState(false);
+      useHotkeys([["mod+k", () => setOpen(true)]]);
+      return (
+        <>
+          <Tooltip delay={500} title="Bold">
+            <button type="button">B</button>
+          </Tooltip>
+          <Dialog onClose={() => setOpen(false)} open={open} title="Search">
+            <input aria-label="Query" />
+          </Dialog>
+        </>
+      );
+    }
+    render(<Page />);
+
+    // The pointer rests on the button as a shortcut opens the dialog
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "B" }));
+    fireEvent.keyDown(document.body, { code: "KeyK", ctrlKey: true, key: "k" });
+    act(() => vi.advanceTimersByTime(500));
+    expect(screen.getByRole("dialog", { name: "Search" })).toBeInTheDocument();
+    // Not over the backdrop - and the Escape is the dialog's
+    expect(screen.queryByRole("tooltip", { hidden: true })).toBeNull();
+
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    act(() => vi.advanceTimersByTime(300));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows in a dialog over the page - in its content and in its title", () => {
+    vi.useFakeTimers();
+    render(
+      <Dialog
+        open
+        title={
+          <Tooltip delay={500} title="What is edited">
+            <button type="button">Info</button>
+          </Tooltip>
+        }
+      >
+        <Tooltip delay={500} title="Bold">
+          <button type="button">B</button>
+        </Tooltip>
+      </Dialog>,
+    );
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "B" }));
+    act(() => vi.advanceTimersByTime(500));
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Bold");
+
+    fireEvent.mouseLeave(screen.getByRole("button", { name: "B" }));
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Info" }));
+    act(() => vi.advanceTimersByTime(500));
+    expect(screen.getByRole("tooltip")).toHaveTextContent("What is edited");
+  });
+
+  it("hides as a modal dialog opens over it", async () => {
+    vi.useFakeTimers();
+    function Page() {
+      const [open, setOpen] = useState(false);
+      useHotkeys([["n", () => setOpen(true)]]);
+      return (
+        <>
+          <Tooltip delay={500} title="Saves the draft">
+            <button type="button">Save</button>
+          </Tooltip>
+          <Dialog onClose={() => setOpen(false)} open={open} title="New">
+            <input aria-label="Name" />
+          </Dialog>
+        </>
+      );
+    }
+    render(<Page />);
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Save" }));
+    act(() => vi.advanceTimersByTime(500));
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+
+    // The pointer rests on the trigger as a shortcut opens a dialog - the
+    // tooltip would paint over its backdrop
+    fireEvent.keyDown(document.body, { key: "n" });
+    await act(async () => vi.advanceTimersByTime(20));
+    expect(screen.getByRole("dialog", { name: "New" })).toBeInTheDocument();
+    expect(screen.queryByRole("tooltip", { hidden: true })).toBeNull();
   });
 
   const hoverTrigger = (delay: number) => {

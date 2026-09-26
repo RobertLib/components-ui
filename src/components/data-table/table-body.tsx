@@ -27,6 +27,18 @@ import type { Column, DataTableDensity, GroupAction, RowId } from "./types";
 // Fixed so the placeholder rows do not change width on every render
 const SKELETON_WIDTHS = [72, 45, 60, 38, 80, 52, 66, 30, 58, 47];
 
+/**
+ * The row of `body` an element is in - not a row of a table nested in the
+ * detail of a row (master-detail), whose rows are numbered too.
+ */
+function findBodyRow(body: Element, element: Element) {
+  let row = element.closest("tr[data-row-index]");
+  while (row && row.parentElement !== body) {
+    row = row.parentElement?.closest("tr[data-row-index]") ?? null;
+  }
+  return row;
+}
+
 interface TableBodyProps<T extends { id: RowId }> {
   /** Content of the sticky actions cell of a row. */
   actions?: (row: T) => React.ReactNode;
@@ -60,6 +72,11 @@ interface TableBodyProps<T extends { id: RowId }> {
   headerRowCount: number;
   /** Whether a cell can be edited. */
   isEditable: (column: Column<T>, row: T) => boolean;
+  /**
+   * Changes when the rows may have other heights - another density, other
+   * column widths; a virtualized table measures them again.
+   */
+  layoutKey: string;
   /** The rows are loading - placeholder rows without data, dimmed rows otherwise. */
   loading?: boolean;
   /** Ends the editing without a change. */
@@ -108,6 +125,7 @@ export function TableBody<T extends { id: RowId }>({
   groupActions,
   headerRowCount,
   isEditable,
+  layoutKey,
   loading,
   onCancelEdit,
   onCommitEdit,
@@ -150,12 +168,15 @@ export function TableBody<T extends { id: RowId }>({
   );
 
   // The row with the focus stays rendered while it is scrolled out of view,
-  // so that the focus - a checkbox, a cell being edited - is not lost
+  // so that the focus - a checkbox, a cell being edited - is not lost; so
+  // does the row being edited, which Tab may take far from the view
   const [focusedRowId, setFocusedRowId] = useState<RowId | null>(null);
-  const keepIndex =
-    virtualized && focusedRowId !== null
-      ? data.findIndex((row) => row.id === focusedRowId)
-      : -1;
+  const keptRowIds = virtualized ? [focusedRowId, editingCell?.rowId] : [];
+  const keepIndexes = keptRowIds.flatMap((rowId) =>
+    rowId === null || rowId === undefined
+      ? []
+      : [data.findIndex((row) => row.id === rowId)],
+  );
 
   // Where the focus is in the rows. When its row goes away - it sorted
   // onto another page once its edit was saved, a refetch left it out - the
@@ -181,10 +202,13 @@ export function TableBody<T extends { id: RowId }>({
     }
 
     focusRef.current = null;
-    const rows = body.querySelectorAll<HTMLElement>("tr[data-row-index]");
+    // The rows of this body - not those of a table nested in a detail
+    const rows = body.querySelectorAll<HTMLElement>(
+      ":scope > tr[data-row-index]",
+    );
     const row =
       body.querySelector<HTMLElement>(
-        `tr[data-row-index="${focus.rowIndex}"]`,
+        `:scope > tr[data-row-index="${focus.rowIndex}"]`,
       ) ?? rows[rows.length - 1];
     const cell = row?.children[focus.cellIndex];
     // An editable cell takes the focus - also one that is not the tab stop
@@ -202,7 +226,8 @@ export function TableBody<T extends { id: RowId }>({
     estimatedHeight: ESTIMATED_ROW_HEIGHTS[density],
     expandedRows,
     hasSubRows: !!renderSubRow,
-    keepIndex,
+    keepIndexes,
+    layoutKey,
     scrollRef,
   });
 
@@ -253,8 +278,9 @@ export function TableBody<T extends { id: RowId }>({
   /** The element of a body cell, when it is rendered. */
   const findCellElement = ({ columnKey, rowId }: CellPosition) => {
     const index = data.findIndex((row) => row.id === rowId);
+    // A row of this body - not of a table nested in a detail
     const rowElement = bodyRef.current?.querySelector(
-      `tr[data-row-index="${index}"]`,
+      `:scope > tr[data-row-index="${index}"]`,
     );
     return Array.from(rowElement?.children ?? []).find(
       (cell): cell is HTMLElement =>
@@ -417,14 +443,16 @@ export function TableBody<T extends { id: RowId }>({
       onFocus={(event) => {
         // Focus in a popup of a row (a portal) keeps the row it came from
         const target = event.target as Element;
-        const rowElement = target.closest("[data-row-index]");
+        const rowElement = findBodyRow(event.currentTarget, target);
         const index = rowElement?.getAttribute("data-row-index");
-        const row = index === undefined ? undefined : data[Number(index)];
+        const row = index ? data[Number(index)] : undefined;
         if (!row || !rowElement) return;
 
-        const cell = target.closest("td");
+        const cellIndex = Array.from(rowElement.children).findIndex((cell) =>
+          cell.contains(target),
+        );
         focusRef.current = {
-          cellIndex: cell ? Array.from(rowElement.children).indexOf(cell) : 0,
+          cellIndex: Math.max(0, cellIndex),
           element: target,
           rowIndex: Number(index),
         };

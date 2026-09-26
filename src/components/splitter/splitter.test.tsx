@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
@@ -314,6 +315,30 @@ describe("Splitter pointer", () => {
     expect(paneSize("List")).toBe(45);
   });
 
+  it("moves the handle with the pointer past padding, gaps and borders", () => {
+    renderSplitter({
+      style: {
+        borderLeftStyle: "solid",
+        borderLeftWidth: "10px",
+        columnGap: "20px",
+        paddingLeft: "90px",
+        paddingRight: "100px",
+      },
+    });
+    sizeSplitter();
+    // Padding the panes keep at any size - e.g. of `paneClassName`
+    for (const text of ["List", "Detail"]) {
+      const pane = screen.getByText(text).parentElement as HTMLElement;
+      pane.style.paddingLeft = "50px";
+      pane.style.paddingRight = "50px";
+    }
+
+    // 1000 px less 200 of the splitter's padding and border, 40 of the
+    // gaps and 200 of the padding of the panes - 112 px are 20 %
+    drag(handle(), 300, 412);
+    expect(paneSize("List")).toBe(50);
+  });
+
   it("follows the pointer in a right-to-left page", () => {
     mockRightToLeft();
     renderSplitter();
@@ -593,6 +618,42 @@ describe("Splitter state", () => {
     );
     expect(root).not.toHaveClass("max-md:flex-col");
     expect(handle()).not.toHaveClass("max-md:hidden");
+  });
+});
+
+describe("Splitter panes", () => {
+  it("are Tab stops while they scroll with nothing to focus in them", async () => {
+    // Every element overflows - jsdom lays nothing out
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(800);
+    vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(400);
+    render(
+      <Splitter>
+        <div>Long text</div>
+        <div>
+          <button type="button">Edit</button>
+        </div>
+      </Splitter>,
+    );
+    const text = screen.getByText("Long text").parentElement as HTMLElement;
+    const withButton = screen.getByRole("button").parentElement
+      ?.parentElement as HTMLElement;
+
+    await waitFor(() => expect(text).toHaveAttribute("tabindex", "0"));
+    // The Tab stop of the button scrolls to it - the pane needs none
+    expect(withButton).not.toHaveAttribute("tabindex");
+
+    // Content that can take the focus arrives
+    act(() => {
+      text.append(document.createElement("button"));
+    });
+    await waitFor(() => expect(text).not.toHaveAttribute("tabindex"));
+  });
+
+  it("are no Tab stops while their content fits", () => {
+    renderSplitter();
+    expect(screen.getByText("List").parentElement).not.toHaveAttribute(
+      "tabindex",
+    );
   });
 });
 

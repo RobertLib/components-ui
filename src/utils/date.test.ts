@@ -14,12 +14,14 @@ import {
   getMonthDays,
   getMonthNames,
   getWeekdayNames,
+  isDayBeforeMonth,
   parseISODate,
   parsePattern,
   shiftDay,
   startOfWeek,
   toISODate,
   usesHour12,
+  withoutMonth,
   withoutYear,
 } from "./date";
 
@@ -355,6 +357,15 @@ describe("formatPattern with a locale", () => {
     expect(withoutYear("YYYY-[W]WW")).toBe("[W]WW");
     expect(withoutYear("[YYYY] WW YYYY")).toBe("[YYYY] WW");
   });
+
+  it("drops the month of a date pattern for a day typed without it", () => {
+    expect(withoutMonth("DD.MM.YYYY")).toBe("DD.YYYY");
+    expect(withoutMonth("MM/DD/YYYY")).toBe("DD/YYYY");
+    expect(withoutMonth("D. M. YYYY")).toBe("D. YYYY");
+    expect(isDayBeforeMonth("DD.MM.YYYY")).toBe(true);
+    expect(isDayBeforeMonth("MM/DD/YYYY")).toBe(false);
+    expect(isDayBeforeMonth("YYYY-MM-DD")).toBe(false);
+  });
 });
 
 describe("years 0 - 99", () => {
@@ -444,9 +455,12 @@ describe("formatPlaceholder", () => {
     expect(formatPlaceholder("MM/DD/YYYY h:mm A", { A: "AM/PM" })).toBe(
       "MM/DD/YYYY h:mm AM/PM",
     );
-    // Without the bracketed text - and every token left as it is
+    // Without the bracketed text and the separators next to it - and every
+    // token left as it is
     expect(formatPlaceholder("[W]WW.YYYY")).toBe("WW.YYYY");
-    expect(formatPlaceholder("[KW] WW YYYY", { WW: "WW" })).toBe(" WW YYYY");
+    expect(formatPlaceholder("[KW] WW YYYY", { WW: "WW" })).toBe("WW YYYY");
+    expect(formatPlaceholder("WW YYYY [KW]")).toBe("WW YYYY");
+    expect(formatPlaceholder("DD [de] MM")).toBe("DD MM");
   });
 });
 

@@ -3,11 +3,13 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import cn from "../utils/cn";
 import Overlay from "./overlay";
 import {
+  getActiveFocusReturnTargets,
   getNextTabStop,
   isEscapeKey,
   isTopmostOverlay,
   lockPageScroll,
   OverlayContext,
+  returnFocus,
   useFocusTrap,
   useOverlayLayer,
 } from "./overlay-stack";
@@ -159,10 +161,11 @@ export default function Drawer({
   }, [isOverlaid, layerId, toggleOpen]);
 
   // Slid in: the focus moves in and the page stops scrolling. Slid out, the
-  // focus goes back to what had it (the toggle of the Navbar) instead of
-  // being lost in the now inert drawer. In the layout phase: React puts the
-  // focus back where it was after the mutations of a commit.
-  const returnFocusRef = useRef<HTMLElement | null>(null);
+  // focus goes back to what had it (the toggle of the Navbar - also the one
+  // Safari did not focus when it was clicked) instead of being lost in the
+  // now inert drawer. In the layout phase: React puts the focus back where
+  // it was after the mutations of a commit.
+  const returnFocusRef = useRef<HTMLElement[]>([]);
 
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -170,19 +173,19 @@ export default function Drawer({
     if (!root || !panel) return;
 
     if (isOverlaid) {
-      returnFocusRef.current = document.activeElement as HTMLElement | null;
+      returnFocusRef.current = getActiveFocusReturnTargets();
       if (!root.contains(document.activeElement)) {
         (getTabbableElements(panel)[0] ?? panel).focus();
       }
       return lockPageScroll();
     }
 
-    const returnFocus = returnFocusRef.current;
-    returnFocusRef.current = null;
+    const targets = returnFocusRef.current;
+    returnFocusRef.current = [];
     const active = document.activeElement;
     // Unless the focus has moved somewhere else meanwhile
     if (!active || active === document.body || root.contains(active)) {
-      returnFocus?.focus?.();
+      returnFocus(targets, root);
     }
   }, [isOverlaid]);
 
@@ -235,13 +238,15 @@ export default function Drawer({
           // Takes the focus when it slides in without any link in it
           tabIndex={isOverlaid ? -1 : undefined}
         >
-          {!isCollapsed && header && (
-            <div className="shrink-0 p-4 pb-1">{header}</div>
-          )}
+          {/* The header too - a tooltip or popover in it is in the drawer,
+              not in the page under it */}
+          <OverlayContext value={childContext}>
+            {!isCollapsed && header && (
+              <div className="shrink-0 p-4 pb-1">{header}</div>
+            )}
 
-          <div className="flex-1 overflow-y-auto p-4">
-            <ul className="space-y-1">
-              <OverlayContext value={childContext}>
+            <div className="flex-1 overflow-y-auto p-4">
+              <ul className="space-y-1">
                 {isLoading ? (
                   <DrawerSkeleton isCollapsed={isCollapsed} />
                 ) : (
@@ -254,9 +259,9 @@ export default function Drawer({
                     />
                   ))
                 )}
-              </OverlayContext>
-            </ul>
-          </div>
+              </ul>
+            </div>
+          </OverlayContext>
         </div>
       </nav>
     </>

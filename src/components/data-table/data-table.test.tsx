@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
 import { createDataTableQuery, type DataTableQuery } from "./query";
@@ -665,6 +665,38 @@ describe("useDataTableQuery", () => {
 
     expect(window.location.search).toBe("?tab=all&search=ann");
   });
+
+  it("keeps the query object while only other parameters of the URL change", () => {
+    window.history.replaceState(null, "", "/people");
+    let fetches = 0;
+
+    // Two tables of a page - B fetches whenever its query changes
+    const { result } = renderHook(() => {
+      const a = useDataTableQuery({ syncWithUrl: true, urlPrefix: "a_" });
+      const b = useDataTableQuery({ syncWithUrl: true, urlPrefix: "b_" });
+      const [queryB] = b;
+      useEffect(() => {
+        fetches += 1;
+      }, [queryB]);
+      return { a, b };
+    });
+    const query = result.current.b[0];
+
+    act(() => result.current.a[1]((current) => ({ ...current, page: 2 })));
+
+    expect(window.location.search).toBe("?a_page=2");
+    expect(result.current.b[0]).toBe(query);
+    expect(fetches).toBe(1);
+  });
+
+  it("keeps the query object for an equal query in React state", () => {
+    const { result } = renderHook(() => useDataTableQuery());
+    const query = result.current[0];
+
+    act(() => result.current[1]({ ...query, filters: {} }));
+
+    expect(result.current[0]).toBe(query);
+  });
 });
 
 describe("DataTable cell values", () => {
@@ -851,6 +883,56 @@ describe("DataTable filters", () => {
 });
 
 describe("DataTable filtering the user cannot see", () => {
+  it("ignores a sorting by a column that is hidden or not sortable", () => {
+    // A hand-edited URL - `?sortBy=team`, a column without a sort button
+    const { unmount } = render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={rows}
+        defaultQuery={{ order: "desc", sortBy: "team" }}
+      />,
+    );
+
+    expect(bodyNames()).toEqual(rows.map((row) => row.name));
+    expect(
+      screen.getByRole("columnheader", { name: "Team" }),
+    ).not.toHaveAttribute("aria-sort");
+    unmount();
+
+    // A sortable column the user hid - the teams stay in the order of the
+    // rows
+    render(
+      <DataTable
+        clientSide
+        columns={[{ ...columns[0], visible: false }, columns[1]]}
+        data={rows}
+        defaultQuery={{ sortBy: "name" }}
+      />,
+    );
+    expect(bodyNames()).toEqual(rows.map((row) => row.team));
+  });
+
+  it("drops the sorting of a column the user hides", async () => {
+    const user = userEvent.setup();
+    const onQueryChange = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        data={rows}
+        defaultQuery={{ page: 2, sortBy: "name" }}
+        onQueryChange={onQueryChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Columns" }));
+    await user.click(screen.getByRole("switch", { name: "Name" }));
+
+    expect(onQueryChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 1, sortBy: null }),
+    );
+  });
+
   it("ignores a search without the search field client-side", () => {
     render(
       <DataTable
@@ -1923,6 +2005,82 @@ describe("DataTable header names", () => {
       screen.getByRole("button", { name: "Expand row Cecilie" }),
     ).toBeInTheDocument();
   });
+
+  it("lets Tab reach the info of a header", async () => {
+    const user = userEvent.setup();
+    render(
+      <DataTable
+        columns={[{ ...columns[0], labelInfo: "Full legal name" }, columns[1]]}
+        data={rows}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Name" }));
+    await user.tab();
+
+    // The trigger of a hover popover, which opens on keyboard focus - not
+    // hidden from screen readers, as a Tab stop must not be
+    const info = screen.getByRole("img", { name: "Full legal name" });
+    expect(document.activeElement).toContainElement(info);
+    expect(info.closest("[aria-hidden]")).toBeNull();
+  });
+
+  it("points the expand button at the detail it shows", async () => {
+    const user = userEvent.setup();
+    render(
+      <DataTable
+        columns={columns}
+        data={rows}
+        renderSubRow={(row) => `Detail of ${row.name}`}
+      />,
+    );
+    const expand = screen.getByRole("button", { name: "Expand row Adam" });
+    expect(expand).not.toHaveAttribute("aria-controls");
+
+    await user.click(expand);
+
+    const detail = document.getElementById(
+      expand.getAttribute("aria-controls") ?? "",
+    );
+    expect(detail).toHaveTextContent("Detail of Adam");
+  });
+
+  it("names the region, the table and the pagination after aria-label", () => {
+    render(
+      <>
+        <DataTable aria-label="People" columns={columns} data={rows} />
+        <h2 id="teams-heading">Teams</h2>
+        <DataTable
+          aria-labelledby="teams-heading"
+          columns={columns}
+          data={rows}
+        />
+        <DataTable columns={columns} data={rows} />
+      </>,
+    );
+
+    expect(screen.getByRole("region", { name: "People" })).toContainElement(
+      screen.getByRole("table", { name: "People" }),
+    );
+    expect(
+      screen.getByRole("navigation", { name: "People pagination" }),
+    ).toBeInTheDocument();
+
+    expect(screen.getByRole("region", { name: "Teams" })).toContainElement(
+      screen.getByRole("table", { name: "Teams" }),
+    );
+    expect(
+      screen.getByRole("navigation", { name: "Pagination Teams" }),
+    ).toBeInTheDocument();
+
+    // Unnamed, as before
+    expect(
+      screen.getByRole("region", { name: "Data table" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("navigation", { name: "Pagination" }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("DataTable global search", () => {
@@ -1944,6 +2102,28 @@ describe("DataTable global search", () => {
     await user.keyboard("y");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(input).toHaveValue("");
+  });
+
+  it("leaves Escape during an IME composition to the IME", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={rows}
+        defaultSearchOpen
+        enableGlobalSearch
+      />,
+    );
+    const input = screen.getByRole("textbox", { name: "Search" });
+    fireEvent.change(input, { target: { value: "にほ" } });
+
+    fireEvent.keyDown(input, { isComposing: true, key: "Escape" });
+    // Safari sends the key ending the composition after it
+    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
+
+    expect(input).toHaveValue("にほ");
+    expect(
+      screen.getByRole("button", { name: "Close search" }),
+    ).toHaveAttribute("aria-expanded", "true");
   });
 });
 
