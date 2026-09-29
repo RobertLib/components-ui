@@ -620,7 +620,7 @@ export default function Splitter({
                 aria-valuenow={Math.round(sizes[handle])}
                 aria-valuetext={formatPercent(locale.code, sizes[handle])}
                 className={cn(
-                  "group/handle relative flex shrink-0 touch-none items-center justify-center select-none focus:outline-none",
+                  "group/handle relative flex shrink-0 touch-none items-center justify-center select-none focus:outline-hidden",
                   horizontal
                     ? "w-2 cursor-col-resize pointer-coarse:w-4"
                     : "h-2 cursor-row-resize pointer-coarse:h-4",
@@ -637,14 +637,13 @@ export default function Splitter({
                 role="separator"
                 tabIndex={0}
               >
-                {/* The line between the panes */}
+                {/* The line between the panes - of a system color in forced
+                    colors mode, which would drop its fill */}
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "pointer-events-none absolute transition-colors motion-reduce:transition-none",
-                    horizontal
-                      ? "inset-y-0 left-1/2 w-px -translate-x-1/2"
-                      : "inset-x-0 top-1/2 h-px -translate-y-1/2",
+                    "pointer-events-none absolute inset-0 m-auto transition-colors motion-reduce:transition-none forced-colors:bg-[CanvasText]!",
+                    horizontal ? "w-px" : "h-px",
                     isDragged
                       ? "bg-primary-500"
                       : "bg-neutral-200 group-hover/handle:bg-primary-400 group-focus-visible/handle:bg-primary-500 dark:bg-neutral-800",
@@ -656,7 +655,9 @@ export default function Splitter({
                   className={cn(
                     "pointer-events-none relative rounded-full border bg-surface shadow-sm transition-colors motion-reduce:transition-none dark:bg-surface-dark",
                     horizontal ? "h-8 w-1.5" : "h-1.5 w-8",
-                    "group-focus-visible/handle:ring-2 group-focus-visible/handle:ring-primary-500",
+                    // The ring of the focus - in forced colors mode, which
+                    // drops it, the grip of the color of a selection
+                    "group-focus-visible/handle:ring-2 group-focus-visible/handle:ring-primary-500 forced-colors:group-focus-visible/handle:border-[Highlight] forced-colors:group-focus-visible/handle:bg-[Highlight]",
                     isDragged
                       ? "border-primary-500"
                       : "border-neutral-300 group-hover/handle:border-primary-400 group-focus-visible/handle:border-primary-500 dark:border-neutral-600",

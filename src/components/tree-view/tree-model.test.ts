@@ -7,9 +7,11 @@ import {
   findTypeaheadRow,
   getCheckedIds,
   getCheckStates,
+  getIndependentCheckStates,
   getVisibleRows,
   indexTree,
   toggleCheck,
+  toggleIndependentCheck,
   type LoadState,
 } from "./tree-model";
 import type { TreeItem, TreeItemId } from "./types";
@@ -354,5 +356,38 @@ describe("findCurrentItem", () => {
     expect(findCurrentItem(byId, "/tasks", "?filter=all")).toBe("all");
     // Without the query - the first of them
     expect(findCurrentItem(byId, "/tasks")).toBe("all");
+  });
+});
+
+describe("independent checking", () => {
+  const index = indexTree(items, noLoads, false);
+
+  it("checks exactly the items given - no parent, no child, nothing mixed", () => {
+    const states = getIndependentCheckStates(
+      items,
+      noLoads,
+      new Set(["orders", "invite"]),
+    );
+
+    expect(states.get("orders")).toBe(true);
+    expect(states.get("read")).toBe(false);
+    expect(states.get("users")).toBe(false);
+    expect(states.get("invite")).toBe(true);
+    expect([...states.values()]).not.toContain("mixed");
+    // In tree order
+    expect([...states.keys()].slice(0, 3)).toEqual(["orders", "read", "write"]);
+  });
+
+  it("toggles one item - added at the end, or taken out", () => {
+    expect(toggleIndependentCheck("users", ["read"], index)).toEqual([
+      "read",
+      "users",
+    ]);
+    expect(toggleIndependentCheck("read", ["read", "users"], index)).toEqual([
+      "users",
+    ]);
+    // Disabled, or not in the tree
+    expect(toggleIndependentCheck("delete", [], index)).toBe(null);
+    expect(toggleIndependentCheck("unknown", [], index)).toBe(null);
   });
 });

@@ -53,7 +53,7 @@ export default function FileList() {
         >
           {/* Focusable, so Shift + F10 or the context menu key open the menu */}
           <li
-            className="flex cursor-default items-center gap-3 px-4 py-2.5 text-sm outline-none first:rounded-t-md last:rounded-b-md hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-neutral-900"
+            className="flex cursor-default items-center gap-3 px-4 py-2.5 text-sm outline-hidden first:rounded-t-md last:rounded-b-md hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-neutral-900"
             tabIndex={0}
           >
             <FileText className="shrink-0 text-neutral-400" size={18} />

@@ -20,7 +20,9 @@ export interface SkeletonProps extends React.ComponentProps<"div"> {
   width?: string;
 }
 
-const placeholderClasses = "animate-pulse bg-neutral-100 dark:bg-neutral-900";
+// A system color in forced colors mode, which would drop the fill
+const placeholderClasses =
+  "animate-pulse bg-neutral-100 dark:bg-neutral-900 forced-colors:bg-[GrayText]";
 
 /**
  * A pulsing placeholder shown while content loads - hidden from screen

@@ -2023,6 +2023,38 @@ describe("RichTextEditor tables", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("inserts a column on the side it says in a right-to-left table", async () => {
+    mockRightToLeft();
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <RichTextEditor
+        defaultValue={TABLE}
+        label="Note"
+        onChange={onChange}
+        toolbar={ALL_TOOLS}
+      />,
+    );
+
+    // The first cell is on the right - the column on the right of "Jana"
+    // comes before it
+    selectText("Jana");
+    await user.click(tool("Insert column right"));
+    expect(
+      Array.from(editor().querySelectorAll("tbody td"), (cell) =>
+        cell.textContent?.trim(),
+      ),
+    ).toEqual(["", "Jana", "Lead"]);
+
+    selectText("Lead");
+    await user.click(tool("Insert column left"));
+    expect(
+      Array.from(editor().querySelectorAll("tbody td"), (cell) =>
+        cell.textContent?.trim(),
+      ),
+    ).toEqual(["", "Jana", "Lead", ""]);
+  });
+
   it("breaks lines in a cell and pastes lines into it", () => {
     const execCommand = vi.fn(() => true);
     document.execCommand = execCommand;
@@ -2291,9 +2323,1002 @@ describe("RichTextEditor with all tools on the server", () => {
     expect(consoleError).not.toHaveBeenCalled();
     expect(container.querySelector("td")?.textContent).toBe("Cell");
     // The table tools of the loaded table
+    expect(screen.getByRole("toolbar", { name: "Table" })).toBeVisible();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+});
+
+// Every tool - also those of code blocks and images
+const EVERY_TOOL: RichTextToolbarItem[] = [...ALL_TOOLS, "codeBlock", "image"];
+const IMAGE_TOOLS: RichTextToolbarItem[] = ["bold", "link", "image"];
+
+/**
+ * Types text at the selection as the browser does - each character a
+ * `beforeinput` the editor may cancel, the text and an `input`.
+ */
+function typeText(typed: string) {
+  for (const character of typed) {
+    if (!beforeInput("insertText", character)) continue;
+
+    const selection = document.getSelection() as Selection;
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    let text = range.startContainer;
+    let offset = range.startOffset;
+    if (text.nodeType !== Node.TEXT_NODE) {
+      const node = document.createTextNode("");
+      range.insertNode(node);
+      text = node;
+      offset = 0;
+    }
+    (text as Text).insertData(offset, character);
+
+    const caret = document.createRange();
+    caret.setStart(text, offset + 1);
+    act(() => {
+      selection.removeAllRanges();
+      selection.addRange(caret);
+    });
+    fireEvent.input(editor(), { data: character, inputType: "insertText" });
+  }
+}
+
+/** Lays the page out right to left - jsdom knows no `dir`. */
+function mockRightToLeft() {
+  const getComputedStyle = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+    const style = getComputedStyle(element, pseudo);
+    return new Proxy(style, {
+      get: (target, property) => {
+        if (property === "direction") return "rtl";
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  });
+}
+
+const undoKey = () => fireEvent.keyDown(editor(), { ctrlKey: true, key: "z" });
+
+describe("RichTextEditor read-only", () => {
+  it("shows its content focusable and submitted, but not editable", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <form data-testid="form">
+        <RichTextEditor
+          defaultValue="<p>Signed <b>off</b></p>"
+          label="Note"
+          name="note"
+          readOnly
+        />
+      </form>,
+    );
+
+    expect(editor()).toHaveAttribute("aria-readonly", "true");
+    expect(editor()).toHaveAttribute("data-readonly");
+    expect(editor()).toHaveAttribute("contenteditable", "false");
+    expect(editor()).not.toHaveAttribute("aria-disabled");
+    expect(editor().tabIndex).toBe(0);
+    // No tools to change it
+    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
     expect(
-      container.querySelector("[role=toolbar][aria-labelledby]"),
-    ).not.toBeNull();
+      new FormData(screen.getByTestId("form") as HTMLFormElement).get("note"),
+    ).toBe("<p>Signed <b>off</b></p>");
+
+    act(() => editor().focus());
+    selectText("Signed", "off");
+    expect(fireEvent.keyDown(editor(), { ctrlKey: true, key: "b" })).toBe(true);
+    undoKey();
+    fireEvent.paste(editor(), {
+      clipboardData: { getData: () => "<b>Pasted</b>" },
+    });
+    expect(execCommand).not.toHaveBeenCalled();
+    expect(editor().innerHTML).toBe("<p>Signed <b>off</b></p>");
+  });
+
+  it("is not validated, like a read-only native field", () => {
+    render(
+      <form data-testid="form">
+        <RichTextEditor
+          label="Note"
+          maxLength={2}
+          name="note"
+          readOnly
+          required
+        />
+      </form>,
+    );
+
+    const form = screen.getByTestId("form") as HTMLFormElement;
+    expect(form.checkValidity()).toBe(true);
+    expect(new FormData(form).get("note")).toBe("");
+  });
+});
+
+describe("RichTextEditor height", () => {
+  // The terms of a `calc()` - jsdom writes them in an order of its own
+  const parts = (height: string) =>
+    height
+      .replace(/^calc\((.*)\)$/, "$1")
+      .split(" + ")
+      .sort();
+
+  it("has room for minRows lines and scrolls past maxRows", () => {
+    const { rerender } = render(<RichTextEditor label="Note" />);
+    expect(parts(editor().style.minHeight)).toEqual(["1.5rem", "8lh"]);
+    expect(editor().style.maxHeight).toBe("");
+    expect(editor()).toHaveClass("overflow-y-auto");
+    expect(editor()).not.toHaveClass("resize-y");
+
+    rerender(<RichTextEditor label="Note" maxRows={12} minRows={3} resize />);
+    expect(parts(editor().style.minHeight)).toEqual(["1.5rem", "3lh"]);
+    expect(parts(editor().style.maxHeight)).toEqual(["1.5rem", "12lh"]);
+    expect(editor()).toHaveClass("resize-y");
+
+    // Never less room than `minRows`
+    rerender(<RichTextEditor label="Note" maxRows={2} minRows={4} />);
+    expect(parts(editor().style.maxHeight)).toEqual(["1.5rem", "4lh"]);
+  });
+});
+
+describe("RichTextEditor character count", () => {
+  it("counts the characters of the text as it shows", () => {
+    const { rerender } = render(
+      <RichTextEditor
+        defaultValue={
+          '<p>Hello</p>\n  <ul><li>big <b>world</b></li></ul><p><img src="/a.png">!</p>'
+        }
+        label="Note"
+        showCount
+        toolbar={[...IMAGE_TOOLS, "bulletList"]}
+      />,
+    );
+    // Line breaks, whitespace between blocks and images count none
+    expect(screen.getByText("15")).toBeVisible();
+
+    rerender(
+      <RichTextEditor
+        defaultValue="<p>Hello</p>"
+        label="Note"
+        maxLength={1200}
+        showCount
+      />,
+    );
+    expect(screen.getByText("5 / 1,200")).toHaveClass("text-neutral-500");
+  });
+
+  it("tells screen readers how many are left once the typing pauses", () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <RichTextEditor
+          defaultValue="<p>abc</p>"
+          label="Note"
+          maxLength={5}
+          showCount
+        />,
+      );
+
+      act(() => editor().focus());
+      expect(screen.queryByText("2 characters left")).toBeNull();
+      act(() => vi.advanceTimersByTime(750));
+      expect(screen.getByText("2 characters left")).toHaveAttribute(
+        "role",
+        "status",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops typed text at maxLength, like a native field", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor defaultValue="<p>abc</p>" label="Note" maxLength={5} />,
+    );
+
+    selectText("abc", undefined, 3);
+    expect(beforeInput("insertText", "d")).toBe(true);
+    // Text that does not fit is cut
+    expect(beforeInput("insertText", "xyz")).toBe(false);
+    expect(execCommand).toHaveBeenCalledWith("insertText", false, "xy");
+
+    textNode("abc").data = "abcde";
+    fireEvent.input(editor(), { inputType: "insertText" });
+    selectText("abcde", undefined, 5);
+    expect(beforeInput("insertText", "f")).toBe(false);
+    // In place of a selection
+    selectText("abcde", "abcde");
+    expect(beforeInput("insertText", "f")).toBe(true);
+    // Deleting and new paragraphs add no text
+    selectText("abcde", undefined, 5);
+    expect(beforeInput("deleteContentBackward")).toBe(true);
+    expect(beforeInput("insertParagraph")).toBe(true);
+  });
+
+  it("cuts pasted content that does not fit", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor defaultValue="<p>ab</p>" label="Note" maxLength={5} />,
+    );
+    selectText("ab", undefined, 2);
+
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        getData: (type: string) =>
+          type === "text/html" ? "<b>1234</b><p>567</p>" : "1234567",
+      },
+    });
+    expect(execCommand).toHaveBeenLastCalledWith(
+      "insertHTML",
+      false,
+      "<b>123</b>",
+    );
+
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        getData: (type: string) => (type === "text/plain" ? "12\n345" : ""),
+      },
+    });
+    expect(execCommand).toHaveBeenLastCalledWith("insertText", false, "12\n3");
+  });
+
+  it("pastes nothing once the text is at its limit", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor defaultValue="<p>abc</p>" label="Note" maxLength={3} />,
+    );
+    selectText("abc", undefined, 3);
+
+    fireEvent.paste(editor(), {
+      clipboardData: { getData: () => "more" },
+    });
+    expect(execCommand).not.toHaveBeenCalled();
+  });
+
+  it("cuts a composition back to the limit when it ends", () => {
+    render(
+      <RichTextEditor defaultValue="<p>abc</p>" label="Note" maxLength={4} />,
+    );
+    const text = textNode("abc");
+
+    selectText("abc", undefined, 3);
+    fireEvent.compositionStart(editor());
+    text.data = "abc漢字";
+    const caret = document.createRange();
+    caret.setStart(text, 5);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(caret);
+    fireEvent.compositionEnd(editor(), { data: "漢字" });
+
+    expect(editor().innerHTML).toBe("<p>abc漢</p>");
+  });
+
+  it("is invalid once the user edits a text too long", () => {
+    const { container } = render(
+      <form data-testid="form">
+        <RichTextEditor
+          defaultValue="<p>abcdef</p>"
+          label="Note"
+          maxLength={5}
+          name="note"
+          showCount
+        />
+      </form>,
+    );
+    const form = screen.getByTestId("form") as HTMLFormElement;
+
+    // A value from outside is only counted over the limit
+    expect(form.checkValidity()).toBe(true);
+    expect(screen.getByText("6 / 5")).toHaveClass("text-danger-700");
+
+    textNode("abcdef").data = "abcdeg";
+    fireEvent.input(editor());
+    expect(form.checkValidity()).toBe(false);
+    expect(
+      container.querySelector<HTMLInputElement>("input[aria-hidden]")
+        ?.validationMessage,
+    ).toBe("1 character over the limit");
+
+    textNode("abcdeg").data = "abcde";
+    fireEvent.input(editor());
+    expect(form.checkValidity()).toBe(true);
+  });
+});
+
+describe("RichTextEditor Markdown shortcuts", () => {
+  it.each([
+    ["# ", "<h2>Title</h2>"],
+    ["## ", "<h2>Title</h2>"],
+    ["### ", "<h3>Title</h3>"],
+    ["- ", "<ul><li>Title</li></ul>"],
+    ["* ", "<ul><li>Title</li></ul>"],
+    ["1. ", "<ol><li>Title</li></ol>"],
+    ["> ", "<blockquote><p>Title</p></blockquote>"],
+  ])("formats a paragraph started with %j", (typed, html) => {
+    const onChange = vi.fn();
+    render(
+      <RichTextEditor
+        defaultValue="<p>Title</p>"
+        label="Note"
+        onChange={onChange}
+      />,
+    );
+
+    selectText("Title");
+    typeText(typed);
+    expect(editor().innerHTML).toBe(html);
+    expect(onChange).toHaveBeenLastCalledWith(html);
+  });
+
+  it("brings back the typed text by one undo", () => {
+    render(<RichTextEditor defaultValue="<p>Title</p>" label="Note" />);
+
+    selectText("Title");
+    typeText("# ");
+    expect(editor().innerHTML).toBe("<h2>Title</h2>");
+
+    undoKey();
+    expect(editor().innerHTML).toBe("<p>#&nbsp;Title</p>");
+    // With the caret after the shortcut
+    expect(document.getSelection()?.getRangeAt(0).startOffset).toBe(2);
+
+    undoKey();
+    expect(editor().innerHTML).toBe("<p>Title</p>");
+  });
+
+  it("makes a rule of --- and a code block of ```", () => {
+    render(<RichTextEditor label="Note" toolbar={EVERY_TOOL} />);
+    act(() => editor().focus());
+
+    typeText("---");
+    expect(editor().innerHTML).toBe("<hr><p><br></p>");
+
+    typeText("```");
+    expect(editor().innerHTML).toBe("<hr><pre><code><br></code></pre>");
+  });
+
+  it("makes inline code of `code`, the text after it no code", () => {
+    render(
+      <RichTextEditor
+        defaultValue="<p>Run x</p>"
+        label="Note"
+        toolbar={EVERY_TOOL}
+      />,
+    );
+
+    selectText("Run x", undefined, 5);
+    typeText(" `npm test`");
+    expect(editor().innerHTML).toBe("<p>Run x <code>npm test</code></p>");
+    expect(tool("Code")).toHaveAttribute("aria-pressed", "false");
+
+    typeText(" now");
+    expect(editor().innerHTML).toBe("<p>Run x <code>npm test</code> now</p>");
+
+    // Nothing of empty backticks
+    typeText(" ``");
+    expect(editor().innerHTML).toBe(
+      "<p>Run x <code>npm test</code> now ``</p>",
+    );
+  });
+
+  it("formats only by the tools of the toolbar, and only paragraphs", () => {
+    const { unmount } = render(
+      <RichTextEditor
+        defaultValue="<p>Title</p>"
+        label="Note"
+        toolbar={["bold", "heading3"]}
+      />,
+    );
+    selectText("Title");
+    typeText("# ");
+    expect(editor().innerHTML).toBe("<p># Title</p>");
+    unmount();
+
+    render(
+      <RichTextEditor
+        defaultValue="<ul><li>Item</li></ul><h3>Head</h3>"
+        label="Note"
+      />,
+    );
+    selectText("Item");
+    typeText("# ");
+    selectText("Head");
+    typeText("- ");
+    expect(editor().innerHTML).toBe("<ul><li># Item</li></ul><h3>- Head</h3>");
+  });
+
+  it("formats nothing with autoformat off", () => {
+    render(
+      <RichTextEditor
+        autoformat={false}
+        defaultValue="<p>Title</p>"
+        label="Note"
+        toolbar={EVERY_TOOL}
+      />,
+    );
+
+    selectText("Title");
+    typeText("# `a` ");
+    expect(editor().innerHTML).toBe("<p># `a` Title</p>");
+  });
+});
+
+describe("RichTextEditor code blocks", () => {
+  it("makes the selected lines a code block of plain text", async () => {
+    const user = userEvent.setup();
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    const onChange = vi.fn();
+    render(
+      <RichTextEditor
+        defaultValue="<p>npm <b>install</b></p><p>npm test</p>"
+        label="Note"
+        onChange={onChange}
+        toolbar={EVERY_TOOL}
+      />,
+    );
+
+    selectText("npm", "test");
+    await user.click(tool("Code block"));
+    expect(onChange).toHaveBeenLastCalledWith(
+      "<pre><code>npm install<br>npm test</code></pre>",
+    );
+    expect(tool("Code block")).toHaveAttribute("aria-pressed", "true");
+    // Plain text - no marks, links or images in it
+    for (const name of ["Bold", "Code", "Link", "Image"]) {
+      expect(tool(name)).toHaveAttribute("aria-disabled", "true");
+    }
+    expect(fireEvent.keyDown(editor(), { ctrlKey: true, key: "b" })).toBe(
+      false,
+    );
+    expect(beforeInput("formatItalic")).toBe(false);
+    expect(execCommand).not.toHaveBeenCalledWith("bold", false, undefined);
+
+    await user.click(tool("Code block"));
+    expect(onChange).toHaveBeenLastCalledWith(
+      "<p>npm install</p><p>npm test</p>",
+    );
+  });
+
+  it("breaks lines by Enter and leaves by Enter on the empty last line", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor
+        defaultValue="<pre><code>a</code></pre>"
+        label="Note"
+        toolbar={EVERY_TOOL}
+      />,
+    );
+
+    selectText("a", undefined, 1);
+    expect(beforeInput("insertParagraph")).toBe(false);
+    expect(execCommand).toHaveBeenCalledWith(
+      "insertLineBreak",
+      false,
+      undefined,
+    );
+
+    // The line break the browser made
+    const code = editor().querySelector("code") as HTMLElement;
+    code.innerHTML = "a<br><br>";
+    caretIn(code, 2);
+    expect(beforeInput("insertParagraph")).toBe(false);
+    expect(editor().innerHTML).toBe("<pre><code>a</code></pre><p><br></p>");
+    expect(document.getSelection()?.anchorNode).toBe(editor().lastChild);
+  });
+
+  it("leaves the last code block by the arrow keys", () => {
+    render(
+      <RichTextEditor
+        defaultValue="<pre><code>a</code></pre>"
+        label="Note"
+        toolbar={EVERY_TOOL}
+      />,
+    );
+
+    selectText("a", undefined, 1);
+    expect(fireEvent.keyDown(editor(), { key: "ArrowDown" })).toBe(false);
+    expect(editor().innerHTML).toBe("<pre><code>a</code></pre><p><br></p>");
+  });
+
+  it("pastes the lines of plain text into a code block", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor
+        defaultValue="<pre><code>a</code></pre>"
+        label="Note"
+        toolbar={EVERY_TOOL}
+      />,
+    );
+
+    selectText("a", undefined, 1);
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        getData: (type: string) =>
+          type === "text/html" ? "<b>x</b><p>y</p>" : "<x>\ny",
+      },
+    });
+    expect(execCommand).toHaveBeenLastCalledWith(
+      "insertHTML",
+      false,
+      "&lt;x&gt;<br>y",
+    );
+
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        getData: (type: string) =>
+          type === "text/html" ? '<b>x</b><p>y<img src="/a.png"></p>' : "",
+      },
+    });
+    expect(execCommand).toHaveBeenLastCalledWith("insertHTML", false, "x<br>y");
+  });
+});
+
+describe("RichTextEditor images", () => {
+  it("inserts an image by its URL and alternative text", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <RichTextEditor
+        defaultValue="<p>Chart: </p>"
+        label="Note"
+        onChange={onChange}
+        toolbar={IMAGE_TOOLS}
+      />,
+    );
+
+    selectText("Chart", undefined, 7);
+    await user.click(tool("Image"));
+    expect(tool("Image")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("group", { name: "Image" })).toBeVisible();
+    // No upload without `uploadImage`
+    expect(
+      screen.queryByRole("button", { name: "Upload from device" }),
+    ).toBeNull();
+
+    const url = screen.getByRole("textbox", { name: "Image URL" });
+    expect(url).toHaveFocus();
+    await user.type(url, "javascript:alert(1)");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(url).toHaveAttribute("aria-invalid", "true");
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.clear(url);
+    // A host gets `https://`
+    await user.type(url, "cdn.example.com/chart.png");
+    await user.type(
+      screen.getByRole("textbox", { name: "Alternative text" }),
+      "Sales in 2026{Enter}",
+    );
+    expect(onChange).toHaveBeenLastCalledWith(
+      '<p>Chart: <img src="https://cdn.example.com/chart.png" alt="Sales in 2026"></p>',
+    );
+    expect(screen.queryByRole("group", { name: "Image" })).toBeNull();
+    expect(editor()).toHaveFocus();
+  });
+
+  it("edits the alternative text of the selected image, and removes it", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <RichTextEditor
+        defaultValue='<p>A <img src="/a.png" alt="Old"> B</p>'
+        label="Note"
+        onChange={onChange}
+        toolbar={IMAGE_TOOLS}
+      />,
+    );
+    const image = () => editor().querySelector("img") as HTMLImageElement;
+
+    await user.click(image());
+    await user.click(tool("Image"));
+    const alt = screen.getByRole("textbox", { name: "Alternative text" });
+    expect(alt).toHaveValue("Old");
+    expect(alt).toHaveFocus();
+    expect(screen.getByRole("textbox", { name: "Image URL" })).toHaveValue(
+      "/a.png",
+    );
+
+    await user.clear(alt);
+    await user.type(alt, "New{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith(
+      '<p>A <img src="/a.png" alt="New"> B</p>',
+    );
+
+    await user.click(image());
+    await user.click(tool("Image"));
+    await user.click(screen.getByRole("button", { name: "Remove image" }));
+    expect(onChange).toHaveBeenLastCalledWith("<p>A  B</p>");
+  });
+
+  it("keeps the images of a loaded value only with the image tool", () => {
+    const html =
+      '<p>A<img src="/a.png" alt="A" onerror="steal()"><img src="data:image/png;base64,AAAA"></p>';
+    const { rerender } = render(
+      <RichTextEditor defaultValue={html} label="Note" toolbar={IMAGE_TOOLS} />,
+    );
+    expect(editor().innerHTML).toBe('<p>A<img src="/a.png" alt="A"></p>');
+
+    rerender(
+      <RichTextEditor
+        allowImageDataUrls
+        defaultValue={html}
+        label="Note"
+        toolbar={IMAGE_TOOLS}
+      />,
+    );
+    expect(editor().innerHTML).toBe(
+      '<p>A<img src="/a.png" alt="A"><img src="data:image/png;base64,AAAA"></p>',
+    );
+
+    rerender(<RichTextEditor defaultValue={html} label="Note" />);
+    expect(editor().innerHTML).toBe("<p>A</p>");
+  });
+
+  it("submits a value of an image alone", () => {
+    render(
+      <form data-testid="form">
+        <RichTextEditor
+          defaultValue='<p><img src="/a.png" alt=""></p>'
+          label="Note"
+          name="note"
+          required
+          toolbar={IMAGE_TOOLS}
+        />
+      </form>,
+    );
+
+    const form = screen.getByTestId("form") as HTMLFormElement;
+    expect(form.checkValidity()).toBe(true);
+    expect(new FormData(form).get("note")).toBe(
+      '<p><img src="/a.png" alt=""></p>',
+    );
+  });
+
+  it("uploads a pasted image file with a placeholder until its URL comes", async () => {
+    let resolve: (url: string) => void = () => {};
+    const uploadImage = vi.fn(
+      () => new Promise<string>((done) => (resolve = done)),
+    );
+    const onChange = vi.fn();
+    render(
+      <form data-testid="form">
+        <RichTextEditor
+          defaultValue="<p>Shot: </p>"
+          label="Note"
+          name="note"
+          onChange={onChange}
+          toolbar={IMAGE_TOOLS}
+          uploadImage={uploadImage}
+        />
+      </form>,
+    );
+    const form = screen.getByTestId("form") as HTMLFormElement;
+    const file = new File(["png"], "shot.png", { type: "image/png" });
+
+    selectText("Shot", undefined, 6);
+    // A copied image - its file and HTML without text
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        files: [file],
+        getData: (type: string) =>
+          type === "text/html" ? '<img src="https://example.com/x.png">' : "",
+      },
+    });
+
+    expect(uploadImage).toHaveBeenCalledWith(file, {
+      signal: expect.any(AbortSignal),
+    });
+    expect(editor().querySelector("img[data-upload]")).not.toBeNull();
+    expect(editor()).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByText("Uploading the image…")).toHaveAttribute(
+      "role",
+      "status",
+    );
+    // Not in the value, and the form waits for it
+    expect(new FormData(form).get("note")).toBe("<p>Shot: </p>");
+    expect(form.checkValidity()).toBe(false);
+
+    await act(async () => resolve("https://cdn.example.com/shot.png"));
+    expect(editor().querySelector("img[data-upload]")).toBeNull();
+    const value =
+      '<p>Shot: <img src="https://cdn.example.com/shot.png" alt=""></p>';
+    expect(onChange).toHaveBeenLastCalledWith(value);
+    expect(new FormData(form).get("note")).toBe(value);
+    expect(form.checkValidity()).toBe(true);
+    expect(editor()).not.toHaveAttribute("aria-busy");
+
+    // One undo takes the image out, a redo brings it back uploaded
+    undoKey();
+    expect(onChange).toHaveBeenLastCalledWith("<p>Shot: </p>");
+    fireEvent.keyDown(editor(), { ctrlKey: true, key: "y" });
+    expect(onChange).toHaveBeenLastCalledWith(value);
+    expect(editor().querySelector("img[data-upload]")).toBeNull();
+  });
+
+  it("tells a failed upload and takes its placeholder away", async () => {
+    let reject: (reason: unknown) => void = () => {};
+    let resolve: (url: string) => void = () => {};
+    const uploadImage = vi
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise<string>((_, fail) => (reject = fail)),
+      )
+      .mockImplementationOnce(
+        () => new Promise<string>((done) => (resolve = done)),
+      );
+    render(
+      <RichTextEditor
+        defaultValue="<p>Shot</p>"
+        label="Note"
+        toolbar={IMAGE_TOOLS}
+        uploadImage={uploadImage}
+      />,
+    );
+    const file = new File(["png"], "shot.png", { type: "image/png" });
+    const paste = () =>
+      fireEvent.paste(editor(), {
+        clipboardData: { files: [file], getData: () => "" },
+      });
+
+    selectText("Shot", undefined, 4);
+    paste();
+    await act(async () => reject(new Error("Too big")));
+    expect(editor().innerHTML).toBe("<p>Shot</p>");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The image could not be uploaded.",
+    );
+
+    // A URL that is no safe image source fails too
+    selectText("Shot", undefined, 4);
+    paste();
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => resolve("javascript:alert(1)"));
+    expect(editor().querySelector("img")).toBeNull();
+    expect(screen.getByRole("alert")).toBeVisible();
+  });
+
+  it("uploads dropped image files and those picked in the image form", async () => {
+    const user = userEvent.setup();
+    const uploadImage = vi.fn(async (file: File) => `/uploads/${file.name}`);
+    render(
+      <RichTextEditor
+        defaultValue="<p>Photos</p>"
+        label="Note"
+        toolbar={IMAGE_TOOLS}
+        uploadImage={uploadImage}
+      />,
+    );
+
+    selectText("Photos", undefined, 6);
+    await act(async () => {
+      fireEvent.drop(editor(), {
+        dataTransfer: {
+          files: [
+            new File(["a"], "a.png", { type: "image/png" }),
+            new File(["x"], "notes.txt", { type: "text/plain" }),
+          ],
+          getData: () => "",
+        },
+      });
+    });
+    expect(editor().innerHTML).toBe(
+      '<p>Photos<img alt="" src="/uploads/a.png"></p>',
+    );
+
+    await user.click(tool("Image"));
+    await user.type(
+      screen.getByRole("textbox", { name: "Alternative text" }),
+      "Beach",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Upload from device" }),
+    );
+    const input = document.querySelector<HTMLInputElement>("input[type=file]");
+    expect(input).toHaveAttribute("accept", "image/*");
+    await act(async () => {
+      await user.upload(
+        input as HTMLInputElement,
+        new File(["b"], "b.png", { type: "image/png" }),
+      );
+    });
+    expect(uploadImage).toHaveBeenCalledTimes(2);
+    expect(editor().innerHTML).toBe(
+      '<p>Photos<img alt="" src="/uploads/a.png"><img alt="Beach" src="/uploads/b.png"></p>',
+    );
+  });
+
+  it("refuses pasted and dropped image files without uploadImage", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor
+        defaultValue="<p>Shot</p>"
+        label="Note"
+        toolbar={IMAGE_TOOLS}
+      />,
+    );
+    const file = new File(["png"], "shot.png", { type: "image/png" });
+
+    selectText("Shot", undefined, 4);
+    expect(
+      fireEvent.paste(editor(), {
+        clipboardData: { files: [file], getData: () => "" },
+      }),
+    ).toBe(false);
+    expect(
+      fireEvent.drop(editor(), {
+        dataTransfer: { files: [file], getData: () => "" },
+      }),
+    ).toBe(false);
+    expect(execCommand).not.toHaveBeenCalled();
+    expect(editor().innerHTML).toBe("<p>Shot</p>");
+  });
+
+  it("aborts its uploads when it unmounts", () => {
+    const signals: AbortSignal[] = [];
+    const uploadImage = vi.fn(
+      (_: File, { signal }: { signal: AbortSignal }) => {
+        signals.push(signal);
+        return new Promise<string>(() => {});
+      },
+    );
+    const { unmount } = render(
+      <RichTextEditor
+        defaultValue="<p>Shot</p>"
+        label="Note"
+        toolbar={IMAGE_TOOLS}
+        uploadImage={uploadImage}
+      />,
+    );
+
+    selectText("Shot", undefined, 4);
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        files: [new File(["png"], "shot.png", { type: "image/png" })],
+        getData: () => "",
+      },
+    });
+    expect(signals[0].aborted).toBe(false);
+
+    unmount();
+    expect(signals[0].aborted).toBe(true);
+  });
+
+  it("keeps the images of pasted content with the image tool", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor
+        defaultValue="<p>Shot</p>"
+        label="Note"
+        toolbar={IMAGE_TOOLS}
+      />,
+    );
+
+    selectText("Shot", undefined, 4);
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        getData: (type: string) =>
+          type === "text/html"
+            ? 'x<img src="https://example.com/a.png" onerror="steal()" srcset="javascript:steal()"><img src="javascript:steal()">'
+            : "x",
+      },
+    });
+    expect(execCommand).toHaveBeenCalledWith(
+      "insertHTML",
+      false,
+      'x<img src="https://example.com/a.png">',
+    );
+  });
+});
+
+describe("RichTextEditor right to left", () => {
+  it("moves in the toolbar by the arrow keys of the direction of the text", async () => {
+    mockRightToLeft();
+    const user = userEvent.setup();
+    render(
+      <RichTextEditor label="Note" toolbar={["bold", "italic", "underline"]} />,
+    );
+
+    await user.tab();
+    expect(tool("Bold")).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(tool("Italic")).toHaveFocus();
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+    expect(tool("Underline")).toHaveFocus();
+  });
+
+  it("leaves a table forward by the left arrow key", () => {
+    mockRightToLeft();
+    render(
+      <RichTextEditor
+        defaultValue="<table><tbody><tr><td>a</td></tr></tbody></table>"
+        label="Note"
+        toolbar={ALL_TOOLS}
+      />,
+    );
+
+    selectText("a", undefined, 1);
+    expect(fireEvent.keyDown(editor(), { key: "ArrowRight" })).toBe(true);
+    expect(fireEvent.keyDown(editor(), { key: "ArrowLeft" })).toBe(false);
+    expect(editor().lastElementChild?.outerHTML).toBe("<p><br></p>");
+  });
+});
+
+describe("RichTextEditor label", () => {
+  it("takes content as its label - also the name of its toolbar", () => {
+    render(
+      <RichTextEditor
+        label={
+          <>
+            Note <em>(public)</em>
+          </>
+        }
+        required
+      />,
+    );
+
+    expect(
+      screen.getByRole("textbox", { name: "Note (public):" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("toolbar", { name: "Note (public)" }),
+    ).toBeVisible();
+  });
+});
+
+describe("RichTextEditor with its new props on the server", () => {
+  it("hydrates without a mismatch", async () => {
+    const element = (
+      <RichTextEditor
+        defaultValue='<p>Hi <img src="/a.png" alt="A"></p><pre><code>a</code></pre>'
+        label="Note"
+        maxLength={10}
+        maxRows={12}
+        minRows={4}
+        name="note"
+        resize
+        showCount
+        toolbar={EVERY_TOOL}
+        uploadImage={async () => "/a.png"}
+      />
+    );
+
+    vi.stubGlobal("document", undefined);
+    let serverHtml: string;
+    try {
+      serverHtml = renderToString(element);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(serverHtml).not.toContain("img");
+    expect(serverHtml).toContain("0 / 10");
+
+    const container = document.createElement("div");
+    container.innerHTML = serverHtml;
+    document.body.append(container);
+    const consoleError = vi.spyOn(console, "error");
+    const onRecoverableError = vi.fn();
+
+    const root = await act(async () =>
+      hydrateRoot(container, element, { onRecoverableError }),
+    );
+
+    expect(onRecoverableError).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+    // Counted once it is filled in - "Hi " and the code
+    expect(screen.getByText("4 / 10")).toBeVisible();
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("/a.png");
 
     act(() => root.unmount());
     container.remove();

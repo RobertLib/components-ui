@@ -172,3 +172,60 @@ describe("Field around the library's fields", () => {
     }
   });
 });
+
+describe("Field label", () => {
+  it("takes content, which names the control by aria-labelledby", () => {
+    render(
+      <Field
+        id="rating"
+        label={
+          <>
+            Rating <small>(1-5)</small>
+          </>
+        }
+        required
+      >
+        {(controlProps) => <div {...controlProps} role="slider" tabIndex={0} />}
+      </Field>,
+    );
+
+    const slider = screen.getByRole("slider", { name: "Rating (1-5):" });
+    expect(slider).toHaveAttribute("aria-labelledby", "rating-label");
+    expect(screen.getByText("*")).toHaveClass("cui-required-mark");
+  });
+
+  it("names nothing without a label", () => {
+    render(
+      <Field label={false}>
+        {(controlProps) => <input {...controlProps} aria-label="Search" />}
+      </Field>,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Search" })).not.toHaveAttribute(
+      "aria-labelledby",
+    );
+  });
+});
+
+describe("Required marks", () => {
+  it("are the same star in every field, which one attribute hides", () => {
+    const { container } = render(
+      <form data-required-mark="hidden">
+        <Field label="Custom" required>
+          {(controlProps) => <input {...controlProps} required />}
+        </Field>
+        <Input label="Input" required />
+        <Select label="Select" options={[]} required />
+      </form>,
+    );
+
+    const marks = container.querySelectorAll(".cui-required-mark");
+    expect(marks).toHaveLength(3);
+    for (const mark of marks) {
+      expect(mark).toHaveTextContent("*");
+      expect(mark).toHaveAttribute("aria-hidden", "true");
+      // The stylesheet hides it - not loaded here: the selector it uses
+      expect(mark.closest('[data-required-mark="hidden"]')).not.toBeNull();
+    }
+  });
+});

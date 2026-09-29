@@ -17,7 +17,7 @@ export default function ButtonTrigger() {
         items={items}
         trigger={
           <Button variant="outline">
-            Export <ChevronDown className="ml-1" size={16} />
+            Export <ChevronDown className="ms-1" size={16} />
           </Button>
         }
       />

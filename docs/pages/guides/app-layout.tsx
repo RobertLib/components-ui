@@ -135,8 +135,11 @@ export default function AppLayoutGuide() {
             children disappear. Permissions that arrive later change the menu in
             place - an expanded group stays expanded, as the items are told
             apart by their <code>href</code> or <code>label</code> (or an{" "}
-            <code>id</code>). See the live demo on the{" "}
-            <Link to="/components/app-shell">AppShell page</Link>.
+            <code>id</code>). The drawer is at the start edge of the page - on
+            the right in a right-to-left language (
+            <code>dir=&quot;rtl&quot;</code> on <code>&lt;html&gt;</code>),
+            where the navbar and the page make room on that side. See the live
+            demo on the <Link to="/components/app-shell">AppShell page</Link>.
           </p>
         </Prose>
         <CodeBlock code={layout} />

@@ -612,6 +612,11 @@ describe("DateTimePicker focus", () => {
       screen.getByRole("button", { name: "September 24, 2026" }),
     ).toHaveFocus();
 
+    // Past the Today and Clear buttons of the popup
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Today" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Clear" })).toHaveFocus();
     // Past the clear button too - it belongs to the picker
     await user.tab();
     const nextField = screen.getByRole("textbox", { name: "Next field" });

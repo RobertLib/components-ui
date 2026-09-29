@@ -51,7 +51,7 @@ export default function RichItems() {
             danger: true,
             icon: <Trash2 size={16} />,
             label: "Delete",
-            onClick: () => enqueueSnackbar("Invoice deleted", "error"),
+            onClick: () => enqueueSnackbar("Invoice deleted", "danger"),
             shortcut: "delete",
           },
         ]}

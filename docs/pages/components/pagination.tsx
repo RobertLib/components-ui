@@ -35,6 +35,28 @@ export default function PaginationPage() {
       <Example
         description={
           <p>
+            <code>variant="pages"</code> shows numbered pages between the
+            previous and the next button: the first and the last one (
+            <code>boundaryCount</code>), the ones beside the current page (
+            <code>siblingCount</code>) and "…" for the gaps - always as many
+            items, so the buttons do not jump around. The current page is{" "}
+            <code>aria-current="page"</code>, and a pressed number keeps the
+            focus. It needs the number of pages - a <code>total</code>, or a{" "}
+            <code>pageCount</code> for an API that reports pages; in cursor mode
+            it stays compact. <code>onPageChange</code> gets the number of the
+            page to show, from every button (in the compact variant too).{" "}
+            <code>pageSizeOptions</code> adds a select of the page size (
+            <code>onPageSizeChange</code>), <code>showJumpTo</code> a field that
+            goes to the page typed in - in the landmark, and submitting no form
+            around it.
+          </p>
+        }
+        name="pagination/pages"
+        title="Numbered pages, page size and jump"
+      />
+      <Example
+        description={
+          <p>
             Pass the <code>pageInfo</code> of a Relay connection. A cursor
             connection cannot jump to its end, so there is no "last page"
             button. Many servers report <code>hasPreviousPage: false</code>{" "}

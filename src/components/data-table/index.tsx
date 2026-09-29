@@ -8,13 +8,13 @@ import {
   useCallback,
   useEffect,
   useId,
-  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import Button from "../button";
+import { attachRef } from "../../hooks/use-form-control";
 import cn from "../../utils/cn";
 import logger from "../../utils/logger";
 import useColumnManagement from "./use-column-management";
@@ -29,6 +29,12 @@ import {
 } from "./cell-layout";
 import { computeSummary } from "./summary";
 import { createCsv, downloadCsv } from "./csv";
+import {
+  flattenColumns,
+  groupRows,
+  summarizeGroup,
+  type BodyRowGroup,
+} from "./grouping";
 import {
   getCellKey,
   getEditErrorMessage,
@@ -53,6 +59,8 @@ import {
   DEFAULT_PAGE_SIZE_OPTIONS,
   filterAndSortRows,
   getColumnValue,
+  getQuerySort,
+  hasFilterValue,
   isFilterColumn,
   isSameQuery,
   paginateRows,
@@ -60,6 +68,7 @@ import {
   setFilter,
   toggleSort,
   type DataTableQuery,
+  type DataTableSort,
 } from "./query";
 import {
   formatMessage,
@@ -71,7 +80,10 @@ import { useLocale } from "../../providers/ui-context";
 import type { PluralMessage } from "../../i18n/types";
 import type {
   Column,
+  DataTableColumn,
+  DataTableColumnState,
   DataTableDensity,
+  DataTableSelectionMode,
   FilteredSelectionConfig,
   GroupAction,
   GroupActionSelection,
@@ -83,14 +95,26 @@ export type {
   Column,
   ColumnEditor,
   ColumnFilter,
+  ColumnGroup,
   ColumnPin,
   ColumnSummary,
+  DataTableColumn,
+  DataTableColumnState,
   DataTableDensity,
+  DataTableSelectionMode,
   FilteredSelectionConfig,
   GroupAction,
   GroupActionSelection,
   RowId,
 } from "./types";
+
+/** The ids of both lists are the same - in any order. */
+function isSameIdSet(a: readonly RowId[], b: readonly RowId[]) {
+  if (a === b) return true;
+  const ids = new Set(a);
+  const other = new Set(b);
+  return ids.size === other.size && [...ids].every((id) => other.has(id));
+}
 
 const MAX_TOGGLED_ROWS = 1000;
 
@@ -198,8 +222,17 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
    * rows. Otherwise `data` is the current page, loaded for `query`.
    */
   clientSide?: boolean;
-  /** Column definitions - see `Column`. */
-  columns: Column<T>[];
+  /**
+   * Column definitions - see `Column`; an entry with `children` puts its
+   * columns under a common header (`ColumnGroup`).
+   */
+  columns: DataTableColumn<T>[];
+  /**
+   * The column settings - controlled: their order, visibility, pinning and
+   * widths as the user left them, e.g. stored on a server per user. Use
+   * with `onColumnStateChange`; `tableId` then keeps only the row density.
+   */
+  columnState?: DataTableColumnState;
   /**
    * Field separator of the CSV export - by default `;` for languages
    * writing a decimal comma (so e.g. a Czech Excel opens the file in
@@ -208,10 +241,18 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
   csvSeparator?: string;
   /** Rows to show - the current page, or all rows with `clientSide`. */
   data: T[];
+  /**
+   * Initial column settings of an uncontrolled table - with `tableId` while
+   * nothing is saved under it. "Reset columns" brings back the columns'
+   * definitions.
+   */
+  defaultColumnState?: DataTableColumnState;
   /** Initial query of an uncontrolled table. */
   defaultQuery?: Partial<DataTableQuery>;
   /** Opens the global search field right away. */
   defaultSearchOpen?: boolean;
+  /** Ids of the rows selected at first - uncontrolled, see `selectedIds`. */
+  defaultSelectedIds?: RowId[];
   /**
    * Height of the rows. The user can switch it in the toolbar - the choice
    * is remembered under `tableId`.
@@ -219,8 +260,11 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
   density?: DataTableDensity;
   /** Set to `false` to leave the row density control out of the toolbar. */
   densityControl?: boolean;
-  /** Replaces the generic "no data" text shown when the table has no rows. */
-  emptyMessage?: string;
+  /**
+   * Replaces the generic "no data" text shown when the table has no rows -
+   * a text, or any content such as an `EmptyState` with a button.
+   */
+  emptyMessage?: React.ReactNode;
   /**
    * Adds a CSV export button to the toolbar. It exports every page of what
    * the user sees - the visible columns in their order, the values as the
@@ -248,8 +292,26 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
   getRowBackgroundColor?: (row: T) => string | undefined;
   /** Extra classes of a row. */
   getRowClassName?: (row: T) => string | undefined;
+  /**
+   * The page a row opens - its first column shows its content as a link
+   * there (`useRouter().Link`, so middle and Ctrl + click open a new tab),
+   * and a click elsewhere on the row follows it too. `undefined` for a row
+   * without one. Keep controls out of the first column - a link cannot hold
+   * them.
+   */
+  getRowHref?: (row: T) => string | undefined;
   /** Buttons acting on the selected rows - adds a checkbox column. */
   groupActions?: GroupAction<T>[];
+  /**
+   * `clientSide` only: key of a column to group the rows by - each group
+   * gets a header row with its value and number of rows, which collapses
+   * and expands it, and a row of the column `summary` of all its rows. The
+   * groups follow the order of the value (the direction of its column when
+   * it is sorted); the rows keep their order within them. A group of the
+   * page may go on on the next one - its number counts all its rows. Not
+   * `virtualized`.
+   */
+  groupBy?: string;
   /**
    * The rows are loading: without rows the table shows placeholder rows
    * with a spinner over them, rows already there are dimmed until new ones
@@ -264,6 +326,14 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
    * `calc(100vh - 212px)`.
    */
   maxHeight?: string;
+  /**
+   * Shift + click on a sortable header (Shift + Enter on its button) adds
+   * the column to the sorting - rows equal in the first sorted column are
+   * sorted by the next one (`query.sort`). A plain click sorts by the
+   * column alone. Defaults to `clientSide` - a server has to read
+   * `query.sort` to sort by several columns.
+   */
+  multiSort?: boolean;
   /**
    * Called with the new value of an `editable` cell - not for a field left
    * as it was, also when a refetch changed the cell meanwhile. While a
@@ -281,6 +351,12 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
     value: unknown,
   ) => void | Promise<void>;
   /**
+   * Called with the new column settings whenever the user reorders, hides,
+   * pins or resizes a column or resets them - also of an uncontrolled table,
+   * e.g. to store them on a server.
+   */
+  onColumnStateChange?: (state: DataTableColumnState) => void;
+  /**
    * Server data: all rows of `query` - every page - for the CSV export. It
    * turns the export on too. The export button shows a spinner while the
    * rows load; a rejection is logged and nothing is saved - tell the user
@@ -289,6 +365,27 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
   onExport?: (query: DataTableQuery) => T[] | Promise<T[]>;
   /** Called with the new query whenever the user pages, sorts, filters or searches. */
   onQueryChange?: (query: DataTableQuery) => void;
+  /**
+   * Called for a click on a row - not on a control in it (a button, a
+   * checkbox, a link, an editable cell) nor at the end of selecting its
+   * text. Without `getRowHref` the rows are one Tab stop: the arrow keys
+   * move between them, Enter on one calls it with the keyboard event. With
+   * `getRowHref` it is called before the link is followed -
+   * `event.preventDefault()` stays on the page.
+   */
+  onRowClick?: (
+    row: T,
+    event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>,
+  ) => void;
+  /**
+   * Called with the ids of the selected rows whenever the user changes the
+   * selection - and what it is: all rows matching the filters
+   * (`filteredSelection`) or some, the loaded selected rows, the count.
+   */
+  onSelectedIdsChange?: (
+    ids: RowId[],
+    selection: GroupActionSelection<T>,
+  ) => void;
   /**
    * Cursor pagination (GraphQL / Relay): the `pageInfo` of the connection.
    * Leave out for offset pagination, which needs `total`.
@@ -313,6 +410,23 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
    */
   resizableColumns?: boolean;
   /**
+   * Ids of the selected rows - controlled, with `onSelectedIdsChange`. They
+   * stay as given - also for rows of other pages or filtered out, which an
+   * uncontrolled selection drops: clear them yourself when the rows change
+   * (e.g. in `onQueryChange`). With "select all N rows" of
+   * `filteredSelection` the table reports the loaded matching rows and
+   * `allFiltered`; another `selectedIds` ends it.
+   */
+  selectedIds?: RowId[];
+  /**
+   * How many rows the checkbox column lets the user select - `single`
+   * unchecks the other row, Shift + click on a checkbox of `multiple`
+   * selects the rows from the one clicked before. Defaults to `multiple`
+   * with `groupActions` or a selection prop (`selectedIds`,
+   * `defaultSelectedIds`, `onSelectedIdsChange`), to `none` otherwise.
+   */
+  selectionMode?: DataTableSelectionMode;
+  /**
    * Server data: the values of the summary row by column key, e.g. the
    * totals of all rows matching the query - they win over the `summary` of
    * the columns. Numbers are written as the language writes them.
@@ -320,8 +434,9 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
   summaryValues?: Record<string, React.ReactNode>;
   /**
    * Remembers the column order, visibility, pinning and widths and the row
-   * density in `localStorage` under this id. Include the user id when
-   * several people share a browser.
+   * density in `localStorage` under this id - the row density alone with a
+   * controlled `columnState`. Include the user id when several people share
+   * a browser.
    */
   tableId?: string;
   /** Content left of the table controls, e.g. filters or a "New" button. */
@@ -338,11 +453,15 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
 }
 
 /**
- * A data grid with sorting, column filters, global search, pagination, row
- * selection with group actions, expandable rows, column reordering, hiding,
- * pinning and resizing, row density, inline editing, a summary row, CSV
- * export and row virtualization. Works with any data source: the table
- * reports a `DataTableQuery` and shows the rows it is given.
+ * A data grid with sorting by one or several columns, column filters (texts,
+ * options, ranges), global search, pagination, row selection with group
+ * actions, row links, expandable and grouped rows, column groups,
+ * reordering, hiding, pinning and resizing, row density, inline editing, a
+ * summary row, CSV export and row virtualization. Works with any data
+ * source: the table reports a `DataTableQuery` and shows the rows it is
+ * given. The attributes and the `ref` go to the region around it. A selected
+ * row has `data-selected`, a row with a detail (`renderSubRow`) and a group
+ * of rows `data-state="open"` or `"closed"` - for styling.
  */
 export default function DataTable<T extends { id: RowId }>({
   actions,
@@ -351,11 +470,14 @@ export default function DataTable<T extends { id: RowId }>({
   autoResetSelectedRows = false,
   className,
   clientSide = false,
-  columns,
+  columns: columnEntries,
+  columnState,
   csvSeparator,
   data,
+  defaultColumnState,
   defaultQuery,
   defaultSearchOpen = false,
+  defaultSelectedIds,
   density: defaultDensity = "normal",
   densityControl = true,
   emptyMessage,
@@ -366,12 +488,18 @@ export default function DataTable<T extends { id: RowId }>({
   filteredSelection,
   getRowBackgroundColor,
   getRowClassName,
+  getRowHref,
   groupActions,
+  groupBy,
   loading,
   maxHeight = "calc(100vh - 212px)",
+  multiSort = clientSide,
   onCellEdit,
+  onColumnStateChange,
   onExport,
   onQueryChange,
+  onRowClick,
+  onSelectedIdsChange,
   pageInfo,
   pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   pagination = true,
@@ -379,19 +507,31 @@ export default function DataTable<T extends { id: RowId }>({
   ref,
   renderSubRow,
   resizableColumns = true,
+  selectedIds: controlledSelectedIds,
+  selectionMode: selectionModeProp,
   summaryValues,
   tableId,
   toolbar,
   total,
-  virtualized = false,
+  virtualized: virtualizedProp = false,
   ...props
 }: DataTableProps<T>) {
   const locale = useLocale();
   const { messages } = locale;
 
-  // The `ref` prop gets the root element too
-  const rootRef = useRef<HTMLDivElement>(null);
-  useImperativeHandle(ref, () => rootRef.current as HTMLDivElement, []);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  // The root element - also for the `ref` prop
+  const rootRefCallback = useCallback(
+    (element: HTMLDivElement | null) => {
+      rootRef.current = element;
+      const detachRef = attachRef(ref, element);
+      return () => {
+        rootRef.current = null;
+        detachRef();
+      };
+    },
+    [ref],
+  );
 
   const [internalQuery, setInternalQuery] = useState(() =>
     createDataTableQuery(defaultQuery),
@@ -415,6 +555,14 @@ export default function DataTable<T extends { id: RowId }>({
     onQueryChange?.(next);
   };
 
+  // The columns of the groups take their places - the table works with the
+  // columns, the header adds a row for the groups
+  const {
+    columns,
+    groupOf,
+    groups: columnGroups,
+  } = useMemo(() => flattenColumns(columnEntries), [columnEntries]);
+
   const {
     columnOrder,
     columnVisibility,
@@ -433,22 +581,40 @@ export default function DataTable<T extends { id: RowId }>({
     setDensity,
     sortedVisibleColumns,
     visibleColumns,
-  } = useColumnManagement(columns, tableId);
+  } = useColumnManagement(columns, tableId, {
+    columnState,
+    defaultColumnState,
+    groupOf,
+    onColumnStateChange,
+  });
 
   // The user's choice - unless the control to make it is gone
   const density = (densityControl && savedDensity) || defaultDensity;
+
+  // Rows grouped by a column - client-side, where all its rows are known.
+  // The group rows come between the rows, which virtualization cannot
+  // measure apart.
+  const groupColumn =
+    clientSide && groupBy !== undefined
+      ? columns.find((column) => column.key === groupBy)
+      : undefined;
+  const virtualized = virtualizedProp && !groupColumn;
 
   // The term of the search field - without the field nothing could show or
   // clear a search, so a `clientSide` table ignores one then
   const searchTerm = enableGlobalSearch ? query.search : "";
 
-  // Only a sortable column the user sees sorts - a hand-edited URL or an old
-  // bookmark may name another one, whose header could not show or undo it
-  const sortBy = sortedVisibleColumns.some(
-    (column) => column.sortable && column.key === query.sortBy,
-  )
-    ? query.sortBy
-    : null;
+  // Only sortable columns the user sees sort - a hand-edited URL or an old
+  // bookmark may name others, whose headers could not show or undo it
+  const querySort = getQuerySort(query);
+  const sortKey = JSON.stringify(
+    querySort.filter(({ key }) =>
+      sortedVisibleColumns.some(
+        (column) => column.sortable && column.key === key,
+      ),
+    ),
+  );
+  const sort = useMemo(() => JSON.parse(sortKey) as DataTableSort[], [sortKey]);
 
   // Client-side: all rows matching the filters and the search, sorted - the
   // expensive part, so it runs again only when they, the columns or these
@@ -459,7 +625,6 @@ export default function DataTable<T extends { id: RowId }>({
   const queryColumns = useQueryColumns(columns);
   const searchColumns = useQueryColumns(visibleColumns);
   const filtersKey = JSON.stringify(query.filters);
-  const { order } = query;
   const matchingRows = useMemo(
     () =>
       clientSide
@@ -467,9 +632,10 @@ export default function DataTable<T extends { id: RowId }>({
             data,
             {
               filters: JSON.parse(filtersKey) as DataTableQuery["filters"],
-              order,
+              order: sort[0]?.order ?? "asc",
               search: searchTerm,
-              sortBy,
+              sort,
+              sortBy: sort[0]?.key ?? null,
             },
             queryColumns,
             { locale, searchColumns },
@@ -480,11 +646,10 @@ export default function DataTable<T extends { id: RowId }>({
       data,
       filtersKey,
       locale,
-      order,
       queryColumns,
       searchColumns,
       searchTerm,
-      sortBy,
+      sort,
     ],
   );
   const clientPage =
@@ -502,10 +667,12 @@ export default function DataTable<T extends { id: RowId }>({
   const isDraggingRef = useRef(false);
   const pendingWidthsRef = useRef<Record<string, number> | null>(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
-  // "All rows matching the filters" - the filters it was chosen for, and the
-  // matching rows unchecked since, which it leaves out
+  // "All rows matching the filters" - the filters it was chosen for, the
+  // matching rows unchecked since, which it leaves out, and the ids it was
+  // reported with - a controlled `selectedIds` of other ids ends it
   const [allFilteredSelection, setAllFilteredSelection] = useState<{
     excluded: T[];
+    reportedIds: RowId[];
     scope: string;
   } | null>(null);
 
@@ -646,8 +813,7 @@ export default function DataTable<T extends { id: RowId }>({
   // top, not scrolled to where the previous rows were left
   const rowsQueryKey = `${page}:${JSON.stringify([
     query.pageSize,
-    query.sortBy,
-    query.order,
+    sortKey,
     query.search,
     query.filters,
     query.after,
@@ -659,8 +825,8 @@ export default function DataTable<T extends { id: RowId }>({
     if (container) container.scrollTop = 0;
   }, [rowsQueryKey]);
 
-  // Whether the table is scrolled away from its left edge and short of its
-  // right edge - the pinned columns cast a shadow over the scrolled ones then
+  // Whether the table is scrolled away from its start edge and short of its
+  // end edge - the pinned columns cast a shadow over the scrolled ones then
   const [scrollEdges, setScrollEdges] = useState({ end: false, start: false });
   // How far the table was scrolled at the last scroll event
   const scrollLeftRef = useRef(0);
@@ -676,10 +842,10 @@ export default function DataTable<T extends { id: RowId }>({
       scrollLeftRef.current = container.scrollLeft;
       scrollTopRef.current = container.scrollTop;
       setViewWidth(container.clientWidth);
-      const start = container.scrollLeft > 0;
-      const end =
-        container.scrollLeft + container.clientWidth <
-        container.scrollWidth - 1;
+      // Negative from the start of a right-to-left table
+      const scrolled = Math.abs(container.scrollLeft);
+      const start = scrolled > 0;
+      const end = scrolled + container.clientWidth < container.scrollWidth - 1;
       setScrollEdges((previous) =>
         previous.start === start && previous.end === end
           ? previous
@@ -700,8 +866,25 @@ export default function DataTable<T extends { id: RowId }>({
     };
   }, []);
 
+  const hasGroupActions = !!groupActions && groupActions.length > 0;
+  const isSelectionControlled = controlledSelectedIds !== undefined;
+  const selectionMode: DataTableSelectionMode =
+    selectionModeProp ??
+    (hasGroupActions ||
+    isSelectionControlled ||
+    defaultSelectedIds !== undefined ||
+    !!onSelectedIdsChange
+      ? "multiple"
+      : "none");
+  const hasSelection = selectionMode !== "none";
+
+  // "Select all N matching rows" - of a selection of several rows
   const selectionConfig: FilteredSelectionConfig | null =
-    filteredSelection === true ? {} : filteredSelection || null;
+    selectionMode !== "multiple"
+      ? null
+      : filteredSelection === true
+        ? {}
+        : filteredSelection || null;
 
   const selectionScopeKey =
     selectionConfig?.scopeKey ??
@@ -709,28 +892,69 @@ export default function DataTable<T extends { id: RowId }>({
   const selectionTotal = selectionConfig?.total ?? rowsTotal ?? rows.length;
 
   // "All rows matching the filters" ends with the filters - it does not come
-  // back when the user returns to them
+  // back when the user returns to them - and with another controlled
+  // selection than the one it was reported with
   if (
     allFilteredSelection !== null &&
-    allFilteredSelection.scope !== selectionScopeKey
+    (allFilteredSelection.scope !== selectionScopeKey ||
+      (isSelectionControlled &&
+        !isSameIdSet(controlledSelectedIds, allFilteredSelection.reportedIds)))
   ) {
     setAllFilteredSelection(null);
   }
 
-  // Rows that leave the page (another page, a refetch without them) leave
-  // the selection - the others stay selected
+  // Uncontrolled, rows that leave the page (another page, a refetch without
+  // them) leave the selection - the others stay selected. A controlled
+  // selection stays as it is given.
   const {
+    ids: selectedIdList,
     isAllSelected,
-    resetSelection,
     selectedIds,
     selectedRows,
-    setSelectedRows,
-    toggleRowSelection,
-    toggleSelectAll,
-  } = useRowSelection(rows, { loading, resetKey: selectionScopeKey });
+    setSelectedIds,
+  } = useRowSelection(rows, {
+    defaultSelectedIds,
+    // Client-side all rows are loaded - a controlled selection may keep
+    // rows of other pages
+    lookupRows: clientSide ? data : rows,
+    loading,
+    resetKey: selectionScopeKey,
+    selectedIds: controlledSelectedIds,
+  });
+
+  // The selection as the owner last showed it - a group action that ends
+  // later deselects its rows from it
+  const latestSelectedIds = useRef(selectedIdList);
+
+  useEffect(() => {
+    latestSelectedIds.current = selectedIdList;
+  });
 
   const isAllFilteredSelected =
     !!selectionConfig && allFilteredSelection?.scope === selectionScopeKey;
+
+  // The ids reported last - an uncontrolled selection that drops rows by
+  // itself (another page, a refetch, other filters) reports it afterwards
+  const reportedIdsRef = useRef(selectedIdList);
+
+  useEffect(() => {
+    if (
+      isSelectionControlled ||
+      isAllFilteredSelected ||
+      isSameIdSet(reportedIdsRef.current, selectedIdList)
+    ) {
+      return;
+    }
+    reportedIdsRef.current = selectedIdList;
+    onSelectedIdsChange?.(selectedIdList, {
+      allFiltered: false,
+      count: selectedIdList.length,
+      excludedRows: [],
+      ids: selectedIdList,
+      query,
+      rows: selectedRows,
+    });
+  });
   const excludedRows = useMemo(
     () => (isAllFilteredSelected ? (allFilteredSelection?.excluded ?? []) : []),
     [allFilteredSelection, isAllFilteredSelected],
@@ -741,7 +965,7 @@ export default function DataTable<T extends { id: RowId }>({
   );
   const selectedCount = isAllFilteredSelected
     ? Math.max(0, selectionTotal - excludedRows.length)
-    : selectedRows.length;
+    : selectedIdList.length;
   const displayedSelectedIds = useMemo(
     () =>
       isAllFilteredSelected
@@ -752,43 +976,86 @@ export default function DataTable<T extends { id: RowId }>({
     [excludedIds, isAllFilteredSelected, rows, selectedIds],
   );
 
-  const resetAllSelection = () => {
-    setAllFilteredSelection(null);
-    resetSelection();
+  /**
+   * What a selection is - reported with its ids. `excluded` for all rows
+   * matching the filters but these.
+   */
+  const describeSelection = (
+    ids: RowId[],
+    excluded: T[] | null,
+  ): GroupActionSelection<T> => {
+    const idSet = new Set(ids);
+    const loaded = new Map(
+      (clientSide ? data : rows).map((row) => [row.id, row]),
+    );
+
+    return {
+      allFiltered: excluded !== null,
+      count:
+        excluded === null
+          ? ids.length
+          : Math.max(0, selectionTotal - excluded.length),
+      excludedRows: excluded ?? [],
+      ids,
+      query,
+      rows:
+        excluded === null
+          ? ids.flatMap((id) => loaded.get(id) ?? [])
+          : (matchingRows ?? rows).filter((row) => idSet.has(row.id)),
+    };
   };
 
-  const handleToggleRowSelection = (row: T) => {
-    if (isAllFilteredSelected) {
-      // All matching rows but the unchecked ones - checked again, a row is
-      // back in; with none left, nothing is selected
-      const excluded = excludedIds.has(row.id)
-        ? excludedRows.filter((current) => current.id !== row.id)
-        : [...excludedRows, row];
-
-      if (excluded.length >= selectionTotal) {
-        resetAllSelection();
-      } else {
-        setAllFilteredSelection({ excluded, scope: selectionScopeKey });
-      }
+  /**
+   * Makes a selection - of the ids, or (`excluded`) of all rows matching
+   * the filters but those - and reports it.
+   */
+  const commitSelection = (ids: RowId[], excluded: T[] | null = null) => {
+    if (excluded === null) {
+      reportedIdsRef.current = ids;
+      setAllFilteredSelection(null);
+      if (!isSelectionControlled) setSelectedIds(ids);
+      onSelectedIdsChange?.(ids, describeSelection(ids, null));
       return;
     }
 
-    toggleRowSelection(row);
+    // The loaded rows of all matching ones - client-side all of them
+    const excludedSet = new Set(excluded.map((row) => row.id));
+    const loadedIds = (matchingRows ?? rows)
+      .map((row) => row.id)
+      .filter((id) => !excludedSet.has(id));
+    reportedIdsRef.current = loadedIds;
+    setAllFilteredSelection({
+      excluded,
+      reportedIds: loadedIds,
+      scope: selectionScopeKey,
+    });
+    onSelectedIdsChange?.(loadedIds, describeSelection(loadedIds, excluded));
   };
+
+  const resetAllSelection = () => commitSelection([]);
 
   const handleToggleSelectAll = () => {
     if (isAllFilteredSelected) {
       // Mixed with rows unchecked - all matching rows again, as a mixed
       // checkbox checks all; checked, it unchecks all
       if (excludedRows.length > 0) {
-        setAllFilteredSelection({ excluded: [], scope: selectionScopeKey });
+        commitSelection([], []);
       } else {
         resetAllSelection();
       }
       return;
     }
 
-    toggleSelectAll();
+    // The rows of the page - a controlled selection keeps those of others
+    const pageIds = new Set(rows.map((row) => row.id));
+    commitSelection(
+      isAllSelected
+        ? selectedIdList.filter((id) => !pageIds.has(id))
+        : [
+            ...selectedIdList.filter((id) => !pageIds.has(id)),
+            ...rows.map((row) => row.id),
+          ],
+    );
   };
 
   // The group action that runs - its button shows a spinner and none of
@@ -830,6 +1097,9 @@ export default function DataTable<T extends { id: RowId }>({
       allFiltered: isAllFilteredSelected,
       count: selectedCount,
       excludedRows,
+      ids: isAllFilteredSelected
+        ? actionRows.map((row) => row.id)
+        : selectedIdList,
       query,
       rows: actionRows,
     };
@@ -846,15 +1116,21 @@ export default function DataTable<T extends { id: RowId }>({
     if (autoResetSelectedRows && shouldReset !== false) {
       // Only what the action got - rows selected while it ran stay
       // selected (a selection of another page is gone already)
-      const actedIds = new Set(actionRows.map((row) => row.id));
+      const actedIds = new Set(selection.ids);
       if (actionScope !== null) {
         setAllFilteredSelection((current) =>
           current?.scope === actionScope ? null : current,
         );
       }
-      setSelectedRows((current) =>
-        current.filter((row) => !actedIds.has(row.id)),
-      );
+      if (!isSelectionControlled) {
+        setSelectedIds((current) => {
+          const ids = current.filter((id) => !actedIds.has(id));
+          return ids.length === current.length ? current : ids;
+        });
+      }
+      const ids = latestSelectedIds.current.filter((id) => !actedIds.has(id));
+      reportedIdsRef.current = ids;
+      onSelectedIdsChange?.(ids, describeSelection(ids, null));
     }
 
     isActionRunning.current = false;
@@ -973,7 +1249,7 @@ export default function DataTable<T extends { id: RowId }>({
   }, [
     actions,
     contentWidthsKey,
-    groupActions?.length,
+    hasSelection,
     renderSubRow,
     rows.length,
     visibleColumnKeys,
@@ -1002,9 +1278,13 @@ export default function DataTable<T extends { id: RowId }>({
             column.filter ? setFilter(result, column.key, "") : result,
           current,
         );
-        return hidden.some((column) => column.key === current.sortBy)
-          ? resetPagination(next, { order: "asc", sortBy: null })
-          : next;
+        const currentSort = getQuerySort(current);
+        const keptSort = currentSort.filter(
+          ({ key }) => !hidden.some((column) => column.key === key),
+        );
+        return keptSort.length === currentSort.length
+          ? next
+          : resetPagination(next, { sort: keptSort });
       });
     }
   };
@@ -1019,7 +1299,6 @@ export default function DataTable<T extends { id: RowId }>({
     );
   };
 
-  const hasGroupActions = !!groupActions && groupActions.length > 0;
   const hasFilterColumns = sortedVisibleColumns.some((column) => column.filter);
 
   // Filters without a field to see or clear them in: of hidden columns
@@ -1029,8 +1308,8 @@ export default function DataTable<T extends { id: RowId }>({
   // a server gets them - it may know them, so they stay in the query, and
   // "Clear filters" is there to drop them.
   const hasHiddenSearch = !clientSide && !enableGlobalSearch && !!query.search;
-  const activeFilterKeys = Object.keys(query.filters).filter(
-    (key) => !!query.filters[key],
+  const activeFilterKeys = Object.keys(query.filters).filter((key) =>
+    hasFilterValue(query.filters[key]),
   );
   const isColumnFilter = (key: string) =>
     columns.some((column) => column.key === key && isFilterColumn(column));
@@ -1044,7 +1323,7 @@ export default function DataTable<T extends { id: RowId }>({
         isFilterColumn(column) &&
         // A `filterFn` without a `filter` has no field either
         !(column.filter && columnVisibility[column.key]) &&
-        !!query.filters[column.key],
+        hasFilterValue(query.filters[column.key]),
     );
   const hasActiveFilters =
     hasHiddenSearch || hasStrayFilters || activeFilterKeys.some(isColumnFilter);
@@ -1120,8 +1399,9 @@ export default function DataTable<T extends { id: RowId }>({
 
   // Where the cells of each column go, in the order the columns are shown:
   // the expand, selection and actions columns stick first, then the columns
-  // pinned to the left; the last of them and the first column pinned to the
-  // right cast a shadow while the table is scrolled under them
+  // pinned to the left - the start, the right edge of a right-to-left table;
+  // the last of them and the first column pinned to the right (the end) cast
+  // a shadow while the table is scrolled under them
   const layout = useMemo(() => {
     const widths = JSON.parse(sizedWidthsKey) as Record<string, number>;
     const widthOf = (key: string, fallback: number) =>
@@ -1133,7 +1413,7 @@ export default function DataTable<T extends { id: RowId }>({
     // on a phone they would cover it. The right ones give way first.
     const leadingKeys = [
       renderSubRow && LEADING_KEYS.expand,
-      hasGroupActions && LEADING_KEYS.selection,
+      hasSelection && LEADING_KEYS.selection,
       actions && LEADING_KEYS.actions,
     ].filter((key): key is string => !!key);
     const visibleKeys = sortedVisibleColumns.map((column) => column.key);
@@ -1157,10 +1437,10 @@ export default function DataTable<T extends { id: RowId }>({
 
     // The offsets past a column being dragged follow its width
     let dragOffset: number | undefined;
-    const leftKeys = [...leadingKeys, ...leftPinned];
+    const startKeys = [...leadingKeys, ...leftPinned];
     let offset = 0;
-    for (const key of leftKeys) {
-      layouts[key] = { dragOffset, left: offset, width: widths[key] };
+    for (const key of startKeys) {
+      layouts[key] = { dragOffset, start: offset, width: widths[key] };
       if (key === draggedKey) dragOffset = widths[key];
       offset += widthOf(
         key,
@@ -1171,16 +1451,16 @@ export default function DataTable<T extends { id: RowId }>({
             : 0,
       );
     }
-    const left = offset;
+    const start = offset;
 
     dragOffset = undefined;
     offset = 0;
-    let firstRightKey: string | undefined;
+    let firstEndKey: string | undefined;
     for (const key of [...rightPinned].reverse()) {
-      layouts[key] = { dragOffset, right: offset, width: widths[key] };
+      layouts[key] = { dragOffset, end: offset, width: widths[key] };
       if (key === draggedKey) dragOffset = widths[key];
       offset += widthOf(key, 0);
-      firstRightKey = key;
+      firstEndKey = key;
     }
 
     if (draggedKey && layouts[draggedKey]) {
@@ -1202,19 +1482,19 @@ export default function DataTable<T extends { id: RowId }>({
       }
     }
 
-    const lastLeftKey = leftKeys.at(-1);
-    if (lastLeftKey && scrollEdges.start) {
-      layouts[lastLeftKey] = { ...layouts[lastLeftKey], shadow: "left" };
+    const lastStartKey = startKeys.at(-1);
+    if (lastStartKey && scrollEdges.start) {
+      layouts[lastStartKey] = { ...layouts[lastStartKey], shadow: "start" };
     }
-    if (firstRightKey && scrollEdges.end) {
-      layouts[firstRightKey] = { ...layouts[firstRightKey], shadow: "right" };
+    if (firstEndKey && scrollEdges.end) {
+      layouts[firstEndKey] = { ...layouts[firstEndKey], shadow: "end" };
     }
 
-    return { layouts, left, right: offset };
+    return { end: offset, layouts, start };
   }, [
     actions,
     draggedKey,
-    hasGroupActions,
+    hasSelection,
     measuredWidths,
     pinnedColumns.left,
     pinnedColumns.right,
@@ -1309,24 +1589,128 @@ export default function DataTable<T extends { id: RowId }>({
     });
   }, [data, frozenRowIds, rows]);
 
+  // Grouped by a column: the groups of the rows of the page, counted and
+  // summed up over all their matching rows, in the direction of the column
+  // when it is sorted
+  const groupOrder =
+    sort.find(({ key }) => key === groupColumn?.key)?.order ?? "asc";
+  const rowGroups = useMemo(
+    () =>
+      groupColumn
+        ? groupRows(
+            bodyRows,
+            matchingRows ?? bodyRows,
+            groupColumn,
+            groupOrder,
+            locale,
+          )
+        : null,
+    [bodyRows, groupColumn, groupOrder, locale, matchingRows],
+  );
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const bodyGroups = useMemo<BodyRowGroup[] | null>(
+    () =>
+      rowGroups?.map((group) => {
+        const collapsed = collapsedGroups.has(group.key);
+        return {
+          collapsed,
+          count: group.allRows.length,
+          key: group.key,
+          label: group.label,
+          size: collapsed ? 0 : group.rows.length,
+          summary: summarizeGroup(sortedVisibleColumns, group.allRows),
+        };
+      }) ?? null,
+    [collapsedGroups, rowGroups, sortedVisibleColumns],
+  );
+  // The rows the body shows - of the groups that are expanded
+  const shownRows = useMemo(
+    () =>
+      rowGroups
+        ? rowGroups.flatMap((group) =>
+            collapsedGroups.has(group.key) ? [] : group.rows,
+          )
+        : bodyRows,
+    [bodyRows, collapsedGroups, rowGroups],
+  );
+
+  const toggleGroup = (key: string) =>
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+
+  // Shift + click selects the rows from the row clicked before - in the
+  // order they are shown
+  const [selectionAnchor, setSelectionAnchor] = useState<RowId | null>(null);
+
+  const handleToggleRowSelection = (row: T, extend: boolean) => {
+    const isChecked = !displayedSelectedIds.has(row.id);
+    setSelectionAnchor(row.id);
+
+    if (selectionMode === "single") {
+      commitSelection(isChecked ? [row.id] : []);
+      return;
+    }
+
+    // The rows from the anchor to this one, or this one alone
+    const anchorIndex =
+      extend && selectionAnchor !== null
+        ? shownRows.findIndex((candidate) => candidate.id === selectionAnchor)
+        : -1;
+    const rowIndex = shownRows.indexOf(row);
+    const toggled =
+      anchorIndex === -1 || rowIndex === -1
+        ? [row]
+        : shownRows.slice(
+            Math.min(anchorIndex, rowIndex),
+            Math.max(anchorIndex, rowIndex) + 1,
+          );
+    const toggledIds = new Set(toggled.map((candidate) => candidate.id));
+
+    if (isAllFilteredSelected) {
+      // All matching rows but the unchecked ones - checked again, a row is
+      // back in; with none left, nothing is selected
+      const excluded = [
+        ...excludedRows.filter((current) => !toggledIds.has(current.id)),
+        ...(isChecked ? [] : toggled),
+      ];
+
+      if (excluded.length >= selectionTotal) {
+        resetAllSelection();
+      } else {
+        commitSelection([], excluded);
+      }
+      return;
+    }
+
+    const others = selectedIdList.filter((id) => !toggledIds.has(id));
+    commitSelection(
+      isChecked ? [...others, ...toggled.map((item) => item.id)] : others,
+    );
+  };
+
   // The detail rows shown - of the rows the body shows
   const expandedRows = useMemo(
     () =>
       new Set(
-        bodyRows
+        shownRows
           .map((row) => row.id)
           .filter((id) => expandedByDefault !== toggledRows.has(id)),
       ),
-    [bodyRows, expandedByDefault, toggledRows],
+    [expandedByDefault, shownRows, toggledRows],
   );
 
   // A row gone from the data takes its editing along, and so do a hidden
   // column and another query - rows frozen for a field left open with an
   // invalid value would not follow the page, sorting or filters the header
-  // and the pagination show
+  // and the pagination show - and a collapsed group
   if (
     editingCell &&
-    (!bodyRows.some((row) => row.id === editingCell.rowId) ||
+    (!shownRows.some((row) => row.id === editingCell.rowId) ||
       !sortedVisibleColumns.some(
         (column) => column.key === editingCell.columnKey,
       ) ||
@@ -1420,16 +1804,18 @@ export default function DataTable<T extends { id: RowId }>({
   // The next (or previous) editable cell in the order they are shown - Tab
   // in an edited cell
   const findEditableCell = (row: T, column: Column<T>, move: -1 | 1) => {
-    const rowIndex = bodyRows.findIndex((candidate) => candidate.id === row.id);
+    const rowIndex = shownRows.findIndex(
+      (candidate) => candidate.id === row.id,
+    );
     const columnIndex = sortedVisibleColumns.indexOf(column);
     const width = sortedVisibleColumns.length;
 
     for (
       let position = rowIndex * width + columnIndex + move;
-      position >= 0 && position < bodyRows.length * width;
+      position >= 0 && position < shownRows.length * width;
       position += move
     ) {
-      const nextRow = bodyRows[Math.floor(position / width)];
+      const nextRow = shownRows[Math.floor(position / width)];
       const nextColumn = sortedVisibleColumns[position % width];
       if (
         isEditable(nextColumn, nextRow) &&
@@ -1495,7 +1881,11 @@ export default function DataTable<T extends { id: RowId }>({
     }
   };
 
-  const headerRowCount = hasFilterColumns ? 2 : 1;
+  // A row of the column groups over the headers of their columns
+  const hasColumnGroups = sortedVisibleColumns.some(
+    (column) => groupOf[column.key] !== undefined,
+  );
+  const headerRowCount = (hasFilterColumns ? 2 : 1) + (hasColumnGroups ? 1 : 0);
   // Rows measured under another density, or with a column the user resized,
   // have other heights now - a virtualized table measures them again. Not
   // a view of another width (a resized window, a sidebar), whose widths the
@@ -1513,7 +1903,7 @@ export default function DataTable<T extends { id: RowId }>({
   // number (and place, `aria-rowindex`) from the attributes
   const rowCount = virtualized
     ? headerRowCount +
-      bodyRows.length +
+      shownRows.length +
       (renderSubRow ? expandedRows.size : 0) +
       (hasSummaryRow ? 1 : 0)
     : undefined;
@@ -1532,7 +1922,7 @@ export default function DataTable<T extends { id: RowId }>({
           : "relative",
         className,
       )}
-      ref={rootRef}
+      ref={rootRefCallback}
     >
       {/* Popovers opened in the table count as part of it in full screen */}
       <OverlayContext value={childContext}>
@@ -1581,16 +1971,29 @@ export default function DataTable<T extends { id: RowId }>({
                 aria-live="polite"
                 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300"
               >
-                {selectedRows.length > 0 &&
+                {selectedCount > 0 &&
                   formatPlural(
                     locale.code,
                     messages.dataTable.selectedCount,
-                    selectedRows.length,
+                    selectedCount,
                   )}
               </div>
             )}
           </div>
         )}
+        {/* Without group actions the count is only announced */}
+        {selectionMode === "multiple" &&
+          !hasGroupActions &&
+          !selectionConfig && (
+            <div aria-live="polite" className="sr-only">
+              {selectedCount > 0 &&
+                formatPlural(
+                  locale.code,
+                  messages.dataTable.selectedCount,
+                  selectedCount,
+                )}
+            </div>
+          )}
         {selectionConfig && (
           <div aria-live="polite">
             {selectedCount > 0 && (
@@ -1627,17 +2030,12 @@ export default function DataTable<T extends { id: RowId }>({
                     {renderSelectionLabel(
                       selectionConfig.pageSelectionLabel ??
                         messages.dataTable.selection.page,
-                      selectedRows.length,
+                      rows.filter((row) => selectedIds.has(row.id)).length,
                     )}{" "}
                     {isAllSelected && selectionTotal > rows.length && (
                       <button
                         className="font-semibold text-primary-700 underline hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"
-                        onClick={() =>
-                          setAllFilteredSelection({
-                            excluded: [],
-                            scope: selectionScopeKey,
-                          })
-                        }
+                        onClick={() => commitSelection([], [])}
                         type="button"
                       >
                         {selectionConfig.selectAllLabel
@@ -1711,16 +2109,18 @@ export default function DataTable<T extends { id: RowId }>({
             // A control the focus moves to is scrolled out from under the
             // sticky parts - the header rows, the summary, pinned columns
             scrollPaddingBottom: stickyHeights.foot,
-            scrollPaddingLeft: layout.left,
-            scrollPaddingRight: layout.right,
+            scrollPaddingInlineEnd: layout.end,
+            scrollPaddingInlineStart: layout.start,
             scrollPaddingTop: headerHeight + stickyHeights.head,
           }}
         >
           <TableHeader
             columnOrder={columnOrder}
+            columnGroups={columnGroups}
             columns={columns}
             columnVisibility={columnVisibility}
             defaultSearchOpen={defaultSearchOpen}
+            groupOf={groupOf}
             density={density}
             densityControl={densityControl}
             enableGlobalSearch={enableGlobalSearch}
@@ -1777,10 +2177,11 @@ export default function DataTable<T extends { id: RowId }>({
               cellLayouts={layout.layouts}
               columnRefs={columnRefs}
               columnWidths={currentWidths}
+              columnGroups={hasColumnGroups ? columnGroups : null}
               expandColumnRef={expandColumnRef}
               filterResetKey={filterResetKey}
               filters={query.filters}
-              groupActions={groupActions}
+              groupOf={groupOf}
               handleDragOver={handleDragOver}
               handleDragStart={handleDragStart}
               handleDrop={handleDrop}
@@ -1792,7 +2193,11 @@ export default function DataTable<T extends { id: RowId }>({
                   ? excludedRows.length === 0
                   : isAllSelected
               }
-              isSomeSelected={isAllFilteredSelected || selectedRows.length > 0}
+              isSomeSelected={
+                isAllFilteredSelected ||
+                rows.some((row) => selectedIds.has(row.id))
+              }
+              multiSort={multiSort}
               onClearFilters={clearFilters}
               onColumnDrag={handleColumnDrag}
               onColumnResize={setColumnWidth}
@@ -1800,15 +2205,17 @@ export default function DataTable<T extends { id: RowId }>({
               onFilterChange={(key, value) =>
                 updateQuery((current) => setFilter(current, key, value))
               }
-              onSort={(key) =>
-                updateQuery((current) => toggleSort(current, key))
+              onSort={(key, multi) =>
+                updateQuery((current) =>
+                  toggleSort(current, key, { multi: multi && multiSort }),
+                )
               }
-              order={query.order}
               ref={theadRef}
               renderSubRow={renderSubRow}
               selectAllRef={selectAllRef}
               selectionColumnRef={selectionColumnRef}
-              sortBy={sortBy}
+              selectionMode={selectionMode}
+              sort={sort}
               sortedVisibleColumns={sortedVisibleColumns}
               stickyTop={headerHeight}
               toggleSelectAll={handleToggleSelectAll}
@@ -1818,7 +2225,7 @@ export default function DataTable<T extends { id: RowId }>({
               actions={actions}
               cellLayouts={layout.layouts}
               cellStates={cellStates}
-              data={bodyRows}
+              data={shownRows}
               density={density}
               editHintId={editHintId}
               editingCell={editingCell}
@@ -1828,18 +2235,23 @@ export default function DataTable<T extends { id: RowId }>({
               getColumnSample={getColumnSample}
               getRowBackgroundColor={getRowBackgroundColor}
               getRowClassName={getRowClassName}
-              groupActions={groupActions}
+              getRowHref={getRowHref}
+              groupLabel={groupColumn?.labelTitle ?? groupColumn?.label}
+              groups={bodyGroups}
               headerRowCount={headerRowCount}
               isEditable={isEditable}
               layoutKey={rowLayoutKey}
               loading={loading}
               onCancelEdit={() => setEditingCell(null)}
               onCommitEdit={handleCommitEdit}
+              onRowClick={onRowClick}
               onStartEdit={handleStartEdit}
+              onToggleGroup={toggleGroup}
               renderSubRow={renderSubRow}
               scrollRef={scrollRef}
               search={searchTerm}
               selectedIds={displayedSelectedIds}
+              selectionMode={selectionMode}
               sortedVisibleColumns={sortedVisibleColumns}
               toggleRowExpansion={toggleRowExpansion}
               toggleRowSelection={handleToggleRowSelection}
@@ -1852,7 +2264,7 @@ export default function DataTable<T extends { id: RowId }>({
                 cellLayouts={layout.layouts}
                 density={density}
                 hasActions={!!actions}
-                hasSelection={hasGroupActions}
+                hasSelection={hasSelection}
                 hasSubRows={!!renderSubRow}
                 ref={tfootRef}
                 sortedVisibleColumns={sortedVisibleColumns}

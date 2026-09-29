@@ -1,14 +1,10 @@
 import { Calendar, Clock, X } from "lucide-react";
-import {
-  useId,
-  useImperativeHandle,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
+import { attachRef, isAriaInvalid } from "../../hooks/use-form-control";
 import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "../form-description";
 import FormError from "../form-error";
+import hasLabel from "./has-label";
 import Popover from "../popover";
 import useIsMobile from "../../hooks/use-is-mobile";
 import { formatMessage } from "../../i18n/format";
@@ -16,6 +12,7 @@ import { getTabbableElements } from "../../utils/tabbable";
 import { getNextTabStop } from "../overlay-stack";
 import { useMessages } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
+import RequiredMark from "../required-mark";
 
 /**
  * What a picker makes of a typed text: the value, or why the text gives
@@ -24,13 +21,16 @@ import type { CustomPickerProps } from "./types";
  */
 export type ParsedText = { value: string } | { error: "format" | "range" };
 
+// The sizes of `Input`
 const dimStyles = {
-  sm: "px-1 py-0 text-sm",
+  xs: "px-1 py-0 text-sm",
+  sm: "px-1 py-0.5 text-sm",
   md: "px-2 py-1 text-base",
   lg: "px-3 py-2 text-lg",
 };
 
 const iconSizes = {
+  xs: 14,
   sm: 14,
   md: 16,
   lg: 18,
@@ -38,7 +38,7 @@ const iconSizes = {
 
 interface PickerFieldProps extends Omit<
   CustomPickerProps,
-  "max" | "min" | "minuteStep"
+  "isDateDisabled" | "max" | "min" | "minuteStep" | "popupActions" | "presets"
 > {
   /** Content of the popup. */
   children: React.ReactNode;
@@ -87,10 +87,11 @@ interface PickerFieldProps extends Omit<
   /** Accessible name of the popup, e.g. "Select date". */
   popupLabel: string;
   /**
-   * Why the value is out of `min` / `max` - the field is invalid with it,
-   * like a native input (a submit is blocked). `""` for a value in them.
+   * Why the value cannot be picked - out of `min` / `max`, or a day of
+   * `isDateDisabled`. The field is invalid with it, like a native input (a
+   * submit is blocked). `""` for a value that can be picked.
    */
-  rangeMessage: string;
+  validityMessage: string;
 }
 
 /**
@@ -131,9 +132,9 @@ export default function PickerField({
   pickCount,
   placeholder,
   popupLabel,
-  rangeMessage,
   readOnly,
   required,
+  validityMessage,
   value,
 }: PickerFieldProps) {
   const messages = useMessages();
@@ -147,6 +148,9 @@ export default function PickerField({
   const triggerRef = useRef<HTMLDivElement>(null);
   // Whether the field was last pressed with a key or with a pointer
   const keyboardRef = useRef(false);
+
+  const changeOpen = (open: boolean, byKeyboard: boolean) =>
+    onOpenChange(open, byKeyboard);
 
   // The text being typed - `null` while the field shows the value. A new
   // value (a pick in the popup, a reset) replaces it.
@@ -169,24 +173,40 @@ export default function PickerField({
   }
 
   // A value out of `min` / `max` makes the form invalid, as in a native
-  // input - one of the parent, or a default one. The message the field set
-  // last is the one it clears - one the page set stays.
-  const rangeMessageRef = useRef("");
+  // input - one of the parent, a default or a typed one - and so does a
+  // disabled day. The message the field set last is the one it clears -
+  // one the page set stays.
+  const validityMessageRef = useRef("");
 
   useLayoutEffect(() => {
     const input = inputRef.current;
     if (!input) return;
 
-    if (rangeMessage) input.setCustomValidity(rangeMessage);
-    else if (input.validationMessage === rangeMessageRef.current) {
+    if (validityMessage) input.setCustomValidity(validityMessage);
+    else if (input.validationMessage === validityMessageRef.current) {
       input.setCustomValidity("");
     }
-    rangeMessageRef.current = rangeMessage;
-  }, [inputRef, rangeMessage]);
+    validityMessageRef.current = validityMessage;
+  }, [inputRef, validityMessage]);
 
-  useImperativeHandle(fieldRef, () => inputRef.current as HTMLInputElement, [
-    inputRef,
-  ]);
+  // The field is `DateTimePicker`'s `ref` too
+  const inputCallbackRef = useCallback(
+    (element: HTMLInputElement | null) => {
+      inputRef.current = element;
+      const detachRef = attachRef(fieldRef, element);
+
+      return () => {
+        inputRef.current = null;
+        detachRef();
+      };
+    },
+    [fieldRef, inputRef],
+  );
+
+  // Also a value out of `min` / `max` or a disabled day - the browser
+  // refuses to submit it
+  const invalid =
+    !!error || !!validityMessage || isAriaInvalid(inputProps["aria-invalid"]);
 
   // The picker is one field for the caller: the focus moving between the
   // field, the clear button and the popup (a portal) is neither a focus
@@ -257,7 +277,7 @@ export default function PickerField({
       ? getNextTabStop(triggerRef.current, contentRef.current)
       : undefined;
     (next ?? inputRef.current)?.focus();
-    onOpenChange(false, true);
+    changeOpen(false, true);
   };
 
   return (
@@ -271,18 +291,10 @@ export default function PickerField({
       }}
       ref={rootRef}
     >
-      {label && (
+      {hasLabel(label) && (
         <label className="block truncate text-sm font-medium" htmlFor={inputId}>
           {label}
-          {messages.form.labelSuffix}{" "}
-          {required && (
-            <span
-              aria-hidden="true"
-              className="text-danger-700 dark:text-danger-400"
-            >
-              *
-            </span>
-          )}
+          {messages.form.labelSuffix} {required && <RequiredMark />}
         </label>
       )}
 
@@ -313,15 +325,15 @@ export default function PickerField({
       )}
 
       <Popover
-        align="left"
+        // Under the start of the field - on the right in a right-to-left
+        // page
+        align="start"
         contentClassName={cn("max-h-none overflow-visible p-2", panelClassName)}
         contentRef={contentRef}
         // The input is the combobox - the wrapper is no button around it
         interactiveTrigger
         onOpenChange={
-          canOpen
-            ? (open) => onOpenChange(open, keyboardRef.current)
-            : undefined
+          canOpen ? (open) => changeOpen(open, keyboardRef.current) : undefined
         }
         open={isOpen && canOpen}
         // The dialog is rendered inside, with a name and an id of its own
@@ -331,15 +343,19 @@ export default function PickerField({
           <div className="relative" ref={triggerRef}>
             <input
               {...inputProps}
-              ref={inputRef}
+              ref={inputCallbackRef}
               className={cn(
                 "form-control w-full",
                 dimStyles[dim],
-                error && "border-danger-500! focus:ring-danger-500!",
+                // Forced colors (Windows High Contrast) draw every border
+                // in one color - an outline makes the border of an invalid
+                // field thicker
+                error &&
+                  "border-danger-500! focus:ring-danger-500! forced-colors:outline-1",
                 disabled && "cursor-not-allowed opacity-60",
                 className,
                 // Last - the room for the buttons stays with any padding
-                hasClearButton ? "pr-14" : "pr-8",
+                hasClearButton ? "pe-14" : "pe-8",
               )}
               aria-controls={isOpen && canOpen ? popupId : undefined}
               aria-describedby={joinTokens(
@@ -351,9 +367,14 @@ export default function PickerField({
               aria-expanded={isOpen && canOpen}
               aria-haspopup="dialog"
               aria-invalid={error ? "true" : inputProps["aria-invalid"]}
-              aria-label={label ? undefined : ariaLabel}
+              aria-label={hasLabel(label) ? undefined : ariaLabel}
+              aria-readonly={readOnly ? "true" : inputProps["aria-readonly"]}
               aria-required={required ? "true" : inputProps["aria-required"]}
               autoComplete="off"
+              data-disabled={disabled ? "" : undefined}
+              data-invalid={invalid ? "" : undefined}
+              data-readonly={readOnly ? "" : undefined}
+              data-state={isOpen && canOpen ? "open" : "closed"}
               disabled={disabled}
               id={inputId}
               // Phones pick from the popup, without a keyboard over it
@@ -372,7 +393,7 @@ export default function PickerField({
                 event.stopPropagation();
                 keyboardRef.current = false;
                 if (!event.defaultPrevented && canOpen && !isOpen) {
-                  onOpenChange(true, false);
+                  changeOpen(true, false);
                 }
               }}
               onKeyDown={(event) => {
@@ -387,10 +408,10 @@ export default function PickerField({
                   // submit of the form.
                   event.preventDefault();
                   if (text === null) {
-                    onOpenChange(!isOpen, true);
+                    changeOpen(!isOpen, true);
                   } else {
                     commitText();
-                    if (isOpen) onOpenChange(false, true);
+                    if (isOpen) changeOpen(false, true);
                   }
                   return;
                 }
@@ -424,7 +445,7 @@ export default function PickerField({
                 } else {
                   // A typed text first - the popup opens on it
                   commitText();
-                  onOpenChange(true, true);
+                  changeOpen(true, true);
                 }
               }}
               onPointerDown={(event) => {
@@ -443,7 +464,7 @@ export default function PickerField({
               <button
                 aria-label={messages.dateTimePicker.clear}
                 // A 24px square - big enough to hit (WCAG 2.5.8)
-                className="absolute top-1/2 right-7 flex size-6 -translate-y-1/2 items-center justify-center rounded text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-300"
+                className="absolute end-7 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-300"
                 onClick={(event) => {
                   event.stopPropagation();
                   onClear();
@@ -460,7 +481,7 @@ export default function PickerField({
             )}
             <Icon
               aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-neutral-400"
+              className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 text-neutral-400"
               size={iconSizes[dim]}
             />
           </div>

@@ -41,6 +41,11 @@ describe("Timeline", () => {
 
     const list = screen.getByRole("list", { name: "History" });
     expect(list.tagName).toBe("OL");
+    expect(list).toHaveAttribute("data-orientation", "vertical");
+    // The dots keep a system color in forced colors mode
+    expect(
+      list.querySelector(".forced-colors\\:bg-\\[CanvasText\\]"),
+    ).not.toBeNull();
 
     const [created, approved, shipped] = within(list).getAllByRole("listitem");
     expect(created).toHaveTextContent(

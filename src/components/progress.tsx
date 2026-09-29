@@ -3,7 +3,7 @@ import { cn, joinTokens } from "../utils/cn";
 import { toIntlLocale } from "../i18n/format";
 import { useLocale } from "../providers/ui-context";
 
-type ProgressVariant =
+export type ProgressColor =
   "primary" | "secondary" | "success" | "warning" | "danger";
 
 /**
@@ -13,7 +13,7 @@ type ProgressVariant =
  */
 export interface ProgressProps extends Omit<
   React.ComponentProps<"div">,
-  "children"
+  "children" | "color"
 > {
   /** Names a bar without a `label`, e.g. "Uploading report.pdf". */
   "aria-label"?: string;
@@ -21,6 +21,11 @@ export interface ProgressProps extends Omit<
   "aria-labelledby"?: string;
   /** Classes of the wrapper around the label and the bar. */
   className?: string;
+  /**
+   * Color of the bar.
+   * @default "primary"
+   */
+  color?: ProgressColor;
   /** Secondary text next to the label - also describes the bar. */
   description?: string;
   /**
@@ -49,13 +54,16 @@ export interface ProgressProps extends Omit<
    * `null`) the bar is indeterminate.
    */
   value?: number | null;
-  /** Color of the bar. */
-  variant?: ProgressVariant;
+  /**
+   * Deprecated - use `color`.
+   * @deprecated Use `color`.
+   */
+  variant?: ProgressColor;
 }
 
 // The filled part stands out from the track by at least 3:1 (WCAG 1.4.11)
 // - of `neutral-200` in the light, of `neutral-700` in the dark
-const barColorClasses: Record<ProgressVariant, string> = {
+const barColorClasses: Record<ProgressColor, string> = {
   primary: "bg-primary-600 dark:bg-primary-400",
   secondary: "bg-secondary-600 dark:bg-secondary-400",
   success: "bg-success-700 dark:bg-success-500",
@@ -63,7 +71,11 @@ const barColorClasses: Record<ProgressVariant, string> = {
   danger: "bg-danger-600 dark:bg-danger-400",
 };
 
-const strokeColorClasses: Record<ProgressVariant, string> = {
+// Forced colors mode would drop the fill of the bar - it keeps a system
+// color, the ring of `CircularProgress` too
+const BAR_FORCED_COLORS = "forced-colors:bg-[Highlight]";
+
+const strokeColorClasses: Record<ProgressColor, string> = {
   primary: "stroke-primary-600 dark:stroke-primary-400",
   secondary: "stroke-secondary-600 dark:stroke-secondary-400",
   success: "stroke-success-700 dark:stroke-success-500",
@@ -118,14 +130,16 @@ const valueAttributes = (
  * A horizontal progress bar - or, without a value, a bar that keeps moving
  * (fading in place for users who prefer reduced motion). Name it - with
  * `label`, or `aria-label` / `aria-labelledby` when the text is elsewhere.
- * Other props of a `<div>` go to the bar, `className` and `style` to the
- * wrapper around the label and the bar.
+ * Other props of a `<div>` go to the bar (the `progressbar`, also the
+ * `ref`), `className` and `style` to the wrapper around the label and the
+ * bar.
  */
 export default function Progress({
   "aria-describedby": ariaDescribedBy,
   "aria-label": ariaLabel,
   "aria-labelledby": ariaLabelledBy,
   className,
+  color: colorProp,
   description,
   indeterminate = false,
   label,
@@ -134,10 +148,11 @@ export default function Progress({
   size = "md",
   style,
   value,
-  variant = "primary",
+  variant,
   ...props
 }: ProgressProps) {
   const locale = useLocale();
+  const color = colorProp ?? variant ?? "primary";
   const descriptionId = useId();
   const isIndeterminate = indeterminate || value == null;
   const { clamped, fraction } = measure(value ?? 0, max);
@@ -155,7 +170,7 @@ export default function Progress({
           <div>
             {label && <span>{label}</span>}
             {description && (
-              <span className={label ? "ml-2" : ""} id={descriptionId}>
+              <span className={label ? "ms-2" : ""} id={descriptionId}>
                 {description}
               </span>
             )}
@@ -177,6 +192,8 @@ export default function Progress({
         aria-labelledby={ariaLabelledBy}
         className={cn(
           "w-full rounded-full bg-neutral-200 dark:bg-neutral-700",
+          // Forced colors mode drops the fills - the track keeps an outline
+          "forced-colors:outline",
           isIndeterminate && "relative overflow-hidden",
           sizeClasses[size],
         )}
@@ -184,11 +201,14 @@ export default function Progress({
         {isIndeterminate ? (
           <div
             className={cn(
-              "absolute inset-y-0 left-0 w-2/5 animate-[progress-indeterminate_1.5s_ease-in-out_infinite] rounded-full",
+              // From the start to the end - mirrored right to left, where
+              // it runs from the right
+              "absolute inset-y-0 start-0 w-2/5 animate-[progress-indeterminate_1.5s_ease-in-out_infinite] rounded-full rtl:-scale-x-100",
               // No motion across the screen - it fades in the middle, where
               // no value would start
-              "motion-reduce:left-[30%] motion-reduce:animate-[progress-fade_2s_ease-in-out_infinite]",
-              barColorClasses[variant],
+              "motion-reduce:start-[30%] motion-reduce:animate-[progress-fade_2s_ease-in-out_infinite]",
+              barColorClasses[color],
+              BAR_FORCED_COLORS,
             )}
           />
         ) : (
@@ -196,7 +216,8 @@ export default function Progress({
             className={cn(
               "rounded-full transition-all duration-300 motion-reduce:transition-none",
               sizeClasses[size],
-              barColorClasses[variant],
+              barColorClasses[color],
+              BAR_FORCED_COLORS,
             )}
             style={{ width: `${fraction * 100}%` }}
           />
@@ -206,9 +227,17 @@ export default function Progress({
   );
 }
 
-export interface CircularProgressProps extends React.ComponentProps<"div"> {
+export interface CircularProgressProps extends Omit<
+  React.ComponentProps<"div">,
+  "color"
+> {
   /** Content in the middle instead of the percentage, e.g. "3/5" or an icon. */
   children?: React.ReactNode;
+  /**
+   * Color of the ring.
+   * @default "primary"
+   */
+  color?: ProgressColor;
   /**
    * A spinning arc that does not tell how far the work is - also shown when
    * `value` is left out. It turns slower for users who prefer reduced motion.
@@ -230,8 +259,11 @@ export interface CircularProgressProps extends React.ComponentProps<"div"> {
    * `Progress`. Without a value (or with `null`) the ring is indeterminate.
    */
   value?: number | null;
-  /** Color of the ring. */
-  variant?: ProgressVariant;
+  /**
+   * Deprecated - use `color`.
+   * @deprecated Use `color`.
+   */
+  variant?: ProgressColor;
 }
 
 // The text fits inside the ring also as "100 %"
@@ -250,16 +282,18 @@ const circleSizeClasses = {
 export function CircularProgress({
   children,
   className,
+  color: colorProp,
   indeterminate = false,
   max = 100,
   showPercentage = false,
   size = "md",
   strokeWidth = 10,
   value,
-  variant = "primary",
+  variant,
   ...props
 }: CircularProgressProps) {
   const locale = useLocale();
+  const color = colorProp ?? variant ?? "primary";
   const isIndeterminate = indeterminate || value == null;
   const { clamped, fraction } = measure(value ?? 0, max);
 
@@ -298,7 +332,7 @@ export function CircularProgress({
         viewBox="0 0 100 100"
       >
         <circle
-          className="stroke-neutral-200 dark:stroke-neutral-700"
+          className="stroke-neutral-200 dark:stroke-neutral-700 forced-colors:stroke-[GrayText]"
           cx="50"
           cy="50"
           r={radius}
@@ -309,7 +343,8 @@ export function CircularProgress({
           <circle
             className={cn(
               "transition-[stroke-dashoffset] duration-300 motion-reduce:transition-none",
-              strokeColorClasses[variant],
+              strokeColorClasses[color],
+              "forced-colors:stroke-[Highlight]",
             )}
             cx="50"
             cy="50"

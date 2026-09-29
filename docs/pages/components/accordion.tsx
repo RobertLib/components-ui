@@ -54,6 +54,21 @@ export default function AccordionPage() {
       <Example
         description={
           <p>
+            A <code>disabled</code> section cannot be opened or closed - it
+            stays as it is, its toggle is disabled and the arrow keys of the
+            group skip it. Closed content is unmounted by default;{" "}
+            <code>keepMounted</code> keeps it in the page, hidden - a form in it
+            keeps what was typed. The toggle then points at it (
+            <code>aria-controls</code>) also while it is closed.{" "}
+            <code>CollapsibleContent</code> takes <code>keepMounted</code> too.
+          </p>
+        }
+        name="accordion/disabled"
+        title="Disabled and kept mounted"
+      />
+      <Example
+        description={
+          <p>
             <code>CollapsibleContent</code> is the animation the accordion uses
             - drive it with your own state and trigger. For users who prefer
             reduced motion it opens and closes without the animation.

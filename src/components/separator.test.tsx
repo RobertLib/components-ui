@@ -8,7 +8,10 @@ describe("Separator", () => {
 
     const separator = screen.getByRole("separator");
     expect(separator).not.toHaveAttribute("aria-orientation");
+    expect(separator).toHaveAttribute("data-orientation", "horizontal");
     expect(separator).toHaveClass("h-px", "w-full", "my-6");
+    // A line of a system color in forced colors mode, which drops fills
+    expect(separator).toHaveClass("forced-colors:bg-[CanvasText]");
   });
 
   it("stands upright in a row", () => {
@@ -16,6 +19,7 @@ describe("Separator", () => {
 
     const separator = screen.getByRole("separator");
     expect(separator).toHaveAttribute("aria-orientation", "vertical");
+    expect(separator).toHaveAttribute("data-orientation", "vertical");
     expect(separator).toHaveClass("w-px", "self-stretch");
   });
 
@@ -29,7 +33,10 @@ describe("Separator", () => {
   it("is named by its label", () => {
     const { container } = render(<Separator label="or" />);
 
-    expect(screen.getByRole("separator", { name: "or" })).toBeInTheDocument();
+    expect(screen.getByRole("separator", { name: "or" })).toHaveAttribute(
+      "data-orientation",
+      "horizontal",
+    );
     // A line on each side of the label
     expect(container.querySelectorAll(".flex-1")).toHaveLength(2);
   });

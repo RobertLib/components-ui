@@ -3,7 +3,7 @@ import CodeBlock from "../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 
 const installGit = `# a tagged version from your git host - npm builds dist/ on install
-npm install git+https://github.com/RobertLib/components-ui.git#v0.2.4
+npm install git+https://github.com/RobertLib/components-ui.git#v0.3.0
 
 # the latest commit of a branch
 npm install git+https://github.com/RobertLib/components-ui.git#main
@@ -30,8 +30,8 @@ resolve: {
 },`;
 
 const installTarball = `# a copy instead of a link - like an install from a registry
-cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.2.4.tgz
-cd ../my-app && npm install ../components-ui/components-ui-0.2.4.tgz`;
+cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.3.0.tgz
+cd ../my-app && npm install ../components-ui/components-ui-0.3.0.tgz`;
 
 const installRegistry = `# in the library: set a scoped name, remove "private": true, then
 npm publish --registry https://npm.your-company.com
@@ -88,6 +88,18 @@ export default function App() {
     </UIProvider>
   );
 }`;
+
+const portalContainer = `// A web component - the app and its overlays in its shadow root
+const shadow = host.attachShadow({ mode: "open" });
+const app = document.createElement("div");
+const overlays = document.createElement("div");
+shadow.append(app, overlays);
+
+createRoot(app).render(
+  <UIProvider portalContainer={overlays}>
+    <App />
+  </UIProvider>,
+);`;
 
 const firstComponent = `import { Button, Input } from "components-ui";
 
@@ -218,6 +230,33 @@ export default function Installation() {
           </p>
         </Prose>
         <CodeBlock code={providers} />
+      </Section>
+
+      <Section title="Where the overlays are rendered">
+        <Prose>
+          <p>
+            Dialogs, sheets, popovers, menus, tooltips, toasts and the{" "}
+            <code>Overlay</code> backdrop are rendered into{" "}
+            <code>document.body</code>, so no <code>overflow</code> or
+            transformed parent clips them. <code>portalContainer</code> of{" "}
+            <code>UIProvider</code> renders them into another element of the
+            page - one of a fullscreen element, or of the shadow root of a web
+            component, where the styles of the app reach them. A function (
+            <code>{"() => element"}</code>) is read as an overlay opens; a
+            nested <code>UIProvider</code> takes the container of the one around
+            it, <code>null</code> goes back to the body.
+          </p>
+          <p>
+            The overlays work there as in the body: the focus goes in and back,
+            a modal dialog hides the page behind it from screen readers and
+            stops it scrolling, and what follows the dialog in the container is
+            taken to be opened from it (a list opened in the dialog) and stays
+            reachable. Render the portals of other libraries there too - a modal
+            dialog in the container hides what they add to the body. The
+            container must be in the page itself, not in an iframe.
+          </p>
+        </Prose>
+        <CodeBlock code={portalContainer} />
       </Section>
 
       <Section title="Use the components">

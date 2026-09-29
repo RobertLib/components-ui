@@ -43,10 +43,12 @@ export default function SplitButtonPage() {
               focus back to it.
             </li>
             <li>
-              The props of a button - <code>type="submit"</code>,{" "}
-              <code>name</code>, <code>startIcon</code>, … - go to the main
-              button; <code>className</code> and <code>style</code> to the
-              group.
+              The props of a button - <code>ref</code>,{" "}
+              <code>type="submit"</code>, <code>name</code>,{" "}
+              <code>startIcon</code>, … - go to the main button;{" "}
+              <code>className</code> and <code>style</code> to the group. The
+              menu button has <code>data-state=&quot;open&quot;</code> or{" "}
+              <code>&quot;closed&quot;</code>.
             </li>
           </ul>
         </Prose>

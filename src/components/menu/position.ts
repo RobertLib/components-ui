@@ -12,9 +12,17 @@ export interface Size {
 }
 
 export interface MenuPosition {
+  /**
+   * The edge of the anchor the menu lines up with - `start` / `end` in the
+   * writing direction (the left / right edge, the other way round right to
+   * left) for a menu above or below it, the top (`start`) for one beside it.
+   */
+  align: "start" | "end";
   left: number;
   /** Set when the menu is taller than the viewport - it scrolls then. */
   maxHeight?: number;
+  /** The side of the anchor the menu is on. */
+  side: "top" | "bottom" | "left" | "right";
   top: number;
 }
 
@@ -30,7 +38,11 @@ export const VIEWPORT_MARGIN = 8;
 // item (m-1) and the border of the menu - a submenu starts right there
 const ITEM_INSET = 5;
 
-const clamp = (value: number, min: number, max: number) =>
+/**
+ * `value` held to `min` - `max`; to `min` when the range is empty (a panel
+ * wider than the room).
+ */
+export const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), Math.max(min, max));
 
 /** The point as a box of no size - the anchor of a menu at the pointer. */
@@ -77,7 +89,7 @@ export function placeAtAnchor(
     anchor.left + size.width <= viewport.width - VIEWPORT_MARGIN;
   const fitsLeft = anchor.right - size.width >= VIEWPORT_MARGIN;
   const endsAtRight = rtl ? fitsLeft || !fitsRight : !fitsRight;
-  const left = clamp(
+  const alignedLeft = clamp(
     endsAtRight ? anchor.right - size.width : anchor.left,
     VIEWPORT_MARGIN,
     viewport.width - VIEWPORT_MARGIN - size.width,
@@ -85,13 +97,16 @@ export function placeAtAnchor(
 
   const below = anchor.bottom + gap;
   const above = anchor.top - gap - size.height;
-  const top =
+  const isBelow =
     below + size.height <= viewport.height - VIEWPORT_MARGIN ||
-    above < VIEWPORT_MARGIN
-      ? below
-      : above;
+    above < VIEWPORT_MARGIN;
 
-  return { left, ...fitHeight(top, size.height, viewport) };
+  return {
+    align: endsAtRight !== rtl ? "end" : "start",
+    left: alignedLeft,
+    side: isBelow ? "bottom" : "top",
+    ...fitHeight(isBelow ? below : above, size.height, viewport),
+  };
 }
 
 /**
@@ -112,16 +127,22 @@ export function placeSubmenu(
   const fitsRight = right + size.width <= viewport.width - VIEWPORT_MARGIN;
   const fitsLeft = left >= VIEWPORT_MARGIN;
 
-  for (const side of rtl ? ["left", "right"] : ["right", "left"]) {
+  for (const side of rtl
+    ? (["left", "right"] as const)
+    : (["right", "left"] as const)) {
     if (side === "right" ? fitsRight : fitsLeft) {
       return {
+        align: "start",
         left: side === "right" ? right : left,
+        side,
         ...fitHeight(top, size.height, viewport),
       };
     }
   }
 
   return {
+    align: "start",
+    side: "bottom",
     left: clamp(
       rtl ? item.right - 12 - size.width : item.left + 12,
       VIEWPORT_MARGIN,
@@ -168,3 +189,156 @@ export function isPointInPolygon(point: Point, polygon: Point[]) {
 
   return inside;
 }
+
+/**
+ * A side of its anchor a floating panel opens on - `start` and `end` are
+ * logical: the left and the right side, the other way round right to left.
+ */
+export type FloatingSide =
+  "top" | "bottom" | "left" | "right" | "start" | "end";
+
+/** A side of the screen - `FloatingSide` with `start` / `end` resolved. */
+export type PhysicalSide = "top" | "bottom" | "left" | "right";
+
+/** The physical side `side` is in the writing direction (`rtl`). */
+export const resolveSide = (side: FloatingSide, rtl: boolean): PhysicalSide =>
+  side === "start"
+    ? rtl
+      ? "right"
+      : "left"
+    : side === "end"
+      ? rtl
+        ? "left"
+        : "right"
+      : side;
+
+/**
+ * What a floating panel can be placed at besides its trigger: an element, a
+ * box in viewport coordinates (a `DOMRect`, e.g. of the text selection) or a
+ * point (`{ x, y }`, e.g. of a click).
+ */
+export type VirtualAnchor = Element | AnchorRect | Point;
+
+/** A box with its size - the anchor of a panel, as it is measured. */
+export interface AnchorBox extends AnchorRect {
+  height: number;
+  width: number;
+}
+
+/** The box of `anchor` in viewport coordinates, measured now. */
+export function measureAnchor(anchor: VirtualAnchor): AnchorBox {
+  if (anchor instanceof Element) {
+    const { bottom, height, left, right, top, width } =
+      anchor.getBoundingClientRect();
+    return { bottom, height, left, right, top, width };
+  }
+
+  const { bottom, left, right, top } =
+    "top" in anchor ? anchor : pointRect(anchor);
+  return {
+    bottom,
+    height: bottom - top,
+    left,
+    right,
+    top,
+    width: right - left,
+  };
+}
+
+/** Whether two measured boxes are the same - a panel keeps its place then. */
+export const isSameBox = (a: AnchorBox | null, b: AnchorBox | null) =>
+  a === b ||
+  (!!a &&
+    !!b &&
+    a.top === b.top &&
+    a.left === b.left &&
+    a.width === b.width &&
+    a.height === b.height);
+
+/**
+ * The part of the page that is seen, in viewport coordinates - on a phone
+ * without the on-screen keyboard over it (the visual viewport).
+ */
+export function getVisibleArea(): AnchorRect {
+  const viewport = window.visualViewport;
+  if (!viewport) {
+    return {
+      bottom: window.innerHeight,
+      left: 0,
+      right: window.innerWidth,
+      top: 0,
+    };
+  }
+  return {
+    bottom: viewport.offsetTop + viewport.height,
+    left: viewport.offsetLeft,
+    right: viewport.offsetLeft + viewport.width,
+    top: viewport.offsetTop,
+  };
+}
+
+// An `overflow` that clips what scrolls out of the element
+const CLIPPING_OVERFLOW = /auto|scroll|hidden|clip|overlay/;
+
+/**
+ * The ancestors of `element` that clip it once it scrolls out of them - a
+ * scrolling list, a table with `overflow-x-auto`. Not those around a
+ * `fixed` element on the way up, which stays where it is as they scroll.
+ * Read them once, when the panel opens: `getComputedStyle` of every
+ * ancestor is too slow for every scroll event.
+ */
+export function getClippingAncestors(element: Element): Element[] {
+  const ancestors: Element[] = [];
+  const { body, documentElement } = element.ownerDocument;
+
+  for (
+    let current: Element | null = element;
+    current && current !== documentElement && current !== body;
+    current = current.parentElement
+  ) {
+    const { overflowX, overflowY, position } = getComputedStyle(current);
+    if (
+      current !== element &&
+      CLIPPING_OVERFLOW.test(`${overflowX} ${overflowY}`)
+    ) {
+      ancestors.push(current);
+    }
+    if (position === "fixed") break;
+  }
+
+  return ancestors;
+}
+
+/**
+ * Whether the box of an anchor is scrolled out of view - out of the part of
+ * the page that is seen, or out of one of the clipping ancestors of the
+ * anchor (see `getClippingAncestors`). A floating panel hides meanwhile,
+ * instead of pointing at nothing.
+ */
+export function isOutOfView(anchor: AnchorRect, clips: readonly Element[]) {
+  const areas = [
+    getVisibleArea(),
+    ...clips.map((clip) => clip.getBoundingClientRect()),
+  ];
+  return areas.some(
+    (area) =>
+      anchor.bottom < area.top ||
+      anchor.top > area.bottom ||
+      anchor.right < area.left ||
+      anchor.left > area.right,
+  );
+}
+
+/**
+ * Where the arrow of a floating panel goes along the edge it is on: at the
+ * center of the anchor, but kept `inset` pixels inside the panel - off its
+ * rounded corners - when the panel was moved along that edge into the
+ * viewport.
+ */
+export const getArrowOffset = (
+  anchorStart: number,
+  anchorEnd: number,
+  panelStart: number,
+  panelEnd: number,
+  inset: number,
+) => clamp((anchorStart + anchorEnd) / 2, panelStart + inset, panelEnd - inset);

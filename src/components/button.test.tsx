@@ -1,5 +1,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import Button from "./button";
 import IconButton from "./icon-button";
@@ -129,6 +132,57 @@ describe("Button icons", () => {
     const button = screen.getByRole("button", { name: "Save" });
     expect(button.children).toHaveLength(0);
     expect(button).not.toHaveClass("gap-1.5");
+  });
+});
+
+describe("Button in forced colors mode", () => {
+  it("keeps a filled and a pressed button apart from the others", () => {
+    render(
+      <>
+        <Button>Save</Button>
+        <Button variant="outline">Cancel</Button>
+        <Button aria-pressed variant="outline">
+          Week
+        </Button>
+      </>,
+    );
+
+    const solid = screen.getByRole("button", { name: "Save" });
+    expect(solid).toHaveClass(
+      "forced-colors:bg-[ButtonText]",
+      "forced-colors:text-[ButtonFace]",
+      // The focus shows as an outline - forced colors drop the ring
+      "focus:outline-hidden",
+    );
+    expect(screen.getByRole("button", { name: "Cancel" })).not.toHaveClass(
+      "forced-colors:bg-[ButtonText]",
+    );
+    expect(
+      screen.getByRole("button", { name: "Week", pressed: true }),
+    ).toHaveClass(
+      "forced-colors:aria-pressed:bg-[Highlight]",
+      "forced-colors:aria-pressed:text-[HighlightText]",
+    );
+  });
+});
+
+describe("The button and link classes of the stylesheet", () => {
+  const stylesheet = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "../styles.css"),
+    "utf8",
+  );
+  const rule = (selector: string) =>
+    new RegExp(`\\n  ${selector.replace(".", "\\.")} \\{\\n([^}]*)\\}`).exec(
+      stylesheet,
+    )?.[1] ?? "";
+
+  it("show the focus in forced colors mode, which drops the ring", () => {
+    for (const selector of [".btn", ".cui-link"]) {
+      expect(rule(selector)).toContain("focus:outline-hidden");
+      expect(rule(selector)).not.toContain("outline-none");
+    }
+    // The link of `.btn` is a filled button - inverted there
+    expect(rule(".btn")).toContain("forced-colors:bg-[ButtonText]");
   });
 });
 

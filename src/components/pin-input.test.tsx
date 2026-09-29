@@ -487,3 +487,108 @@ describe("PinInput with a code that gets shorter under the focus", () => {
     expect(cellValues()).toBe("1");
   });
 });
+
+describe("PinInput options", () => {
+  describe("read-only", () => {
+    it("shows the code and moves between the cells, but nothing changes it", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <form aria-label="Verify">
+          <PinInput
+            aria-label="Code"
+            defaultValue="1234"
+            length={4}
+            name="code"
+            onChange={onChange}
+            readOnly
+          />
+        </form>,
+      );
+
+      expect(cell(1, 4)).toHaveAttribute("readonly");
+      expect(cell(1, 4)).toHaveAttribute("data-readonly");
+      await user.click(cell(4, 4));
+      expect(cell(4, 4)).toHaveFocus();
+
+      await user.keyboard("9{Backspace}{Delete}");
+      await user.keyboard("{ArrowLeft}");
+      expect(cell(3, 4)).toHaveFocus();
+      await user.keyboard("{Home}");
+      expect(cell(1, 4)).toHaveFocus();
+      await user.paste("5678");
+
+      expect(cellValues()).toBe("1234");
+      expect(onChange).not.toHaveBeenCalled();
+      expect(new FormData(getForm()).get("code")).toBe("1234");
+    });
+
+    it("is not validated", () => {
+      render(
+        <form aria-label="Verify">
+          <PinInput aria-label="Code" length={4} readOnly required />
+        </form>,
+      );
+
+      expect(getForm().checkValidity()).toBe(true);
+    });
+  });
+
+  describe("groups", () => {
+    it("puts a separator between the groups of cells, hidden from screen readers", () => {
+      const { container } = render(
+        <PinInput aria-label="Code" groups={[3, 3]} />,
+      );
+
+      // The length is the sum of the groups
+      expect(screen.getAllByRole("textbox")).toHaveLength(6);
+      const group = screen.getByRole("group", { name: "Code" });
+      const separators = group.querySelectorAll("[aria-hidden='true']");
+      expect(separators).toHaveLength(1);
+      expect(separators[0]).toHaveTextContent("–");
+      // After the third cell
+      expect(separators[0].previousElementSibling).toBe(cell(3));
+      expect(group.style.gridTemplateColumns).toBe(
+        "minmax(0, 2.5rem) minmax(0, 2.5rem) minmax(0, 2.5rem) auto minmax(0, 2.5rem) minmax(0, 2.5rem) minmax(0, 2.5rem)",
+      );
+      expect(container).toHaveTextContent("–");
+    });
+
+    it("takes a separator of its own, and cells past the groups join the last one", () => {
+      render(
+        <PinInput aria-label="Code" groups={[2, 2]} length={6} separator="·" />,
+      );
+
+      const separators = screen
+        .getByRole("group")
+        .querySelectorAll("[aria-hidden='true']");
+      expect(separators).toHaveLength(1);
+      expect(separators[0]).toHaveTextContent("·");
+      expect(screen.getAllByRole("textbox")).toHaveLength(6);
+    });
+
+    it("types and pastes over the groups as one code", async () => {
+      const user = userEvent.setup();
+      const onComplete = vi.fn();
+      render(
+        <PinInput aria-label="Code" groups={[3, 3]} onComplete={onComplete} />,
+      );
+
+      await user.click(cell(1));
+      await user.keyboard("123");
+      expect(cell(4)).toHaveFocus();
+      await user.keyboard("{Backspace}");
+      expect(cell(3)).toHaveFocus();
+      await user.paste("123 456");
+
+      expect(cellValues()).toBe("123456");
+      expect(onComplete).toHaveBeenCalledWith("123456");
+    });
+  });
+
+  it("takes any content as its label", () => {
+    render(<PinInput label={<span>Code</span>} length={4} />);
+
+    expect(screen.getByRole("group")).toHaveAccessibleName("Code:");
+  });
+});

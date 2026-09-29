@@ -4,16 +4,113 @@ import {
   countDays,
   decodeRange,
   encodeRange,
+  findBlockingDays,
+  findUnavailableDay,
   formatRange,
   getPresetRange,
   hasAllowedLength,
   isAllowedRange,
   toDateRange,
+  toDayLimit,
   toDayRange,
+  trimDisabledEnds,
 } from "./range";
 
 const d = (year: number, month: number, day: number) =>
   new Date(year, month - 1, day);
+
+describe("disabled days in a range", () => {
+  const isWeekend = (day: Date) => day.getDay() === 0 || day.getDay() === 6;
+  const noLimits = { max: null, min: null };
+
+  it("findUnavailableDay finds the first disabled day - or only one at an end with allowDisabledInRange", () => {
+    // Monday, September 21 - Wednesday, September 30, 2026
+    const range = { end: d(2026, 9, 30), start: d(2026, 9, 21) };
+    expect(
+      findUnavailableDay(range, { ...noLimits, isDateDisabled: isWeekend }),
+    ).toEqual(d(2026, 9, 26));
+    expect(
+      findUnavailableDay(range, {
+        ...noLimits,
+        allowDisabledInRange: true,
+        isDateDisabled: isWeekend,
+      }),
+    ).toBeNull();
+    expect(
+      findUnavailableDay(
+        { end: d(2026, 9, 27), start: d(2026, 9, 21) },
+        { ...noLimits, allowDisabledInRange: true, isDateDisabled: isWeekend },
+      ),
+    ).toEqual(d(2026, 9, 27));
+    expect(findUnavailableDay(range, noLimits)).toBeNull();
+  });
+
+  it("trimDisabledEnds cuts the disabled days off both ends", () => {
+    // Saturday, September 19 - Sunday, September 27, 2026
+    const range = { end: d(2026, 9, 27), start: d(2026, 9, 19) };
+    expect(trimDisabledEnds(range, isWeekend)).toEqual({
+      end: d(2026, 9, 25),
+      start: d(2026, 9, 21),
+    });
+    expect(
+      trimDisabledEnds(
+        { end: d(2026, 9, 27), start: d(2026, 9, 26) },
+        isWeekend,
+      ),
+    ).toBeNull();
+    expect(trimDisabledEnds(range, undefined)).toBe(range);
+  });
+
+  it("findBlockingDays finds the nearest disabled days as far as a range may reach", () => {
+    const isBooked = (day: Date) =>
+      day.getTime() === d(2026, 9, 18).getTime() ||
+      day.getTime() === d(2026, 9, 29).getTime();
+    const anchor = d(2026, 9, 24);
+
+    expect(
+      findBlockingDays(anchor, { ...noLimits, isDateDisabled: isBooked }),
+    ).toEqual({ after: d(2026, 9, 29), before: d(2026, 9, 18) });
+
+    // No further than a range of 5 days reaches - 4 days on either side
+    const looked: Date[] = [];
+    expect(
+      findBlockingDays(anchor, {
+        ...noLimits,
+        isDateDisabled: (day) => {
+          looked.push(day);
+          return isBooked(day);
+        },
+        maxDays: 5,
+      }),
+    ).toEqual({ after: null, before: null });
+    expect(looked).toHaveLength(8);
+
+    // Nor past `min` / `max`
+    expect(
+      findBlockingDays(anchor, {
+        isDateDisabled: isBooked,
+        max: d(2026, 9, 28),
+        min: d(2026, 9, 20),
+      }),
+    ).toEqual({ after: null, before: null });
+
+    // Nothing blocks with allowDisabledInRange
+    expect(
+      findBlockingDays(anchor, {
+        ...noLimits,
+        allowDisabledInRange: true,
+        isDateDisabled: isBooked,
+      }),
+    ).toEqual({ after: null, before: null });
+  });
+
+  it("toDayLimit makes a whole number of days of at least one", () => {
+    expect(toDayLimit(undefined)).toBeUndefined();
+    expect(toDayLimit(Infinity)).toBeUndefined();
+    expect(toDayLimit(0)).toBe(1);
+    expect(toDayLimit(2.6)).toBe(3);
+  });
+});
 
 describe("encodeRange and decodeRange", () => {
   it("write a range as an ISO 8601 interval and read it back", () => {

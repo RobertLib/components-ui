@@ -505,6 +505,41 @@ describe("Slider", () => {
       expect(new FormData(getForm()).has("volume")).toBe(false);
     });
 
+    it("moves neither by a drag nor by a key while read-only - but is focusable and submitted", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <form aria-label="Filter">
+          <Slider
+            aria-label="Volume"
+            defaultValue={50}
+            name="volume"
+            onChange={onChange}
+            readOnly
+          />
+        </form>,
+      );
+      const thumb = screen.getByRole("slider");
+      const rail = layOutTrack(thumb);
+
+      expect(thumb).toHaveAttribute("aria-readonly", "true");
+      expect(thumb).not.toHaveAttribute("aria-disabled");
+      fireEvent.pointerDown(rail, { ...press, clientX: 20 });
+      fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 180 });
+      fireEvent.pointerUp(document, { ...press, clientX: 180 });
+
+      await user.tab();
+      expect(thumb).toHaveFocus();
+      const keyDown = fireEvent.keyDown(thumb, { key: "ArrowRight" });
+      // The key moves nothing - neither the thumb nor the page
+      expect(keyDown).toBe(false);
+      await user.keyboard("{End}");
+
+      expect(onChange).not.toHaveBeenCalled();
+      expect(thumb).toHaveAttribute("aria-valuenow", "50");
+      expect(new FormData(getForm()).get("volume")).toBe("50");
+    });
+
     // user-event takes everything in a disabled fieldset for disabled - the
     // browser leaves an element with a role there alone
     it("is disabled by a disabled fieldset around it, as it changes", async () => {
@@ -714,6 +749,38 @@ describe("Slider", () => {
     expect(screen.getByRole("button", { name: "After" })).toHaveFocus();
     expect(onFocus).toHaveBeenCalledTimes(1);
     expect(onBlur).toHaveBeenCalledTimes(1);
+  });
+
+  it("sizes the track and the thumbs by dim - size still works", () => {
+    render(
+      <>
+        <Slider aria-label="Extra small" dim="xs" />
+        <Slider aria-label="Medium" />
+        <Slider aria-label="Large" dim="lg" />
+        <Slider aria-label="Old small" size="sm" />
+      </>,
+    );
+
+    const thumb = (name: string) => screen.getByRole("slider", { name });
+    expect(thumb("Extra small")).toHaveClass("size-3");
+    expect(thumb("Extra small").parentElement).toHaveClass("h-0.5", "mx-1.5");
+    expect(thumb("Medium")).toHaveClass("size-4.5");
+    expect(thumb("Large")).toHaveClass("size-5.5");
+    expect(thumb("Old small")).toHaveClass("size-3.5");
+  });
+
+  it("takes any content as its label", () => {
+    render(
+      <Slider
+        label={
+          <>
+            Volume <small>(dB)</small>
+          </>
+        }
+      />,
+    );
+
+    expect(screen.getByRole("slider")).toHaveAccessibleName("Volume (dB):");
   });
 
   it("is vertical on request", () => {

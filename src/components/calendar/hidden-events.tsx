@@ -5,6 +5,7 @@ import EventTitle from "./event-title";
 import MoreEvents from "./more-events";
 import {
   createTimeFormat,
+  createTimeTextFormatter,
   getColorStyles,
   getEventTooltipText,
   getHiddenSide,
@@ -15,7 +16,12 @@ import { useLocale } from "../../providers/ui-context";
 
 interface HiddenEventsProps extends Pick<
   CalendarViewProps,
-  "getEventColor" | "getEventLabel" | "renderEventActions" | "renderEventIcon"
+  | "getEventColor"
+  | "getEventLabel"
+  | "renderEvent"
+  | "renderEventActions"
+  | "renderEventIcon"
+  | "view"
 > {
   /** The day of the column. */
   day: Date;
@@ -51,13 +57,16 @@ export default function HiddenEvents({
   isClickable,
   label,
   onEventOpen,
+  renderEvent,
   renderEventActions,
   renderEventIcon,
   startHour,
+  view,
 }: HiddenEventsProps) {
   const locale = useLocale();
   const { messages } = locale;
   const timeFormat = createTimeFormat(locale);
+  const timeText = createTimeTextFormatter(locale);
 
   // When an event of the list takes place that day - its start, or "until"
   // its end for one running into the day from the one before, like the
@@ -70,25 +79,45 @@ export default function HiddenEvents({
   };
 
   // A timed event in a list - with its time, as the grid has no row for it
-  const tile = (event: CalendarEvent) => (
-    <EventTile
-      actions={renderEventActions?.(event)}
-      className={cn(
-        "relative truncate rounded border-l-2 px-1 py-0.5 text-xs",
-        ...getColorStyles(getEventColor(event)),
-        isClickable(event) ? "cursor-pointer" : "cursor-default",
-      )}
-      clickable={isClickable(event)}
-      contentClassName="truncate"
-      label={getEventLabel(event)}
-      onOpen={() => onEventOpen(event)}
-      title={getEventTooltipText(event)}
-    >
-      <span className="mr-1 tabular-nums">{timeOf(event)}</span>
-      {renderEventIcon?.(event)}
-      <EventTitle event={event}>{event.title}</EventTitle>
-    </EventTile>
-  );
+  const tile = (event: CalendarEvent) => {
+    const color = getEventColor(event);
+    const title = <EventTitle event={event}>{event.title}</EventTitle>;
+
+    return (
+      <EventTile
+        actions={renderEventActions?.(event)}
+        className={cn(
+          "relative truncate rounded border-s-2 px-1 py-0.5 text-xs",
+          ...getColorStyles(color),
+          isClickable(event) ? "cursor-pointer" : "cursor-default",
+        )}
+        clickable={isClickable(event)}
+        contentClassName="truncate"
+        label={getEventLabel(event)}
+        onOpen={() => onEventOpen(event)}
+        title={getEventTooltipText(event)}
+      >
+        <span className="me-1 tabular-nums">{timeOf(event)}</span>
+        {renderEventIcon?.(event)}
+        {renderEvent ? (
+          // The label of the tile says it all to screen readers
+          <span aria-hidden="true">
+            {renderEvent(event, {
+              allDay: false,
+              color,
+              compact: true,
+              dragging: false,
+              timeText: timeText(getDisplayTimes(event)),
+              title,
+              view,
+            })}
+          </span>
+        ) : (
+          title
+        )}
+      </EventTile>
+    );
+  };
 
   const earlier: CalendarEvent[] = [];
   const later: CalendarEvent[] = [];
@@ -102,7 +131,7 @@ export default function HiddenEvents({
   if (earlier.length === 0 && later.length === 0) return null;
 
   return (
-    <div className="mt-1 flex flex-wrap justify-center gap-x-1 text-left">
+    <div className="mt-1 flex flex-wrap justify-center gap-x-1 text-start">
       {(
         [
           [earlier, messages.calendar.earlier],

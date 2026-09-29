@@ -151,7 +151,7 @@ const removeButtonClasses: Record<ChipSize, string> = {
 // The focus ring keeps a gap to the chip, which may be filled with a color
 // like its own
 const toggleClasses =
-  "cursor-pointer ring-offset-surface transition-[color,background-color,border-color,box-shadow] select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none dark:ring-offset-surface-dark";
+  "cursor-pointer ring-offset-surface transition-[color,background-color,border-color,box-shadow] select-none focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none dark:ring-offset-surface-dark";
 
 // Hover darkens whatever color the chip has - lightens the tint of one not
 // selected in the dark, where lightening the fill would take contrast from
@@ -201,7 +201,8 @@ const isRemoveKey = (event: React.KeyboardEvent) =>
  * fits into text - also inside a paragraph. With `onRemove` it gets a remove
  * button; with `selected` / `onSelectedChange` it is a toggle button, e.g.
  * a filter - the props then go to the `<button>` (with `onRemove` too, to
- * the `<span>` around the toggle and the remove button).
+ * the `<span>` around the toggle and the remove button). A selected chip
+ * has `data-selected` (the toggle too), a disabled one `data-disabled`.
  */
 export default function Chip({
   className,
@@ -274,13 +275,24 @@ export default function Chip({
     </span>
   );
 
-  const colorClasses = colorVariants[isSelected ? "solid" : variant][color];
+  // Forced colors mode drops the fill - a selected chip keeps the colors of
+  // a selection
+  const colorClasses = cn(
+    colorVariants[isSelected ? "solid" : variant][color],
+    isSelected &&
+      "forced-colors:border-[Highlight] forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]",
+  );
+  const stateAttributes = {
+    "data-disabled": disabled ? "" : undefined,
+    "data-selected": isSelected ? "" : undefined,
+  };
 
   if (!isRemovable) {
     if (isSelectable) {
       return (
         <button
           {...(props as React.ComponentProps<"button">)}
+          {...stateAttributes}
           aria-pressed={isSelected}
           className={cn(
             "inline-flex items-center rounded-full border",
@@ -317,6 +329,7 @@ export default function Chip({
           disabled && "opacity-50",
           className,
         )}
+        data-disabled={disabled ? "" : undefined}
         onClick={onClick}
         onKeyDown={onKeyDown}
       >
@@ -336,6 +349,7 @@ export default function Chip({
   return (
     <span
       {...props}
+      {...stateAttributes}
       // Found by the chip next to it when it is removed
       data-chip=""
       className={cn(
@@ -377,9 +391,10 @@ export default function Chip({
           className={cn(
             // Inside the chip - a ring in the color of its text stands
             // out from its fill
-            "inline-flex cursor-pointer items-center rounded-full select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-current disabled:cursor-not-allowed",
+            "inline-flex cursor-pointer items-center rounded-full select-none focus:outline-hidden focus-visible:ring-2 focus-visible:ring-current disabled:cursor-not-allowed",
             gapClasses[size],
           )}
+          data-selected={isSelected ? "" : undefined}
           disabled={disabled}
           type="button"
         >
@@ -395,7 +410,7 @@ export default function Chip({
           removeLabel ? undefined : `${removeButtonId} ${contentId}`
         }
         className={cn(
-          "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-full opacity-70 transition-[opacity,background-color] hover:bg-current/15 hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-current disabled:cursor-not-allowed disabled:hover:bg-transparent motion-reduce:transition-none",
+          "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-full opacity-70 transition-[opacity,background-color] hover:bg-current/15 hover:opacity-100 focus:outline-hidden focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-current disabled:cursor-not-allowed disabled:hover:bg-transparent motion-reduce:transition-none",
           removeButtonClasses[size],
         )}
         disabled={disabled}

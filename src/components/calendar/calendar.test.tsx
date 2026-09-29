@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createRef } from "react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import Calendar, { type CalendarEvent } from ".";
 import { createLocale } from "../../i18n/format";
@@ -615,11 +616,61 @@ describe("Calendar", () => {
     expect(pressed).toHaveLength(1);
     expect(pressed[0]).toHaveTextContent(String(selected.getDate()));
     expect(pressed[0]).not.toHaveAttribute("aria-current");
+    // Also for styling - and in the colors of a selection in forced colors
+    expect(pressed[0]).toHaveAttribute("data-selected", "");
+    expect(pressed[0]).not.toHaveAttribute("data-current");
+    expect(pressed[0]).toHaveClass(
+      "forced-colors:bg-[Highlight]",
+      "forced-colors:text-[HighlightText]",
+    );
 
     const current = document.querySelectorAll('[aria-current="date"]');
     expect(current).toHaveLength(1);
     expect(current[0]).toHaveTextContent(String(today.getDate()));
     expect(current[0]).toHaveAttribute("aria-pressed", "false");
+    expect(current[0]).toHaveAttribute("data-current", "");
+    expect(current[0]).not.toHaveAttribute("data-selected");
+  });
+
+  it("keeps its marks in forced colors mode, which drops fills and rings", () => {
+    vi.useFakeTimers({ now: d(24, 10), toFake: ["Date"] });
+    render(
+      <Calendar
+        events={[event("Review", d(24, 9), d(24, 10))]}
+        initialView="week"
+        onDateClick={() => {}}
+      />,
+    );
+    vi.useRealTimers();
+
+    // Today - the selected date too - in the colors of a selection
+    const current = document.querySelector('[aria-current="date"]');
+    expect(current).toHaveAttribute("data-current", "");
+    expect(current).toHaveClass(
+      "forced-colors:bg-[Highlight]",
+      "forced-colors:text-[HighlightText]",
+    );
+    // The events keep their colors - they tell them apart
+    expect(screen.getByTitle("Review")).toHaveClass("forced-color-adjust-none");
+  });
+
+  it("passes its attributes and its ref on to its root", () => {
+    const ref = createRef<HTMLDivElement>();
+    render(
+      <Calendar
+        aria-label="Bookings"
+        data-testid="calendar"
+        id="bookings"
+        ref={ref}
+        style={{ height: 500 }}
+      />,
+    );
+
+    const root = screen.getByTestId("calendar");
+    expect(ref.current).toBe(root);
+    expect(root).toHaveAttribute("id", "bookings");
+    expect(root).toHaveAttribute("aria-label", "Bookings");
+    expect(root).toHaveStyle({ height: "500px" });
   });
 
   it("marks today also without onDateClick", () => {

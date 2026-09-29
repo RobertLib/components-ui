@@ -213,13 +213,17 @@ describe("Calendar moving", () => {
       />,
     );
 
-    expect(screen.getByTitle("A")).toHaveStyle({ left: "calc(0% + 2px)" });
-    expect(screen.getByTitle("B")).toHaveStyle({ left: "calc(0% + 2px)" });
+    expect(screen.getByTitle("A")).toHaveStyle({
+      insetInlineStart: "calc(0% + 2px)",
+    });
+    expect(screen.getByTitle("B")).toHaveStyle({
+      insetInlineStart: "calc(0% + 2px)",
+    });
 
     // B dragged over A - three hours up
     pressAndMove(screen.getByTitle("B"), -384);
     const lefts = ["A", "B"].map(
-      (title) => screen.getByTitle(title).style.left,
+      (title) => screen.getByTitle(title).style.insetInlineStart,
     );
     expect(lefts).toContain("calc(50% + 2px)");
     fireEvent.pointerUp(document);
@@ -775,7 +779,7 @@ describe("Calendar edges of events", () => {
 
     for (const [column, title] of ["A", "B", "C", "D", "E", "F"].entries()) {
       expect(screen.getByTitle(title)).toHaveStyle({
-        left: `calc(${(column * 100) / 6}% + 2px)`,
+        insetInlineStart: `calc(${(column * 100) / 6}% + 2px)`,
         width: `calc(${100 / 6}% - 4px)`,
       });
     }
@@ -1025,7 +1029,9 @@ describe.each([
       );
 
       expect(
-        ["Before", "After"].map((title) => screen.getByTitle(title).style.left),
+        ["Before", "After"].map(
+          (title) => screen.getByTitle(title).style.insetInlineStart,
+        ),
       ).toEqual(["calc(0% + 2px)", "calc(50% + 2px)"]);
     });
   },

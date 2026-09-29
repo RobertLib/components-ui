@@ -1,17 +1,30 @@
-import { useId } from "react";
+import { useCallback, useId, useLayoutEffect, useRef } from "react";
 import cn, { joinTokens } from "../../utils/cn";
 import DatePicker from "./date-picker";
 import DateTimePanelPicker from "./date-time-picker";
 import FormDescription from "../form-description";
 import FormError from "../form-error";
+import hasLabel from "./has-label";
 import MonthPicker from "./month-picker";
 import TimePicker from "./time-picker";
 import WeekPicker from "./week-picker";
-import { useFormControl } from "../../hooks/use-form-control";
-import { formatPlaceholder } from "../../utils/date";
+import { isValueUnavailable, type DateDisabledPredicate } from "./availability";
+import { parseTime } from "./parse";
+import { isAriaInvalid, useFormControl } from "../../hooks/use-form-control";
+import { formatMessage } from "../../i18n/format";
+import {
+  formatDate,
+  formatPattern,
+  formatPlaceholder,
+  getDayPeriods,
+  parseISODate,
+} from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
-import type { CustomPickerProps } from "./types";
+import type { CustomPickerProps, DateTimePickerPreset } from "./types";
 import type { Locale } from "../../i18n/types";
+import RequiredMark from "../required-mark";
+
+export type { DateTimePickerPreset } from "./types";
 
 export type DateTimePickerType =
   "date" | "time" | "datetime-local" | "month" | "week";
@@ -59,12 +72,22 @@ export interface DateTimePickerProps extends Omit<
    * described by it (after the error message).
    */
   description?: React.ReactNode;
-  /** Size of the field. */
-  dim?: "sm" | "md" | "lg";
+  /** Size of the field - the heights of `Input`. */
+  dim?: "xs" | "sm" | "md" | "lg";
   /** Validation message - also marks the field as invalid. */
   error?: string;
-  /** Text of the label above the field - also its accessible name. */
-  label?: string;
+  /**
+   * Days that cannot be picked, e.g. weekends or booked days - called with
+   * the local midnight of a day. The popup shows them struck through; the
+   * keys move over them, but they cannot be picked. A month or a week
+   * without another day cannot be picked either. A value on such a day -
+   * typed, a default one or one of the parent - makes the field invalid (a
+   * submit is blocked, the browser says `messages.dateTimePicker.unavailable`),
+   * also in `native` mode, whose popup offers every day. Not for `time`.
+   */
+  isDateDisabled?: DateDisabledPredicate;
+  /** The label above the field - also its accessible name. */
+  label?: React.ReactNode;
   /**
    * The latest value, in the value format (see `type`) - the popup offers
    * nothing after it, and a later value makes the field invalid, like a
@@ -104,6 +127,19 @@ export interface DateTimePickerProps extends Omit<
   onChange?(event: DateTimePickerChangeEvent): void;
   /** The focus entered the picker - see `onBlur`. */
   onFocus?: React.FocusEventHandler<HTMLInputElement>;
+  /**
+   * `type="date"`: the Today button (and Clear, when the value is not
+   * `required` or `clearable` allows it) under the days of the popup.
+   * Today is disabled when it cannot be picked. Default `true`.
+   */
+  popupActions?: boolean;
+  /**
+   * `type="date"`: days offered next to the calendar (above it on phones),
+   * e.g. `{ label: "In a week", value: "2026-10-06" }` - a click picks the
+   * day. A preset out of `min` / `max` or on a disabled day is disabled,
+   * the preset of the value marked.
+   */
+  presets?: DateTimePickerPreset[];
   /** Shorthand for `minuteStep={15}`. */
   quarterMinutesOnly?: boolean;
   /**
@@ -140,6 +176,50 @@ const getPattern = (locale: Locale, type: DateTimePickerType) =>
 const toMinuteStep = (step: number) =>
   Number.isFinite(step) ? Math.min(60, Math.max(1, Math.round(step))) : 1;
 
+// The sizes of `Input`
+const nativeDimStyles = {
+  xs: "px-1 py-0 text-sm",
+  sm: "px-1 py-0.5 text-sm",
+  md: "px-2 py-1 text-base",
+  lg: "px-3 py-2 text-lg",
+};
+
+/** A value of a picker of `type` in the display format of the locale. */
+function formatValue(value: string, type: DateTimePickerType, locale: Locale) {
+  const [, year = 0, month = 0, day = 0] =
+    /^(\d{4})-(\d{2})(?:-(\d{2}))?/.exec(value)?.map(Number) ?? [];
+
+  switch (type) {
+    case "date": {
+      const date = parseISODate(value);
+      return date ? formatDate(date, locale.formats.date) : value;
+    }
+    case "datetime-local": {
+      const time = parseTime(value.slice(11));
+      return formatPattern(
+        locale.formats.dateTime,
+        {
+          day,
+          hours: Number(time?.hours ?? 0),
+          minutes: Number(time?.minutes ?? 0),
+          month,
+          year,
+        },
+        getDayPeriods(locale.code),
+      );
+    }
+    case "month":
+      return formatPattern(locale.formats.month, { month, year });
+    case "week":
+      return formatPattern(locale.formats.week, {
+        week: Number(value.slice(6)),
+        year: Number(value.slice(0, 4)),
+      });
+    default:
+      return value;
+  }
+}
+
 /**
  * Date, time, date-time, month and week picker. The value is always in the
  * format of the matching native input, whatever the display format - so it
@@ -158,6 +238,7 @@ export default function DateTimePicker({
   disabled,
   error,
   id,
+  isDateDisabled,
   label,
   max,
   min,
@@ -168,6 +249,8 @@ export default function DateTimePicker({
   onChange,
   onFocus,
   placeholder,
+  popupActions = true,
+  presets,
   quarterMinutesOnly = false,
   readOnly,
   ref,
@@ -188,6 +271,41 @@ export default function DateTimePicker({
     value: valueProp,
   });
 
+  // The native input - which says itself when the value is out of `min` /
+  // `max`, but not when it is a disabled day
+  const nativeRef = useRef<HTMLInputElement | null>(null);
+  const nativeInputRef = useCallback(
+    (element: HTMLInputElement | null) => {
+      nativeRef.current = element;
+      const detach = fieldRef(element);
+      return () => {
+        nativeRef.current = null;
+        detach();
+      };
+    },
+    [fieldRef],
+  );
+  const nativeMessage =
+    mode === "native" &&
+    isValueUnavailable(String(value ?? ""), type, isDateDisabled)
+      ? formatMessage(locale.messages.dateTimePicker.unavailable, {
+          value: formatValue(String(value), type, locale),
+        })
+      : "";
+  // The message set last is the one cleared - one the page set stays
+  const nativeMessageRef = useRef("");
+
+  useLayoutEffect(() => {
+    const input = nativeRef.current;
+    if (!input) return;
+
+    if (nativeMessage) input.setCustomValidity(nativeMessage);
+    else if (input.validationMessage === nativeMessageRef.current) {
+      input.setCustomValidity("");
+    }
+    nativeMessageRef.current = nativeMessage;
+  }, [nativeMessage]);
+
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const errorId = error ? `${inputId}-error` : undefined;
@@ -205,11 +323,6 @@ export default function DateTimePicker({
     );
 
   if (mode === "native") {
-    const dimStyles = {
-      sm: "px-1 py-0 text-sm",
-      md: "px-2 py-1 text-base",
-      lg: "px-3 py-2 text-lg",
-    };
     // The step of a time is in seconds
     const minuteStepSeconds =
       (type === "time" || type === "datetime-local") && pickerMinuteStep > 1
@@ -218,21 +331,13 @@ export default function DateTimePicker({
 
     return (
       <div className="flex flex-col gap-1.5">
-        {label && (
+        {hasLabel(label) && (
           <label
             className="block truncate text-sm font-medium"
             htmlFor={inputId}
           >
             {label}
-            {locale.messages.form.labelSuffix}{" "}
-            {required && (
-              <span
-                aria-hidden="true"
-                className="text-danger-700 dark:text-danger-400"
-              >
-                *
-              </span>
-            )}
+            {locale.messages.form.labelSuffix} {required && <RequiredMark />}
           </label>
         )}
 
@@ -240,8 +345,12 @@ export default function DateTimePicker({
           {...inputProps}
           className={cn(
             "form-control",
-            dimStyles[dim],
-            error && "border-danger-500! focus:ring-danger-500!",
+            nativeDimStyles[dim],
+            // Forced colors (Windows High Contrast) draw every border in
+            // one color - an outline makes the border of an invalid field
+            // thicker
+            error &&
+              "border-danger-500! focus:ring-danger-500! forced-colors:outline-1",
             disabled && "cursor-not-allowed opacity-60",
             className,
           )}
@@ -250,9 +359,17 @@ export default function DateTimePicker({
             descriptionId,
             inputProps["aria-describedby"],
           )}
-          aria-invalid={error ? "true" : undefined}
+          aria-invalid={error ? "true" : inputProps["aria-invalid"]}
           aria-label={ariaLabel}
           aria-required={required ? "true" : undefined}
+          data-disabled={disabled ? "" : undefined}
+          // Also a disabled day - the browser refuses to submit it
+          data-invalid={
+            error || nativeMessage || isAriaInvalid(inputProps["aria-invalid"])
+              ? ""
+              : undefined
+          }
+          data-readonly={readOnly ? "" : undefined}
           disabled={disabled}
           id={inputId}
           max={max}
@@ -263,7 +380,7 @@ export default function DateTimePicker({
           onFocus={onFocus}
           placeholder={getPlaceholder()}
           readOnly={readOnly}
-          ref={fieldRef}
+          ref={nativeInputRef}
           required={required}
           step={step ?? minuteStepSeconds}
           type={type}
@@ -289,6 +406,7 @@ export default function DateTimePicker({
     fieldRef,
     inputId,
     inputProps,
+    isDateDisabled,
     label,
     max: max === undefined ? undefined : String(max),
     min: min === undefined ? undefined : String(min),
@@ -309,6 +427,8 @@ export default function DateTimePicker({
       handleChange(event as unknown as React.ChangeEvent<HTMLInputElement>);
     },
     placeholder: getPlaceholder(),
+    popupActions,
+    presets,
     readOnly,
     required,
     value: String(value ?? ""),

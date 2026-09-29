@@ -324,4 +324,43 @@ describe("DataTable editable cells as one tab stop", () => {
       false,
     );
   });
+
+  it("moves to the next column with ArrowLeft right to left", async () => {
+    const user = userEvent.setup();
+    // Lays the table out right to left - jsdom knows no `dir`
+    const getComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element, pseudo) => {
+        const style = getComputedStyle(element, pseudo);
+        return new Proxy(style, {
+          get: (target, property) => {
+            if (property === "direction") return "rtl";
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+    );
+    render(
+      <div dir="rtl">
+        <DataTable
+          columns={columns}
+          data={rows}
+          onCellEdit={() => {}}
+          pagination={false}
+        />
+      </div>,
+    );
+
+    bodyCells()[0].focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(focused()).toBe("b0");
+    await user.keyboard("{ArrowLeft}{ArrowRight}");
+    expect(focused()).toBe("b0");
+    await user.keyboard("{ArrowRight}");
+    expect(focused()).toBe("a0");
+    // Home and End go to the first and last column as before
+    await user.keyboard("{End}");
+    expect(focused()).toBe("c0");
+  });
 });

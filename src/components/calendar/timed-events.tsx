@@ -1,5 +1,9 @@
-import type { CalendarEvent } from "./types";
-import type { DragType } from "./use-event-drag";
+import type {
+  CalendarEvent,
+  CalendarEventRenderContext,
+  CalendarView,
+} from "./types";
+import type { DragType } from "./move-geometry";
 import {
   MIN_TILE_HEIGHT,
   getColorStyles,
@@ -31,7 +35,7 @@ export interface TimedEventsProps {
   getDisplayTimes: (event: CalendarEvent) => { end: Date; start: Date };
   /** The accessible name of a tile (`createEventLabeler`). */
   getLabel: (event: CalendarEvent) => string;
-  /** An event is being dragged - the others let the pointer through. */
+  /** An event is being dragged by the pointer - the others let it through. */
   isAnyDragging: boolean;
   /** Whether a tile opens its event. */
   isClickable: (event: CalendarEvent) => boolean;
@@ -45,6 +49,20 @@ export interface TimedEventsProps {
   ) => void;
   /** A tile was clicked. */
   onEventClick: (event: CalendarEvent) => void;
+  /** The focus left the button of a tile. */
+  onTileBlur?: (e: React.FocusEvent<HTMLElement>) => void;
+  /** The keys of the button of a movable tile - they move its event. */
+  onTileKeyDown?: (
+    e: React.KeyboardEvent<HTMLElement>,
+    event: CalendarEvent,
+  ) => void;
+  /** The key that picks a movable event up - `aria-keyshortcuts`. */
+  moveShortcut?: string;
+  /** Content of a tile after its icon - instead of the title. */
+  renderEvent?: (
+    event: CalendarEvent,
+    context: CalendarEventRenderContext,
+  ) => React.ReactNode;
   /** Per-event controls in the top-right corner of a tile. */
   renderEventActions?: (event: CalendarEvent) => React.ReactNode;
   /** Icon rendered before the title of a tile. */
@@ -57,6 +75,10 @@ export interface TimedEventsProps {
   startHour: number;
   /** Classes of the tiles, e.g. their padding. */
   tileClassName?: string;
+  /** When an event takes place, as a tile writes it - for `renderEvent`. */
+  timeText: (event: CalendarEvent, times: { end: Date; start: Date }) => string;
+  /** The view of the grid - for `renderEvent`. */
+  view: CalendarView;
 }
 
 /** The tiles of the timed events of a day column in the week or day view. */
@@ -73,23 +95,35 @@ export default function TimedEvents({
   isAnyDragging,
   isClickable,
   isDragging,
+  moveShortcut,
   onDragStart,
   onEventClick,
+  onTileBlur,
+  onTileKeyDown,
+  renderEvent,
   renderEventActions,
   renderEventIcon,
   slotDurationMinutes,
   slotHeight,
   startHour,
   tileClassName,
+  timeText,
+  view,
 }: TimedEventsProps) {
   const toPixels = (minutes: number) =>
     (minutes / slotDurationMinutes) * slotHeight;
 
   // Only the events within or overlapping the hour range, cut to it
   const tiles = events.flatMap((event) => {
-    const { end, start } = getDisplayTimes(event);
-    const minutes = getVisibleMinutes(start, end, day, startHour, endHour);
-    return minutes ? [{ event, minutes }] : [];
+    const times = getDisplayTimes(event);
+    const minutes = getVisibleMinutes(
+      times.start,
+      times.end,
+      day,
+      startHour,
+      endHour,
+    );
+    return minutes ? [{ event, minutes, times }] : [];
   });
 
   // Side by side where they overlap as drawn - by the clock, with the
@@ -103,7 +137,7 @@ export default function TimedEvents({
     })),
   );
 
-  return tiles.map(({ event, minutes }) => {
+  return tiles.map(({ event, minutes, times }) => {
     const top = toPixels(minutes.from - startHour * 60);
     const height = Math.max(
       toPixels(minutes.to - minutes.from),
@@ -121,9 +155,20 @@ export default function TimedEvents({
     // events of a disabled day stay as they are
     const draggable = !disabled && !spansMidnight(event);
     const movable = canMove && draggable;
+    // The keys move or resize it too
+    const keyMovable = !!onTileKeyDown && (canMove || canResize) && draggable;
+    const title = (
+      <EventTitle
+        className="min-w-0 truncate font-medium"
+        event={event}
+        htmlClassName="min-w-0"
+      >
+        {event.title}
+      </EventTitle>
+    );
     // Short tiles get thin handles - with room to grab the tile between
     const handleClassName = cn(
-      "absolute right-0 left-0 z-10 cursor-ns-resize touch-none hover:bg-black/10",
+      "absolute inset-x-0 z-10 cursor-ns-resize touch-none hover:bg-black/10",
       height < 40 ? "h-1" : "h-2",
     );
 
@@ -131,7 +176,7 @@ export default function TimedEvents({
       <EventTile
         actions={renderEventActions?.(event)}
         className={cn(
-          "absolute overflow-hidden rounded-md border-l-2 py-1 text-xs leading-tight select-none",
+          "absolute overflow-hidden rounded-md border-s-2 py-1 text-xs leading-tight select-none",
           tileClassName,
           ...getColorStyles(getColor(event)),
           dragging && "opacity-80 shadow-lg ring-2 ring-primary-500",
@@ -145,31 +190,41 @@ export default function TimedEvents({
         )}
         clickable={clickable}
         // The icon and the title on one line - a short tile has room for one
-        contentClassName="flex min-w-0 items-center"
+        contentClassName={
+          renderEvent ? "flex min-w-0 items-start" : "flex min-w-0 items-center"
+        }
+        eventDay={day}
+        eventId={event.id}
         handles={
           canResize &&
           draggable && (
             <>
               <div
                 className={cn(handleClassName, "top-0")}
-                onPointerDown={(e) => onDragStart(e, event, "resize-top")}
+                onPointerDown={(e) => onDragStart(e, event, "resize-start")}
               />
               <div
                 className={cn(handleClassName, "bottom-0")}
-                onPointerDown={(e) => onDragStart(e, event, "resize-bottom")}
+                onPointerDown={(e) => onDragStart(e, event, "resize-end")}
               />
             </>
           )
         }
         key={event.id}
+        keyShortcuts={keyMovable ? moveShortcut : undefined}
         label={getLabel(event)}
+        movable={keyMovable}
+        onButtonBlur={keyMovable ? onTileBlur : undefined}
+        onButtonKeyDown={
+          keyMovable ? (e) => onTileKeyDown?.(e, event) : undefined
+        }
         onOpen={() => onEventClick(event)}
         onPointerDown={
           movable ? (e) => onDragStart(e, event, "move") : undefined
         }
         style={{
           height: `${height}px`,
-          left: `calc(${(column / columns) * 100}% + 2px)`,
+          insetInlineStart: `calc(${(column / columns) * 100}% + 2px)`,
           top: `${top}px`,
           width: `calc(${(span / columns) * 100}% - 4px)`,
           // Its own layer - the handles and actions of a tile stay on it
@@ -179,14 +234,23 @@ export default function TimedEvents({
       >
         {/* Optional custom icon renderer */}
         {renderEventIcon?.(event)}
-        {/* Cut off after the icon - a rich title wraps in a tall tile */}
-        <EventTitle
-          className="min-w-0 truncate font-medium"
-          event={event}
-          htmlClassName="min-w-0"
-        >
-          {event.title}
-        </EventTitle>
+        {/* Cut off after the icon - a rich title wraps in a tall tile. The
+            label of the tile says it all to screen readers. */}
+        {renderEvent ? (
+          <span aria-hidden="true" className="min-w-0 flex-1">
+            {renderEvent(event, {
+              allDay: false,
+              color: getColor(event),
+              compact: false,
+              dragging,
+              timeText: timeText(event, times),
+              title,
+              view,
+            })}
+          </span>
+        ) : (
+          title
+        )}
       </EventTile>
     );
   });

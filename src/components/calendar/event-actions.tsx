@@ -30,7 +30,7 @@ export default function EventActions({
   return (
     <div
       className={cn(
-        "absolute top-0.5 right-0.5 z-20 flex items-center gap-0.5 rounded bg-surface/85 opacity-0 transition-opacity group-hover/event:opacity-100 focus-within:opacity-100 dark:bg-surface-dark/85 [@media(hover:none)]:opacity-100",
+        "absolute end-0.5 top-0.5 z-20 flex items-center gap-0.5 rounded bg-surface/85 opacity-0 transition-opacity group-hover/event:opacity-100 focus-within:opacity-100 dark:bg-surface-dark/85 [@media(hover:none)]:opacity-100",
         className,
       )}
       data-event-actions=""

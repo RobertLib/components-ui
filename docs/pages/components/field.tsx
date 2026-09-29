@@ -4,7 +4,10 @@ import PropsTable from "../../components/props-table";
 
 export default function FieldPage() {
   return (
-    <DocPage imports={["Field", "FormDescription"]} title="Field">
+    <DocPage
+      imports={["Field", "FormDescription", "RequiredMark"]}
+      title="Field"
+    >
       <Example
         description={
           <p>
@@ -34,6 +37,34 @@ export default function FieldPage() {
         name="field/custom-control"
         title="A control of your own"
       />
+      <Example
+        description={
+          <p>
+            <code>label</code> takes content - an icon, a hint in another color.
+            It names the control through <code>aria-labelledby</code> with all
+            of its text.
+          </p>
+        }
+        name="field/label-content"
+        title="Label content"
+      />
+
+      <Section title="Required fields">
+        <Prose>
+          <p>
+            The label of a <code>required</code> field ends with a star - of{" "}
+            <code>Field</code> and of the library&apos;s fields.{" "}
+            <code>RequiredMark</code> is that star for a label of your own. It
+            is hidden from screen readers: they hear &quot;required&quot; from
+            the control (<code>required</code> or <code>aria-required</code>). A
+            form that marks its optional fields instead turns the stars off with{" "}
+            <code>data-required-mark=&quot;hidden&quot;</code> on the form or
+            any element around the fields - or everywhere with{" "}
+            <code>.cui-required-mark {"{ display: none }"}</code> in your CSS.
+          </p>
+        </Prose>
+        <Example name="field/required-mark" />
+      </Section>
 
       <Section title="Ids">
         <Prose>
@@ -67,6 +98,7 @@ export default function FieldPage() {
         <PropsTable of="Field" />
         <PropsTable of="FieldControlProps" />
         <PropsTable of="FormDescription" />
+        <PropsTable of="RequiredMark" />
       </Section>
     </DocPage>
   );

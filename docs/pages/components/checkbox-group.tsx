@@ -46,6 +46,24 @@ export default function CheckboxGroupPage() {
         name="checkbox-group/limits"
         title="Min, max and forms"
       />
+      <Example
+        description={
+          <p>
+            <code>variant="card"</code> shows each option as a bordered card -
+            its <code>icon</code>, label and <code>description</code>, the
+            checkbox at its end. The whole card toggles it, a picked card is
+            outlined in the primary color, and the keyboard focus draws an
+            outline around the card. <code>columns</code> lays the options out
+            in a grid (one column on phones), <code>orientation</code>{" "}
+            <code>horizontal</code> in a row that wraps. <code>readOnly</code>{" "}
+            keeps the picks: they are shown, focusable and submitted, but a
+            click or Space changes nothing - and neither <code>min</code> nor{" "}
+            <code>max</code> is enforced.
+          </p>
+        }
+        name="checkbox-group/cards"
+        title="Cards and read-only"
+      />
 
       <Section title="Notes">
         <Prose>
@@ -69,10 +87,15 @@ export default function CheckboxGroupPage() {
               nor <code>max</code>.
             </li>
             <li>
+              A <code>label</code> of the group and of an option takes any
+              content; an option&apos;s <code>icon</code> goes before its label
+              in the plain variant too, hidden from screen readers.
+            </li>
+            <li>
               The props mirror <code>RadioGroup</code> - <code>dim</code>,{" "}
-              <code>id</code> and <code>ref</code> of the group element,{" "}
-              <code>onBlur</code> / <code>onFocus</code> of the checkboxes - so
-              the two fit side by side in a form.
+              <code>id</code>, <code>ref</code> and the other attributes of the
+              group element, <code>onBlur</code> / <code>onFocus</code> of the
+              checkboxes - so the two fit side by side in a form.
             </li>
           </ul>
         </Prose>

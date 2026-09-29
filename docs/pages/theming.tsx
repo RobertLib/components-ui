@@ -3,6 +3,13 @@ import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 import Example from "../components/example";
 import PropsTable from "../components/props-table";
 
+const stateStyles = `// A tab of your own look - Tailwind's data-* variants
+<Tabs className="**:data-selected:font-semibold" … />
+
+/* or plain CSS */
+[role="menuitem"][data-highlighted] { background: var(--color-primary-100); }
+[data-side="top"] { animation-name: slide-up; }`;
+
 const overrideCss = `@import "tailwindcss";
 @import "components-ui/styles.css";
 
@@ -300,6 +307,49 @@ export default function Theming() {
             Tailwind's important modifier (<code>p-header!</code>).
           </p>
         </Prose>
+      </Section>
+
+      <Section title="Styling states">
+        <Prose>
+          <p>
+            The elements that carry a state tell it in <code>data-*</code>{" "}
+            attributes, next to the ARIA state - style them with Tailwind's{" "}
+            <code>data-*</code> variants or a selector, without a prop for each
+            part. Flags are present and empty, or absent - never{" "}
+            <code>"false"</code>.
+          </p>
+          <ul>
+            <li>
+              <code>data-state</code> - <code>open</code> / <code>closed</code>{" "}
+              (popups and their triggers, dialogs, sheets, accordions,
+              collapsible content, expandable rows and tree items),{" "}
+              <code>checked</code> / <code>unchecked</code> /{" "}
+              <code>indeterminate</code> (checkboxes, switches, radios,
+              checkable menu items).
+            </li>
+            <li>
+              <code>data-selected</code>, <code>data-highlighted</code> (the
+              option or menu item the keys are on), <code>data-current</code>{" "}
+              (next to <code>aria-current</code>), <code>data-disabled</code>,{" "}
+              <code>data-invalid</code>, <code>data-readonly</code>.
+            </li>
+            <li>
+              <code>data-orientation</code>, and on positioned popups{" "}
+              <code>data-side</code> / <code>data-align</code> - where they
+              opened after flipping.
+            </li>
+          </ul>
+        </Prose>
+        <CodeBlock code={stateStyles} />
+        <Callout>
+          <p>
+            Keep focus styles on <code>outline-hidden</code>, not{" "}
+            <code>outline-none</code>: the forced colors mode of Windows (High
+            Contrast) drops the box shadow of a <code>ring</code>, and shows the
+            transparent outline instead. The components do so, and draw their
+            selected states in system colors there.
+          </p>
+        </Callout>
       </Section>
     </DocPage>
   );

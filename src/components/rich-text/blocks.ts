@@ -1,6 +1,7 @@
-// The block commands of RichTextEditor - headings, quotes, lists and their
-// indentation. The editor's content is read as a sequence of lines, each of
-// a type (paragraph, heading, quote, bulleted or numbered item at a level);
+// The block commands of RichTextEditor - headings, quotes, code blocks,
+// lists and their indentation. The editor's content is read as a sequence
+// of lines, each of a type (paragraph, heading, quote, code, bulleted or
+// numbered item at a level);
 // a command changes the types and levels of the selected lines, and the
 // blocks around them are built anew from the lines. Their content is moved,
 // not copied, so the selection in it stays.
@@ -18,11 +19,13 @@ import {
   topLevelOf,
 } from "./dom";
 
-export type LineType = "h2" | "h3" | "ol" | "p" | "quote" | "ul";
+export type LineType = "code" | "h2" | "h3" | "ol" | "p" | "quote" | "ul";
 
 export interface Line {
   /** Its type or level was changed - it is built anew. */
   changed: boolean;
+  /** The code block a line of code was read from - built into it again. */
+  codeBlock?: HTMLElement;
   /** The element of the line - `null` for text right in the editor or a quote. */
   element: HTMLElement | null;
   /** Nesting of a list item - 0 for the items of a top-level list. */
@@ -112,6 +115,35 @@ function parseList(list: Element, level: number, items: Item[]) {
   }
 }
 
+/**
+ * The lines of a code block - `<pre><code>` of text, a line break ending
+ * each line but the last. In a quote (which holds paragraphs only), they
+ * are quoted lines.
+ */
+function parseCode(pre: HTMLElement, items: Item[], inQuote: boolean) {
+  const content = Array.from(pre.childNodes).filter(isContent);
+  const container =
+    content.length === 1 && content[0].nodeName === "CODE" ? content[0] : pre;
+  const type = inQuote ? "quote" : "code";
+  const start = items.length;
+
+  let run: Node[] = [];
+  for (const node of Array.from(container.childNodes)) {
+    run.push(node);
+    if (node.nodeName === "BR") {
+      items.push(createLine(null, run, type, 0));
+      run = [];
+    }
+  }
+  if (run.length > 0) items.push(createLine(null, run, type, 0));
+  // An empty block is one empty line
+  if (items.length === start) items.push(createLine(pre, [], type, 0));
+
+  if (!inQuote) {
+    for (const item of items.slice(start)) (item as Line).codeBlock = pre;
+  }
+}
+
 function parseNodes(nodes: Node[], items: Item[], inQuote: boolean) {
   // Text right in the editor or a quote - a line ends with a line break
   let run: Node[] = [];
@@ -154,6 +186,8 @@ function parseNodes(nodes: Node[], items: Item[], inQuote: boolean) {
       items.push(createLine(node, Array.from(node.childNodes), type, 0));
     } else if (tag === "BLOCKQUOTE") {
       parseNodes(Array.from(node.childNodes), items, true);
+    } else if (tag === "PRE") {
+      parseCode(node, items, inQuote);
     } else if (isListElement(node)) {
       parseList(node, 0, items);
     } else {
@@ -216,7 +250,8 @@ const isMergeable = (node: Node | undefined) =>
   isElement(node) &&
   (node.tagName === "UL" ||
     node.tagName === "OL" ||
-    node.tagName === "BLOCKQUOTE");
+    node.tagName === "BLOCKQUOTE" ||
+    node.tagName === "PRE");
 
 /** The index of the child of `editor` a boundary point is in. */
 function childIndexAt(
@@ -333,24 +368,86 @@ interface OpenList {
   type: "ol" | "ul";
 }
 
-/** The blocks of lines - quoted lines in quotes, items in nested lists. */
+interface OpenCode {
+  code: HTMLElement;
+  /** The line before does not end with a line break - the next one needs one. */
+  needsBreak: boolean;
+}
+
+/** The text and line breaks of inline content - code has no marks or images. */
+function plainNodes(nodes: Node[], result: Node[] = []) {
+  for (const node of nodes) {
+    if (node.nodeType === Node.TEXT_NODE || node.nodeName === "BR") {
+      result.push(node);
+    } else if (isElement(node)) {
+      plainNodes(Array.from(node.childNodes), result);
+    }
+  }
+  return result;
+}
+
+/**
+ * A new code block for `line` - the one it was read from, when that is not
+ * taken yet, so an unchanged block keeps its element.
+ */
+function openCodeBlock(line: Line, doc: Document, used: Set<HTMLElement>) {
+  const source = line.codeBlock;
+  const pre = source && !used.has(source) ? source : doc.createElement("pre");
+  used.add(pre);
+
+  let code = pre.firstElementChild as HTMLElement | null;
+  if (code?.tagName !== "CODE") code = doc.createElement("code");
+  pre.replaceChildren(code);
+  code.replaceChildren();
+  return { block: { code, needsBreak: false }, pre };
+}
+
+/** Puts a line into a code block - its text, after a line break. */
+function appendCodeLine(open: OpenCode, line: Line, doc: Document) {
+  let nodes = plainNodes(line.nodes);
+  // An empty line keeps its line break
+  if (!nodes.some((node) => node.nodeName === "BR" || node.textContent)) {
+    nodes = [doc.createElement("br")];
+  }
+
+  if (open.needsBreak) open.code.append(doc.createElement("br"));
+  open.code.append(...nodes);
+  open.needsBreak = nodes.at(-1)?.nodeName !== "BR";
+  line.output = open.code;
+}
+
+/**
+ * The blocks of lines - quoted lines in quotes, lines of code in code
+ * blocks, items in nested lists.
+ */
 function buildBlocks(items: Item[], doc: Document): Node[] {
   const output: Node[] = [];
   let quote: HTMLElement | null = null;
+  let code: OpenCode | null = null;
+  const codeBlocks = new Set<HTMLElement>();
   let lists: OpenList[] = [];
 
   for (const item of items) {
     if (!isLine(item)) {
       quote = null;
+      code = null;
       lists = [];
       output.push(item.block);
       continue;
     }
 
     if (item.type !== "quote") quote = null;
+    if (item.type !== "code") code = null;
     if (item.type !== "ul" && item.type !== "ol") lists = [];
 
-    if (item.type === "quote") {
+    if (item.type === "code") {
+      if (!code) {
+        const opened = openCodeBlock(item, doc, codeBlocks);
+        code = opened.block;
+        output.push(opened.pre);
+      }
+      appendCodeLine(code, item, doc);
+    } else if (item.type === "quote") {
       if (!quote) {
         quote = doc.createElement("blockquote");
         output.push(quote);
@@ -425,12 +522,13 @@ export function applyLineCommand(
 }
 
 /**
- * Makes the selected lines paragraphs, headings or quoted lines - lines
- * already of that heading or quote become paragraphs again.
+ * Makes the selected lines paragraphs, headings, quoted lines or lines of
+ * code - lines already of that heading, quote or code become paragraphs
+ * again.
  */
 export function setLineType(
   lines: Line[],
-  type: "h2" | "h3" | "p" | "quote",
+  type: "code" | "h2" | "h3" | "p" | "quote",
 ): boolean {
   const selected = lines.filter((line) => line.selected);
   if (selected.length === 0) return false;

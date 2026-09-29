@@ -41,6 +41,21 @@ const firstCell = () =>
 const dragWidth = () =>
   screen.getByRole("table").style.getPropertyValue("--data-table-drag-width");
 
+/** Lays the page out right to left - jsdom knows no `dir`. */
+function mockRightToLeft() {
+  const getComputedStyle = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+    const style = getComputedStyle(element, pseudo);
+    return new Proxy(style, {
+      get: (target, property) => {
+        if (property === "direction") return "rtl";
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  });
+}
+
 const drag = (element: HTMLElement, from: number, to: number) => {
   fireEvent.pointerDown(element, { button: 0, clientX: from, pointerId: 1 });
   fireEvent.pointerMove(element, { clientX: to, pointerId: 1 });
@@ -188,7 +203,7 @@ describe("DataTable column resizing", () => {
         data={rows}
       />,
     );
-    expect(header("Team")).toHaveStyle({ left: "200px" });
+    expect(header("Team")).toHaveStyle({ insetInlineStart: "200px" });
 
     fireEvent.pointerDown(handle("Name"), {
       button: 0,
@@ -197,11 +212,11 @@ describe("DataTable column resizing", () => {
     });
     fireEvent.pointerMove(handle("Name"), { clientX: 150, pointerId: 1 });
 
-    expect(header("Team").style.left).toBe(
+    expect(header("Team").style.insetInlineStart).toBe(
       "calc(0px + var(--data-table-drag-width))",
     );
     fireEvent.pointerUp(handle("Name"), { clientX: 150, pointerId: 1 });
-    expect(header("Team")).toHaveStyle({ left: "250px" });
+    expect(header("Team")).toHaveStyle({ insetInlineStart: "250px" });
   });
 
   it("keeps the width after a click without a move", () => {
@@ -253,6 +268,35 @@ describe("DataTable column resizing", () => {
     drag(handle("Team"), 500, 450);
 
     expect(header("Team")).toHaveStyle({ width: "150px" });
+  });
+
+  it("resizes by the end edge of a right-to-left column - its left one", async () => {
+    const user = userEvent.setup();
+    mockRightToLeft();
+    render(
+      <div dir="rtl">
+        <DataTable
+          columns={[columns[0], { ...columns[1], pinned: "right", width: 100 }]}
+          data={rows}
+        />
+      </div>,
+    );
+
+    // The handle is at the end - the left edge; moving it left widens
+    expect(handle("Name")).toHaveClass("end-0");
+    drag(handle("Name"), 500, 450);
+    expect(header("Name")).toHaveStyle({ width: "250px" });
+    handle("Name").focus();
+    await user.keyboard("{ArrowRight}");
+    expect(header("Name")).toHaveStyle({ width: "240px" });
+
+    // A column pinned to the end - the left edge - grows to the right
+    expect(handle("Team")).toHaveClass("start-0");
+    drag(handle("Team"), 500, 550);
+    expect(header("Team")).toHaveStyle({ width: "150px" });
+    handle("Team").focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(header("Team")).toHaveStyle({ width: "140px" });
   });
 
   it("remembers the widths under tableId until the columns are reset", async () => {

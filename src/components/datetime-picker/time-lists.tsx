@@ -237,11 +237,17 @@ function TimeList({
               aria-selected={isSelected}
               className={cn(
                 "w-full px-2 py-1 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700",
+                // Forced colors (Windows High Contrast) draw no background -
+                // the system's highlight colors then
                 isSelected &&
-                  "bg-primary-600 text-white hover:bg-primary-700 dark:hover:bg-primary-700",
+                  "bg-primary-600 text-white hover:bg-primary-700 dark:hover:bg-primary-700 forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]",
                 disabled &&
-                  "cursor-not-allowed opacity-40 hover:bg-transparent dark:hover:bg-transparent",
+                  "cursor-not-allowed opacity-40 hover:bg-transparent dark:hover:bg-transparent forced-colors:text-[GrayText]",
               )}
+              data-disabled={disabled ? "" : undefined}
+              // The active option of the list is the selected one
+              data-highlighted={isSelected ? "" : undefined}
+              data-selected={isSelected ? "" : undefined}
               data-value={option}
               disabled={disabled}
               id={optionId(option)}

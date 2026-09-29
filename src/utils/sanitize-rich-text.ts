@@ -7,9 +7,11 @@ export type RichTextFormat =
   | "bold"
   | "bulletList"
   | "code"
+  | "codeBlock"
   | "heading2"
   | "heading3"
   | "horizontalRule"
+  | "image"
   | "italic"
   | "link"
   | "numberedList"
@@ -20,19 +22,31 @@ export type RichTextFormat =
 /** Options of `sanitizeRichText`. */
 export interface SanitizeRichTextOptions {
   /**
-   * The formatting kept - all of it by default. The rest is reduced the way
-   * `RichTextEditor` reduces what its toolbar cannot make: headings, list
-   * items and quotes become paragraphs, table rows lines of text (the cells
-   * separated by tabs), rules line breaks, and the other formats their text.
+   * Keeps images whose `src` is a `data:` URL of a PNG, JPEG, GIF, WebP or
+   * AVIF image (base64) - with `"image"` in `formats`. Other `data:` URLs
+   * (HTML, SVG) never pass.
+   */
+  allowImageDataUrls?: boolean;
+  /**
+   * The formatting kept - all of it but images by default: an image loads
+   * from wherever its `src` points, so it is kept only where `formats` lists
+   * `"image"`. The rest is reduced the way `RichTextEditor` reduces what its
+   * toolbar cannot make: headings, list items and quotes become paragraphs,
+   * code blocks paragraphs of their lines, table rows lines of text (the
+   * cells separated by tabs), rules line breaks, images nothing, and the
+   * other formats their text.
    */
   formats?: readonly RichTextFormat[];
 }
 
-const ALL_FORMATS: readonly RichTextFormat[] = [
+// The formats kept when none are given - images only where they are asked
+// for, as they load from anywhere (a tracking pixel)
+const DEFAULT_FORMATS: readonly RichTextFormat[] = [
   "blockquote",
   "bold",
   "bulletList",
   "code",
+  "codeBlock",
   "heading2",
   "heading3",
   "horizontalRule",
@@ -219,6 +233,7 @@ const OUTPUT_BLOCKS = new Set([
   "HR",
   "OL",
   "P",
+  "PRE",
   "TABLE",
   "UL",
 ]);
@@ -275,6 +290,14 @@ const MONOSPACE = /\bmono(?:space)?\b|courier|consol|menlo|monaco/i;
 
 const SAFE_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 
+// A `data:` URL of a raster image, base64 - not of SVG, whose markup could
+// run scripts where it is opened as a document
+const DATA_IMAGE =
+  /^data:image\/(?:avif|gif|jpeg|jpg|png|webp);base64,[a-z\d+/]+={0,2}$/i;
+
+// A width or height of an image in pixels - a plain positive number
+const IMAGE_SIZE = /^\d{1,5}$/;
+
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 
 // The node types and tree walker flags by their values - a server with a
@@ -317,6 +340,26 @@ export function isSafeHref(href: string) {
   }
 }
 
+/**
+ * Whether an image source is safe to load - an absolute URL of `http:` or
+ * `https:`, or a relative one; with `allowDataUrls`, also a base64 `data:`
+ * URL of a PNG, JPEG, GIF, WebP or AVIF image. `javascript:`, `blob:`,
+ * `file:`, SVG and other `data:` URLs are not, also behind tricks like
+ * `java\tscript:`. Runs anywhere.
+ */
+export function isSafeImageSrc(src: string, allowDataUrls = false) {
+  if (!src.trim()) return false;
+  if (DATA_IMAGE.test(src)) return allowDataUrls;
+
+  try {
+    // The URL parser sees through tricks like `java\tscript:`
+    const { protocol } = new URL(src, "https://relative.invalid/");
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /** The formatting around the content being copied. */
 type Formatting = Record<Mark, boolean> & {
   /** Inside `<pre>` - line breaks are part of the text. */
@@ -344,6 +387,8 @@ const NO_FORMATTING: Formatting = {
 type Context = "flow" | "item" | "line" | "quote";
 
 interface CopyState {
+  /** Images may load from `data:` URLs of raster images. */
+  allowImageDataUrls: boolean;
   /** How many elements deep in the source the copy is. */
   depth: number;
   formats: ReadonlySet<RichTextFormat>;
@@ -965,6 +1010,16 @@ function copyElement(
 
   if (tag === "BR") return [output.createElement("br")];
 
+  if (tag === "IMG") return copyImage(element, state);
+
+  if (
+    (tag === "PRE" || tag === "LISTING") &&
+    context === "flow" &&
+    formats.has("codeBlock")
+  ) {
+    return copyCodeBlock(element, state, formatting);
+  }
+
   if (tag === "HR") {
     const isKept = context === "flow" && formats.has("horizontalRule");
     // A rule is a line break where it is not kept
@@ -1047,6 +1102,82 @@ function copyElement(
 
   // Inline elements - their text, with the marks kept around it
   return children(context);
+}
+
+// The attributes of an image kept as they are - its size only as plain
+// numbers of pixels
+const IMAGE_TEXT_ATTRIBUTES = ["alt", "title"];
+const IMAGE_SIZE_ATTRIBUTES = ["width", "height"];
+
+/**
+ * An image with a safe `src` - with its text and size, and nothing else of
+ * the source (no `srcset`, `style` or handlers). Nothing where images are
+ * not kept, or of an unsafe or missing `src`.
+ */
+function copyImage(element: Element, state: CopyState): Node[] {
+  const src = element.getAttribute("src");
+  if (
+    !state.formats.has("image") ||
+    src === null ||
+    !isSafeImageSrc(src, state.allowImageDataUrls)
+  ) {
+    return [];
+  }
+
+  const image = state.output.createElement("img");
+  image.setAttribute("src", src);
+  for (const name of IMAGE_TEXT_ATTRIBUTES) {
+    const value = element.getAttribute(name);
+    if (value !== null) image.setAttribute(name, value);
+  }
+  for (const name of IMAGE_SIZE_ATTRIBUTES) {
+    const value = element.getAttribute(name)?.trim() ?? "";
+    const size = Number(value);
+    if (IMAGE_SIZE.test(value) && size > 0) {
+      image.setAttribute(name, String(size));
+    }
+  }
+  return [image];
+}
+
+/**
+ * The text and line breaks of copied content - the marks and images of a
+ * code block go, its text stays.
+ */
+function plainContent(nodes: Node[], result: Node[] = []) {
+  for (const node of nodes) {
+    if (node.nodeType === TEXT_NODE || node.nodeName === "BR") {
+      result.push(node);
+    } else if (isElement(node)) {
+      plainContent(contentOf(node), result);
+    }
+  }
+  return result;
+}
+
+/**
+ * A code block - `<pre><code>` of plain text, its lines separated by line
+ * breaks (the new lines of the source become them). One without any text
+ * or line break is none.
+ */
+function copyCodeBlock(
+  element: Element,
+  state: CopyState,
+  formatting: Formatting,
+): Node[] {
+  const { output } = state;
+  const lines = plainContent(
+    toLines(
+      copyChildren(element, state, { ...formatting, pre: true }, "line"),
+      output,
+    ),
+  );
+  const isEmpty = lines.every(
+    (node) => node.nodeType === TEXT_NODE && !node.textContent,
+  );
+  if (isEmpty) return [];
+
+  return [createElement(output, "pre", [createElement(output, "code", lines)])];
 }
 
 function copyList(
@@ -1335,7 +1466,7 @@ function copyTable(table: Element, state: CopyState, formatting: Formatting) {
 // asked for on every change
 const formatSets = new Map<string, ReadonlySet<RichTextFormat>>();
 
-function toFormatSet(formats: readonly RichTextFormat[] = ALL_FORMATS) {
+function toFormatSet(formats: readonly RichTextFormat[] = DEFAULT_FORMATS) {
   const key = formats.join();
   let set = formatSets.get(key);
 
@@ -1362,6 +1493,7 @@ function sanitizeRich(
   formats: readonly RichTextFormat[] | undefined,
   context: Context,
   readsStyles: boolean,
+  allowImageDataUrls = false,
 ) {
   if (!html) return null;
 
@@ -1370,6 +1502,7 @@ function sanitizeRich(
     convertWordLists(document.body);
   }
   const state: CopyState = {
+    allowImageDataUrls,
     depth: 0,
     formats: toFormatSet(formats),
     holdsBlocks: findBlockHolders(document.body),
@@ -1421,20 +1554,23 @@ function withoutBlankAroundBlocks(nodes: Node[]) {
 
 /**
  * Reduces HTML to what RichTextEditor produces - paragraphs, headings (h2,
- * h3), bulleted and numbered lists, quotes, tables, horizontal rules, bold,
- * italic, underline, strikethrough, inline code and links with safe URLs -
- * without any styles, classes or other attributes, so neither a loaded
- * value nor pasted content can run scripts or bring foreign styles. The
- * content of other editors keeps its shape: `h1` becomes `h2` and `h4` -
- * `h6` become `h3`, merged table cells are split, the list paragraphs of
- * Word become lists (without their bullets and numbers as text), and the
- * bold, italic, underlined, struck and monospace text styles of Google
- * Docs and Word become `<b>`, `<i>`, `<u>`, `<s>` and `<code>`. A table too
- * big to edit (over 50 columns or 10,000 cells, also without its merged
- * cells) becomes lines of text, and content nested over 100 elements deep
- * its text - the output never grows far beyond the input, and its output
- * is the same again. `formats` narrows it down to what an editor with
- * fewer tools makes. Also the way to render stored HTML of the editor:
+ * h3), bulleted and numbered lists, quotes, code blocks, tables, horizontal
+ * rules, bold, italic, underline, strikethrough, inline code, links with
+ * safe URLs and - where `formats` lists `"image"` - images with a safe
+ * `src` (see `isSafeImageSrc`) - without any styles, classes or other
+ * attributes (an image keeps its `alt`, `title`, `width` and `height`), so
+ * neither a loaded value nor pasted content can run scripts or bring
+ * foreign styles. The content of other editors keeps its shape: `h1`
+ * becomes `h2` and `h4` - `h6` become `h3`, `<pre>` a code block of plain
+ * text, merged table cells are split, the list paragraphs of Word become
+ * lists (without their bullets and numbers as text), and the bold, italic,
+ * underlined, struck and monospace text styles of Google Docs and Word
+ * become `<b>`, `<i>`, `<u>`, `<s>` and `<code>`. A table too big to edit
+ * (over 50 columns or 10,000 cells, also without its merged cells) becomes
+ * lines of text, and content nested over 100 elements deep its text - the
+ * output never grows far beyond the input, and its output is the same
+ * again. `formats` narrows it down to what an editor with fewer tools
+ * makes. Also the way to render stored HTML of the editor:
  * `dangerouslySetInnerHTML={{ __html: sanitizeRichText(html) }}` inside an
  * element with the `rich-text` class.
  *
@@ -1448,9 +1584,12 @@ function withoutBlankAroundBlocks(nodes: Node[]) {
  */
 export default function sanitizeRichText(
   html: string,
-  { formats }: SanitizeRichTextOptions = {},
+  { allowImageDataUrls = false, formats }: SanitizeRichTextOptions = {},
 ) {
-  return sanitizeRich(html, formats, "flow", true)?.innerHTML ?? "";
+  return (
+    sanitizeRich(html, formats, "flow", true, allowImageDataUrls)?.innerHTML ??
+    ""
+  );
 }
 
 /**
@@ -1460,8 +1599,12 @@ export default function sanitizeRichText(
 export function sanitizeRichTextLines(
   html: string,
   formats?: readonly RichTextFormat[],
+  allowImageDataUrls = false,
 ) {
-  return sanitizeRich(html, formats, "line", true)?.innerHTML ?? "";
+  return (
+    sanitizeRich(html, formats, "line", true, allowImageDataUrls)?.innerHTML ??
+    ""
+  );
 }
 
 /**
@@ -1471,27 +1614,40 @@ export function sanitizeRichTextLines(
 export function sanitizeRichTextParagraphs(
   html: string,
   formats?: readonly RichTextFormat[],
+  allowImageDataUrls = false,
 ) {
-  return sanitizeRich(html, formats, "quote", true)?.innerHTML ?? "";
+  return (
+    sanitizeRich(html, formats, "quote", true, allowImageDataUrls)?.innerHTML ??
+    ""
+  );
 }
 
 /**
- * `sanitizeRichText` of the content of RichTextEditor - and whether it has
- * any text. The inline styles of its own content are left out: the
- * browser's editing puts them there (a heading merged into a paragraph
- * keeps its size and weight in a `<span style>`), they are no formatting
- * of the user. Those of a value loaded from outside are read (`readsStyles`)
- * like those of pasted content.
+ * `sanitizeRichText` of the content of RichTextEditor - and whether it
+ * shows anything: text or an image. The inline styles of its own content
+ * are left out: the browser's editing puts them there (a heading merged
+ * into a paragraph keeps its size and weight in a `<span style>`), they are
+ * no formatting of the user. Those of a value loaded from outside are read
+ * (`readsStyles`) like those of pasted content.
  */
 export function sanitizeEditorContent(
   html: string,
   formats: readonly RichTextFormat[],
   readsStyles = false,
+  allowImageDataUrls = false,
 ) {
-  const container = sanitizeRich(html, formats, "flow", readsStyles);
+  const container = sanitizeRich(
+    html,
+    formats,
+    "flow",
+    readsStyles,
+    allowImageDataUrls,
+  );
 
   return {
-    hasText: !!container?.textContent?.trim(),
+    hasContent:
+      !!container?.textContent?.trim() ||
+      (!!container && container.getElementsByTagName("img").length > 0),
     html: container?.innerHTML ?? "",
   };
 }

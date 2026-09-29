@@ -8,12 +8,36 @@ describe("useRowSelection", () => {
     const { result } = renderHook(() => useRowSelection(data));
     const start = performance.now();
 
-    act(() => result.current.toggleSelectAll());
+    act(() => result.current.setSelectedIds(data.map((row) => row.id)));
     expect(result.current.isAllSelected).toBe(true);
-    act(() => result.current.toggleSelectAll());
+    expect(result.current.selectedRows).toHaveLength(20_000);
+    act(() => result.current.setSelectedIds([]));
     expect(result.current.isAllSelected).toBe(false);
 
     // Comparing every row with every selected one took seconds
     expect(performance.now() - start).toBeLessThan(250);
+  });
+
+  it("keeps a controlled selection of rows that are not there", () => {
+    const { rerender, result } = renderHook(
+      ({ data }) => useRowSelection(data, { selectedIds: [1, 9] }),
+      { initialProps: { data: [{ id: 1 }, { id: 2 }] } },
+    );
+    expect(result.current.selectedRows).toEqual([{ id: 1 }]);
+
+    rerender({ data: [{ id: 3 }] });
+    expect(result.current.ids).toEqual([1, 9]);
+    expect(result.current.selectedRows).toEqual([]);
+  });
+
+  it("drops rows that leave the data from an uncontrolled selection", () => {
+    const { rerender, result } = renderHook(
+      ({ data }) => useRowSelection(data, { defaultSelectedIds: [1, 2, 9] }),
+      { initialProps: { data: [{ id: 1 }, { id: 2 }] } },
+    );
+    expect(result.current.ids).toEqual([1, 2]);
+
+    rerender({ data: [{ id: 2 }, { id: 3 }] });
+    expect(result.current.ids).toEqual([2]);
   });
 });

@@ -208,18 +208,21 @@ describe("URL state", () => {
     expect(readQueryFromSearch("?pageSize=50abc").pageSize).toBe(20);
   });
 
-  it("ignores filter values of the URL that are no texts", () => {
+  it("ignores filter values of the URL that are no texts, lists or ranges", () => {
     const filters = JSON.stringify({
       a: null,
       b: { c: 1 },
       d: 5,
-      e: ["x"],
+      e: ["x", 3, "", "x", "y"],
       f: "kept",
+      g: { from: 1, to: "9" },
+      h: [],
+      i: { from: "" },
     });
 
     expect(
       readQueryFromSearch(`?filters=${encodeURIComponent(filters)}`).filters,
-    ).toEqual({ f: "kept" });
+    ).toEqual({ e: ["x", "y"], f: "kept", g: { to: "9" } });
   });
 
   it("accepts only the offered page sizes from the URL", () => {

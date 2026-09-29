@@ -16,6 +16,7 @@ import { X } from "lucide-react";
 import cn from "../utils/cn";
 import IconButton from "./icon-button";
 import {
+  getActiveElement,
   getActiveFocusReturnTargets,
   isEscapeKey,
   isTopmostOverlay,
@@ -27,7 +28,7 @@ import {
 } from "./overlay-stack";
 import { attachRef } from "../hooks/use-form-control";
 import { getTabbableElements } from "../utils/tabbable";
-import { useMessages } from "../providers/ui-context";
+import { useMessages, usePortalContainer } from "../providers/ui-context";
 import { ButtonGroupContext } from "./button-group-context";
 
 /**
@@ -45,9 +46,21 @@ const FooterSlotContext = createContext<FooterSlot | null>(null);
 
 const subscribeToNothing = () => () => {};
 
+// A swipe down on the header this long - or a quick flick of a few pixels -
+// closes a sheet that can be swiped away
+const SWIPE_CLOSE_DISTANCE = 80;
+const SWIPE_CLOSE_VELOCITY = 0.5;
+const SWIPE_FLICK_DISTANCE = 16;
+
+// Controls in the header a swipe does not start on
+const SWIPE_EXEMPT = "a[href], button, input, select, textarea, [role=button]";
+
 /**
  * The implementation `Dialog` and `Sheet` share - they differ in the classes
- * they give it.
+ * they give it. Its header and a `DialogFooter` keep off the notch and the
+ * home indicator of a phone by the insets the panel classes put into
+ * `--cui-safe-top` / `--cui-safe-bottom` - an edge of the panel at an edge
+ * of the screen sets them to `env(safe-area-inset-*)`.
  */
 export interface ModalDialogProps extends Omit<
   React.ComponentProps<"div">,
@@ -66,6 +79,11 @@ export interface ModalDialogProps extends Omit<
   closeDisabled?: boolean;
   /** A click on the backdrop closes the dialog (unless `closeDisabled`). */
   closeOnBackdropClick?: boolean;
+  /**
+   * Escape closes the dialog (unless `closeDisabled`). Off, an Escape while
+   * it is the topmost overlay does nothing - it is used up all the same.
+   */
+  closeOnEscape?: boolean;
   /**
    * Classes of the panel while it is closed - before it animates in and
    * while it animates out.
@@ -88,14 +106,24 @@ export interface ModalDialogProps extends Omit<
   panelClassName?: string;
   /** See `DialogProps.role`. */
   role?: "alertdialog" | "dialog";
+  /**
+   * A swipe down on the header closes the dialog on touch screens (unless
+   * `closeDisabled`) - the panel follows the finger, and a handle on the
+   * header shows it can be dragged. For a sheet at the bottom of the screen.
+   */
+  swipeToClose?: boolean;
   /** See `DialogProps.title`. */
   title?: React.ReactNode;
 }
 
 /**
  * A modal window: the backdrop, the panel with its header and a scrolling
- * body, rendered into the body. Traps the focus and gives it back, closes on
- * Escape through the overlay stack and locks the page scroll while open.
+ * body, rendered into the body (the `portalContainer` of `UIProvider`).
+ * Traps the focus and gives it back, closes on Escape through the overlay
+ * stack and locks the page scroll while open. `ref`, the `className` and
+ * the other props are the panel's - the element with the `role`; it and
+ * the backdrop have `data-state="open"` or `"closed"` (also while they
+ * animate in and out).
  */
 export default function ModalDialog({
   animateControlled = false,
@@ -106,6 +134,7 @@ export default function ModalDialog({
   closeDisabled = false,
   closedClassName,
   closeOnBackdropClick = false,
+  closeOnEscape = true,
   duration,
   fitFooter = false,
   onClose,
@@ -113,8 +142,10 @@ export default function ModalDialog({
   openClassName,
   panelClassName,
   role = "dialog",
+  swipeToClose = false,
   title,
   "aria-label": ariaLabel,
+  ref,
   ...props
 }: ModalDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -127,6 +158,7 @@ export default function ModalDialog({
   // it has animated out
   const onCloseRef = useRef(onClose);
   const messages = useMessages();
+  const getPortalContainer = usePortalContainer();
 
   useLayoutEffect(() => {
     onCloseRef.current = onClose;
@@ -174,6 +206,7 @@ export default function ModalDialog({
   const { childContext, id: dialogId } = useOverlayLayer(isRequestedOpen, {
     getElements: () => [dialogRef.current],
     modal: true,
+    portaled: true,
   });
 
   const handleClose = useCallback(() => {
@@ -225,7 +258,7 @@ export default function ModalDialog({
     if (isControlled) return;
 
     return () => {
-      const active = document.activeElement;
+      const active = getActiveElement();
       if (!focusReturnedRef.current && (!active || active === document.body)) {
         returnFocus(returnFocusRef.current);
       }
@@ -265,13 +298,15 @@ export default function ModalDialog({
       ) {
         return;
       }
+      // Used up also when it does not close the dialog - the dialog under
+      // it, or the page, must not take it
       event.preventDefault();
-      handleClose();
+      if (closeOnEscape) handleClose();
     };
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [dialogId, handleClose, isRequestedOpen]);
+  }, [closeOnEscape, dialogId, handleClose, isRequestedOpen]);
 
   // Whether the dialog was the topmost overlay when the press that ends in
   // a click on the backdrop began. A menu or popover open in it closes on
@@ -306,7 +341,7 @@ export default function ModalDialog({
     if (!isOpen || !dialog) return;
 
     // Unless an `autoFocus` field has taken it already
-    if (!dialog.contains(document.activeElement)) {
+    if (!dialog.contains(getActiveElement())) {
       const tabbableElements = getTabbableElements(dialog);
       // Skip the close button in the header when there is anything else.
       // With nothing to focus (a disabled close button, no fields) the
@@ -351,6 +386,81 @@ export default function ModalDialog({
     [],
   );
 
+  // `swipeToClose`: how far the finger has dragged the panel down, while it
+  // does - the panel follows it without a transition
+  const [dragOffset, setDragOffset] = useState<number | null>(null);
+  const dragRef = useRef<{
+    id: number;
+    lastTime: number;
+    lastY: number;
+    startY: number;
+    velocity: number;
+  } | null>(null);
+  const canSwipe = swipeToClose && !closeDisabled && isOpen;
+
+  // Disabled while dragged - e.g. its form started saving: back in place
+  if (!canSwipe && dragOffset !== null) setDragOffset(null);
+
+  const endDrag = (event: React.PointerEvent<HTMLElement>, cancel: boolean) => {
+    const drag = dragRef.current;
+    if (!drag || drag.id !== event.pointerId) return;
+    dragRef.current = null;
+
+    // Back to its place, or out - animated from where the finger left it,
+    // as both happen in one render: its offset goes as its classes change
+    setDragOffset(null);
+    const distance = event.clientY - drag.startY;
+    if (
+      !cancel &&
+      (distance >= SWIPE_CLOSE_DISTANCE ||
+        (distance >= SWIPE_FLICK_DISTANCE &&
+          drag.velocity >= SWIPE_CLOSE_VELOCITY))
+    ) {
+      handleClose();
+    }
+  };
+
+  const swipeHandlers = canSwipe
+    ? {
+        onPointerCancel: (event: React.PointerEvent<HTMLElement>) =>
+          endDrag(event, true),
+        onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
+          if (
+            event.pointerType === "mouse" ||
+            !event.isPrimary ||
+            (event.target instanceof Element &&
+              event.target.closest(SWIPE_EXEMPT))
+          ) {
+            return;
+          }
+          dragRef.current = {
+            id: event.pointerId,
+            lastTime: event.timeStamp,
+            lastY: event.clientY,
+            startY: event.clientY,
+            velocity: 0,
+          };
+          // The moves reach the header also once the finger leaves it
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+        },
+        onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
+          const drag = dragRef.current;
+          if (!drag || drag.id !== event.pointerId) return;
+
+          const elapsed = event.timeStamp - drag.lastTime;
+          if (elapsed > 0) {
+            drag.velocity = (event.clientY - drag.lastY) / elapsed;
+          }
+          drag.lastTime = event.timeStamp;
+          drag.lastY = event.clientY;
+          // Down only - up, it stays where it is
+          setDragOffset(Math.max(0, event.clientY - drag.startY));
+        },
+        onPointerUp: (event: React.PointerEvent<HTMLElement>) =>
+          endDrag(event, false),
+      }
+    : {};
+
   const ariaProps = title
     ? { "aria-labelledby": titleId }
     : ariaLabel
@@ -371,6 +481,17 @@ export default function ModalDialog({
     </IconButton>
   );
 
+  // Shows on touch screens that the sheet can be swiped down - the swipe is
+  // a shortcut for the close button, which screen readers use instead
+  const swipeHandle = (
+    <span
+      aria-hidden="true"
+      className="absolute top-1.5 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full bg-neutral-300 dark:bg-neutral-600 pointer-fine:hidden"
+    />
+  );
+
+  const state = isOpen ? "open" : "closed";
+
   // Rendered into the body: callers often sit inside a stacking context that
   // traps a `fixed` child (a sticky table cell, a transformed panel), which
   // would let sticky table headers and similar paint over the dialog.
@@ -386,6 +507,7 @@ export default function ModalDialog({
             isClosing && "pointer-events-none",
             backdropClassName,
           )}
+          data-state={state}
           onClick={
             closeOnBackdropClick
               ? () => {
@@ -407,20 +529,53 @@ export default function ModalDialog({
             isClosing && "pointer-events-none",
             className,
           )}
-          ref={dialogRef}
+          data-state={state}
+          // The dialog's own ref, and the one given to it
+          ref={(element) => {
+            dialogRef.current = element;
+            const detachRef = attachRef(ref, element);
+            return () => {
+              dialogRef.current = null;
+              detachRef();
+            };
+          }}
           role={role}
+          style={
+            dragOffset === null
+              ? props.style
+              : // Follows the finger at once
+                {
+                  ...props.style,
+                  transition: "none",
+                  translate: `0 ${dragOffset}px`,
+                }
+          }
           // Focusable, so a click on its text keeps the focus inside
           tabIndex={-1}
         >
           {title ? (
-            <header className="sticky top-0 z-1 flex items-center justify-between border-b border-neutral-200 bg-surface px-6 py-3.25 dark:border-neutral-800 dark:bg-surface-dark">
+            <header
+              className={cn(
+                "sticky top-0 z-1 flex items-center justify-between border-b border-neutral-200 bg-surface px-6 pt-[calc(0.8125rem+var(--cui-safe-top,0px))] pb-3.25 dark:border-neutral-800 dark:bg-surface-dark",
+                swipeToClose && "touch-none",
+              )}
+              {...swipeHandlers}
+            >
+              {swipeToClose && swipeHandle}
               <h2 className="font-semibold" id={titleId}>
                 {title}
               </h2>
               <div className="inline-flex">{closeButton}</div>
             </header>
           ) : (
-            <div className="sticky top-0 z-1 flex items-center justify-end border-b border-neutral-200 bg-surface px-4 py-3.25 dark:border-neutral-800 dark:bg-surface-dark">
+            <div
+              className={cn(
+                "sticky top-0 z-1 flex items-center justify-end border-b border-neutral-200 bg-surface px-4 pt-[calc(0.8125rem+var(--cui-safe-top,0px))] pb-3.25 dark:border-neutral-800 dark:bg-surface-dark",
+                swipeToClose && "touch-none",
+              )}
+              {...swipeHandlers}
+            >
+              {swipeToClose && swipeHandle}
               {closeButton}
             </div>
           )}
@@ -439,7 +594,7 @@ export default function ModalDialog({
         </div>
       </OverlayContext>
     </ButtonGroupContext>,
-    document.body,
+    getPortalContainer(),
   );
 }
 
@@ -459,7 +614,8 @@ export function DialogFooter({
   return (
     <div
       className={cn(
-        "absolute right-0 bottom-0 left-0 z-10 border-t border-neutral-200 bg-surface px-6 py-3.25 dark:border-neutral-800 dark:bg-surface-dark",
+        // Above the home indicator of a phone at the bottom of its screen
+        "absolute inset-x-0 bottom-0 z-10 border-t border-neutral-200 bg-surface px-6 pt-3.25 pb-[calc(0.8125rem+var(--cui-safe-bottom,0px))] dark:border-neutral-800 dark:bg-surface-dark",
         // A sheet has square corners - the ones of a top sheet are clipped
         !slot && "rounded-b-lg",
         className,

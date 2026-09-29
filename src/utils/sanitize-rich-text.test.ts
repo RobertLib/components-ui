@@ -287,12 +287,48 @@ describe("sanitizeRichText of pasted content", () => {
   });
 
   it("keeps the lines of preformatted text", () => {
-    expect(sanitizeRichText("<pre>npm install\nnpm test</pre>")).toBe(
-      "<p>npm install<br>npm test</p>",
-    );
-    expect(sanitizeRichText("<pre><code>a\nb</code></pre>")).toBe(
+    const formats: RichTextFormat[] = ["bold", "code"];
+    expect(
+      sanitizeRichText("<pre>npm install\nnpm test</pre>", { formats }),
+    ).toBe("<p>npm install<br>npm test</p>");
+    expect(sanitizeRichText("<pre><code>a\nb</code></pre>", { formats })).toBe(
       "<p><code>a<br>b</code></p>",
     );
+  });
+
+  it("makes code blocks of plain text of preformatted text", () => {
+    expect(sanitizeRichText("<pre>npm install\nnpm test</pre>")).toBe(
+      "<pre><code>npm install<br>npm test</code></pre>",
+    );
+    // The marks of syntax highlighting and links go, the lines stay
+    expect(
+      sanitizeRichText(
+        '<pre class="language-js" onclick="steal()"><code><span style="color:red">const</span> ' +
+          '<b>a</b> = <a href="/x">1</a>;\n<img src="/a.png"><div>next</div></code></pre>',
+        { formats: ["codeBlock", "bold", "link", "image"] },
+      ),
+    ).toBe("<pre><code>const a = 1;<br><br>next</code></pre>");
+    // An empty line of the editor stays, an empty block goes
+    expect(sanitizeRichText("<pre><code><br></code></pre><pre></pre>")).toBe(
+      "<pre><code><br></code></pre>",
+    );
+    // A code block holds no markup - the text of tags stays text
+    expect(
+      sanitizeRichText(
+        "<pre>&lt;img src=x onerror=steal()&gt;</pre><listing>a</listing>",
+      ),
+    ).toBe(
+      "<pre><code>&lt;img src=x onerror=steal()&gt;</code></pre><pre><code>a</code></pre>",
+    );
+  });
+
+  it("keeps code blocks at the top level only", () => {
+    expect(
+      sanitizeRichText(
+        "<ul><li><pre>a\nb</pre></li></ul><blockquote><pre>c</pre></blockquote>",
+      ),
+    ).toBe("<ul><li>a<br>b</li></ul><blockquote><p>c</p></blockquote>");
+    expect(sanitizeRichTextLines("<pre>a\nb</pre>")).toBe("a<br>b");
   });
 
   it("reads the text styles of Google Docs", () => {
@@ -543,6 +579,175 @@ describe("sanitizeRichText of hostile content", () => {
   });
 });
 
+describe("sanitizeRichText of images", () => {
+  const IMAGES: RichTextFormat[] = ["image", "link", "table"];
+  const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+  const images = (html: string, allowImageDataUrls = false) =>
+    sanitizeRichText(html, { allowImageDataUrls, formats: IMAGES });
+
+  /** The elements of HTML - by their tags and attributes. */
+  function elementsOf(html: string) {
+    const { body } = new DOMParser().parseFromString(
+      `<!DOCTYPE html><body>${html}`,
+      "text/html",
+    );
+    return Array.from(body.getElementsByTagName("*"), (element) => [
+      element.tagName,
+      ...Array.from(
+        element.attributes,
+        ({ name, value }) => `${name}=${value}`,
+      ),
+    ]);
+  }
+
+  it("keeps images only where the image format is kept", () => {
+    const html = '<p>A <img src="https://example.com/a.png" alt="Chart"></p>';
+
+    expect(images(html)).toBe(
+      '<p>A <img src="https://example.com/a.png" alt="Chart"></p>',
+    );
+    expect(sanitizeRichText(html)).toBe("<p>A </p>");
+    expect(sanitizeRichText(html, { formats: BASIC })).toBe("<p>A </p>");
+    expect(sanitizeRichTextLines(html, ["image"])).toBe(
+      'A <img src="https://example.com/a.png" alt="Chart">',
+    );
+  });
+
+  it("keeps relative, protocol-relative and http(s) sources", () => {
+    expect(
+      images(
+        '<img src="/uploads/a.png"><img src="b.jpg"><img src="//cdn.example.com/c.gif">' +
+          '<img src="http://example.com/d.webp">',
+      ),
+    ).toBe(
+      '<img src="/uploads/a.png"><img src="b.jpg"><img src="//cdn.example.com/c.gif">' +
+        '<img src="http://example.com/d.webp">',
+    );
+  });
+
+  it("drops images whose source could run a script or read local data", () => {
+    expect(
+      images(
+        '<img src="javascript:steal()"><img src=" java\tscript:steal()">' +
+          '<img src="&#106;avascript:steal()"><img src="JaVaScRiPt:steal()">' +
+          '<img src="vbscript:steal()"><img src="data:text/html,<script>steal()</script>">' +
+          '<img src="data:image/svg+xml,<svg onload=steal()>">' +
+          '<img src="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9c3RlYWwoKT4=">' +
+          '<img src="blob:https://example.com/1"><img src="file:///etc/passwd">' +
+          '<img src="ftp://example.com/a.png"><img src=""><img src="  "><img>' +
+          '<img srcset="https://example.com/a.png 2x"><p>x</p>',
+      ),
+    ).toBe("<p>x</p>");
+  });
+
+  it("keeps data URLs of raster images only when asked for", () => {
+    const html = `<img src="${PNG}" alt="Dot">`;
+
+    expect(images(html)).toBe("");
+    expect(images(html, true)).toBe(`<img src="${PNG}" alt="Dot">`);
+    // Of SVG and HTML never - and nothing that is not plain base64
+    expect(
+      images(
+        '<img src="data:image/svg+xml;base64,PHN2Zz4="><img src="data:text/html;base64,PHNjcmlwdD4=">' +
+          '<img src="data:image/png,<svg>"><img src="data:image/png;base64,AA AA">' +
+          '<img src="data:image/png;charset=utf-8;base64,AAAA">',
+        true,
+      ),
+    ).toBe("");
+  });
+
+  it("keeps only the source, text and size of an image", () => {
+    expect(
+      images(
+        '<img src="/a.png" alt="A" title="T" width="640" height="480" ' +
+          'srcset="javascript:steal() 2x" sizes="100vw" onerror="steal()" onload="steal()" ' +
+          'style="position:fixed;inset:0" class="fixed inset-0" id="x" name="x" ' +
+          'usemap="#m" ismap loading="lazy" crossorigin="use-credentials" ' +
+          'longdesc="javascript:steal()" data-x="1" is="x-evil">',
+      ),
+    ).toBe('<img src="/a.png" alt="A" title="T" width="640" height="480">');
+    // A size other than plain pixels goes
+    expect(
+      images(
+        '<img src="/a.png" width="100%" height="-1"><img src="/b.png" width="1e3" height=" 070 ">' +
+          '<img src="/c.png" width="0" height="999999">',
+      ),
+    ).toBe(
+      '<img src="/a.png"><img src="/b.png" height="70"><img src="/c.png">',
+    );
+  });
+
+  it("keeps the text of an image as text, not as markup", () => {
+    const html = images(
+      '<p><img src="/a.png" alt="&quot;><img src=x onerror=steal()>" ' +
+        'title="\'><script>steal()</script>"></p>',
+    );
+
+    expect(elementsOf(html)).toEqual([
+      ["P"],
+      [
+        "IMG",
+        "src=/a.png",
+        'alt="><img src=x onerror=steal()>',
+        "title='><script>steal()</script>",
+      ],
+    ]);
+    expect(images(html)).toBe(html);
+  });
+
+  it("drops images of SVG, MathML and raw text", () => {
+    expect(
+      images(
+        '<svg><image href="javascript:steal()"/><img src="/in-svg.png"></svg>' +
+          '<math><mtext><img src="/in-math.png"></mtext></math>' +
+          '<noscript><img src="/a.png"></noscript><template><img src="/b.png"></template>' +
+          '<textarea><img src="/c.png"></textarea>',
+      ),
+    ).toBe(
+      // An `<img>` ends the SVG - the parser moves it out as an HTML image
+      '<img src="/in-svg.png">&lt;img src="/c.png"&gt;',
+    );
+  });
+
+  it("keeps images in links, lists, quotes and cells", () => {
+    const html =
+      '<p><a href="/x"><img src="/a.png" alt="A"></a></p>' +
+      '<ul><li><img src="/b.png"> Item</li></ul>' +
+      '<blockquote><p><img src="/c.png"></p></blockquote>' +
+      '<table><tbody><tr><td><img src="/d.png"></td></tr></tbody></table>';
+
+    expect(
+      sanitizeRichText(html, {
+        formats: [...IMAGES, "blockquote", "bulletList"],
+      }),
+    ).toBe(html);
+    // Without lists and quotes, their paragraphs keep the images
+    expect(images(html)).toBe(
+      '<p><a href="/x"><img src="/a.png" alt="A"></a></p><p><img src="/b.png"> Item</p>' +
+        '<p><img src="/c.png"></p><table><tbody><tr><td><img src="/d.png"></td></tr></tbody></table>',
+    );
+  });
+
+  it("keeps pictures and figures as their images and captions", () => {
+    expect(
+      images(
+        '<figure><picture><source srcset="/a.avif" type="image/avif">' +
+          '<img src="/a.png" alt="A"></picture><figcaption>Caption</figcaption></figure>',
+      ),
+    ).toBe('<p><img src="/a.png" alt="A"></p><p>Caption</p>');
+  });
+
+  it("tells content of an image alone as content", () => {
+    expect(
+      sanitizeEditorContent('<p><img src="/a.png"></p>', ["image"]),
+    ).toEqual({ hasContent: true, html: '<p><img src="/a.png"></p>' });
+    expect(sanitizeEditorContent('<p><img src="/a.png"></p>', [])).toEqual({
+      hasContent: false,
+      html: "",
+    });
+  });
+});
+
 describe("sanitizeRichText of its output", () => {
   const TAGS = (
     "p div span b strong i em u s strike code kbd a h1 h2 h3 h4 h6 ul ol li " +
@@ -726,7 +931,7 @@ describe("sanitizeEditorContent", () => {
           '<span style="font-style: italic; font-family: monospace">!</span></p>',
         ["bold", "italic", "code"],
       ),
-    ).toEqual({ hasText: true, html: "<p>paraHead!</p>" });
+    ).toEqual({ hasContent: true, html: "<p>paraHead!</p>" });
     // Pasted content keeps them as marks
     expect(
       sanitizeRichText(
@@ -738,8 +943,11 @@ describe("sanitizeEditorContent", () => {
   it("tells content without text", () => {
     expect(
       sanitizeEditorContent("<p><br></p><hr>", ["horizontalRule"]),
-    ).toEqual({ hasText: false, html: "<p><br></p><hr>" });
-    expect(sanitizeEditorContent("", [])).toEqual({ hasText: false, html: "" });
+    ).toEqual({ hasContent: false, html: "<p><br></p><hr>" });
+    expect(sanitizeEditorContent("", [])).toEqual({
+      hasContent: false,
+      html: "",
+    });
   });
 });
 

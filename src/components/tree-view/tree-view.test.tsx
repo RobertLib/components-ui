@@ -73,8 +73,10 @@ describe("TreeView", () => {
     expect(item("Electronics")).toHaveAttribute("aria-posinset", "1");
     expect(item("Electronics")).toHaveAttribute("aria-setsize", "3");
     expect(item("Electronics")).toHaveAttribute("aria-expanded", "false");
+    expect(item("Electronics")).toHaveAttribute("data-state", "closed");
     // A leaf has no expanded state
     expect(item("Garden")).not.toHaveAttribute("aria-expanded");
+    expect(item("Garden")).not.toHaveAttribute("data-state");
   });
 
   it("puts the children in a group the parent owns and names", async () => {
@@ -90,6 +92,7 @@ describe("TreeView", () => {
 
     const group = screen.getByRole("group", { name: "Electronics" });
     expect(item("Electronics")).toHaveAttribute("aria-expanded", "true");
+    expect(item("Electronics")).toHaveAttribute("data-state", "open");
     expect(item("Electronics")).toHaveAttribute("aria-owns", group.id);
     expect(within(group).getAllByRole("treeitem")[0]).toHaveTextContent(
       "Laptops",
@@ -341,6 +344,13 @@ describe("TreeView selection", () => {
     await user.keyboard("{ArrowDown}{Enter}");
     expect(item("Garden")).toHaveAttribute("aria-selected", "true");
     expect(item("Books")).not.toHaveAttribute("aria-selected");
+    // Also for styling - in forced colors in the system colors of a selection
+    expect(item("Garden")).toHaveAttribute("data-selected", "");
+    expect(item("Garden")).toHaveClass(
+      "forced-colors:bg-[Highlight]",
+      "forced-colors:text-[HighlightText]",
+    );
+    expect(item("Books")).not.toHaveAttribute("data-selected");
 
     await user.keyboard("{ArrowUp}[Space]");
     expect(onSelectedChange).toHaveBeenLastCalledWith(["books"]);
@@ -471,6 +481,7 @@ describe("TreeView selection", () => {
     );
 
     expect(item("Old")).toHaveAttribute("aria-disabled", "true");
+    expect(item("Old")).toHaveAttribute("data-disabled", "");
     await user.click(item("Old"));
     expect(onSelectedChange).not.toHaveBeenCalled();
     expect(onItemClick).not.toHaveBeenCalled();
@@ -709,6 +720,104 @@ describe("TreeView checkboxes", () => {
 
     await user.keyboard("[Space]");
     expect(item("Orders")).toHaveAttribute("aria-checked", "true");
+  });
+});
+
+describe("TreeView independent checkboxes", () => {
+  const tags: TreeItem<string>[] = [
+    {
+      children: [
+        { id: "urgent", label: "Urgent" },
+        { disabled: true, id: "archived", label: "Archived" },
+      ],
+      id: "status",
+      label: "Status",
+    },
+    { id: "vip", label: "VIP" },
+  ];
+
+  it("checks a parent without its children and a child without its parent", async () => {
+    const user = userEvent.setup();
+    const onCheckedChange = vi.fn();
+    render(
+      <TreeView
+        aria-label="Tags"
+        checkable
+        checkMode="independent"
+        defaultExpanded={["status"]}
+        items={tags}
+        onCheckedChange={onCheckedChange}
+      />,
+    );
+
+    await user.click(item("Status"));
+    expect(onCheckedChange).toHaveBeenLastCalledWith(["status"]);
+    expect(item("Status")).toHaveAttribute("aria-checked", "true");
+    expect(item("Urgent")).toHaveAttribute("aria-checked", "false");
+
+    // Space on the child - the parent stays as it is, never "mixed"
+    await user.keyboard("{ArrowDown}[Space]");
+    expect(onCheckedChange).toHaveBeenLastCalledWith(["status", "urgent"]);
+    await user.click(item("Status"));
+    expect(onCheckedChange).toHaveBeenLastCalledWith(["urgent"]);
+    expect(item("Status")).toHaveAttribute("aria-checked", "false");
+    expect(item("Status").querySelector("input")).toHaveProperty(
+      "indeterminate",
+      false,
+    );
+
+    // A disabled item keeps its state
+    await user.click(item("Archived"));
+    expect(onCheckedChange).toHaveBeenCalledTimes(3);
+    expect(item("Archived")).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("takes exactly the ids given - a parent's id checks no child", () => {
+    render(
+      <TreeView
+        aria-label="Tags"
+        checkable
+        checked={["status", "unknown"]}
+        checkMode="independent"
+        defaultExpanded={["status"]}
+        items={tags}
+        onCheckedChange={() => {}}
+      />,
+    );
+
+    expect(item("Status")).toHaveAttribute("aria-checked", "true");
+    expect(item("Urgent")).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("submits exactly the checked items and resets to the default", async () => {
+    const user = userEvent.setup();
+    render(
+      <form data-testid="form">
+        <TreeView
+          aria-label="Tags"
+          checkable
+          checkMode="independent"
+          defaultChecked={["urgent"]}
+          defaultExpanded={["status"]}
+          items={tags}
+          name="tags"
+        />
+      </form>,
+    );
+    const form = screen.getByTestId("form") as HTMLFormElement;
+    expect(new FormData(form).getAll("tags")).toEqual(["urgent"]);
+
+    await user.click(item("Status"));
+    await user.click(item("VIP"));
+    expect(new FormData(form).getAll("tags")).toEqual([
+      "urgent",
+      "status",
+      "vip",
+    ]);
+
+    act(() => form.reset());
+    expect(new FormData(form).getAll("tags")).toEqual(["urgent"]);
+    expect(item("Status")).toHaveAttribute("aria-checked", "false");
   });
 });
 
@@ -987,7 +1096,9 @@ describe("TreeView links", () => {
     renderAt("/reports/stock");
 
     expect(item("Stock")).toHaveAttribute("aria-current", "page");
+    expect(item("Stock")).toHaveAttribute("data-current", "");
     expect(item("Reports")).not.toHaveAttribute("aria-current");
+    expect(item("Reports")).not.toHaveAttribute("data-current");
     expect(item("Reports")).toHaveAttribute("aria-expanded", "true");
     // The current page is the tab stop
     expect(item("Stock")).toHaveAttribute("tabindex", "0");

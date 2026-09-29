@@ -1,7 +1,10 @@
 import type {
   CalendarAgendaPeriod,
+  CalendarBusinessHours,
   CalendarEvent,
+  CalendarEventRenderContext,
   CalendarResource,
+  CalendarSlotDuration,
   CalendarView,
   EventTimeChange,
   NewEventTimeRange,
@@ -13,30 +16,48 @@ import cn from "../../utils/cn";
 import { dateOf, shiftDay } from "../../utils/date";
 import DayView from "./day-view";
 import { expandRecurringEvents } from "./recurrence";
-import { getVisibleRange, normalizeAgendaPeriod } from "./date-utils";
+import {
+  getVisibleRange,
+  normalizeAgendaPeriod,
+  skipHiddenDays,
+} from "./date-utils";
 import logger from "../../utils/logger";
 import MonthView from "./month-view";
+import { normalizeBusinessHours } from "./business-hours";
+import TimelineView from "./timeline-view";
 import useIsHydrated from "../../hooks/use-is-hydrated";
 import {
+  SLOT_DURATIONS,
   createEventColorResolver,
   createEventLabeler,
   sortEvents,
 } from "./utils";
 import { useLocale } from "../../providers/ui-context";
 import WeekView from "./week-view";
+import type { WeekDay } from "../../i18n/types";
 
 export type {
   CalendarAgendaPeriod,
+  CalendarBusinessHours,
   CalendarEvent,
   CalendarEventColor,
+  CalendarEventRenderContext,
   CalendarRecurrence,
   CalendarResource,
+  CalendarSlotDuration,
   CalendarView,
   EventTimeChange,
   NewEventTimeRange,
 } from "./types";
 
-export interface CalendarProps {
+/**
+ * Props of `Calendar` - also the attributes of its root element (`id`,
+ * `style`, `data-*`, `aria-*`, event handlers), which gets the `ref` too.
+ */
+export interface CalendarProps extends Omit<
+  React.ComponentProps<"div">,
+  "children"
+> {
   /**
    * What the agenda view lists: the `"month"` of the current date (default),
    * its `"week"` or `"day"`, or a number of days from it (e.g. `14`). The
@@ -46,19 +67,29 @@ export interface CalendarProps {
   /** Classes of the calendar's frame. */
   className?: string;
   /**
+   * Working hours - `true` for 9:00 - 17:00 on Monday to Friday, or the
+   * hours of some days (`{ days: [1, 2, 3, 4], start: "08:00", end:
+   * "16:30" }`), several for a break or other hours on other days. The week,
+   * day and timeline views shade the time out of them, the month view the
+   * days without any; with `restrictToBusinessHours` only they can be
+   * picked.
+   */
+  businessHours?: boolean | CalendarBusinessHours | CalendarBusinessHours[];
+  /**
    * Controlled date - use together with `setCurrentDate`, without which the
    * navigation cannot change it.
    */
   currentDate?: Date;
   /**
-   * Hour the week and day views end with (1 - 24). Default 22. Events
-   * starting at it or later are offered by "+N later" in the header of
-   * their day.
+   * Hour the week, day and timeline views end with (1 - 24). Default 22.
+   * Events starting at it or later are offered by "+N later" in the header
+   * of their day - the timeline leaves them out.
    */
   dayEndHour?: number;
   /**
-   * First hour of the week and day views (0 - 23). Default 7. Events over
-   * by then are offered by "+N earlier" in the header of their day.
+   * First hour of the week, day and timeline views (0 - 23). Default 7.
+   * Events over by then are offered by "+N earlier" in the header of their
+   * day - the timeline leaves them out.
    */
   dayStartHour?: number;
   /**
@@ -72,6 +103,14 @@ export interface CalendarProps {
    * hydrated.
    */
   events?: CalendarEvent[];
+  /**
+   * Days of the week the views leave out - `[0, 6]` for a work week without
+   * the weekend (`Date#getDay()`: 0 is Sunday). The week and month views
+   * have no column for them, the day views skip them (a hidden date shows
+   * the next day), the agenda lists no events on them. Their events are
+   * not shown - `getCalendarVisibleRange` still has the days.
+   */
+  hiddenDays?: WeekDay[];
   /**
    * Date shown first by an uncontrolled calendar - today by default. Pass it
    * (or `currentDate`) when the page is rendered on the server: "today" of
@@ -105,9 +144,15 @@ export interface CalendarProps {
    */
   minDate?: Date;
   /**
-   * A day (month view, a day heading of the agenda) or a time slot (week and
-   * day views) was clicked, or picked with Enter or Space. A slot in the
-   * column of a resource comes with its `resourceId`.
+   * Draws a line at the current time in the week, day and timeline views -
+   * moved on every minute. Default `true`.
+   */
+  nowIndicator?: boolean;
+  /**
+   * A day (month view, a day heading of the agenda) or a time slot (week,
+   * day and timeline views) was clicked, or picked with Enter or Space. A
+   * slot in the column (or the timeline row) of a resource comes with its
+   * `resourceId`.
    */
   onDateClick?: (date: Date, resourceId?: string) => void;
   /**
@@ -117,15 +162,19 @@ export interface CalendarProps {
    */
   onEventClick?: (event: CalendarEvent) => void;
   /**
-   * Enables dragging events to another time or day (week and day views) -
-   * and to another resource, with `newResourceId`. Dragging needs a
-   * pointer: offer another way to change the times too, e.g. a dialog
-   * opened by `onEventClick`.
+   * Enables moving events to another time or day - in the week, day and
+   * timeline views by whole slots, in the month view and the all-day row by
+   * whole days (an all-day event stays one, every event keeps its length) -
+   * and to another resource, with `newResourceId`. By the pointer, or by
+   * the keys: Ctrl / ⌘ + X on a tile (Enter or Space on one without
+   * `onEventClick`) picks the event up, the arrow keys move it, Enter puts
+   * it down and Escape back.
    */
   onEventDrop?: (change: EventTimeChange) => void;
   /**
-   * Enables resizing events by their top and bottom edge - by a pointer,
-   * like `onEventDrop`.
+   * Enables resizing events by their top and bottom edge (the start and
+   * end edge in the timeline) - by the pointer, or by Shift + the arrow
+   * keys along the time once the keys picked the event up.
    */
   onEventResize?: (change: EventTimeChange) => void;
   /**
@@ -139,6 +188,19 @@ export interface CalendarProps {
   /** The user switched the view. */
   onViewChange?: (view: CalendarView) => void;
   /**
+   * Content of an event tile after its icon (`renderEventIcon`) - instead
+   * of the title; `context.title` is that title (with its `htmlTitle`),
+   * `context.timeText` when the event takes place, `context.view` and
+   * `context.compact` how much room there is. The tile stays a button named
+   * by the title and time of the event, and its actions stay - what this
+   * renders is for the eye (screen readers get the name), so keep controls
+   * out of it (`renderEventActions`).
+   */
+  renderEvent?: (
+    event: CalendarEvent,
+    context: CalendarEventRenderContext,
+  ) => React.ReactNode;
+  /**
    * Per-event controls rendered in the top-right corner of a tile, revealed on
    * hover. Presses and clicks never reach the tile underneath, so an action
    * here neither starts a drag nor triggers `onEventClick`; screen readers
@@ -149,12 +211,28 @@ export interface CalendarProps {
   renderEventIcon?: (event: CalendarEvent) => React.ReactNode;
   /**
    * Rooms, people, vehicles, … - the day and week views show a column for
-   * each (the week one for each of every day), with the events of the
-   * `resourceId`. Many columns scroll sideways under the time column.
+   * each (the week one for each of every day), the timeline views a row,
+   * with the events of the `resourceId`. Many columns scroll sideways under
+   * the time column.
    */
   resources?: CalendarResource[];
+  /**
+   * Only the time of `businessHours` can be picked: a slot out of them is
+   * neither clicked (`onDateClick`) nor selected (`onSlotDragEnd` - a range
+   * stops at their end), nor a day without them in the month view and the
+   * day headings. Events can still be moved there.
+   */
+  restrictToBusinessHours?: boolean;
   /** Controlled date setter - called by the navigation. */
   setCurrentDate?: (date: Date) => void;
+  /**
+   * Length of the time slots in minutes - 5, 10, 15, 20, 30 or 60. By
+   * default half hours in the week view and hours in the day and timeline
+   * views. Ranges are picked, and events moved and resized, by whole slots;
+   * the time column writes the times every slot, or every quarter, half or
+   * whole hour where the slots are short.
+   */
+  slotDuration?: CalendarSlotDuration;
   /** Keeps the weekday header visible while the view scrolls. */
   stickyHeader?: boolean;
   /**
@@ -162,7 +240,10 @@ export interface CalendarProps {
    * view in the URL.
    */
   view?: CalendarView;
-  /** Views offered by the view switcher - add `"agenda"` for the list. */
+  /**
+   * Views offered by the view switcher - add `"agenda"` for the list,
+   * `"timelineDay"` / `"timelineWeek"` for the resources in rows.
+   */
   viewOptions?: CalendarView[];
 }
 
@@ -197,37 +278,47 @@ const shiftDate = (
 };
 
 /**
- * An event calendar with month, week, day and agenda views. Events can be
- * clicked, dragged to another time and resized, repeat by a rule and belong
- * to resources (rooms, people) with a column each; empty slots can be
- * dragged over to pick a range for a new event.
+ * An event calendar with month, week, day, agenda and resource timeline
+ * views. Events can be clicked, moved to another time and resized - by the
+ * pointer or the keys - repeat by a rule and belong to resources (rooms,
+ * people) with a column or a row each; empty slots can be dragged over to
+ * pick a range for a new event. Working hours are shaded, and days of the
+ * week can be left out. The dates of today have `data-current`, the selected
+ * day of the month grid `data-selected` - for styling.
  */
 export default function Calendar({
   agendaPeriod: agendaPeriodProp,
+  businessHours: businessHoursProp,
   className = "",
   currentDate: externalCurrentDate,
   dayEndHour = 22,
   dayStartHour = 7,
   events = [],
+  hiddenDays: hiddenDaysProp,
   initialDate,
   initialView,
   isEventClickable,
   loading = false,
   maxDate,
   minDate,
+  nowIndicator = true,
   onDateClick,
   onEventClick,
   onEventDrop,
   onEventResize,
   onSlotDragEnd,
   onViewChange,
+  renderEvent,
   renderEventActions,
   renderEventIcon,
   resources,
+  restrictToBusinessHours = false,
   setCurrentDate: externalSetCurrentDate,
+  slotDuration: slotDurationProp,
   stickyHeader = true,
   view: controlledView,
   viewOptions = ["month", "week", "day"],
+  ...props
 }: CalendarProps) {
   const locale = useLocale();
 
@@ -238,8 +329,8 @@ export default function Calendar({
   );
 
   // Use external currentDate if provided, otherwise use internal state
-  const currentDate = externalCurrentDate ?? internalCurrentDate;
   const isControlled = externalCurrentDate !== undefined;
+  const dateValue = externalCurrentDate ?? internalCurrentDate;
 
   // The navigation would silently do nothing
   useEffect(() => {
@@ -255,6 +346,77 @@ export default function Calendar({
   );
   const view = controlledView ?? internalView;
   const agendaPeriod = normalizeAgendaPeriod(agendaPeriodProp);
+
+  // The weekdays left out - all of them would leave nothing, so none
+  const hiddenKey = [...new Set(hiddenDaysProp ?? [])]
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+    .sort()
+    .join(",");
+  const hiddenDays = useMemo(
+    () =>
+      new Set(
+        hiddenKey && hiddenKey.split(",").length < 7
+          ? hiddenKey.split(",").map(Number)
+          : [],
+      ),
+    [hiddenKey],
+  );
+
+  // A step of the navigation - a period of the view (written out, the
+  // compiler takes the result of a call for one that may change)
+  const step =
+    view === "agenda"
+      ? agendaPeriod
+      : view === "timelineDay"
+        ? "day"
+        : view === "timelineWeek"
+          ? "week"
+          : view;
+  // A view of a day shows the next day not hidden
+  const byDays = step === "day";
+  const currentDate = useMemo(
+    () => (byDays ? skipHiddenDays(dateValue, hiddenDays) : dateValue),
+    [byDays, dateValue, hiddenDays],
+  );
+
+  const { invalid: invalidHours, schedule: businessHours } = useMemo(
+    () => normalizeBusinessHours(businessHoursProp),
+    [businessHoursProp],
+  );
+  const invalidHoursText = invalidHours
+    .map((hours) => `"${hours.start}" - "${hours.end}"`)
+    .join(", ");
+  useEffect(() => {
+    if (invalidHoursText) {
+      logger.warn(
+        `Calendar: business hours ${invalidHoursText} are left out - give "HH:mm" times, the end after the start.`,
+      );
+    }
+  }, [invalidHoursText]);
+
+  // The length of the slots - the default of the view for any other
+  const slotDuration =
+    slotDurationProp !== undefined && SLOT_DURATIONS.includes(slotDurationProp)
+      ? slotDurationProp
+      : undefined;
+  useEffect(() => {
+    if (slotDurationProp !== undefined && slotDuration === undefined) {
+      logger.warn(
+        `Calendar: slotDuration ${slotDurationProp} is none of ${SLOT_DURATIONS.join(", ")} - the views show their default slots.`,
+      );
+    }
+  }, [slotDuration, slotDurationProp]);
+
+  // Tells screen readers - a text said again gets a space more, so that it
+  // is said again
+  const [announcement, setAnnouncement] = useState("");
+  const announce = useCallback(
+    (message: string) =>
+      setAnnouncement((previous) =>
+        previous.trimEnd() === message ? `${message} ` : message,
+      ),
+    [],
+  );
 
   const startHour = Math.min(Math.max(0, Math.floor(dayStartHour)), 23);
   const endHour = Math.min(Math.max(startHour + 1, Math.floor(dayEndHour)), 24);
@@ -277,9 +439,6 @@ export default function Calendar({
     },
     [controlledView, onViewChange],
   );
-
-  // A step of the navigation - a period of the view
-  const step = view === "agenda" ? agendaPeriod : view;
 
   // The navigation goes towards the days of `minDate` - `maxDate`, not to a
   // period without one of them - also from a date out of them - and puts
@@ -309,8 +468,15 @@ export default function Calendar({
     return true;
   };
 
-  const previousDate = shiftDate(currentDate, step, -1);
-  const nextDate = shiftDate(currentDate, step, 1);
+  // A day at a time over the hidden days - to the next one shown
+  const previousDate =
+    step === "day"
+      ? skipHiddenDays(shiftDate(currentDate, step, -1), hiddenDays, -1)
+      : shiftDate(currentDate, step, -1);
+  const nextDate =
+    step === "day"
+      ? skipHiddenDays(shiftDate(currentDate, step, 1), hiddenDays)
+      : shiftDate(currentDate, step, 1);
   const canGoPrevious = canNavigateTo(previousDate);
   const canGoNext = canNavigateTo(nextDate);
 
@@ -349,31 +515,40 @@ export default function Calendar({
 
   const viewProps = {
     agendaPeriod,
+    announce,
+    businessHours,
     currentDate,
     dayEndHour: endHour,
     dayStartHour: startHour,
     events: sortedEvents,
     getEventColor,
     getEventLabel,
+    hiddenDays,
     isEventClickable,
     loading,
     maxDate,
     minDate,
+    nowIndicator,
     onDateClick,
     onEventClick,
     onEventDrop,
     onEventResize,
     onNavigate: navigate,
     onSlotDragEnd,
+    renderEvent,
     renderEventActions,
     renderEventIcon,
     resources,
+    restrictToBusinessHours,
+    slotDuration,
     stickyHeader,
+    view,
     visibleRange,
   };
 
   return (
     <div
+      {...props}
       className={cn(
         "flex flex-col overflow-hidden border border-secondary-200 bg-surface shadow dark:border-secondary-700 dark:bg-surface-dark",
         className,
@@ -404,9 +579,15 @@ export default function Calendar({
           <DayView {...viewProps} />
         ) : view === "agenda" ? (
           <AgendaView {...viewProps} />
+        ) : view === "timelineDay" || view === "timelineWeek" ? (
+          <TimelineView {...viewProps} />
         ) : (
           <MonthView {...viewProps} />
         )}
+      </div>
+      {/* What the keys did to an event - picked up, moved, put down */}
+      <div aria-live="polite" className="sr-only">
+        {announcement}
       </div>
     </div>
   );

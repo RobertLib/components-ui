@@ -1,4 +1,14 @@
-export type PickerDim = "sm" | "md" | "lg";
+import type { DateDisabledPredicate } from "./availability";
+
+export type PickerDim = "xs" | "sm" | "md" | "lg";
+
+/** A day offered next to the calendar of the date popup - `presets`. */
+export interface DateTimePickerPreset {
+  /** Text of the button. */
+  label: string;
+  /** The day the button picks, `YYYY-MM-DD`. */
+  value: string;
+}
 
 /**
  * The native attributes of `DateTimePicker` a custom picker puts on its
@@ -50,14 +60,16 @@ export interface CustomPickerProps {
   error?: string;
   /** Id of the validation message - the field is described by it. */
   errorId?: string;
+  /** Days that cannot be picked - see `DateTimePickerProps`. */
+  isDateDisabled?: DateDisabledPredicate;
   /** Ref of the visible field - `DateTimePicker`'s `ref` and the form reset. */
   fieldRef?: React.Ref<HTMLInputElement>;
   /** Id of the visible field - the label points at it. */
   inputId: string;
   /** Other attributes of the visible field. */
   inputProps: PickerInputProps;
-  /** Text of the label above the field. */
-  label?: string;
+  /** The label above the field. */
+  label?: React.ReactNode;
   /** Latest selectable value, in the value format of the picker. */
   max?: string;
   /** Earliest selectable value, in the value format of the picker. */
@@ -74,6 +86,10 @@ export interface CustomPickerProps {
   onValueChange: (value: string) => void;
   /** Placeholder of the empty field. */
   placeholder?: string;
+  /** The date popup: the Today and Clear buttons under the days. */
+  popupActions: boolean;
+  /** The date popup: days offered next to the calendar. */
+  presets?: DateTimePickerPreset[];
   /** The value is shown and submitted, but the popup does not open. */
   readOnly?: boolean;
   /** The browser checks that the field has a value. */

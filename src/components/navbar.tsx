@@ -26,7 +26,7 @@ export interface NavbarUser {
 }
 
 export interface NavbarProps extends React.ComponentProps<"nav"> {
-  /** Content on the right side, before the user menu. */
+  /** Content at the end of the bar (the right side), before the user menu. */
   actions?: React.ReactNode;
   /** Content next to the drawer toggle, e.g. breadcrumbs or a search field. */
   children?: React.ReactNode;
@@ -34,13 +34,16 @@ export interface NavbarProps extends React.ComponentProps<"nav"> {
   loading?: boolean;
   /** Hides the button that toggles the `Drawer`. */
   noDrawerToggle?: boolean;
-  /** The signed-in user, shown on the right with a dropdown menu. */
+  /** The signed-in user, shown at the end with a dropdown menu. */
   user?: NavbarUser | null;
 }
 
 /**
  * The top bar of an app. Toggles the `Drawer` (collapse on desktop, slide in
- * on phones) and shows the signed-in user with a menu.
+ * on phones) and shows the signed-in user with a menu. It is a `<header>`
+ * landmark; `ref`, the `className` and the other props go to the bar inside
+ * it. The toggle has `data-state="open"` or `"closed"`, like its
+ * `aria-expanded`.
  */
 export default function Navbar({
   actions,
@@ -62,22 +65,27 @@ export default function Navbar({
     ? messages.navbar.toggleMenu
     : messages.navbar.toggleSidebar;
 
+  // Slid in on phones, not collapsed to icons on desktop
+  const isExpanded = isMobile ? isOpen : !isCollapsed;
+
   const toggle = (
     <IconButton
-      // Slid in on phones, not collapsed to icons on desktop
-      aria-expanded={isMobile ? isOpen : !isCollapsed}
+      aria-expanded={isExpanded}
       aria-keyshortcuts={
         shortcut ? toAriaKeyShortcuts(shortcut, isApple) : undefined
       }
       aria-label={toggleLabel}
+      data-state={isExpanded ? "open" : "closed"}
       onClick={isMobile ? toggleOpen : toggleCollapsed}
     >
+      {/* The panel icons show the drawer at the start edge - mirrored
+          right to left */}
       {isMobile ? (
         <Menu size={20} />
       ) : isCollapsed ? (
-        <PanelLeft size={20} />
+        <PanelLeft className="rtl:-scale-x-100" size={20} />
       ) : (
-        <PanelLeftClose size={20} />
+        <PanelLeftClose className="rtl:-scale-x-100" size={20} />
       )}
     </IconButton>
   );

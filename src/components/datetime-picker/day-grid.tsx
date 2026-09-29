@@ -15,6 +15,8 @@ import {
   toISODate,
 } from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
+import useIsHydrated from "../../hooks/use-is-hydrated";
+import type { DateDisabledPredicate } from "./availability";
 
 /** The days from `start` to `end`, both included - `start` is not after `end`. */
 export interface DayRange {
@@ -25,6 +27,20 @@ export interface DayRange {
 interface DayGridProps {
   /** Moves the focus to the day - the popup was opened by a key. */
   autoFocus?: boolean;
+  /** Nothing can be focused or picked - the calendar of a disabled field. */
+  disabled?: boolean;
+  /**
+   * Shown in the page, not in a popup: a day is ringed while it has the
+   * keyboard focus. In a popup the day in the tab order is ringed also
+   * while the focus is in the field, where the keys lead into the grid.
+   */
+  inline?: boolean;
+  /**
+   * Days that can never be picked - `isDateDisabled` of the field. Like the
+   * days of `isUnavailable` they take the focus, and they are struck
+   * through.
+   */
+  isDateDisabled?: DateDisabledPredicate;
   /**
    * Days that can take the focus but not be picked - e.g. those that would
    * make a range too short or too long. The arrow keys move over them,
@@ -37,8 +53,11 @@ interface DayGridProps {
   min?: Date | null;
   /** Months shown side by side - the keys move on from one to the next. */
   months?: 1 | 2;
-  /** Escape was pressed in the grid. */
-  onEscape: () => void;
+  /**
+   * Escape was pressed in the grid. Without it the grid leaves Escape alone
+   * - e.g. to a dialog it is in.
+   */
+  onEscape?: () => void;
   /** The pointer moved onto a day, or a day took the focus. */
   onHighlight?: (day: Date) => void;
   /** A day was picked. */
@@ -49,8 +68,18 @@ interface DayGridProps {
    * the grid starts.
    */
   range?: DayRange | null;
+  /**
+   * The days can be focused and the months paged, but nothing picked - the
+   * grids are `aria-readonly`.
+   */
+  readOnly?: boolean;
   /** The selected day - the grid starts at it (or today). */
   selected: Date | null;
+  /**
+   * Several days selected - the grids are `aria-multiselectable` and these
+   * days marked. `selected` then only tells where the grid starts.
+   */
+  selection?: Date[];
 }
 
 // `dateOf` - `new Date(year, …)` would take the years 0 - 99 for 19xx
@@ -73,19 +102,25 @@ const YEARS_AHEAD = 20;
 const MAX_YEARS_AROUND = 100;
 
 const selectClassName =
-  "cursor-pointer rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-semibold hover:border-neutral-300 focus:border-neutral-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:border-neutral-600 dark:focus:border-neutral-600";
+  "cursor-pointer rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-semibold hover:border-neutral-300 focus:border-neutral-300 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:border-neutral-600 dark:focus:border-neutral-600";
 
 const navButtonClassName =
-  "rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700";
+  "rounded p-1 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:hover:bg-neutral-700 dark:disabled:hover:bg-transparent";
+
+const isRtl = (element: Element) =>
+  getComputedStyle(element).direction === "rtl";
 
 /**
  * A month of days - or two side by side - with month and year navigation,
- * operated with the mouse or the keyboard. Mounted each time the popup
- * opens, so it starts at the selected day (or today) - and follows a day
- * selected while it is open.
+ * operated with the mouse or the keyboard. Mounted each time a popup opens,
+ * so it starts at the selected day (or today) - and follows a day selected
+ * while it is open. `DateCalendar` and `RangeCalendar` show it inline.
  */
 export default function DayGrid({
   autoFocus = false,
+  disabled: gridDisabled = false,
+  inline = false,
+  isDateDisabled,
   isUnavailable,
   max,
   min,
@@ -94,11 +129,18 @@ export default function DayGrid({
   onHighlight,
   onSelect,
   range,
+  readOnly = false,
   selected,
+  selection,
 }: DayGridProps) {
   const locale = useLocale();
   const { messages } = locale;
   const isRangeMode = range !== undefined;
+  const isMultiple = selection !== undefined;
+  const selectionKeys = new Set(selection?.map(toISODate));
+  // Today is marked once the page has hydrated - the server's day may be
+  // another one
+  const isHydrated = useIsHydrated();
 
   const minDay = min ? startOfDay(min) : null;
   const maxDay = max ? startOfDay(max) : null;
@@ -154,7 +196,7 @@ export default function DayGrid({
   }
 
   const isDisabled = (day: Date) =>
-    (!!minDay && day < minDay) || (!!maxDay && day > maxDay);
+    gridDisabled || (!!minDay && day < minDay) || (!!maxDay && day > maxDay);
 
   const shownMonths = Array.from({ length: months }, (_, index) =>
     shiftMonth(month, index),
@@ -167,14 +209,20 @@ export default function DayGrid({
   const shownEnd = lastOfMonth(lastShownMonth);
   const firstEnabled = minDay && minDay > month ? minDay : month;
   const lastEnabled = maxDay && maxDay < shownEnd ? maxDay : shownEnd;
+  // Before the hydration today may be another day than on the server - the
+  // tab stop is then the selected day, or the first of the month
+  const focusedDay =
+    isHydrated || (!!selected && isSameDay(focusedDate, startOfDay(selected)))
+      ? focusedDate
+      : month;
   const tabStop =
-    firstEnabled > lastEnabled
+    gridDisabled || firstEnabled > lastEnabled
       ? null
-      : focusedDate < firstEnabled
+      : focusedDay < firstEnabled
         ? firstEnabled
-        : focusedDate > lastEnabled
+        : focusedDay > lastEnabled
           ? lastEnabled
-          : focusedDate;
+          : focusedDay;
 
   useEffect(() => {
     // Also when a day has the focus that now shows another one - a date
@@ -234,6 +282,7 @@ export default function DayGrid({
   // month buttons they page. The selects keep their own arrow keys.
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") {
+      if (!onEscape) return;
       event.preventDefault();
       onEscape();
       return;
@@ -246,14 +295,16 @@ export default function DayGrid({
     // Home / End go to the ends of the week, like in the month view of the
     // calendar - over a day the time zone skips, towards `from`
     const intoWeek = (from.getDay() - locale.weekStartsOn + 7) % 7;
+    // Left is forward in a right-to-left page - the weeks run from the right
+    const forward = isRtl(event.currentTarget) ? -1 : 1;
     let target: Date | null = null;
 
     switch (event.key) {
       case "ArrowLeft":
-        if (onDay) target = shiftDay(from, -1);
+        if (onDay) target = shiftDay(from, -forward);
         break;
       case "ArrowRight":
-        if (onDay) target = shiftDay(from, 1);
+        if (onDay) target = shiftDay(from, forward);
         break;
       case "ArrowUp":
         if (onDay) target = shiftDay(from, -7);
@@ -298,7 +349,7 @@ export default function DayGrid({
     setMonth(getFirstMonthShowing(next));
   };
 
-  const today = new Date();
+  const today = isHydrated ? new Date() : null;
   const weekdayNames = getWeekdayNames(locale.code, locale.weekStartsOn);
   const longWeekdayNames = getWeekdayNames(
     locale.code,
@@ -315,16 +366,17 @@ export default function DayGrid({
   // From `min` to `max`, or a century back and some years ahead - always
   // with the year on screen, and at most a century on either side of it
   const shownYear = month.getFullYear();
+  const thisYear = new Date().getFullYear();
   const firstYear = Math.min(
     Math.max(
-      min?.getFullYear() ?? today.getFullYear() - YEARS_BACK,
+      min?.getFullYear() ?? thisYear - YEARS_BACK,
       shownYear - MAX_YEARS_AROUND,
     ),
     shownYear,
   );
   const lastYear = Math.max(
     Math.min(
-      max?.getFullYear() ?? today.getFullYear() + YEARS_AHEAD,
+      max?.getFullYear() ?? thisYear + YEARS_AHEAD,
       shownYear + MAX_YEARS_AROUND,
     ),
     shownYear,
@@ -335,18 +387,22 @@ export default function DayGrid({
   );
 
   const renderDay = (day: Date, column: number) => {
-    const isToday = isSameDay(day, today);
+    const isToday = !!today && isSameDay(day, today);
     const isFocused = !!tabStop && isSameDay(day, tabStop);
     const disabled = isDisabled(day);
-    const unavailable = !disabled && !!isUnavailable?.(day);
+    const dateDisabled = !disabled && !!isDateDisabled?.(day);
+    const unavailable = !disabled && (dateDisabled || !!isUnavailable?.(day));
     const inRange = !!range && day >= range.start && day <= range.end;
     const isRangeStart = !!range && isSameDay(day, range.start);
     const isRangeEnd = !!range && isSameDay(day, range.end);
-    // In the primary color: the selected day, or the ends of a range
+    // In the primary color: the selected days, or the ends of a range
     const isMarked = isRangeMode
       ? isRangeStart || isRangeEnd
-      : !!selected && isSameDay(day, selected);
+      : isMultiple
+        ? selectionKeys.has(toISODate(day))
+        : !!selected && isSameDay(day, selected);
     const canPick = !disabled && !unavailable;
+    const canChange = canPick && !readOnly;
 
     return (
       <div
@@ -354,15 +410,21 @@ export default function DayGrid({
         aria-selected={isRangeMode ? inRange : isMarked}
         className={cn(
           // The band of a range - rounded at its ends, and where a week or
-          // the month breaks it
-          inRange && "bg-primary-100 dark:bg-primary-900/50",
+          // the month breaks it (the start is on the right in a
+          // right-to-left page). Forced colors (Windows High Contrast)
+          // draw no tint - the system's highlight color then.
+          inRange &&
+            "bg-primary-100 dark:bg-primary-900/50 forced-colors:bg-[Highlight]",
           inRange &&
             (isRangeStart || column === 0 || day.getDate() === 1) &&
-            "rounded-l",
+            "rounded-s",
           inRange &&
             (isRangeEnd || column === 6 || isSameDay(day, lastOfMonth(day))) &&
-            "rounded-r",
+            "rounded-e",
         )}
+        data-disabled={!canPick ? "" : undefined}
+        data-highlighted={isFocused ? "" : undefined}
+        data-selected={(isRangeMode ? inRange : isMarked) ? "" : undefined}
         key={column}
         role="gridcell"
       >
@@ -380,13 +442,29 @@ export default function DayGrid({
               : unavailable
                 ? "text-neutral-500 dark:text-neutral-400"
                 : isToday && "text-primary-600 dark:text-primary-400",
-            canPick &&
+            // Forced colors draw no background - the selected days take the
+            // system's highlight colors, the ones that cannot be picked its
+            // gray
+            (isMarked || inRange) &&
+              "forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]",
+            (unavailable || disabled) && "forced-colors:text-[GrayText]",
+            // A day that can never be picked - not only for the range
+            // being picked
+            dateDisabled && "line-through",
+            canChange &&
               (isMarked
                 ? "hover:bg-primary-600 dark:hover:bg-primary-600"
                 : inRange
                   ? "hover:bg-primary-200 dark:hover:bg-primary-800"
                   : "hover:bg-neutral-100 dark:hover:bg-neutral-700"),
-            isFocused && !isMarked && "ring-2 ring-primary-500 outline-none",
+            // The ring is a shadow - forced colors show the outline of
+            // `outline-hidden` instead: of the focused day, or in a popup of
+            // the day the keys lead to
+            inline
+              ? "ring-offset-1 ring-offset-surface focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 dark:ring-offset-surface-dark"
+              : isFocused &&
+                  !isMarked &&
+                  "ring-2 ring-primary-500 outline-hidden",
             !canPick && "cursor-not-allowed",
             disabled && "opacity-40",
           )}
@@ -394,7 +472,7 @@ export default function DayGrid({
           data-focused-day={isFocused ? "true" : undefined}
           disabled={disabled}
           onClick={() => {
-            if (unavailable) return;
+            if (!canChange) return;
             // The keys go on from the picked day - a click leaves the focus
             // in the field, and the popup of a range stays open
             setFocusedDate(day);
@@ -427,6 +505,8 @@ export default function DayGrid({
     return (
       <div
         aria-label={formatMonthYear(shownMonth, locale.code)}
+        aria-multiselectable={isMultiple || undefined}
+        aria-readonly={readOnly || undefined}
         // A range is a band without gaps between the days
         className={cn("grid grid-cols-7", isRangeMode ? "gap-y-1" : "gap-1")}
         role="grid"
@@ -458,14 +538,17 @@ export default function DayGrid({
     );
   };
 
+  // The chevrons point the other way in a right-to-left page, where the
+  // previous month is on the right
   const previousButton = (
     <button
       aria-label={messages.dateTimePicker.previousMonth}
       className={navButtonClassName}
+      disabled={gridDisabled}
       onClick={() => pageMonths(-1)}
       type="button"
     >
-      <ChevronLeft size={20} />
+      <ChevronLeft className="rtl:-scale-x-100" size={20} />
     </button>
   );
 
@@ -473,10 +556,11 @@ export default function DayGrid({
     <button
       aria-label={messages.dateTimePicker.nextMonth}
       className={navButtonClassName}
+      disabled={gridDisabled}
       onClick={() => pageMonths(1)}
       type="button"
     >
-      <ChevronRight size={20} />
+      <ChevronRight className="rtl:-scale-x-100" size={20} />
     </button>
   );
 
@@ -508,6 +592,7 @@ export default function DayGrid({
                 <select
                   aria-label={messages.dateTimePicker.month}
                   className={selectClassName}
+                  disabled={gridDisabled}
                   onChange={(event) =>
                     showMonth(shownYear, Number(event.target.value))
                   }
@@ -522,6 +607,7 @@ export default function DayGrid({
                 <select
                   aria-label={messages.dateTimePicker.year}
                   className={selectClassName}
+                  disabled={gridDisabled}
                   onChange={(event) =>
                     showMonth(Number(event.target.value), month.getMonth())
                   }

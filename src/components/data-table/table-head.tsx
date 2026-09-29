@@ -11,11 +11,15 @@ import cn from "../../utils/cn";
 import ColumnResizeHandle from "./column-resize-handle";
 import DateTimePicker from "../datetime-picker";
 import EdgeShadow from "./edge-shadow";
-import Input from "../input";
 import Popover from "../popover";
 import { useEffect, useId } from "react";
-import useDebouncedField from "./use-debounced-field";
 import useIsMobile from "../../hooks/use-is-mobile";
+import {
+  DateRangeFilter,
+  FilterInput,
+  MultiSelectFilter,
+  NumberRangeFilter,
+} from "./filter-fields";
 import {
   DEFAULT_CELL_LAYOUT,
   getCellStyle,
@@ -27,54 +31,34 @@ import {
   type CellLayout,
 } from "./cell-layout";
 import { formatMessage } from "../../i18n/format";
-import { isEscapeKey } from "../overlay-stack";
 import { useMessages } from "../../providers/ui-context";
-import type { Column, GroupAction } from "./types";
+import type {
+  DataTableFilterValue,
+  DataTableRangeFilter,
+  DataTableSort,
+} from "./query";
+import type { Column, ColumnGroup, DataTableSelectionMode } from "./types";
 
-interface FilterInputProps {
-  /** Accessible name of the field. */
-  label: string;
-  /** Called with the typed text once typing pauses. */
-  onChange: (value: string) => void;
-  /** Placeholder of the empty field. */
-  placeholder: string;
-  /** Changes when the filters are cleared - a text on its way is dropped. */
-  resetKey: number;
-  /** The filter value of the query. */
-  value: string;
-}
+/** The value of a filter as a list - `[]` for none or a range. */
+const toList = (value: DataTableFilterValue | undefined) =>
+  Array.isArray(value)
+    ? value
+    : typeof value === "string" && value
+      ? [value]
+      : [];
 
-/** A text filter that updates the query once typing pauses. */
-function FilterInput({
-  label,
-  onChange,
-  placeholder,
-  resetKey,
-  value,
-}: FilterInputProps) {
-  const field = useDebouncedField(value, onChange, undefined, resetKey);
+/** The value of a filter as a range - empty for none or a list. */
+const toRange = (value: DataTableFilterValue | undefined) =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : ({} as DataTableRangeFilter);
 
-  return (
-    <Input
-      aria-label={label}
-      dim="sm"
-      onChange={({ target }) => field.change(target.value)}
-      onKeyDown={(event) => {
-        // Escape empties the field - by the field alone, not also leaving
-        // the full screen or a dialog around the table, which take a key
-        // no one used, and alike in all browsers (not all clear a search
-        // field). An empty field leaves the key to them, and so does an
-        // input method whose composition the key ends.
-        if (isEscapeKey(event.nativeEvent) && field.value) {
-          event.preventDefault();
-          field.commitNow("");
-        }
-      }}
-      placeholder={placeholder}
-      type="search"
-      value={field.value}
-    />
-  );
+/** A run of neighboring header cells of one group, sticking alike. */
+interface GroupRun<T> {
+  /** The columns of the run in the order they are shown. */
+  columns: Column<T>[];
+  /** The group - `null` for columns of none. */
+  group: ColumnGroup<T> | null;
 }
 
 interface TableHeadProps<T> {
@@ -86,6 +70,11 @@ interface TableHeadProps<T> {
   canResize: (column: Column<T>) => boolean;
   /** Layouts by column key - also of `expand`, `selection` and `actions`. */
   cellLayouts: Record<string, CellLayout>;
+  /**
+   * The groups of the columns by key - a row above the headers shows them.
+   * `null` while no visible column is in one.
+   */
+  columnGroups: Readonly<Record<string, ColumnGroup<T>>> | null;
   /** The header cells of the columns by key - their widths are measured. */
   columnRefs: React.RefObject<Record<string, HTMLTableCellElement | null>>;
   /** The current widths of the columns by key, as far as they are known. */
@@ -93,11 +82,11 @@ interface TableHeadProps<T> {
   /** The header cell of the expand column - its width is measured. */
   expandColumnRef: React.RefObject<HTMLTableCellElement | null>;
   /** Column filters by column key - the values of the filter fields. */
-  filters: Record<string, string>;
+  filters: Record<string, DataTableFilterValue>;
   /** Changes when the filters are cleared - the fields drop what is typed. */
   filterResetKey: number;
-  /** Group actions - the header gets a select-all checkbox when there are some. */
-  groupActions?: GroupAction<T>[];
+  /** The key of the group of each grouped column. */
+  groupOf: Readonly<Record<string, string>>;
   /** Lets a column header be a drop target. */
   handleDragOver: (event: React.DragEvent<HTMLElement>) => void;
   /** Starts dragging a column by its handle. */
@@ -116,6 +105,8 @@ interface TableHeadProps<T> {
   isAllSelected: boolean;
   /** Some rows are selected - the select-all checkbox is mixed then. */
   isSomeSelected: boolean;
+  /** Shift + click on a sort button adds its column to the sorting. */
+  multiSort: boolean;
   /** Empties all filters. */
   onClearFilters: () => void;
   /** Shows the width of a column being dragged - `null` at the end. */
@@ -125,11 +116,9 @@ interface TableHeadProps<T> {
   /** Brings back the width of a column's definition. */
   onColumnResizeReset: (columnKey: string) => void;
   /** Sets the filter of a column. */
-  onFilterChange: (columnKey: string, value: string) => void;
-  /** Toggles the sorting by a column. */
-  onSort: (columnKey: string) => void;
-  /** Direction of `sortBy`. */
-  order: string;
+  onFilterChange: (columnKey: string, value: DataTableFilterValue) => void;
+  /** Toggles the sorting by a column - `multi` adds it to the sorting. */
+  onSort: (columnKey: string, multi: boolean) => void;
   /** The `<thead>` - its height is measured. */
   ref?: React.Ref<HTMLTableSectionElement>;
   /** Expandable detail of a row - the header gets a column for its toggles. */
@@ -138,8 +127,10 @@ interface TableHeadProps<T> {
   selectAllRef: React.RefObject<HTMLInputElement | null>;
   /** The header cell of the selection column - its width is measured. */
   selectionColumnRef: React.RefObject<HTMLTableCellElement | null>;
-  /** Key of the sorted column - a sortable one. */
-  sortBy: string | null;
+  /** The checkbox column - `multiple` gets a select-all checkbox. */
+  selectionMode: DataTableSelectionMode;
+  /** The sorted columns - sortable ones, the first one first. */
+  sort: DataTableSort[];
   /** The visible columns in the order they are shown. */
   sortedVisibleColumns: Column<T>[];
   /** Height of the toolbar above - the header row sticks right under it. */
@@ -153,30 +144,32 @@ export function TableHead<T>({
   actions,
   canResize,
   cellLayouts,
+  columnGroups,
   columnRefs,
   columnWidths,
   expandColumnRef,
   filterResetKey,
   filters,
-  groupActions,
+  groupOf,
   handleDragOver,
   handleDragStart,
   handleDrop,
   hasActiveFilters,
   isAllSelected,
   isSomeSelected,
+  multiSort,
   onClearFilters,
   onColumnDrag,
   onColumnResize,
   onColumnResizeReset,
   onFilterChange,
   onSort,
-  order,
   ref,
   renderSubRow,
   selectAllRef,
   selectionColumnRef,
-  sortBy,
+  selectionMode,
+  sort,
   sortedVisibleColumns,
   stickyTop,
   toggleSelectAll,
@@ -188,7 +181,7 @@ export function TableHead<T>({
   const isMobile = useIsMobile();
 
   const hasAnyFilters = sortedVisibleColumns.some((column) => column.filter);
-  const hasGroupActions = !!groupActions && groupActions.length > 0;
+  const hasSelection = selectionMode !== "none";
 
   const isMixed = isSomeSelected && !isAllSelected;
 
@@ -199,15 +192,114 @@ export function TableHead<T>({
 
   const layoutOf = (key: string) => cellLayouts[key] ?? DEFAULT_CELL_LAYOUT;
 
+  // The side a column sticks to - a group is split where it changes
+  const stickSide = (key: string) => {
+    const layout = layoutOf(key);
+    return layout.start !== undefined
+      ? "start"
+      : layout.end !== undefined
+        ? "end"
+        : null;
+  };
+
+  // The headers of the groups - one over each run of their columns
+  const groupRuns: GroupRun<T>[] = [];
+  if (columnGroups) {
+    for (const column of sortedVisibleColumns) {
+      const groupKey = groupOf[column.key];
+      const group = groupKey === undefined ? null : columnGroups[groupKey];
+      const last = groupRuns.at(-1);
+
+      if (
+        last &&
+        last.group === group &&
+        group !== null &&
+        stickSide(last.columns[0].key) === stickSide(column.key)
+      ) {
+        last.columns.push(column);
+      } else {
+        groupRuns.push({ columns: [column], group: group ?? null });
+      }
+    }
+  }
+
   // Sticky header cells are `z-2`, above the resize handles (`z-1`) of the
   // columns scrolled under them - which could be grabbed through them
 
+  /** An empty sticky cell under a leading column in the other header rows. */
+  const leadingCell = (key: string, className?: string) => (
+    <td
+      className={cn("sticky z-1 bg-surface dark:bg-surface-dark", className)}
+      style={getCellStyle(null, layoutOf(key), false)}
+    >
+      <EdgeShadow side={layoutOf(key).shadow} />
+    </td>
+  );
+
   return (
     <thead
-      className="sticky left-0 z-2 bg-surface shadow dark:bg-surface-dark dark:shadow-neutral-800"
+      className="sticky start-0 z-2 bg-surface shadow dark:bg-surface-dark dark:shadow-neutral-800"
       ref={ref}
       style={{ top: stickyTop }}
     >
+      {columnGroups && (
+        <tr>
+          {renderSubRow && leadingCell(LEADING_KEYS.expand)}
+          {hasSelection && leadingCell(LEADING_KEYS.selection)}
+          {actions && leadingCell(LEADING_KEYS.actions)}
+          {groupRuns.map(({ columns, group }) => {
+            const first = layoutOf(columns[0].key);
+            const last = layoutOf(columns[columns.length - 1].key);
+            // Sticks with its columns - from the edge its first (or last)
+            // one sticks at
+            const layout: CellLayout = {
+              end: last.end,
+              shadow:
+                last.shadow === "start"
+                  ? "start"
+                  : first.shadow === "end"
+                    ? "end"
+                    : undefined,
+              start: first.start,
+            };
+            const key = `${group?.key ?? ""}\u0000${columns[0].key}`;
+
+            if (!group) {
+              return (
+                <td
+                  className={cn(
+                    isSticky(layout) &&
+                      "sticky z-2 bg-surface dark:bg-surface-dark",
+                  )}
+                  key={key}
+                  style={getCellStyle(null, layout, false)}
+                >
+                  <EdgeShadow side={layout.shadow} />
+                </td>
+              );
+            }
+
+            return (
+              <th
+                className={cn(
+                  "border-b border-neutral-200 px-2 pt-1 text-center text-sm font-semibold dark:border-neutral-800",
+                  isSticky(layout)
+                    ? "sticky z-2 bg-surface dark:bg-surface-dark"
+                    : "relative",
+                )}
+                colSpan={columns.length}
+                key={key}
+                scope="colgroup"
+                style={getCellStyle(null, layout, false)}
+                title={group.labelTitle}
+              >
+                <EdgeShadow side={layout.shadow} />
+                {group.label}
+              </th>
+            );
+          })}
+        </tr>
+      )}
       <tr>
         {renderSubRow && (
           <th
@@ -220,32 +312,36 @@ export function TableHead<T>({
             <span className="sr-only">{messages.dataTable.expandRow}</span>
           </th>
         )}
-        {hasGroupActions && (
+        {hasSelection && (
           <th
-            className="sticky z-2 bg-surface px-2 py-1 text-left dark:bg-surface-dark"
+            className="sticky z-2 bg-surface px-2 py-1 text-start dark:bg-surface-dark"
             data-leading-column="selection"
             ref={selectionColumnRef}
             style={getCellStyle(null, layoutOf(LEADING_KEYS.selection), true)}
           >
             <EdgeShadow side={layoutOf(LEADING_KEYS.selection).shadow} />
-            <input
-              aria-label={messages.dataTable.selectAllRows}
-              checked={isAllSelected}
-              className="accent-primary-500"
-              onChange={toggleSelectAll}
-              ref={selectAllRef}
-              type="checkbox"
-            />
+            {selectionMode === "multiple" ? (
+              <input
+                aria-label={messages.dataTable.selectAllRows}
+                checked={isAllSelected}
+                className="accent-primary-500"
+                onChange={toggleSelectAll}
+                ref={selectAllRef}
+                type="checkbox"
+              />
+            ) : (
+              <span className="sr-only">{messages.dataTable.selectColumn}</span>
+            )}
           </th>
         )}
         {actions && (
           <th
-            className="sticky z-2 bg-surface px-2 py-1 text-left align-top text-sm font-medium dark:bg-surface-dark"
+            className="sticky z-2 bg-surface px-2 py-1 text-start align-top text-sm font-medium dark:bg-surface-dark"
             data-leading-column="actions"
             ref={actionColumnRef}
             style={getCellStyle(null, layoutOf(LEADING_KEYS.actions), true)}
           >
-            <div className="absolute top-0 -right-px h-full border-r border-neutral-200 dark:border-neutral-800" />
+            <div className="absolute -end-px top-0 h-full border-e border-neutral-200 dark:border-neutral-800" />
             <EdgeShadow side={layoutOf(LEADING_KEYS.actions).shadow} />
             <span className="font-semibold">{messages.dataTable.actions}</span>
           </th>
@@ -258,6 +354,11 @@ export function TableHead<T>({
           const columnName = column.labelTitle ?? column.label;
           const infoId = `${idPrefix}-info-${column.key}`;
           const labelId = `${idPrefix}-label-${columnIndex}`;
+          // Where the column is in the sorting - the first one is `0`
+          const sortIndex = sort.findIndex((item) => item.key === column.key);
+          const sorted = sortIndex === -1 ? null : sort[sortIndex];
+          // The place of each column shows while several are sorted
+          const showsPriority = sorted !== null && sort.length > 1;
           // The narrowest the user may make the column - not narrower than
           // its own `width`, though
           const minWidth =
@@ -271,23 +372,30 @@ export function TableHead<T>({
                   column.maxWidth ?? MAX_COLUMN_WIDTH,
                   layout.maxResizeWidth,
                 );
+          const sortTitle = formatMessage(messages.dataTable.sortBy, {
+            label: columnName,
+          });
 
           return (
             <th
               aria-describedby={column.labelInfo ? infoId : undefined}
               // Named by the label alone, not also by the resize handle in it
               aria-labelledby={labelId}
+              // The direction of the first sorted column - one header at a
+              // time has it; the others tell their place in their button
               aria-sort={
                 !column.sortable
                   ? undefined
-                  : sortBy === column.key
-                    ? order === "asc"
+                  : sortIndex === 0 && sorted
+                    ? sorted.order === "asc"
                       ? "ascending"
                       : "descending"
-                    : "none"
+                    : sorted
+                      ? undefined
+                      : "none"
               }
               className={cn(
-                "group/th px-2 py-1 text-left align-top text-sm font-medium",
+                "group/th px-2 py-1 text-start align-top text-sm font-medium",
                 isPinned
                   ? "sticky z-2 bg-surface dark:bg-surface-dark"
                   : "relative",
@@ -333,13 +441,38 @@ export function TableHead<T>({
                   // The sort state is the `aria-sort` of the header
                   <button
                     className={cn(
-                      "cui-link flex items-center gap-1 text-left",
+                      "cui-link flex items-center gap-1 text-start",
                       isSized && "min-w-0",
                     )}
-                    onClick={() => onSort(column.key)}
-                    title={formatMessage(messages.dataTable.sortBy, {
-                      label: columnName,
-                    })}
+                    onClick={(event) => onSort(column.key, event.shiftKey)}
+                    onKeyDown={(event) => {
+                      // Shift + Enter adds the column like Shift + click -
+                      // not every browser tells the click of a key its
+                      // modifiers
+                      if (
+                        multiSort &&
+                        event.shiftKey &&
+                        (event.key === "Enter" || event.key === " ")
+                      ) {
+                        event.preventDefault();
+                        if (!event.repeat) onSort(column.key, true);
+                      }
+                    }}
+                    onKeyUp={(event) => {
+                      // A Space would click the button once released
+                      if (multiSort && event.shiftKey && event.key === " ") {
+                        event.preventDefault();
+                      }
+                    }}
+                    onMouseDown={(event) => {
+                      // Shift + click would select the text up to here
+                      if (multiSort && event.shiftKey) event.preventDefault();
+                    }}
+                    title={
+                      multiSort
+                        ? `${sortTitle} (${messages.dataTable.multiSortHint})`
+                        : sortTitle
+                    }
                     type="button"
                   >
                     <span
@@ -351,14 +484,31 @@ export function TableHead<T>({
                     >
                       {column.label}
                     </span>
-                    {sortBy === column.key ? (
-                      order === "asc" ? (
+                    {sorted ? (
+                      sorted.order === "asc" ? (
                         <ArrowUp size={16} className="shrink-0" />
                       ) : (
                         <ArrowDown size={16} className="shrink-0" />
                       )
                     ) : (
                       <ArrowUpDown size={16} className="shrink-0" />
+                    )}
+                    {showsPriority && (
+                      <>
+                        <span
+                          aria-hidden="true"
+                          className="-ms-1 shrink-0 self-start text-[0.625rem] leading-none font-semibold tabular-nums"
+                        >
+                          {sortIndex + 1}
+                        </span>{" "}
+                        <span className="sr-only">
+                          {formatMessage(messages.dataTable.sortPriority, {
+                            count: String(sort.length),
+                            order: messages.dataTable.sortOrder[sorted.order],
+                            priority: String(sortIndex + 1),
+                          })}
+                        </span>
+                      </>
                     )}
                   </button>
                 ) : (
@@ -379,7 +529,7 @@ export function TableHead<T>({
                       {column.labelInfo}
                     </span>
                     <Popover
-                      className="shrink-0 rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                      className="shrink-0 rounded-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500"
                       contentClassName="p-2 text-sm"
                       position="bottom"
                       // A tap opens it on a touch screen; with a mouse it
@@ -404,8 +554,8 @@ export function TableHead<T>({
               {canResize(column) && (
                 <ColumnResizeHandle
                   columnName={columnName}
-                  // A column pinned to the right grows to the left
-                  edge={layout.right === undefined ? "right" : "left"}
+                  // A column pinned to the end grows towards the start
+                  edge={layout.end === undefined ? "end" : "start"}
                   maxWidth={maxWidth}
                   minWidth={minWidth}
                   onDrag={(width) => onColumnDrag(column.key, width)}
@@ -422,32 +572,14 @@ export function TableHead<T>({
           names of the column headers */}
       {hasAnyFilters && (
         <tr>
-          {renderSubRow && (
-            <td
-              className="sticky z-1 bg-surface dark:bg-surface-dark"
-              style={getCellStyle(null, layoutOf(LEADING_KEYS.expand), false)}
-            >
-              <EdgeShadow side={layoutOf(LEADING_KEYS.expand).shadow} />
-            </td>
-          )}
-          {hasGroupActions && (
-            <td
-              className="sticky z-1 bg-surface dark:bg-surface-dark"
-              style={getCellStyle(
-                null,
-                layoutOf(LEADING_KEYS.selection),
-                false,
-              )}
-            >
-              <EdgeShadow side={layoutOf(LEADING_KEYS.selection).shadow} />
-            </td>
-          )}
+          {renderSubRow && leadingCell(LEADING_KEYS.expand)}
+          {hasSelection && leadingCell(LEADING_KEYS.selection)}
           {actions && (
             <td
               className="sticky z-1 bg-surface px-2 pb-1 align-top dark:bg-surface-dark"
               style={getCellStyle(null, layoutOf(LEADING_KEYS.actions), false)}
             >
-              <div className="absolute top-0 -right-px h-full border-r border-neutral-200 dark:border-neutral-800" />
+              <div className="absolute -end-px top-0 h-full border-e border-neutral-200 dark:border-neutral-800" />
               <EdgeShadow side={layoutOf(LEADING_KEYS.actions).shadow} />
               <div className="flex justify-end">
                 <ClearFiltersButton
@@ -460,21 +592,26 @@ export function TableHead<T>({
           )}
           {sortedVisibleColumns.map((column) => {
             const layout = layoutOf(column.key);
+            const columnName = column.labelTitle ?? column.label;
             const filterLabel = formatMessage(messages.dataTable.filterColumn, {
-              label: column.labelTitle ?? column.label,
+              label: columnName,
             });
             const filterPlaceholder = formatMessage(
               messages.dataTable.searchColumn,
               { label: column.label },
             );
-            const filterValue = filters[column.key] || "";
+            const rawValue = filters[column.key];
+            // The value as a text - that of a text, a select or a date filter
+            const filterValue = typeof rawValue === "string" ? rawValue : "";
+            const changeFilter = (value: DataTableFilterValue) =>
+              onFilterChange(column.key, value);
 
             const filterField = (
               <>
                 {column.filter === "input" && (
                   <FilterInput
                     label={filterLabel}
-                    onChange={(value) => onFilterChange(column.key, value)}
+                    onChange={changeFilter}
                     placeholder={filterPlaceholder}
                     resetKey={filterResetKey}
                     value={filterValue}
@@ -489,8 +626,7 @@ export function TableHead<T>({
                     className="[&_:has(>[role=combobox])]:px-1 [&_:has(>[role=combobox])]:py-0"
                     hasEmpty
                     onChange={(value) => {
-                      onFilterChange(
-                        column.key,
+                      changeFilter(
                         value === null || Array.isArray(value)
                           ? ""
                           : String(value),
@@ -501,15 +637,22 @@ export function TableHead<T>({
                     value={filterValue}
                   />
                 )}
+                {column.filter === "multiSelect" && (
+                  <MultiSelectFilter
+                    label={filterLabel}
+                    onChange={changeFilter}
+                    options={column.filterSelectOptions ?? []}
+                    placeholder={filterPlaceholder}
+                    value={toList(rawValue)}
+                  />
+                )}
                 {(column.filter === "date" ||
                   column.filter === "time" ||
                   column.filter === "datetime") && (
                   <DateTimePicker
                     aria-label={filterLabel}
                     dim="sm"
-                    onChange={({ target }) =>
-                      onFilterChange(column.key, target.value)
-                    }
+                    onChange={({ target }) => changeFilter(target.value)}
                     placeholder={filterPlaceholder}
                     type={
                       column.filter === "datetime"
@@ -519,8 +662,28 @@ export function TableHead<T>({
                     value={filterValue}
                   />
                 )}
+                {column.filter === "numberRange" && (
+                  <NumberRangeFilter
+                    fromLabel={formatMessage(messages.dataTable.filterFrom, {
+                      label: columnName,
+                    })}
+                    onChange={changeFilter}
+                    resetKey={filterResetKey}
+                    toLabel={formatMessage(messages.dataTable.filterTo, {
+                      label: columnName,
+                    })}
+                    value={toRange(rawValue)}
+                  />
+                )}
+                {column.filter === "dateRange" && (
+                  <DateRangeFilter
+                    label={filterLabel}
+                    onChange={(range) => changeFilter(range ?? "")}
+                    value={toRange(rawValue)}
+                  />
+                )}
                 {column.filter === "custom" &&
-                  column.customFilter?.(onFilterChange, filterValue)}
+                  column.customFilter?.(onFilterChange, filterValue, rawValue)}
               </>
             );
 

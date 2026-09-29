@@ -7,6 +7,7 @@ import {
   type MenuPosition,
 } from "./position";
 import { ButtonGroupContext } from "../button-group-context";
+import { usePortalContainer } from "../../providers/ui-context";
 
 interface MenuPopupProps {
   children: React.ReactNode;
@@ -37,11 +38,17 @@ interface MenuPopupProps {
 }
 
 const isSamePosition = (a: MenuPosition, b: MenuPosition) =>
-  a.left === b.left && a.top === b.top && a.maxHeight === b.maxHeight;
+  a.left === b.left &&
+  a.top === b.top &&
+  a.maxHeight === b.maxHeight &&
+  a.side === b.side &&
+  a.align === b.align;
 
 /**
- * The floating panel of a submenu or a context menu - rendered in a portal,
- * so no `overflow` container clips it, and kept inside the viewport.
+ * The floating panel of a submenu or a context menu - rendered in a portal
+ * (into the `portalContainer` of `UIProvider`), so no `overflow` container
+ * clips it, and kept inside the viewport. It has `data-state="open"` and,
+ * once placed, the `data-side` and `data-align` it is shown at.
  */
 export default function MenuPopup({
   children,
@@ -58,6 +65,7 @@ export default function MenuPopup({
   const ref = panelRef ?? internalRef;
   const [position, setPosition] = useState<MenuPosition | null>(null);
   const getAnchorRef = useRef(getAnchor);
+  const getPortalContainer = usePortalContainer();
 
   useLayoutEffect(() => {
     getAnchorRef.current = getAnchor;
@@ -115,6 +123,9 @@ export default function MenuPopup({
     <ButtonGroupContext value={null}>
       <div
         className="fixed z-50 max-w-[calc(100vw-1rem)] animate-fade-in overflow-y-auto rounded-md border border-neutral-100 bg-surface shadow-md dark:border-neutral-900 dark:bg-surface-dark"
+        data-align={position?.align}
+        data-side={position?.side}
+        data-state="open"
         dir={dir}
         id={id}
         // A click in the menu stays in it - through the portal it would reach
@@ -128,6 +139,7 @@ export default function MenuPopup({
         onKeyDown={onKeyDown}
         onPointerEnter={onPointerEnter}
         ref={ref}
+        // Viewport coordinates - physical in both writing directions
         style={
           position
             ? {
@@ -142,6 +154,6 @@ export default function MenuPopup({
         {children}
       </div>
     </ButtonGroupContext>,
-    document.body,
+    getPortalContainer(),
   );
 }

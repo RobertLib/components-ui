@@ -27,7 +27,7 @@ function Rating({
       aria-valuemin={1}
       aria-valuenow={value}
       aria-valuetext={`${value} of 5`}
-      className="flex w-fit gap-1 rounded-md p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+      className="flex w-fit gap-1 rounded-md p-1 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500"
       onKeyDown={(event) => {
         const change = keySteps[event.key];
         if (change === undefined) return;

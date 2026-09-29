@@ -11,7 +11,7 @@ export default function Basic() {
           <>
             <Button variant="outline">Export</Button>
             <Button>
-              <Plus className="mr-1" size={16} /> New customer
+              <Plus className="me-1" size={16} /> New customer
             </Button>
           </>
         }

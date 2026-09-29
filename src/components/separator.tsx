@@ -21,12 +21,15 @@ export interface SeparatorProps extends React.ComponentProps<"div"> {
   orientation?: "horizontal" | "vertical";
 }
 
-const lineClasses = "shrink-0 bg-neutral-200 dark:bg-neutral-800";
+// A system color in forced colors mode, which would drop the fill
+const lineClasses =
+  "shrink-0 bg-neutral-200 dark:bg-neutral-800 forced-colors:bg-[CanvasText]";
 
 /**
  * A thin line between content, horizontal or vertical, optionally with a
  * label. A `separator` for assistive technology, unless `decorative`. It has
- * no margin - add one with `className` (`my-6`, `mx-2`).
+ * no margin - add one with `className` (`my-6`, `mx-2`). Its
+ * `data-orientation` says which way it goes.
  */
 export default function Separator({
   className,
@@ -60,6 +63,7 @@ export default function Separator({
           isVertical ? "w-px self-stretch" : "h-px w-full",
           className,
         )}
+        data-orientation={orientation}
       />
     );
   }
@@ -75,6 +79,7 @@ export default function Separator({
         isVertical ? "flex-col self-stretch" : "w-full",
         className,
       )}
+      data-orientation={orientation}
     >
       {labelPosition !== "start" && <div className={line} />}
       <span id={labelId}>{label}</span>

@@ -1,6 +1,7 @@
 import { Minus, TrendingDown, TrendingUp } from "lucide-react";
 import cn from "../utils/cn";
 import Skeleton from "./skeleton";
+import Sparkline, { type SparklineProps } from "./sparkline";
 import { toIntlLocale } from "../i18n/format";
 import { useLocale } from "../providers/ui-context";
 
@@ -31,6 +32,13 @@ export interface StatProps extends React.ComponentProps<"div"> {
   label: React.ReactNode;
   /** Placeholders instead of the value and the change - the label stays. */
   loading?: boolean;
+  /**
+   * A small chart of the figure over time under it, e.g. of the last weeks
+   * - the values of a `Sparkline`, or its props (`{ data, color: "success"
+   * }`). It fills the width, with a tinted area, and writes the values of
+   * its summary with `formatOptions`.
+   */
+  sparkline?: readonly (number | null | undefined)[] | SparklineProps;
   /**
    * Direction of the change: an arrow, green for good and red for bad (see
    * `invertTrend`). Taken from the sign of a numeric `change` as it is shown
@@ -95,6 +103,7 @@ export default function Stat({
   invertTrend = false,
   label,
   loading = false,
+  sparkline,
   trend,
   value,
   ...props
@@ -124,13 +133,20 @@ export default function Stat({
         : "bad";
   const hasChange = shownChange != null && shownChange !== false;
 
+  const sparklineProps: SparklineProps | undefined =
+    sparkline === undefined
+      ? undefined
+      : Array.isArray(sparkline)
+        ? { data: sparkline }
+        : (sparkline as SparklineProps);
+
   return (
     <div
       aria-busy={loading || undefined}
       {...props}
       className={cn("flex items-start justify-between gap-4", className)}
     >
-      <dl className="min-w-0">
+      <dl className={cn("min-w-0", sparklineProps && "flex-1")}>
         <dt className="text-sm font-medium text-neutral-600 dark:text-neutral-400">
           {label}
         </dt>
@@ -162,6 +178,22 @@ export default function Stat({
                   </span>
                 )}
               </>
+            )}
+          </dd>
+        )}
+        {sparklineProps && (
+          <dd className="mt-3">
+            {loading ? (
+              <Skeleton height="h-10" />
+            ) : (
+              <Sparkline
+                area
+                formatOptions={formatOptions}
+                // The label names the values - the term before says it too
+                label={typeof label === "string" ? label : undefined}
+                {...sparklineProps}
+                className={cn("h-10 w-full", sparklineProps.className)}
+              />
             )}
           </dd>
         )}

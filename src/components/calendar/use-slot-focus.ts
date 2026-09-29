@@ -11,10 +11,21 @@ interface UseSlotFocusOptions {
   onActivate: (day: number, slot: number) => void;
   /**
    * Called with the slots `first` - `last` of a day, selected by Shift +
-   * arrow up / down and picked by Enter or Space. Without it Shift selects
-   * nothing.
+   * arrow up / down from the slot `anchor` and picked by Enter or Space.
+   * Without it Shift selects nothing.
    */
-  onSelectRange?: (day: number, first: number, last: number) => void;
+  onSelectRange?: (
+    day: number,
+    first: number,
+    last: number,
+    anchor: number,
+  ) => void;
+  /**
+   * `vertical` - the slots of a column go down, the columns across (the week
+   * and day views); `horizontal` - the slots go across, the rows down (the
+   * timeline, a row per resource). Default `vertical`.
+   */
+  orientation?: "horizontal" | "vertical";
   /** Number of slots in a column. */
   slots: number;
 }
@@ -38,6 +49,9 @@ function slotOf(target: EventTarget | null): SlotPosition | null {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
+const isRtl = (element: Element) =>
+  getComputedStyle(element).direction === "rtl";
+
 /**
  * The keyboard focus of the time grid of the week and day views. The grid
  * is one tab stop - the focused slot; the arrow keys move between the slots
@@ -53,6 +67,7 @@ export default function useSlotFocus({
   initialDay,
   onActivate,
   onSelectRange,
+  orientation = "vertical",
   slots,
 }: UseSlotFocusOptions) {
   const [focused, setFocused] = useState({ day: initialDay, slot: 0 });
@@ -102,8 +117,44 @@ export default function useSlotFocus({
     if (!current) return;
 
     let next = current;
+    // The keys as in a vertical grid - the next column is on the left in a
+    // right-to-left page, and the slots of a timeline run across
+    const rtl =
+      (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+      isRtl(event.currentTarget);
+    const across =
+      event.key === "ArrowLeft"
+        ? rtl
+          ? "next"
+          : "previous"
+        : event.key === "ArrowRight"
+          ? rtl
+            ? "previous"
+            : "next"
+          : null;
+    const key =
+      orientation === "vertical"
+        ? across === "next"
+          ? "ArrowRight"
+          : across === "previous"
+            ? "ArrowLeft"
+            : event.key
+        : across === "next"
+          ? "ArrowDown"
+          : across === "previous"
+            ? "ArrowUp"
+            : event.key === "ArrowDown"
+              ? "ArrowRight"
+              : event.key === "ArrowUp"
+                ? "ArrowLeft"
+                : event.key;
+    // The keys that go through the slots of a column
+    const alongSlots =
+      orientation === "vertical"
+        ? event.key === "ArrowUp" || event.key === "ArrowDown"
+        : event.key === "ArrowLeft" || event.key === "ArrowRight";
 
-    switch (event.key) {
+    switch (key) {
       case "ArrowUp":
         next = { day: current.day, slot: Math.max(current.slot - 1, 0) };
         break;
@@ -137,6 +188,7 @@ export default function useSlotFocus({
             current.day,
             Math.min(anchor.slot, current.slot),
             Math.max(anchor.slot, current.slot),
+            anchor.slot,
           );
         } else {
           onActivate(current.day, current.slot);
@@ -154,10 +206,7 @@ export default function useSlotFocus({
 
     event.preventDefault();
 
-    const selects =
-      !!onSelectRange &&
-      event.shiftKey &&
-      (event.key === "ArrowUp" || event.key === "ArrowDown");
+    const selects = !!onSelectRange && event.shiftKey && alongSlots;
     if (selects) {
       if (!anchor) setAnchor(current);
     } else if (anchor) {
@@ -178,9 +227,13 @@ export default function useSlotFocus({
     /** Whether the slot is the tab stop of the grid. */
     isFocused: (slotDay: number, slotIndex: number) =>
       slotDay === day && slotIndex === slot,
-    /** The slots selected with Shift + arrow keys, from `first` to `last`. */
+    /**
+     * The slots selected with Shift + arrow keys, from `first` to `last` -
+     * from the slot at `anchor`.
+     */
     selection: anchor
       ? {
+          anchor: anchor.slot,
           day: anchor.day,
           first: Math.min(anchor.slot, slot),
           last: Math.max(anchor.slot, slot),

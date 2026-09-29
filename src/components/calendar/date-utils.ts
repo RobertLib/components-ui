@@ -1,6 +1,6 @@
 import type { CalendarAgendaPeriod, CalendarView } from "./types";
 import type { WeekDay } from "../../i18n/types";
-import { dateOf, existingDayOf, startOfDay } from "../../utils/date";
+import { dateOf, existingDayOf, shiftDay, startOfDay } from "../../utils/date";
 
 export { isSameDay } from "../../utils/date";
 
@@ -129,9 +129,11 @@ export interface VisibleRangeOptions {
 
 /**
  * The days a view actually paints, as a half-open [start, end) interval:
- * a single day, a week, the six whole weeks `MonthView` lays out starting
- * with the week holding the 1st, or the period of the agenda (the month,
- * week or day of `date`, or a number of days from it). Fetch exactly this
+ * a single day (the day and the timeline day views), a week (also of the
+ * timeline), the six whole weeks `MonthView` lays out starting with the
+ * week holding the 1st, or the period of the agenda (the month, week or day
+ * of `date`, or a number of days from it). With `hiddenDays` the range
+ * still has them - their events are not shown. Fetch exactly this
  * window, so moving to another period never pulls in events no tile can
  * show. Pass the `weekStartsOn` of the locale the calendar shows
  * (`useLocale()`), so the weeks match its columns, and the `agendaPeriod`
@@ -157,14 +159,14 @@ export const getVisibleRange = (
     return { start, end: dateOf(date.getFullYear(), date.getMonth() + 1, 1) };
   }
 
-  if (view === "day") {
+  if (view === "day" || view === "timelineDay") {
     const start = startOfDay(date);
     return { start, end: addCalendarDays(start, 1) };
   }
 
   // Counted from `date` and the 1st - from a first day of the week the time
   // zone skips (see `getCalendarDay`) the range would end a day late
-  if (view === "week") {
+  if (view === "week" || view === "timelineWeek") {
     const offset = daysIntoWeek(date, weekStartsOn);
     return {
       start: addCalendarDays(date, -offset),
@@ -179,3 +181,25 @@ export const getVisibleRange = (
     end: addCalendarDays(firstOfMonth, 42 - leading),
   };
 };
+
+/**
+ * The first day from `date` on (`direction` 1) or back (-1) that is not
+ * among `hiddenDays` - `date` itself when it is not. All days hidden count
+ * as none.
+ */
+export function skipHiddenDays(
+  date: Date,
+  hiddenDays: ReadonlySet<number>,
+  direction: 1 | -1 = 1,
+) {
+  if (hiddenDays.size === 0 || hiddenDays.size >= 7) return date;
+
+  let day = date;
+  for (let step = 0; step < 7 && hiddenDays.has(day.getDay()); step++) {
+    const next = shiftDay(day, direction);
+    // The time of `date` stays - it is the date of the calendar
+    day = new Date(date);
+    day.setFullYear(next.getFullYear(), next.getMonth(), next.getDate());
+  }
+  return day;
+}

@@ -285,3 +285,34 @@ describe("AccordionGroup", () => {
     expect(html).not.toContain("Billing details");
   });
 });
+
+describe("AccordionGroup with a disabled section", () => {
+  it("skips it with the arrow keys", async () => {
+    const user = userEvent.setup();
+    render(
+      <AccordionGroup>
+        <Accordion header="Billing" value="billing">
+          Billing details
+        </Accordion>
+        <Accordion disabled header="Shipping" value="shipping">
+          Shipping details
+        </Accordion>
+        <Accordion header="Notes" value="notes">
+          Order notes
+        </Accordion>
+      </AccordionGroup>,
+    );
+
+    toggle("Billing").focus();
+    await user.keyboard("{ArrowDown}");
+    expect(toggle("Notes")).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(toggle("Billing")).toHaveFocus();
+    await user.keyboard("{End}");
+    expect(toggle("Notes")).toHaveFocus();
+
+    // A click does not open it
+    await user.click(screen.getByText("Shipping"));
+    expect(toggle("Shipping")).toHaveAttribute("aria-expanded", "false");
+  });
+});

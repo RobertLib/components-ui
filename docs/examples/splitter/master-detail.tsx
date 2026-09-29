@@ -27,7 +27,7 @@ export default function MasterDetail() {
             <button
               aria-current={member.id === selectedId || undefined}
               className={cn(
-                "w-full rounded-md px-3 py-1.5 text-left text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
+                "w-full rounded-md px-3 py-1.5 text-start text-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500",
                 member.id === selectedId
                   ? "bg-primary-50 text-primary-800 dark:bg-primary-950/60 dark:text-primary-200"
                   : "hover:bg-neutral-100 dark:hover:bg-neutral-800",

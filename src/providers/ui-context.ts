@@ -10,8 +10,16 @@ import {
   type RouterAdapter,
 } from "./router";
 
+/**
+ * Where overlays are rendered - an element, or a function returning one
+ * (read when an overlay opens). `null` or nothing is `document.body`.
+ */
+export type PortalContainer =
+  HTMLElement | null | (() => HTMLElement | null | undefined);
+
 export interface UIContextValue {
   locale: Locale;
+  portalContainer?: PortalContainer;
   router?: Partial<RouterAdapter>;
 }
 
@@ -20,6 +28,20 @@ export const UIContext = createContext<UIContextValue | null>(null);
 /** The active locale (texts, formats, first day of the week). */
 export function useLocale(): Locale {
   return use(UIContext)?.locale ?? en;
+}
+
+/**
+ * The element the overlays of the library (popovers, tooltips, menus,
+ * dialogs, toasts) are rendered into - `portalContainer` of `UIProvider`,
+ * `document.body` by default. Returns a getter: call it when rendering the
+ * portal, not on the server.
+ */
+export function usePortalContainer(): () => HTMLElement {
+  const container = use(UIContext)?.portalContainer;
+
+  return () =>
+    (typeof container === "function" ? container() : container) ??
+    document.body;
 }
 
 /** The texts of the active locale. */

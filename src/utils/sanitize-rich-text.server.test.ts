@@ -29,6 +29,17 @@ it("runs on a server with only the DOMParser of jsdom", () => {
     "<h2>Plan</h2><p>Hi <b>bold</b>bad</p><table><tbody><tr><td>a</td><td></td></tr>" +
       "<tr><td>b</td><td>c</td></tr></tbody></table><ol><li>Item</li></ol>",
   );
+  // Images and code blocks - their checks need no DOM either
+  expect(
+    sanitizeRichText(
+      '<p><img src="/a.png" alt="A" onerror="steal()"><img src="javascript:steal()">' +
+        '<img src="data:image/png;base64,AAAA"></p><pre><b>a</b>\nb</pre>',
+      { allowImageDataUrls: true, formats: ["image", "codeBlock"] },
+    ),
+  ).toBe(
+    '<p><img src="/a.png" alt="A"><img src="data:image/png;base64,AAAA"></p>' +
+      "<pre><code>a<br>b</code></pre>",
+  );
   // Content too deep is copied as its text - by a tree walker
   expect(
     sanitizeRichText(`${"<span>".repeat(150)}deep${"</span>".repeat(150)}`),

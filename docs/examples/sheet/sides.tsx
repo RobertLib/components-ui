@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Button, Checkbox, Sheet, type SheetSide } from "components-ui";
 
-const sides: SheetSide[] = ["right", "left", "top", "bottom"];
+// `start` / `end` follow the writing direction - `end` is the right edge,
+// the left one in a right-to-left page
+const sides: SheetSide[] = ["end", "start", "right", "left", "top", "bottom"];
 
 export default function Sides() {
   const [open, setOpen] = useState(false);

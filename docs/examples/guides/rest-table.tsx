@@ -3,8 +3,10 @@ import {
   Alert,
   Button,
   DataTable,
+  toFilterParams,
   toOffsetParams,
   useDataTableQuery,
+  type Column,
   type DataTableQuery,
 } from "components-ui";
 import type { Person } from "../../mocks/data";
@@ -17,29 +19,41 @@ interface PeoplePage {
   total: number;
 }
 
-// The summary row shows the server's total of the salaries
-const columns = personColumns.map((column) =>
-  column.key === "salary" ? { ...column, summary: "sum" as const } : column,
-);
+// Several departments at once, a salary range, and the summary row shows
+// the server's total of the salaries
+const columns = personColumns.map((column): Column<Person> => {
+  if (column.key === "department") return { ...column, filter: "multiSelect" };
+  if (column.key === "salary") {
+    return { ...column, filter: "numberRange", summary: "sum" };
+  }
+  return column;
+});
 
-// GET /api/people?page=1&pageSize=10&sortBy=name&order=asc&q=…&department=…
+// GET /api/people?page=1&pageSize=10&sort=department,-salary&q=…
+//   &department=Sales&department=Support&salary[from]=50000
 async function fetchPeople(query: DataTableQuery, signal?: AbortSignal) {
-  const { filters, order, page, pageSize, search, sortBy } =
-    toOffsetParams(query);
+  const { filters, page, pageSize, search, sort } = toOffsetParams(query);
   const params = new URLSearchParams({
     page: String(page),
     pageSize: String(pageSize),
   });
   if (search) params.set("q", search);
-  if (sortBy && order) {
-    params.set("sortBy", sortBy);
-    params.set("order", order);
+  // Every sorted column, descending ones with a minus
+  if (sort.length > 0) {
+    params.set(
+      "sort",
+      sort
+        .map(({ key, order }) => `${order === "desc" ? "-" : ""}${key}`)
+        .join(","),
+    );
   }
-  // The column filters under their keys - a column keyed like one of the
-  // parameters above must not replace it (an API reading `filter[key]`
-  // keeps them apart for good)
-  for (const [key, value] of Object.entries(filters)) {
-    if (!params.has(key)) params.set(key, value);
+  // The column filters under their keys - each value of a list, the bounds
+  // of a range as `salary[from]` / `salary[to]`. A column keyed like one of
+  // the parameters above must not replace it (`toFilterParams(filters, {
+  // prefix: "filter" })` keeps them apart for good).
+  const taken = new Set(params.keys());
+  for (const [name, value] of toFilterParams(filters)) {
+    if (!taken.has(name)) params.append(name, value);
   }
 
   const response = await fetch(`/api/people?${params}`, { signal });
@@ -121,6 +135,8 @@ export default function RestTable() {
         exportFilename="people"
         loading={result?.key !== key}
         maxHeight="480px"
+        // The API sorts by several columns - Shift + click on a header
+        multiSort
         onExport={fetchAllPeople}
         onQueryChange={setQuery}
         query={query}

@@ -1,3 +1,5 @@
+import { isRtl } from "./utils";
+
 /** Pixels the pointer may move before a press becomes a drag. */
 export const DRAG_THRESHOLD = 5;
 
@@ -67,8 +69,10 @@ export interface PointerDragOffset {
 }
 
 export interface PointerDragOptions {
-  /** `y`: only a vertical move makes the press a drag. */
-  axis?: "both" | "y";
+  /**
+   * `y` / `x`: only a vertical / horizontal move makes the press a drag.
+   */
+  axis?: "both" | "x" | "y";
   /**
    * The element holding the slots. The pointer is measured in it, so the
    * view scrolling during a drag moves the pointer over the slots too.
@@ -81,7 +85,9 @@ export interface PointerDragOptions {
   scroller?: HTMLElement | null;
   /**
    * The scroller scrolls sideways too, near its left and right edges - for
-   * a move to columns out of view.
+   * a move to columns out of view. Its sticky column at the start (the time
+   * or the resource column) is left out of the edge - on the right in a
+   * right-to-left page.
    */
   scrollSideways?: boolean;
   /**
@@ -158,12 +164,17 @@ export function startPointerDrag(
     scrollsDown && scrollerRect && gridRect
       ? gridRect.top - scrollerRect.top + scroller.scrollTop
       : 0;
-  // The part right of its sticky time column - its left edge is there
+  // The part past its sticky time column - its start edge is there: the
+  // left one, the right one right to left (`scrollLeft` is physical,
+  // negative right to left)
   const scrollsSideways =
     scrollSideways && !!scroller && scroller.scrollWidth > scroller.clientWidth;
+  const rtl = scrollsSideways && isRtl(scroller);
   const timeColumnWidth =
     scrollsSideways && scrollerRect && gridRect
-      ? gridRect.left - scrollerRect.left + scroller.scrollLeft
+      ? rtl
+        ? scrollerRect.right - gridRect.right - scroller.scrollLeft
+        : gridRect.left - scrollerRect.left + scroller.scrollLeft
       : 0;
 
   let pointer = { x: event.clientX, y: event.clientY };
@@ -186,8 +197,8 @@ export function startPointerDrag(
     // The pointer jittering during a click moves nothing
     if (!dragging) {
       dragging =
-        Math.abs(offset.y) > DRAG_THRESHOLD ||
-        (axis === "both" && Math.abs(offset.x) > DRAG_THRESHOLD);
+        (axis !== "x" && Math.abs(offset.y) > DRAG_THRESHOLD) ||
+        (axis !== "y" && Math.abs(offset.x) > DRAG_THRESHOLD);
       if (!dragging) return;
     }
 
@@ -210,8 +221,8 @@ export function startPointerDrag(
     const speedX = scrollsSideways
       ? edgeSpeed(
           pointer.x,
-          rect.left + timeColumnWidth + AUTO_SCROLL_EDGE,
-          rect.right - AUTO_SCROLL_EDGE,
+          rect.left + (rtl ? 0 : timeColumnWidth) + AUTO_SCROLL_EDGE,
+          rect.right - (rtl ? timeColumnWidth : 0) - AUTO_SCROLL_EDGE,
         )
       : 0;
     if (speedX === 0 && speedY === 0) return;

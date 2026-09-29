@@ -71,8 +71,15 @@ export default function CalendarHeader({
 }: CalendarHeaderProps) {
   const locale = useLocale();
   const { messages } = locale;
-  // The agenda shows a period of its own
-  const period = view === "agenda" ? agendaPeriod : view;
+  // The agenda shows a period of its own, the timeline a day or a week
+  const period =
+    view === "agenda"
+      ? agendaPeriod
+      : view === "timelineDay"
+        ? "day"
+        : view === "timelineWeek"
+          ? "week"
+          : view;
 
   // The button with the focus - one that gets to `minDate` / `maxDate` must
   // not drop it to the page
@@ -155,7 +162,7 @@ export default function CalendarHeader({
             size="icon"
             variant="ghost"
           >
-            <ChevronLeft size={16} />
+            <ChevronLeft className="rtl:-scale-x-100" size={16} />
           </Button>
           <Button
             className={cn("px-2!", keptClassName("today", canGoToday))}
@@ -173,7 +180,7 @@ export default function CalendarHeader({
             size="icon"
             variant="ghost"
           >
-            <ChevronRight size={16} />
+            <ChevronRight className="rtl:-scale-x-100" size={16} />
           </Button>
         </div>
       </div>
@@ -193,7 +200,7 @@ export default function CalendarHeader({
           {formattedDate}
         </h2>
         {viewOptions.length > 1 && (
-          <div className="btn-group ml-auto shrink-0">
+          <div className="btn-group ms-auto shrink-0">
             {viewOptions.map((viewOption) => (
               <Button
                 aria-pressed={viewOption === view}

@@ -12,7 +12,9 @@ import {
 } from "react";
 import cn from "../utils/cn";
 import {
+  getActiveElement,
   getDirection,
+  getElementByIdAt,
   getFocusReturnTargetsWithNeighbors,
   getNextTabStop,
   isEscapeKey,
@@ -25,12 +27,120 @@ import {
 } from "./overlay-stack";
 import { getTabbableElements } from "../utils/tabbable";
 import useIsMobile from "../hooks/use-is-mobile";
+import { attachRef } from "../hooks/use-form-control";
+import { usePortalContainer } from "../providers/ui-context";
 import { ButtonGroupContext } from "./button-group-context";
+import {
+  getArrowOffset,
+  getClippingAncestors,
+  getVisibleArea,
+  isOutOfView,
+  isSameBox,
+  measureAnchor,
+  resolveSide,
+  type AnchorBox,
+  type FloatingSide,
+  type PhysicalSide,
+  type VirtualAnchor,
+} from "./menu/position";
 
 /**
  * What the panel is for assistive technology - see `PopoverProps.popupRole`.
  */
 export type PopoverPopupRole = "dialog" | "menu" | "listbox" | "none";
+
+/**
+ * The side of its trigger a panel opens on - see `PopoverProps.position`.
+ * `start` and `end` are logical: left and right, the other way round right
+ * to left.
+ */
+export type PopoverPosition = FloatingSide;
+
+/**
+ * How a panel lines up with its trigger - see `PopoverProps.align`. `left` /
+ * `right` are deprecated: they do not follow the writing direction.
+ */
+export type PopoverAlign = "start" | "center" | "end" | "left" | "right";
+
+/**
+ * What a panel is placed at instead of its trigger - an element, a box in
+ * viewport coordinates (a `DOMRect`), a point (`{ x, y }`), or a function
+ * returning one of them, read again as the page scrolls.
+ */
+export type PopoverAnchor =
+  VirtualAnchor | (() => VirtualAnchor | null | undefined);
+
+// How far the arrow - a 10px square turned by 45°, reaching 7px out of the
+// panel - stays inside the ends of the panel's edge, off its round corners
+const ARROW_INSET = 12;
+
+// The two borders of the rotated square that make the tip of the arrow -
+// towards the anchor
+const ARROW_BORDERS: Record<PhysicalSide, string> = {
+  bottom: "border-t border-l",
+  left: "border-t border-r",
+  right: "border-b border-l",
+  top: "border-b border-r",
+};
+
+// Where the panel starts along its trigger - the edges of `align`
+const ALIGN_CLASSES: Record<
+  "side" | "vertical",
+  Record<PopoverAlign, string>
+> = {
+  // Beside the trigger (`left` / `right`), from its top down
+  side: {
+    center: "top-1/2",
+    end: "bottom-0",
+    left: "top-0",
+    right: "top-0",
+    start: "top-0",
+  },
+  // Above or below it, logical but for the deprecated `left` / `right`
+  vertical: {
+    center: "left-1/2",
+    end: "end-0",
+    left: "left-0",
+    right: "right-0",
+    start: "start-0",
+  },
+};
+
+// The gap to the trigger when no `offset` is given - classes, so that
+// `contentClassName` can change it
+const GAP_CLASSES: Record<PhysicalSide, string> = {
+  bottom: "mt-2",
+  left: "mr-2",
+  right: "ml-2",
+  top: "mb-2",
+};
+
+const GAP_MARGIN: Record<
+  PhysicalSide,
+  "marginBottom" | "marginLeft" | "marginRight" | "marginTop"
+> = {
+  bottom: "marginTop",
+  left: "marginRight",
+  right: "marginLeft",
+  top: "marginBottom",
+};
+
+interface ArrowPlacement {
+  /** The panel's own colors, e.g. of a `contentClassName`. */
+  backgroundColor?: string;
+  borderColor?: string;
+  /** The panel has no border - neither has the arrow. */
+  borderless: boolean;
+  left: number;
+  top: number;
+}
+
+const isSameArrow = (a: ArrowPlacement, b: ArrowPlacement) =>
+  a.left === b.left &&
+  a.top === b.top &&
+  a.backgroundColor === b.backgroundColor &&
+  a.borderColor === b.borderColor &&
+  a.borderless === b.borderless;
 
 // Space kept between the panel and the edges of the viewport
 const VIEWPORT_MARGIN = 8;
@@ -49,40 +159,18 @@ const OPPOSITE_SIDE = {
 } as const;
 
 /**
- * The part of the page that is seen, in viewport coordinates - on a phone
- * without the on-screen keyboard over it (the visual viewport).
+ * The room around `rect` for the panel `gap` pixels away from it, in the
+ * part of the page that is seen - and its whole `height`. Takes the rect, so
+ * the compiler reads the viewport again for each new one.
  */
-function getVisibleArea() {
-  const viewport = window.visualViewport;
-  if (!viewport) {
-    return {
-      bottom: window.innerHeight,
-      left: 0,
-      right: window.innerWidth,
-      top: 0,
-    };
-  }
-  return {
-    bottom: viewport.offsetTop + viewport.height,
-    left: viewport.offsetLeft,
-    right: viewport.offsetLeft + viewport.width,
-    top: viewport.offsetTop,
-  };
-}
-
-/**
- * The room around `rect` for the panel, in the part of the page that is
- * seen - and its whole `height`. Takes the rect, so the compiler reads the
- * viewport again for each new one.
- */
-function getRoomAround(rect: DOMRect) {
+function getRoomAround(rect: AnchorBox, gap: number) {
   const area = getVisibleArea();
   return {
-    bottom: area.bottom - rect.bottom - PANEL_GAP - VIEWPORT_MARGIN,
+    bottom: area.bottom - rect.bottom - gap - VIEWPORT_MARGIN,
     height: area.bottom - area.top - 2 * VIEWPORT_MARGIN,
-    left: rect.left - area.left - PANEL_GAP - VIEWPORT_MARGIN,
-    right: area.right - rect.right - PANEL_GAP - VIEWPORT_MARGIN,
-    top: rect.top - area.top - PANEL_GAP - VIEWPORT_MARGIN,
+    left: rect.left - area.left - gap - VIEWPORT_MARGIN,
+    right: area.right - rect.right - gap - VIEWPORT_MARGIN,
+    top: rect.top - area.top - gap - VIEWPORT_MARGIN,
   };
 }
 
@@ -120,10 +208,15 @@ const pickAriaProps = (props: object) =>
  * the commit is done.
  */
 function FocusRescue({
+  findPanel,
   getReturnTargets,
   onRescue,
-  panelId,
 }: {
+  /**
+   * The panel - found by its id, as its ref is gone by the time the panel
+   * goes away.
+   */
+  findPanel: () => HTMLElement | null;
   /**
    * Where the focus goes, best first - read as the panel goes. Left out when
    * the trigger has a control of its own that manages the focus.
@@ -131,19 +224,17 @@ function FocusRescue({
   getReturnTargets?: () => HTMLElement[];
   /** Gives the focus to the first of `targets` that takes it. */
   onRescue: (targets: HTMLElement[]) => void;
-  /** Id of the panel. */
-  panelId: string;
 }) {
-  const callbacksRef = useRef({ getReturnTargets, onRescue });
+  const callbacksRef = useRef({ findPanel, getReturnTargets, onRescue });
 
   useLayoutEffect(() => {
-    callbacksRef.current = { getReturnTargets, onRescue };
+    callbacksRef.current = { findPanel, getReturnTargets, onRescue };
   });
 
   useLayoutEffect(
     () => () => {
-      const panel = document.getElementById(panelId);
-      const active = document.activeElement;
+      const panel = callbacksRef.current.findPanel();
+      const active = getActiveElement();
       if (!active || !panel?.contains(active)) return;
 
       // A Dialog opened in the same commit - by the pick that closed the
@@ -156,13 +247,13 @@ function FocusRescue({
       if (!targets) return;
 
       queueMicrotask(() => {
-        const active = document.activeElement;
+        const active = getActiveElement();
         if (!panel.isConnected && (!active || active === document.body)) {
           onRescue(targets);
         }
       });
     },
-    [panelId],
+    [],
   );
 
   return null;
@@ -172,8 +263,33 @@ export interface PopoverProps extends Omit<
   React.ComponentProps<"div">,
   "content"
 > {
-  /** Horizontal alignment to the trigger for `top` / `bottom` positions. */
-  align?: "left" | "right";
+  /**
+   * How the panel lines up with its trigger: `start` (default) - a `top` /
+   * `bottom` panel from the start edge of the trigger (its left edge, right
+   * to left its right one), a side panel from its top; `center` - centered on
+   * it; `end` - from the other edge (the bottom one of a side panel). It is
+   * moved into the viewport where it would reach out of it. `left` /
+   * `right` are deprecated - they keep the physical edge in a right-to-left
+   * page; use `start` / `end`.
+   */
+  align?: PopoverAlign;
+  /**
+   * Places the panel at something else than the trigger - an element, a
+   * `DOMRect`, a point (`{ x, y }`, e.g. of a click) or a function returning
+   * one of them, e.g. `() => range.getBoundingClientRect()` for a toolbar
+   * over the selected text. A function is read again as the page scrolls or
+   * resizes; a rect or a point stays where it is in the viewport. Without a
+   * `trigger` it is a controlled panel (`open`) - Escape, and the focus
+   * leaving the panel, still close it, and give the focus back to where it
+   * was when it opened. Returning `null` places it at the trigger.
+   */
+  anchor?: PopoverAnchor;
+  /**
+   * Shows an arrow on the edge of the panel, pointing at the center of the
+   * trigger (or the `anchor`) - it follows when the panel flips to the other
+   * side or is moved into the viewport. It takes the colors of the panel.
+   */
+  arrow?: boolean;
   /**
    * `click` only: `trigger` is a button itself - a `Button`, an
    * `IconButton`, a `<button>`. The popover's button semantics
@@ -202,6 +318,11 @@ export interface PopoverProps extends Omit<
    * and leaves Enter and Space to the control.
    */
   interactiveTrigger?: boolean;
+  /**
+   * Space between the trigger and the panel, in pixels - 8 by default. Keep
+   * it at 8 or more with an `arrow`, which reaches 7px out of the panel.
+   */
+  offset?: number;
   /** Called when the popover opens or closes. */
   onOpenChange?: (open: boolean) => void;
   /** Controls the open state; leave out to let the popover manage it. */
@@ -216,11 +337,13 @@ export interface PopoverProps extends Omit<
    */
   popupRole?: PopoverPopupRole;
   /**
-   * Side of the trigger the panel opens on. It opens on the other side when
-   * it does not fit and there is more room there; a panel that fits on
-   * neither side is made as tall as the room and scrolls.
+   * Side of the trigger the panel opens on - `start` / `end` are the left
+   * and the right side, the other way round right to left; `end` by default.
+   * It opens on the other side when it does not fit and there is more room
+   * there; a panel that fits on neither side is made as tall as the room and
+   * scrolls. It hides while the trigger is scrolled out of view.
    */
-  position?: "top" | "bottom" | "left" | "right";
+  position?: PopoverPosition;
   /** The element the panel is attached to. */
   trigger?: React.ReactNode;
   /** Open on hover, or toggle on click / Enter / Space. */
@@ -231,12 +354,19 @@ export interface PopoverProps extends Omit<
 
 /**
  * A floating panel attached to a trigger, opened on hover or click. It is
- * rendered in a portal, so no `overflow` container clips it. Tab moves from
- * the trigger into the open panel and out of it to what follows the
- * trigger; Escape closes it and gives the focus back to the trigger.
+ * rendered in a portal (into the `portalContainer` of `UIProvider`), so no
+ * `overflow` container clips it. Tab moves from the trigger into the open
+ * panel and out of it to what follows the trigger; Escape closes it and
+ * gives the focus back to the trigger. `ref` and the other props go to the
+ * wrapper around the trigger (`contentRef` is the panel's); the wrapper -
+ * and a `buttonTrigger` - have `data-state="open"` or `"closed"`, the panel
+ * `data-state="open"` and the `data-side` (`top`, `bottom`, `left`,
+ * `right`) and `data-align` (`start`, `center`, `end`) it is shown at.
  */
 export default function Popover({
-  align = "left",
+  align = "start",
+  anchor,
+  arrow = false,
   buttonTrigger = false,
   className,
   contentClassName,
@@ -244,6 +374,7 @@ export default function Popover({
   contentRef,
   children,
   interactiveTrigger = false,
+  offset,
   onBlur,
   onClick,
   onFocus,
@@ -254,14 +385,22 @@ export default function Popover({
   onOpenChange,
   open: controlledOpen,
   popupRole = "dialog",
-  position = "right",
+  position = "end",
+  ref,
   trigger,
   triggerType = "hover",
   width = "200px",
   ...props
 }: PopoverProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
+  // The box of the trigger - or of the `anchor` - the panel is placed at
+  const [triggerRect, setTriggerRect] = useState<AnchorBox | null>(null);
+  // The trigger (or the anchor) is scrolled out of view - the panel hides
+  const [isAnchorHidden, setIsAnchorHidden] = useState(false);
+  // Where the `arrow` is in the positioning box, and the panel's colors
+  const [arrowPlacement, setArrowPlacement] = useState<ArrowPlacement | null>(
+    null,
+  );
   const [isOverflowing, setIsOverflowing] = useState(false);
   // Size of the open panel - decides whether it fits below / above (or to
   // the left / right). The height is the one of its content, also while
@@ -273,6 +412,7 @@ export default function Popover({
   // Correction that keeps the panel inside the viewport
   const [shift, setShift] = useState(NO_SHIFT);
   const isMobile = useIsMobile();
+  const getPortalContainer = usePortalContainer();
 
   const popoverRef = useRef<HTMLDivElement>(null);
   const internalContentRef = useRef<HTMLDivElement>(null);
@@ -281,8 +421,34 @@ export default function Popover({
   // the panel, whose events bubble through it - that has not ended yet
   const pressedInsideRef = useRef(false);
   // The writing direction of the trigger, for the panel - a portal in the
-  // body - when it differs from the page's (`dir="rtl"` on a part of it)
+  // body - when it differs from the one of the element the panel is
+  // rendered into (`dir="rtl"` on a part of the page)
   const [direction, setDirection] = useState<"ltr" | "rtl">();
+  // The trigger is right to left - `start` / `end` are the other way round
+  const [isRtl, setIsRtl] = useState(false);
+  // The ancestors that clip the element the panel is placed at - read once
+  // for it (see getClippingAncestors)
+  const clipsRef = useRef<{ clips: Element[]; element: Element | null }>({
+    clips: [],
+    element: null,
+  });
+  // The anchor of the last render, read as the page scrolls
+  const anchorRef = useRef(anchor);
+  // Where the panel is rendered, as of the last render - read as it opens
+  const portalContainerRef = useRef(getPortalContainer);
+
+  useLayoutEffect(() => {
+    anchorRef.current = anchor;
+    portalContainerRef.current = getPortalContainer;
+  });
+
+  const gap = offset ?? PANEL_GAP;
+  const physicalPosition = resolveSide(position, isRtl);
+  // Placed at an anchor, with no trigger of its own - a toolbar over the
+  // selected text, a panel opened at a click. With no trigger to hover, it
+  // does not close as the pointer leaves it.
+  const isAnchorOnly = anchor !== undefined && !trigger;
+  const isHoverMode = triggerType === "hover" && !isAnchorOnly;
   // Hover mode: the pending close after the pointer left the trigger
   const hoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The popover gives the focus back to its trigger - which does not open a
@@ -297,20 +463,20 @@ export default function Popover({
   // `width` (a CSS length).
   const placement = useMemo((): {
     maxHeight?: number;
-    side: NonNullable<PopoverProps["position"]>;
+    side: PhysicalSide;
   } => {
-    if (!triggerRect) return { side: position };
+    if (!triggerRect) return { side: physicalPosition };
 
-    const room = getRoomAround(triggerRect);
-    const isSide = position === "left" || position === "right";
+    const room = getRoomAround(triggerRect, gap);
+    const isSide = physicalPosition === "left" || physicalPosition === "right";
     const needed = isSide
       ? (contentSize?.width ?? (parseFloat(width) || 0))
       : (contentSize?.height ?? 240);
-    const other = OPPOSITE_SIDE[position];
+    const other = OPPOSITE_SIDE[physicalPosition];
     const side =
-      room[position] < needed && room[other] > room[position]
+      room[physicalPosition] < needed && room[other] > room[physicalPosition]
         ? other
-        : position;
+        : physicalPosition;
 
     // Held to the room once measured - a side panel, which is moved up into
     // the viewport, to the height of the viewport
@@ -318,11 +484,14 @@ export default function Popover({
     return contentSize && contentSize.height > heightRoom
       ? { maxHeight: Math.max(heightRoom, 0), side }
       : { side };
-  }, [contentSize, position, triggerRect, width]);
+  }, [contentSize, gap, physicalPosition, triggerRect, width]);
   const effectivePosition = placement.side;
 
   const popoverId = useId();
   const generatedTriggerId = useId();
+  // The panel, before its ref is set and after it is reset - in the document
+  // or the shadow root it is rendered into
+  const findPanel = () => getElementByIdAt(getPortalContainer(), popoverId);
 
   // A button given as the trigger is the trigger itself - with its own id,
   // or the one given to the popover
@@ -361,15 +530,16 @@ export default function Popover({
     return getTabbableElements(wrapper)[0] ?? null;
   }, [isButtonTrigger]);
 
+  // The trigger of this opening - still known once it went away with the
+  // panel, whose focus then goes next to it (see FocusRescue). Of a panel
+  // at an `anchor` with no trigger, where the focus was when it opened.
+  const openedTriggerRef = useRef<HTMLElement | null>(null);
+
   const focusTrigger = useCallback(() => {
     returningFocusRef.current = true;
-    getTriggerFocusTarget()?.focus();
+    (getTriggerFocusTarget() ?? openedTriggerRef.current)?.focus();
     returningFocusRef.current = false;
   }, [getTriggerFocusTarget]);
-
-  // The trigger of this opening - still known once it went away with the
-  // panel, whose focus then goes next to it (see FocusRescue)
-  const openedTriggerRef = useRef<HTMLElement | null>(null);
 
   const getRescueTargets = () =>
     getFocusReturnTargetsWithNeighbors(
@@ -393,19 +563,38 @@ export default function Popover({
         internalContentRef.current ||
         // Mounting: something in the panel takes the focus (`autoFocus`, a
         // ref callback) before the ref of the panel is set
-        document.getElementById(popoverId),
+        findPanel(),
     ],
     getFocusFallback: getTriggerFocusTarget,
   });
 
-  // The panel is attached to the button given as the trigger - the wrapper
-  // around it may be wider (a block) - or to the wrapper
+  // The panel is attached to the `anchor`, to the button given as the
+  // trigger - the wrapper around it may be wider (a block) - or to the
+  // wrapper. It hides while that is scrolled out of view - out of the
+  // viewport, or out of a scrolling container it is in.
   const updateTriggerRect = useCallback(() => {
     const wrapper = popoverRef.current;
     if (!wrapper) return;
 
-    const anchor = (isButtonTrigger && wrapper.firstElementChild) || wrapper;
-    setTriggerRect(anchor.getBoundingClientRect());
+    const given = anchorRef.current;
+    const target: VirtualAnchor =
+      (typeof given === "function" ? given() : given) ??
+      ((isButtonTrigger && wrapper.firstElementChild) || wrapper);
+
+    let clips: Element[] = [];
+    if (target instanceof Element) {
+      if (clipsRef.current.element !== target) {
+        clipsRef.current = {
+          clips: getClippingAncestors(target),
+          element: target,
+        };
+      }
+      clips = clipsRef.current.clips;
+    }
+
+    const box = measureAnchor(target);
+    setTriggerRect((current) => (isSameBox(current, box) ? current : box));
+    setIsAnchorHidden(isOutOfView(box, clips));
   }, [isButtonTrigger]);
 
   // Check if popover overflows the screen on mobile - only once when triggerRect is first set
@@ -419,12 +608,25 @@ export default function Popover({
   useLayoutEffect(() => {
     if (!openState) return;
     updateTriggerRect();
-    openedTriggerRef.current = getTriggerFocusTarget();
+    const active = getActiveElement();
+    openedTriggerRef.current =
+      getTriggerFocusTarget() ??
+      (isAnchorOnly && active instanceof HTMLElement && active !== document.body
+        ? active
+        : null);
 
     const wrapper = popoverRef.current;
     const own = wrapper ? getDirection(wrapper) : undefined;
-    setDirection(own === getDirection(document.body) ? undefined : own);
-  }, [getTriggerFocusTarget, openState, updateTriggerRect]);
+    setIsRtl(own === "rtl");
+    setDirection(
+      own === getDirection(portalContainerRef.current()) ? undefined : own,
+    );
+  }, [getTriggerFocusTarget, isAnchorOnly, openState, updateTriggerRect]);
+
+  // A new `anchor` while open - the selection the toolbar is over changed
+  useLayoutEffect(() => {
+    if (openState && anchor !== undefined) updateTriggerRect();
+  }, [anchor, openState, updateTriggerRect]);
 
   // Reset on closing only - not when the trigger changes while it is open
   useLayoutEffect(() => {
@@ -432,10 +634,13 @@ export default function Popover({
 
     return () => {
       overflowCheckedRef.current = false;
+      clipsRef.current = { clips: [], element: null };
       setTriggerRect(null);
       setContentSize(null);
       setIsOverflowing(false);
       setShift(NO_SHIFT);
+      setIsAnchorHidden(false);
+      setArrowPlacement(null);
     };
   }, [openState]);
 
@@ -587,6 +792,66 @@ export default function Popover({
     triggerRect,
   ]);
 
+  // The arrow points at the center of the anchor from the edge of the panel
+  // facing it - measured where the panel is, before it is painted there: on
+  // the side it flipped to, moved into the viewport, stretched on a phone.
+  // It takes the colors of the panel, also those of a `contentClassName`.
+  useLayoutEffect(() => {
+    const contentElement = contentRef?.current || internalContentRef.current;
+    const box = contentElement?.parentElement;
+    if (!arrow || !isPanelShown || !contentElement || !box || !triggerRect) {
+      return;
+    }
+
+    const panel = contentElement.getBoundingClientRect();
+    const origin = box.getBoundingClientRect();
+    const isVertical =
+      effectivePosition === "top" || effectivePosition === "bottom";
+    const along = isVertical
+      ? getArrowOffset(
+          triggerRect.left,
+          triggerRect.right,
+          panel.left,
+          panel.right,
+          ARROW_INSET,
+        ) - origin.left
+      : getArrowOffset(
+          triggerRect.top,
+          triggerRect.bottom,
+          panel.top,
+          panel.bottom,
+          ARROW_INSET,
+        ) - origin.top;
+    const edge = {
+      bottom: panel.top - origin.top,
+      left: panel.right - origin.left,
+      right: panel.left - origin.left,
+      top: panel.bottom - origin.top,
+    }[effectivePosition];
+    const style = getComputedStyle(contentElement);
+    const next: ArrowPlacement = {
+      backgroundColor: style.backgroundColor || undefined,
+      borderColor: style.borderTopColor || undefined,
+      borderless: parseFloat(style.borderTopWidth) === 0,
+      left: isVertical ? along : edge,
+      top: isVertical ? edge : along,
+    };
+
+    setArrowPlacement((current) =>
+      current && isSameArrow(current, next) ? current : next,
+    );
+  }, [
+    arrow,
+    contentRef,
+    contentSize,
+    effectivePosition,
+    isOverflowing,
+    isPanelShown,
+    placement.maxHeight,
+    shift,
+    triggerRect,
+  ]);
+
   useEffect(() => {
     if (triggerType === "click" && openState) {
       const handleClickOutside = (event: MouseEvent) => {
@@ -658,7 +923,7 @@ export default function Popover({
             contentRef?.current || internalContentRef.current;
           if (
             !interactiveTrigger &&
-            contentElement?.contains(document.activeElement)
+            contentElement?.contains(getActiveElement())
           ) {
             focusTrigger();
           }
@@ -759,27 +1024,41 @@ export default function Popover({
   const positions = {
     top: {
       bridge: "h-2 bottom-full left-0 w-full",
-      popover: {
-        left: "bottom-full left-0",
-        right: "bottom-full right-0",
-      },
+      popover: "bottom-full",
     },
     bottom: {
       bridge: "h-2 top-full left-0 w-full",
-      popover: {
-        left: "top-full left-0",
-        right: "top-full right-0",
-      },
+      popover: "top-full",
     },
     left: {
       bridge: "w-2 right-full top-0 h-full",
-      popover: "right-full top-0",
+      popover: "right-full",
     },
     right: {
       bridge: "w-2 left-full top-0 h-full",
-      popover: "left-full top-0",
+      popover: "left-full",
     },
   };
+
+  const isVerticalPanel =
+    effectivePosition === "top" || effectivePosition === "bottom";
+  // Centered on the trigger by a translate - joined with the shift that
+  // keeps it in the viewport
+  const isCentered = align === "center";
+  const translateX =
+    isCentered && isVerticalPanel ? `calc(${shift.x}px - 50%)` : `${shift.x}px`;
+  const translateY =
+    isCentered && !isVerticalPanel
+      ? `calc(${shift.y}px - 50%)`
+      : `${shift.y}px`;
+  const translate =
+    isCentered || shift.x || shift.y
+      ? `${translateX} ${translateY}`
+      : undefined;
+  // An `offset` of its own - else the gap is a class `contentClassName` can
+  // change
+  const gapStyle =
+    offset === undefined ? {} : { [GAP_MARGIN[effectivePosition]]: offset };
 
   const handleToggle = () => {
     handleOpenChange(!openState);
@@ -819,11 +1098,12 @@ export default function Popover({
     }
 
     // Past the end of the panel - on to what follows the trigger, round to
-    // the first control of a Dialog the popover is the last one of
+    // the first control of a Dialog the popover is the last one of. A panel
+    // at an anchor, with no trigger, gives the focus back to where it was.
     if (tabbables.length > 0 && target !== tabbables.at(-1)) return;
     event.preventDefault();
     handleOpenChange(false);
-    const next = getNextTabStop(wrapper, contentElement);
+    const next = isAnchorOnly ? null : getNextTabStop(wrapper, contentElement);
     if (next) next.focus();
     else focusTrigger();
   };
@@ -843,8 +1123,9 @@ export default function Popover({
     triggerType === "click"
       ? {
           // A trigger with a control of its own stays a plain wrapper, and
-          // so does the one around a button trigger
-          ...(interactiveTrigger || buttonElement
+          // so does the one around a button trigger - and an empty one of a
+          // panel at an anchor
+          ...(interactiveTrigger || buttonElement || isAnchorOnly
             ? {}
             : { ...triggerAriaProps, role: "button", tabIndex: 0 }),
           onClick: (event: React.MouseEvent<HTMLDivElement>) => {
@@ -912,30 +1193,29 @@ export default function Popover({
   const handleMouseEvents: {
     onMouseEnter?: React.MouseEventHandler<HTMLDivElement>;
     onMouseLeave?: React.MouseEventHandler<HTMLDivElement>;
-  } =
-    triggerType === "hover"
-      ? {
-          onMouseEnter: openOnHover,
-          onMouseLeave: () => {
-            cancelHoverClose();
-            hoverCloseTimerRef.current = setTimeout(() => {
-              hoverCloseTimerRef.current = null;
-              const bridgeElement = bridgeRef.current;
-              const contentElement =
-                contentRef?.current || internalContentRef.current;
+  } = isHoverMode
+    ? {
+        onMouseEnter: openOnHover,
+        onMouseLeave: () => {
+          cancelHoverClose();
+          hoverCloseTimerRef.current = setTimeout(() => {
+            hoverCloseTimerRef.current = null;
+            const bridgeElement = bridgeRef.current;
+            const contentElement =
+              contentRef?.current || internalContentRef.current;
 
-              const isHoveringBridge =
-                bridgeElement && bridgeElement.matches(":hover");
-              const isHoveringContent =
-                contentElement && contentElement.matches(":hover");
+            const isHoveringBridge =
+              bridgeElement && bridgeElement.matches(":hover");
+            const isHoveringContent =
+              contentElement && contentElement.matches(":hover");
 
-              if (!isHoveringBridge && !isHoveringContent) {
-                handleOpenChange(false);
-              }
-            }, 50);
-          },
-        }
-      : {};
+            if (!isHoveringBridge && !isHoveringContent) {
+              handleOpenChange(false);
+            }
+          }, 50);
+        },
+      }
+    : {};
 
   // The popover closes once the focus leaves trigger and panel - to the
   // page, not into an overlay opened inside it (the list of an Autocomplete,
@@ -960,7 +1240,7 @@ export default function Popover({
     },
     onFocus: (event: React.FocusEvent<HTMLDivElement>) => {
       if (
-        triggerType === "hover" &&
+        isHoverMode &&
         !returningFocusRef.current &&
         event.target.matches(":focus-visible")
       ) {
@@ -978,7 +1258,7 @@ export default function Popover({
       ? {}
       : contentLabel
         ? { "aria-label": contentLabel, role: "dialog" }
-        : !interactiveTrigger
+        : !interactiveTrigger && !isAnchorOnly
           ? { "aria-labelledby": triggerId, role: "dialog" }
           : { role: "dialog" };
 
@@ -994,11 +1274,23 @@ export default function Popover({
       )
     : props;
 
+  const state = openState ? "open" : "closed";
+  // The edge of the trigger the panel lines up with - the deprecated
+  // `left` / `right` resolved in the writing direction (a side panel starts
+  // at the top for both)
+  const resolvedAlign =
+    align === "left" || align === "right"
+      ? isVerticalPanel && (align === "right") !== isRtl
+        ? "end"
+        : "start"
+      : align;
+
   return (
     <div
       {...handleClick}
       {...wrapperProps}
       {...focusEvents}
+      data-state={state}
       // A button trigger with an id of its own leaves the popover's to it
       id={
         buttonElement
@@ -1029,34 +1321,51 @@ export default function Popover({
         // of the wrapper (a block) toggles nothing
         triggerType === "click" &&
           !buttonElement &&
-          "cursor-pointer rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
+          !isAnchorOnly &&
+          "cursor-pointer rounded-md focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500",
+        // Nothing to show where it is rendered - no gap in a flex row
+        isAnchorOnly && "contents",
         className,
       )}
-      ref={popoverRef}
+      // The popover's own ref, and the one given to it
+      ref={(element) => {
+        popoverRef.current = element;
+        const detachRef = attachRef(ref, element);
+        return () => {
+          popoverRef.current = null;
+          detachRef();
+        };
+      }}
     >
       {buttonElement
         ? cloneElement(buttonElement, {
             ...triggerAriaProps,
             ...pickAriaProps(buttonElement.props),
             ...ariaProps,
+            // The state goes with `aria-expanded`
+            ...{ "data-state": state },
             id: triggerId,
           })
-        : trigger || <div className="absolute inset-0" />}
+        : trigger || (!isAnchorOnly && <div className="absolute inset-0" />)}
 
       {openState &&
         triggerRect &&
         createPortal(
           <ButtonGroupContext value={null}>
             {/* Fixed over the trigger, as big as it - the pointer goes
-                through to the trigger, only the panel and the bridge take it */}
+                through to the trigger, only the panel and the bridge take
+                it. Hidden while the trigger is scrolled out of view. */}
             <div
               className="pointer-events-none relative inline-flex"
               dir={direction}
-              style={getAbsoluteStyles().content}
+              style={{
+                ...getAbsoluteStyles().content,
+                visibility: isAnchorHidden ? "hidden" : undefined,
+              }}
             >
               {/* Hover mode: the pointer crosses the gap to the panel over
                   it. A click popover has none - a click there is outside. */}
-              {triggerType === "hover" && (
+              {isHoverMode && (
                 <div
                   className={cn(
                     "popover-bridge pointer-events-auto absolute z-10",
@@ -1064,22 +1373,28 @@ export default function Popover({
                   )}
                   onMouseEnter={openOnHover}
                   ref={bridgeRef}
+                  style={
+                    offset === undefined
+                      ? undefined
+                      : isVerticalPanel
+                        ? { height: offset }
+                        : { width: offset }
+                  }
                 />
               )}
 
               <div
                 className={cn(
                   "pointer-events-auto absolute z-10 max-h-60 animate-fade-in overflow-y-auto rounded-md border border-neutral-100 bg-surface shadow-md dark:border-neutral-900 dark:bg-surface-dark",
-                  effectivePosition === "top" || effectivePosition === "bottom"
-                    ? positions[effectivePosition].popover[align]
-                    : positions[effectivePosition].popover,
-                  effectivePosition === "top" && "mb-2",
-                  effectivePosition === "bottom" && "mt-2",
-                  effectivePosition === "left" && "mr-2",
-                  effectivePosition === "right" && "ml-2",
-                  isMobile && isOverflowing && "right-0 left-0 mx-2 w-auto",
+                  positions[effectivePosition].popover,
+                  ALIGN_CLASSES[isVerticalPanel ? "vertical" : "side"][align],
+                  offset === undefined && GAP_CLASSES[effectivePosition],
+                  isMobile && isOverflowing && "inset-x-0 mx-2 w-auto",
                   contentClassName,
                 )}
+                data-align={resolvedAlign}
+                data-side={effectivePosition}
+                data-state="open"
                 id={popoverId}
                 // A click in the panel stays in it - through the portal it would
                 // reach the parents of the popover, and a pick in a menu must not
@@ -1088,35 +1403,52 @@ export default function Popover({
                 // miss it too; a capture listener sees it.
                 onClick={(event) => event.stopPropagation()}
                 onMouseEnter={() => {
-                  if (triggerType === "hover") openOnHover();
+                  if (isHoverMode) openOnHover();
                 }}
                 ref={contentRef || internalContentRef}
                 {...contentAriaProps}
                 style={
                   isMobile && isOverflowing
-                    ? undefined
+                    ? gapStyle
                     : {
+                        ...gapStyle,
                         maxHeight: placement.maxHeight,
                         minWidth: width,
-                        translate:
-                          shift.x || shift.y
-                            ? `${shift.x}px ${shift.y}px`
-                            : undefined,
+                        translate,
                       }
                 }
               >
                 <OverlayContext value={childContext}>{children}</OverlayContext>
                 <FocusRescue
+                  findPanel={findPanel}
                   getReturnTargets={
                     interactiveTrigger ? undefined : getRescueTargets
                   }
                   onRescue={rescueFocus}
-                  panelId={popoverId}
                 />
               </div>
+
+              {/* Over the edge of the panel, whose border it interrupts */}
+              {arrow && arrowPlacement && (
+                <div
+                  aria-hidden="true"
+                  className={cn(
+                    "popover-arrow pointer-events-none absolute z-20 size-2.5 rotate-45 animate-fade-in border-neutral-100 bg-surface dark:border-neutral-900 dark:bg-surface-dark",
+                    ARROW_BORDERS[effectivePosition],
+                  )}
+                  style={{
+                    backgroundColor: arrowPlacement.backgroundColor,
+                    borderColor: arrowPlacement.borderColor,
+                    borderWidth: arrowPlacement.borderless ? 0 : undefined,
+                    left: arrowPlacement.left,
+                    top: arrowPlacement.top,
+                    translate: "-50% -50%",
+                  }}
+                />
+              )}
             </div>
           </ButtonGroupContext>,
-          document.body,
+          getPortalContainer(),
         )}
     </div>
   );

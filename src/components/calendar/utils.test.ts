@@ -255,6 +255,26 @@ describe("revealFocus", () => {
     expect(scroller.scrollLeft).toBe(397);
   });
 
+  it("keeps a slot out from under the time column on the right of a right-to-left view", () => {
+    const getComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
+      const style = getComputedStyle(element);
+      return new Proxy(style, {
+        get: (target, property) =>
+          property === "direction" ? "rtl" : Reflect.get(target, property),
+      });
+    });
+    // Its right 10px under the column of 60px at the right edge
+    const { element, scroller } = setup({ left: 450, top: 100 });
+    revealFocus(element, scroller, 80, 60);
+    expect(scroller.scrollLeft).toBe(310);
+
+    // At the left edge nothing covers it
+    const other = setup({ left: 0, top: 100 });
+    revealFocus(other.element, other.scroller, 80, 60);
+    expect(other.scroller.scrollLeft).toBe(300);
+  });
+
   it("leaves a press alone - a scroll would move the view under the pointer", () => {
     const { element, scroller } = setup({ left: 50, top: 60 }, false);
     revealFocus(element, scroller, 80, 60);

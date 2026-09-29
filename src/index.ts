@@ -28,15 +28,24 @@ export {
   type StaticAutocompleteProps,
 } from "./components/autocomplete";
 export { normalizeLoadOptionsResult } from "./components/autocomplete/load-options";
+export { defaultFilterOptions } from "./components/autocomplete/filter-options";
 export {
   default as Avatar,
+  type AvatarColor,
   type AvatarProps,
+  type AvatarShape,
   type AvatarSize,
 } from "./components/avatar";
 export {
   default as AvatarGroup,
   type AvatarGroupProps,
 } from "./components/avatar-group";
+export {
+  default as Badge,
+  type BadgeColor,
+  type BadgePlacement,
+  type BadgeProps,
+} from "./components/badge";
 export {
   default as Breadcrumbs,
   type BreadcrumbItem,
@@ -50,11 +59,14 @@ export {
 export {
   default as Calendar,
   type CalendarAgendaPeriod,
+  type CalendarBusinessHours,
   type CalendarEvent,
   type CalendarEventColor,
+  type CalendarEventRenderContext,
   type CalendarProps,
   type CalendarRecurrence,
   type CalendarResource,
+  type CalendarSlotDuration,
   type CalendarView,
   type EventTimeChange,
   type NewEventTimeRange,
@@ -64,6 +76,7 @@ export {
   type VisibleRangeOptions as CalendarVisibleRangeOptions,
 } from "./components/calendar/date-utils";
 export { expandRecurringEvents } from "./components/calendar/recurrence";
+export { default as Card, type CardProps } from "./components/card";
 export { default as Checkbox, type CheckboxProps } from "./components/checkbox";
 export {
   default as CheckboxGroup,
@@ -81,6 +94,12 @@ export {
   default as CollapsibleContent,
   type CollapsibleContentProps,
 } from "./components/collapsible-content";
+export {
+  default as ColorInput,
+  type ColorFormat,
+  type ColorInputProps,
+  type ColorSwatch,
+} from "./components/color-input";
 export {
   default as ColorSchemeScript,
   type ColorSchemeScriptProps,
@@ -113,10 +132,14 @@ export {
   type Column,
   type ColumnEditor,
   type ColumnFilter,
+  type ColumnGroup,
   type ColumnPin,
   type ColumnSummary,
+  type DataTableColumn,
+  type DataTableColumnState,
   type DataTableDensity,
   type DataTableProps,
+  type DataTableSelectionMode,
   type FilteredSelectionConfig,
   type GroupAction,
   type GroupActionSelection,
@@ -136,20 +159,30 @@ export {
   readQueryFromSearch,
   resetPagination,
   setFilter,
+  toFilterParams,
   toggleSort,
   toOffsetParams,
   toRelayVariables,
   writeQueryToSearch,
   type ApplyDataTableQueryOptions,
+  type DataTableFilterValue,
   type DataTableQuery,
+  type DataTableRangeFilter,
+  type DataTableSort,
   type DataTableUrlOptions,
+  type FilterParamsOptions,
   type SortOrder,
+  type ToggleSortOptions,
 } from "./components/data-table/query";
 export {
   default as useDataTableQuery,
   type SetDataTableQuery,
   type UseDataTableQueryOptions,
 } from "./components/data-table/use-data-table-query";
+export {
+  default as DateCalendar,
+  type DateCalendarProps,
+} from "./components/date-calendar";
 export {
   default as DateRangePicker,
   type DateRange,
@@ -161,6 +194,7 @@ export {
   default as DateTimePicker,
   type DateTimePickerChangeEvent,
   type DateTimePickerChangeTarget,
+  type DateTimePickerPreset,
   type DateTimePickerProps,
   type DateTimePickerType,
 } from "./components/datetime-picker";
@@ -228,8 +262,18 @@ export {
   type IconButtonProps,
 } from "./components/icon-button";
 export { default as Input, type InputProps } from "./components/input";
+export {
+  applyMask,
+  type MaskedValue,
+  type MaskToken,
+  type MaskTokens,
+} from "./components/input-mask";
 export { default as Kbd, type KbdProps } from "./components/kbd";
 export { default as Link, type LinkProps } from "./components/link";
+export {
+  default as LoadingOverlay,
+  type LoadingOverlayProps,
+} from "./components/loading-overlay";
 export {
   default as Navbar,
   type NavbarProps,
@@ -248,18 +292,26 @@ export {
 } from "./components/pagination";
 export { default as Panel, type PanelProps } from "./components/panel";
 export {
+  getPasswordStrength,
+  type PasswordStrength,
+} from "./components/password-strength";
+export {
   default as PinInput,
   type PinInputProps,
 } from "./components/pin-input";
 export {
   default as Popover,
+  type PopoverAlign,
+  type PopoverAnchor,
   type PopoverPopupRole,
+  type PopoverPosition,
   type PopoverProps,
 } from "./components/popover";
 export {
   default as Progress,
   CircularProgress,
   type CircularProgressProps,
+  type ProgressColor,
   type ProgressProps,
 } from "./components/progress";
 export {
@@ -268,8 +320,22 @@ export {
   type RadioOption,
 } from "./components/radio-group";
 export {
+  default as RangeCalendar,
+  type RangeCalendarProps,
+} from "./components/range-calendar";
+export {
+  default as Rating,
+  type RatingColor,
+  type RatingProps,
+} from "./components/rating";
+export {
+  default as RequiredMark,
+  type RequiredMarkProps,
+} from "./components/required-mark";
+export {
   default as RichTextEditor,
   type RichTextEditorProps,
+  type RichTextImageUpload,
   type RichTextTool,
   type RichTextToolbarItem,
 } from "./components/rich-text-editor";
@@ -311,6 +377,11 @@ export {
   default as SplitButton,
   type SplitButtonProps,
 } from "./components/split-button";
+export {
+  default as Sparkline,
+  type SparklineColor,
+  type SparklineProps,
+} from "./components/sparkline";
 export { default as Splitter, type SplitterProps } from "./components/splitter";
 export { default as Stat, type StatProps } from "./components/stat";
 export {
@@ -319,6 +390,21 @@ export {
   type StepperStep,
 } from "./components/stepper";
 export { default as Switch, type SwitchProps } from "./components/switch";
+export {
+  default as Table,
+  TableBody,
+  TableCell,
+  TableFoot,
+  TableHead,
+  TableRow,
+  type TableBodyProps,
+  type TableCellProps,
+  type TableDensity,
+  type TableFootProps,
+  type TableHeadProps,
+  type TableProps,
+  type TableRowProps,
+} from "./components/table";
 export {
   default as Tabs,
   type LinkTabItem,
@@ -345,10 +431,16 @@ export {
 } from "./components/toast";
 export { default as Tooltip, type TooltipProps } from "./components/tooltip";
 export {
+  default as TreeSelect,
+  type TreeSelectProps,
+} from "./components/tree-select";
+export {
   default as TreeView,
+  type TreeDropPosition,
   type TreeItem,
   type TreeItemId,
   type TreeItemState,
+  type TreeMove,
   type TreeViewProps,
 } from "./components/tree-view";
 export {
@@ -361,7 +453,13 @@ export {
   default as UIProvider,
   type UIProviderProps,
 } from "./providers/ui-provider";
-export { useLocale, useMessages, useRouter } from "./providers/ui-context";
+export {
+  useLocale,
+  useMessages,
+  usePortalContainer,
+  useRouter,
+  type PortalContainer,
+} from "./providers/ui-context";
 export { findActiveLink, isActivePath } from "./providers/active-path";
 export {
   type LinkComponent,
@@ -383,14 +481,19 @@ export {
   type SnackbarApi,
   type SnackbarId,
   type SnackbarOptions,
+  type SnackbarPosition,
   type SnackbarPromiseMessages,
+  type SnackbarUpdate,
 } from "./providers/snackbar-context";
 export {
   default as ConfirmProvider,
   type ConfirmProviderProps,
 } from "./providers/confirm-provider";
 export {
+  useAlert,
   useConfirm,
+  type AlertFunction,
+  type AlertOptions,
   type ConfirmFunction,
   type ConfirmOptions,
 } from "./providers/confirm-context";
@@ -463,6 +566,7 @@ export { default as removeDiacritics } from "./utils/remove-diacritics";
 export {
   default as sanitizeRichText,
   isSafeHref,
+  isSafeImageSrc,
   type RichTextFormat,
   type SanitizeRichTextOptions,
 } from "./utils/sanitize-rich-text";

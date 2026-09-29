@@ -1,6 +1,17 @@
-import type { Column, ColumnPin, DataTableDensity } from "./types";
-import { useCallback, useMemo } from "react";
-import useTableState from "./use-table-state";
+import type {
+  Column,
+  ColumnPin,
+  DataTableColumnState,
+  DataTableDensity,
+} from "./types";
+import { useCallback, useMemo, useState } from "react";
+import usePendingValue from "./use-pending-value";
+import useTableState, {
+  EMPTY_TABLE_STATE,
+  fromColumnState,
+  toColumnState,
+  type TableState,
+} from "./use-table-state";
 
 /** The record without `key`. */
 function withoutKey<V>(record: Record<string, V>, key: string) {
@@ -9,11 +20,114 @@ function withoutKey<V>(record: Record<string, V>, key: string) {
   return result;
 }
 
+/** The fields of the settings that are about the columns. */
+const COLUMN_FIELDS = [
+  "columnOrder",
+  "columnPinning",
+  "columnVisibility",
+  "columnWidths",
+] as const;
+
+const isSameState = (a: TableState, b: TableState) =>
+  a === b || JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * The order with the columns of each group next to each other - where the
+ * first of them is. A saved order from before the groups may tear them
+ * apart.
+ */
+function keepGroupsTogether(
+  order: string[],
+  groupOf: Readonly<Record<string, string>>,
+) {
+  if (Object.keys(groupOf).length === 0) return order;
+
+  const result: string[] = [];
+  const placedGroups = new Set<string>();
+
+  for (const key of order) {
+    const group = groupOf[key];
+    if (group === undefined) {
+      result.push(key);
+    } else if (!placedGroups.has(group)) {
+      placedGroups.add(group);
+      result.push(...order.filter((candidate) => groupOf[candidate] === group));
+    }
+  }
+
+  return result;
+}
+
+export interface ColumnManagementOptions {
+  /** Controlled column settings - see `DataTableProps.columnState`. */
+  columnState?: DataTableColumnState;
+  /** Initial column settings of an uncontrolled table. */
+  defaultColumnState?: DataTableColumnState;
+  /** The key of the group of each grouped column - they move within it. */
+  groupOf?: Readonly<Record<string, string>>;
+  /** Called with the column settings whenever the user changes them. */
+  onColumnStateChange?: (state: DataTableColumnState) => void;
+}
+
+const NO_GROUPS: Readonly<Record<string, string>> = {};
+
 export default function useColumnManagement<T>(
   columns: Column<T>[],
   tableId?: string,
+  {
+    columnState,
+    defaultColumnState,
+    groupOf = NO_GROUPS,
+    onColumnStateChange,
+  }: ColumnManagementOptions = {},
 ) {
-  const [state, updateState] = useTableState(tableId);
+  // The first `defaultColumnState` - it is the initial state only
+  const [initialState] = useState<TableState>(() =>
+    defaultColumnState
+      ? { ...fromColumnState(defaultColumnState), density: null }
+      : EMPTY_TABLE_STATE,
+  );
+  const [storedState, updateStoredState] = useTableState(tableId, initialState);
+
+  // A controlled `columnState` wins over the stored columns - the row
+  // density stays stored
+  const isControlled = columnState !== undefined;
+  const controlledKey = isControlled ? JSON.stringify(columnState) : null;
+  const state = useMemo<TableState>(
+    () =>
+      controlledKey === null
+        ? storedState
+        : {
+            ...fromColumnState(
+              JSON.parse(controlledKey) as DataTableColumnState,
+            ),
+            density: storedState.density,
+          },
+    [controlledKey, storedState],
+  );
+
+  // Several changes may come in a row (a reset changes the layout and the
+  // visibility) - each builds on the one before, also before the owner of a
+  // controlled state shows it
+  const latestState = usePendingValue(state, isSameState);
+
+  const updateState = useCallback(
+    (changes: Partial<TableState>) => {
+      const next = { ...latestState.get(), ...changes };
+      latestState.set(next);
+
+      if (!isControlled) {
+        updateStoredState(changes);
+      } else if (changes.density !== undefined) {
+        updateStoredState({ density: changes.density });
+      }
+
+      if (COLUMN_FIELDS.some((field) => field in changes)) {
+        onColumnStateChange?.(toColumnState(next));
+      }
+    },
+    [isControlled, latestState, onColumnStateChange, updateStoredState],
+  );
 
   // The user's choices over the columns' defaults
   const columnVisibility = useMemo(
@@ -46,8 +160,11 @@ export default function useColumnManagement<T>(
     const saved = state.columnOrder.filter((key) => known.has(key));
     const placed = new Set(saved);
 
-    return [...saved, ...keys.filter((key) => !placed.has(key))];
-  }, [columns, state.columnOrder]);
+    return keepGroupsTogether(
+      [...saved, ...keys.filter((key) => !placed.has(key))],
+      groupOf,
+    );
+  }, [columns, groupOf, state.columnOrder]);
 
   const setColumnOrder = useCallback(
     (newOrder: string[] | ((prev: string[]) => string[])) => {
@@ -160,8 +277,14 @@ export default function useColumnManagement<T>(
 
       const draggedColumnKey = event.dataTransfer.getData("columnKey");
 
-      // Something else dropped here - a file, a text, a column of another table
-      if (!columnOrder.includes(draggedColumnKey)) return;
+      // Something else dropped here - a file, a text, a column of another
+      // table - or a column of another group, which it stays in
+      if (
+        !columnOrder.includes(draggedColumnKey) ||
+        groupOf[draggedColumnKey] !== groupOf[targetColumnKey]
+      ) {
+        return;
+      }
 
       if (draggedColumnKey !== targetColumnKey) {
         setColumnOrder((prevOrder) => {
@@ -176,16 +299,33 @@ export default function useColumnManagement<T>(
         });
       }
     },
-    [columnOrder, setColumnOrder],
+    [columnOrder, groupOf, setColumnOrder],
   );
 
-  /** Moves a column one place up (`-1`) or down (`1`) - the arrow keys. */
+  /**
+   * Moves a column one place up (`-1`) or down (`1`) - the arrow keys. A
+   * column of a group stays in it; a column of none steps over a group
+   * as a whole.
+   */
   const moveColumn = useCallback(
     (columnKey: string, offset: -1 | 1) => {
       setColumnOrder((prevOrder) => {
         const from = prevOrder.indexOf(columnKey);
-        const to = from + offset;
+        let to = from + offset;
         if (from === -1 || to < 0 || to >= prevOrder.length) return prevOrder;
+
+        const group = groupOf[columnKey];
+        const passedGroup = groupOf[prevOrder[to]];
+        if (group !== undefined && passedGroup !== group) return prevOrder;
+        if (group === undefined && passedGroup !== undefined) {
+          while (
+            to + offset >= 0 &&
+            to + offset < prevOrder.length &&
+            groupOf[prevOrder[to + offset]] === passedGroup
+          ) {
+            to += offset;
+          }
+        }
 
         const newOrder = [...prevOrder];
         newOrder.splice(from, 1);
@@ -193,7 +333,7 @@ export default function useColumnManagement<T>(
         return newOrder;
       });
     },
-    [setColumnOrder],
+    [groupOf, setColumnOrder],
   );
 
   const visibleColumns = useMemo(() => {

@@ -4,10 +4,14 @@ import cn from "../../utils/cn";
 import { getRangeMessage, isInRange, parseDisplayValue } from "./parse";
 import PickerField from "./picker-field";
 import usePickerPopup from "./use-picker-popup";
+import {
+  isoWeekStart,
+  isWeekUnavailable,
+  type DateDisabledPredicate,
+} from "./availability";
 import { formatMessage } from "../../i18n/format";
 import {
   addDays,
-  dateOf,
   formatPattern,
   formatPlaceholder,
   getISOWeek,
@@ -30,6 +34,11 @@ type ParsedWeek = ReturnType<typeof parseWeek>;
 interface WeekGridProps {
   /** Moves the focus to the week - the popup was opened by a key. */
   autoFocus: boolean;
+  /**
+   * Days that cannot be picked - a week without any other can take the
+   * focus but not be picked.
+   */
+  isDateDisabled?: DateDisabledPredicate;
   /** Latest selectable week. */
   max: ParsedWeek;
   /** Earliest selectable week. */
@@ -42,22 +51,21 @@ interface WeekGridProps {
   selected: ParsedWeek;
 }
 
-/** Monday of the ISO week `week` of `year`. */
-const isoWeekStart = (year: number, week: number) => {
-  // January 4th always lies in the first week
-  const monday = dateOf(year, 0, 4);
-  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
-  return addDays(monday, (week - 1) * 7);
-};
-
 /** A comparable key of an ISO week. */
 const weekKey = (year: number, week: number) => year * 100 + week;
 
 // Weeks in a row of the grid
 const COLUMNS = 4;
 
+const isRtl = (element: Element) =>
+  getComputedStyle(element).direction === "rtl";
+
+const yearButtonClassName =
+  "rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700";
+
 function WeekGrid({
   autoFocus,
+  isDateDisabled,
   max,
   min,
   onEscape,
@@ -161,16 +169,18 @@ function WeekGrid({
     if (tabStop === null) return;
 
     let target: { week: number; year: number };
+    // Left is forward in a right-to-left page - the weeks run from the right
+    const forward = isRtl(event.currentTarget) ? -1 : 1;
 
     switch (event.key) {
       case "ArrowDown":
         target = weekFromTabStop(tabStop, COLUMNS);
         break;
       case "ArrowLeft":
-        target = weekFromTabStop(tabStop, -1);
+        target = weekFromTabStop(tabStop, -forward);
         break;
       case "ArrowRight":
-        target = weekFromTabStop(tabStop, 1);
+        target = weekFromTabStop(tabStop, forward);
         break;
       case "ArrowUp":
         target = weekFromTabStop(tabStop, -COLUMNS);
@@ -221,22 +231,23 @@ function WeekGrid({
       <div className="mb-2 flex items-center justify-between">
         <button
           aria-label={messages.previousYear}
-          className="rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+          className={yearButtonClassName}
           onClick={() => setYear(year - 1)}
           type="button"
         >
-          <ChevronLeft size={20} />
+          {/* Pointing the other way in a right-to-left page */}
+          <ChevronLeft className="rtl:-scale-x-100" size={20} />
         </button>
         <div aria-live="polite" className="text-sm font-semibold">
           {year}
         </div>
         <button
           aria-label={messages.nextYear}
-          className="rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+          className={yearButtonClassName}
           onClick={() => setYear(year + 1)}
           type="button"
         >
-          <ChevronRight size={20} />
+          <ChevronRight className="rtl:-scale-x-100" size={20} />
         </button>
       </div>
 
@@ -254,29 +265,54 @@ function WeekGrid({
                   selected?.week === week && selected.year === year;
                 const isFocused = tabStop === week;
                 const disabled = isDisabled(week);
+                // Every day of it disabled - it takes the focus, like an
+                // unavailable day
+                const unavailable =
+                  !disabled &&
+                  !!isDateDisabled &&
+                  isWeekUnavailable(isoWeekStart(year, week), isDateDisabled);
+                const canPick = !disabled && !unavailable;
 
                 return (
                   <div
-                    aria-disabled={disabled || undefined}
+                    aria-disabled={!canPick || undefined}
                     aria-selected={isSelected}
+                    data-disabled={!canPick ? "" : undefined}
+                    data-highlighted={isFocused ? "" : undefined}
+                    data-selected={isSelected ? "" : undefined}
                     key={week}
                     role="gridcell"
                   >
                     <button
+                      aria-disabled={unavailable || undefined}
                       aria-label={formatMessage(messages.week, { week, year })}
                       className={cn(
-                        "w-full rounded p-1.5 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700",
-                        isSelected &&
-                          "bg-primary-600 text-white hover:bg-primary-700 dark:hover:bg-primary-700",
+                        "w-full rounded p-1.5 text-sm",
+                        // Forced colors (Windows High Contrast) draw no
+                        // background - the system's highlight colors then
+                        isSelected
+                          ? "bg-primary-600 text-white forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]"
+                          : unavailable &&
+                              "text-neutral-500 dark:text-neutral-400",
+                        !canPick && "forced-colors:text-[GrayText]",
+                        canPick &&
+                          (isSelected
+                            ? "hover:bg-primary-700 dark:hover:bg-primary-700"
+                            : "hover:bg-neutral-100 dark:hover:bg-neutral-700"),
+                        // The ring is a shadow - forced colors show the
+                        // outline of `outline-hidden` instead
                         isFocused &&
                           !isSelected &&
-                          "ring-2 ring-primary-500 outline-none",
-                        disabled &&
-                          "cursor-not-allowed opacity-40 hover:bg-transparent dark:hover:bg-transparent",
+                          "ring-2 ring-primary-500 outline-hidden",
+                        unavailable && "line-through",
+                        !canPick && "cursor-not-allowed",
+                        disabled && "opacity-40",
                       )}
                       data-week={week}
                       disabled={disabled}
-                      onClick={() => onSelect(year, week)}
+                      onClick={() => {
+                        if (canPick) onSelect(year, week);
+                      }}
                       onFocus={() => setFocusedWeek(week)}
                       tabIndex={isFocused ? 0 : -1}
                       type="button"
@@ -296,11 +332,15 @@ function WeekGrid({
 
 /** `type="week"` - value `YYYY-Www` (ISO 8601 week). */
 export default function WeekPicker({
+  isDateDisabled,
   max,
   min,
   minuteStep: _minuteStep,
   onValueChange,
   placeholder,
+  // Of the date popup only
+  popupActions: _popupActions,
+  presets: _presets,
   value,
   ...props
 }: CustomPickerProps) {
@@ -352,18 +392,31 @@ export default function WeekPicker({
       pickCount={pickCount}
       placeholder={placeholder}
       popupLabel={messages.selectWeek}
-      rangeMessage={getRangeMessage(
-        messages,
-        selected
-          ? `${padYear(selected.year)}-W${pad2(selected.week)}`
-          : undefined,
-        { max, min },
-        formatValue,
-      )}
+      validityMessage={
+        getRangeMessage(
+          messages,
+          selected
+            ? `${padYear(selected.year)}-W${pad2(selected.week)}`
+            : undefined,
+          { max, min },
+          formatValue,
+        ) ||
+        // A week with no day left - one typed too, which is kept (the form
+        // cannot be submitted with it)
+        (selected &&
+        isDateDisabled &&
+        isWeekUnavailable(
+          isoWeekStart(selected.year, selected.week),
+          isDateDisabled,
+        )
+          ? formatMessage(messages.unavailable, { value: formatValue(value) })
+          : "")
+      }
       value={value}
     >
       <WeekGrid
         autoFocus={openedByKeyboard}
+        isDateDisabled={isDateDisabled}
         max={parseWeek(max)}
         min={parseWeek(min)}
         onEscape={close}

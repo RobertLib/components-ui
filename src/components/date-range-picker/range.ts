@@ -6,16 +6,44 @@ import {
   formatDate,
   isSameDay,
   parseISODate,
+  shiftDay,
   startOfWeek,
   toISODate,
 } from "../../utils/date";
+import {
+  findDisabledDay,
+  type DateDisabledPredicate,
+} from "../datetime-picker/availability";
 import type { DateRange, DateRangePresetKey } from ".";
 
 /** What stands between the two days of a range in the field. */
 export const RANGE_SEPARATOR = " – ";
 
+/** The presets of `presets={true}`. */
+export const DEFAULT_PRESETS: DateRangePresetKey[] = [
+  "today",
+  "yesterday",
+  "last7Days",
+  "last30Days",
+  "thisMonth",
+  "lastMonth",
+];
+
+/** A whole number of days, at least 1 - `undefined` for no limit. */
+export const toDayLimit = (days: number | undefined) =>
+  days === undefined || !Number.isFinite(days)
+    ? undefined
+    : Math.max(1, Math.round(days));
+
 /** What limits the ranges that can be picked. */
 export interface RangeLimits {
+  /**
+   * A range may have days of `isDateDisabled` between its first and its
+   * last day.
+   */
+  allowDisabledInRange?: boolean;
+  /** Days that cannot be picked - nor lie in a range, see above. */
+  isDateDisabled?: DateDisabledPredicate;
   /** The latest day. */
   max: Date | null;
   /** The most days of a range. */
@@ -71,11 +99,86 @@ export function hasAllowedLength(range: DayRange, limits: RangeLimits) {
   return days >= (limits.minDays ?? 1) && days <= (limits.maxDays ?? Infinity);
 }
 
-/** Whether a range can be picked - inside [`min`, `max`], of an allowed length. */
+/**
+ * Whether a range can be typed - inside [`min`, `max`], of an allowed
+ * length. One over a disabled day is taken, and made invalid (see
+ * `findUnavailableDay`).
+ */
 export const isAllowedRange = (range: DayRange, limits: RangeLimits) =>
   isDayAllowed(range.start, limits) &&
   isDayAllowed(range.end, limits) &&
   hasAllowedLength(range, limits);
+
+/**
+ * The first day of `isDateDisabled` that keeps a range from being picked:
+ * one of its ends, or - unless `allowDisabledInRange` - any day of it.
+ * `null` when there is none.
+ */
+export function findUnavailableDay(
+  { end, start }: DayRange,
+  { allowDisabledInRange, isDateDisabled }: RangeLimits,
+) {
+  if (!isDateDisabled) return null;
+  if (!allowDisabledInRange) return findDisabledDay(start, end, isDateDisabled);
+  if (isDateDisabled(start)) return start;
+  return isDateDisabled(end) ? end : null;
+}
+
+/**
+ * `range` without the disabled days at its ends - its first and last day
+ * that can be picked. `null` when it has none.
+ */
+export function trimDisabledEnds(
+  range: DayRange,
+  isDateDisabled: DateDisabledPredicate | undefined,
+): DayRange | null {
+  if (!isDateDisabled) return range;
+
+  const start = findDisabledDay(
+    range.start,
+    range.end,
+    (day) => !isDateDisabled(day),
+  );
+  if (!start) return null;
+  let end = range.end;
+  while (end > start && isDateDisabled(end)) end = shiftDay(end, -1);
+  return { end, start };
+}
+
+// How far from the first day picked the days are looked through for one
+// that blocks the range - ten years
+const MAX_BLOCKER_DISTANCE = 3660;
+
+/**
+ * The nearest days of `isDateDisabled` before and after `anchor` - a range
+ * starting at `anchor` cannot reach over them unless `allowDisabledInRange`.
+ * Looked for as far as a range may reach: `minDays` / `maxDays`, `min` /
+ * `max`, or ten years. `null` for no limit on that side.
+ */
+export function findBlockingDays(anchor: Date, limits: RangeLimits) {
+  const { allowDisabledInRange, isDateDisabled, max, maxDays, min } = limits;
+  if (!isDateDisabled || allowDisabledInRange) {
+    return { after: null, before: null };
+  }
+
+  const distance = Math.min(maxDays ?? Infinity, MAX_BLOCKER_DISTANCE);
+  const find = (direction: 1 | -1) => {
+    let day = anchor;
+    for (let step = 1; step < distance; step++) {
+      day = shiftDay(day, direction);
+      if (
+        (direction > 0 && max && day > max) ||
+        (direction < 0 && min && day < min)
+      ) {
+        return null;
+      }
+      if (isDateDisabled(day)) return day;
+    }
+    return null;
+  };
+
+  return { after: find(1), before: find(-1) };
+}
 
 /** `range` cut to [`min`, `max`] - `null` when nothing of it is left. */
 export function clampRange(

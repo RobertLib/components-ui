@@ -129,16 +129,19 @@ export default function AgendaView({
   events,
   getEventColor,
   getEventLabel,
+  hiddenDays,
   isEventClickable,
   loading,
   maxDate,
   minDate,
   onDateClick,
   onEventClick,
+  renderEvent,
   renderEventActions,
   renderEventIcon,
   resources,
   stickyHeader = true,
+  view,
   visibleRange,
 }: CalendarViewProps) {
   const locale = useLocale();
@@ -161,8 +164,9 @@ export default function AgendaView({
       addCalendarDays(first, index).getTime() < rangeEnd;
       index++
     ) {
+      // Not the days the calendar leaves out (`hiddenDays`)
       const date = getCalendarDay(first, index);
-      if (!date) continue;
+      if (!date || hiddenDays.has(date.getDay())) continue;
       const items = events
         .filter((event) => isOnDay(event, date))
         .map((event) => toAgendaItem(event, date, locale, timeFormat));
@@ -170,7 +174,7 @@ export default function AgendaView({
     }
 
     return result;
-  }, [events, locale, rangeEnd, rangeStart]);
+  }, [events, hiddenDays, locale, rangeEnd, rangeStart]);
 
   const resourceTitles = useMemo(
     () => new Map(resources?.map((resource) => [resource.id, resource.title])),
@@ -218,7 +222,7 @@ export default function AgendaView({
         <EventTile
           actions={renderEventActions?.(event)}
           // In the row, not over its text
-          actionsClassName="relative! top-auto! right-auto! ml-2 shrink-0 self-center"
+          actionsClassName="relative! end-auto! top-auto! ms-2 shrink-0 self-center"
           className={cn(
             "relative flex px-3 py-2 text-sm",
             clickable
@@ -251,7 +255,22 @@ export default function AgendaView({
             <span className="block font-medium break-words text-neutral-900 dark:text-neutral-100">
               {/* Optional custom icon renderer */}
               {renderEventIcon?.(event)}
-              <EventTitle event={event}>{event.title}</EventTitle>
+              {renderEvent ? (
+                // The label of the tile says it all to screen readers
+                <span aria-hidden="true">
+                  {renderEvent(event, {
+                    allDay: !!event.allDay,
+                    color: getEventColor(event),
+                    compact: false,
+                    dragging: false,
+                    timeText: time,
+                    title: <EventTitle event={event}>{event.title}</EventTitle>,
+                    view,
+                  })}
+                </span>
+              ) : (
+                <EventTitle event={event}>{event.title}</EventTitle>
+              )}
             </span>
             {details && (
               <span
@@ -312,7 +331,8 @@ export default function AgendaView({
                   {onDateClick && !disabled ? (
                     <button
                       aria-current={isToday ? "date" : undefined}
-                      className="rounded-sm text-left hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                      className="rounded-sm text-start hover:underline focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500"
+                      data-current={isToday ? "" : undefined}
                       id={id}
                       onClick={() => onDateClick(date)}
                       type="button"
@@ -320,7 +340,11 @@ export default function AgendaView({
                       {label}
                     </button>
                   ) : (
-                    <span aria-current={isToday ? "date" : undefined} id={id}>
+                    <span
+                      aria-current={isToday ? "date" : undefined}
+                      data-current={isToday ? "" : undefined}
+                      id={id}
+                    >
                       {label}
                     </span>
                   )}

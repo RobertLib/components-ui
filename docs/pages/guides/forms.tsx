@@ -69,6 +69,7 @@ function ProjectForm() {
             label="Owner"
             loadOptions={loadUsers}
             onChange={field.onChange}
+            ref={field.ref}
             value={field.value}
           />
         )}
@@ -103,6 +104,20 @@ function ProjectForm() {
     </form>
   );
 }`;
+
+const stateStyles = `// The data attributes of the states, for Tailwind's data-* variants
+<Checkbox className="data-[state=indeterminate]:opacity-75" label="All" />
+<Input className="data-invalid:bg-danger-50" error={error} label="Email" />
+<RadioGroup
+  className="[&_[data-selected]]:font-semibold"
+  label="Plan"
+  options={plans}
+  variant="card"
+/>
+
+// Or in a stylesheet
+[role="combobox"][data-state="open"] { border-color: var(--color-primary-500); }
+[role="option"][data-highlighted] { background: var(--color-primary-50); }`;
 
 const thirdParty = `import { Controller } from "react-hook-form";
 import PhoneInput from "some-phone-input-library";
@@ -203,6 +218,101 @@ export default function FormsGuide() {
         <CodeBlock code={thirdParty} />
       </Section>
 
+      <Section title="Refs and attributes">
+        <Prose>
+          <p>
+            The <code>ref</code> of a field is the element that takes the focus,
+            so that <code>field.ref</code> of React Hook Form&apos;s{" "}
+            <code>Controller</code> focuses the field with an error: the input,
+            select or textarea of the text fields, the combobox of{" "}
+            <code>Autocomplete</code>, <code>TreeSelect</code> and the pickers,
+            the editable element of <code>RichTextEditor</code>, the first cell
+            of <code>PinInput</code>, the first thumb of <code>Slider</code> and
+            the slider of <code>Rating</code>. Groups of options -{" "}
+            <code>RadioGroup</code>, <code>CheckboxGroup</code>,{" "}
+            <code>SegmentedControl</code>, <code>DateCalendar</code>,{" "}
+            <code>RangeCalendar</code> and <code>FileUpload</code> - point it at
+            the group element.
+          </p>
+          <p>
+            Every field passes the native attributes it does not use itself -{" "}
+            <code>data-*</code>, <code>style</code>, <code>title</code>, event
+            handlers: the fields of one native control to that control, the
+            groups to the group element, <code>Slider</code> and{" "}
+            <code>PinInput</code> to the element around the thumbs or the cells,{" "}
+            <code>Autocomplete</code> and <code>TreeSelect</code> to their
+            wrapper. A handler of yours runs before the field&apos;s own - a{" "}
+            <code>preventDefault()</code> in it keeps the field from handling a
+            key.
+          </p>
+        </Prose>
+      </Section>
+
+      <Section title="Sizes">
+        <Prose>
+          <p>
+            <code>dim</code> - <code>xs</code>, <code>sm</code>, <code>md</code>{" "}
+            (default) and <code>lg</code> - sizes every field. The fields that
+            look like an <code>Input</code> are 22, 26, 34 and 46 px high, so
+            fields of one <code>dim</code> line up in a row - a small one with a{" "}
+            <code>size=&quot;sm&quot;</code> <code>Button</code>, a medium one
+            with the default button. The boxes of the checkboxes and radios, the
+            switches, stars, cells and thumbs grow with the <code>dim</code>{" "}
+            too.
+          </p>
+        </Prose>
+      </Section>
+
+      <Section title="Styling the states">
+        <Prose>
+          <p>
+            The fields mark their states with data attributes, on the element
+            with the ARIA state - for your styles and tests:
+          </p>
+          <ul>
+            <li>
+              <code>data-state</code> - <code>checked</code>,{" "}
+              <code>unchecked</code> or <code>indeterminate</code> on a{" "}
+              <code>Checkbox</code>, a <code>Switch</code> and the options of
+              the groups; <code>open</code> or <code>closed</code> on the field
+              that opens a popup (<code>Autocomplete</code>, the pickers,{" "}
+              <code>TreeSelect</code>, the swatch of <code>ColorInput</code>,{" "}
+              <code>TagsInput</code> with suggestions).
+            </li>
+            <li>
+              <code>data-selected</code> - a selected option, day, segment or
+              card; <code>data-highlighted</code> - the option or the day the
+              keys are on.
+            </li>
+            <li>
+              <code>data-disabled</code>, <code>data-invalid</code> (an{" "}
+              <code>error</code>, or a value the field refuses - out of{" "}
+              <code>min</code> / <code>max</code>, a disabled day) and{" "}
+              <code>data-readonly</code>; <code>data-orientation</code> on the
+              groups and sliders.
+            </li>
+          </ul>
+          <p>
+            The flags are present and empty, or absent - never{" "}
+            <code>&quot;false&quot;</code>, so <code>data-invalid:</code> and{" "}
+            <code>[data-selected]</code> match them.
+          </p>
+        </Prose>
+        <CodeBlock code={stateStyles} />
+        <Callout>
+          <p>
+            In forced colors (Windows High Contrast), which leave out
+            backgrounds and shadows, the fields keep their states: the focus
+            shows as an outline instead of the ring, a switch that is on, a
+            picked segment, card, day or option take the system&apos;s highlight
+            color, an invalid field a thicker border, and a color swatch keeps
+            its color. Style a focus of your own with{" "}
+            <code>outline-hidden</code> rather than <code>outline-none</code> to
+            keep it there.
+          </p>
+        </Callout>
+      </Section>
+
       <Section title="Server validation errors">
         <Prose>
           <p>
@@ -267,9 +377,10 @@ export default function FormsGuide() {
             <code>value</code> property. Options of a multiple select picked one
             by one, or a <code>value</code> attribute set, show only after the
             next change - hence <code>Controller</code> for a multiple{" "}
-            <code>Select</code>. The <code>ref</code> of{" "}
-            <code>NumberInput</code> is its visible text field - for{" "}
-            <code>Controller</code> to focus it on an error.
+            <code>Select</code>. Pass <code>field.ref</code> on as the{" "}
+            <code>ref</code> - of <code>NumberInput</code> its visible text
+            field, of <code>Autocomplete</code> its combobox - for{" "}
+            <code>Controller</code> to focus the field on an error.
           </p>
         </Callout>
       </Section>

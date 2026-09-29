@@ -1,4 +1,4 @@
-import { SegmentedControl } from "components-ui";
+import { Input, SegmentedControl } from "components-ui";
 
 const statuses = [
   { label: "All", value: "all" },
@@ -7,26 +7,25 @@ const statuses = [
   { disabled: true, label: "Archived", value: "archived" },
 ];
 
+const dims = ["xs", "sm", "md", "lg"] as const;
+
 export default function Sizes() {
   return (
     <div className="space-y-3">
-      <SegmentedControl
-        aria-label="Status (small)"
-        defaultValue="open"
-        options={statuses}
-        size="sm"
-      />
-      <SegmentedControl
-        aria-label="Status (medium)"
-        defaultValue="open"
-        options={statuses}
-      />
-      <SegmentedControl
-        aria-label="Status (large)"
-        defaultValue="open"
-        options={statuses}
-        size="lg"
-      />
+      {/* As high as an Input of the same dim - side by side in a toolbar */}
+      {dims.map((dim) => (
+        <div className="flex flex-wrap items-center gap-2" key={dim}>
+          <SegmentedControl
+            aria-label={`Status (${dim})`}
+            defaultValue="open"
+            dim={dim}
+            options={statuses}
+          />
+          <div className="w-40">
+            <Input aria-label={`Search (${dim})`} dim={dim} placeholder={dim} />
+          </div>
+        </div>
+      ))}
       <SegmentedControl
         aria-label="Status (full width)"
         defaultValue="all"
@@ -38,6 +37,13 @@ export default function Sizes() {
         defaultValue="paid"
         disabled
         options={statuses}
+      />
+      <SegmentedControl
+        aria-label="Status (read-only)"
+        defaultValue="paid"
+        name="status"
+        options={statuses}
+        readOnly
       />
     </div>
   );

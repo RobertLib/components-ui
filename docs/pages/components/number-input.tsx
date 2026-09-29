@@ -112,6 +112,21 @@ export default function NumberInputPage() {
         name="number-input/sizes"
         title="Sizes and states"
       />
+      <Example
+        description={
+          <p>
+            <code>clearable</code> adds a button that empties the field while it
+            has a value - <code>onChange</code> gets <code>null</code> and the
+            focus moves into the field. A <code>readOnly</code> field shows its
+            value without the step buttons and the clear button; the keys do not
+            step it, it is still submitted, and it carries{" "}
+            <code>data-readonly</code> for your styles. The <code>label</code>{" "}
+            takes content, as that of <code>Input</code>.
+          </p>
+        }
+        name="number-input/clearable"
+        title="Clear button and read-only"
+      />
 
       <Section title="Accessibility">
         <Prose>

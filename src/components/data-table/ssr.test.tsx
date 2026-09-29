@@ -84,4 +84,79 @@ describe("DataTable on the server", () => {
       container.remove();
     }
   });
+
+  it("renders groups, links, range filters and a selection, then hydrates them", async () => {
+    const table = (
+      <DataTable
+        clientSide
+        columns={[
+          { key: "name", label: "Name" },
+          {
+            children: [
+              { filter: "dateRange", key: "joined", label: "Joined" },
+              {
+                filter: "numberRange",
+                key: "salary",
+                label: "Salary",
+                sortable: true,
+                summary: "sum",
+              },
+            ],
+            key: "details",
+            label: "Details",
+          },
+          {
+            filter: "multiSelect",
+            filterSelectOptions: [{ label: "Even", value: "even" }],
+            getValue: (row) => (row.id % 2 ? "odd" : "even"),
+            key: "parity",
+            label: "Parity",
+            sortable: true,
+          },
+        ]}
+        data={rows.slice(0, 6)}
+        defaultQuery={{
+          filters: { parity: ["even", "odd"], salary: { from: "1000" } },
+          sort: [
+            { key: "parity", order: "asc" },
+            { key: "salary", order: "desc" },
+          ],
+        }}
+        defaultSelectedIds={[2]}
+        getRowHref={(row) => `/people/${row.id}`}
+        groupBy="parity"
+        selectionMode="single"
+      />
+    );
+
+    vi.stubGlobal("ResizeObserver", undefined);
+    const html = renderToString(table);
+    vi.unstubAllGlobals();
+
+    expect(html).toContain('scope="colgroup"');
+    expect(html).toContain('href="/people/1"');
+    expect(html).toContain("Parity: even");
+    expect(html).toContain("sorted 2 of 2, descending");
+
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.append(container);
+    const onRecoverableError = vi.fn();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    let root: Root | undefined;
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, table, { onRecoverableError });
+      });
+
+      expect(onRecoverableError).not.toHaveBeenCalled();
+      expect(
+        container.querySelectorAll('tbody input[type="checkbox"]:checked'),
+      ).toHaveLength(1);
+    } finally {
+      act(() => root?.unmount());
+      container.remove();
+    }
+  });
 });

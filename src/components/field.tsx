@@ -2,7 +2,12 @@ import { useId } from "react";
 import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
+import RequiredMark from "./required-mark";
 import { useMessages } from "../providers/ui-context";
+
+/** Whether a slot renders anything - the `false` of a condition does not. */
+const hasContent = (node: React.ReactNode) =>
+  node !== undefined && node !== null && node !== false && node !== "";
 
 /**
  * What `Field` passes to its control - spread it on the element that takes
@@ -20,6 +25,8 @@ export interface FieldControlProps {
   "aria-labelledby"?: string;
   /** `"true"` for a `required` field. */
   "aria-required"?: "true";
+  /** Present (empty) while the field has an `error` - for your styles. */
+  "data-invalid"?: "";
   /** The id the label points at. */
   id: string;
 }
@@ -50,8 +57,11 @@ export interface FieldProps extends Omit<
    * (`${id}-error`) derive from it.
    */
   id?: string;
-  /** Text of the `<label>` above the control. */
-  label?: string;
+  /**
+   * The `<label>` above the control - a text, or content like a text with
+   * an icon. It names the control by `aria-labelledby` too.
+   */
+  label?: React.ReactNode;
   /**
    * Marks the label with a star and the control with `aria-required` - the
    * control itself still has to be `required` for the browser to check it.
@@ -81,18 +91,20 @@ export default function Field({
   const labelId = `${controlId}-label`;
   const errorId = error ? `${controlId}-error` : undefined;
   const descriptionId = description ? `${controlId}-description` : undefined;
+  const hasLabel = hasContent(label);
 
   const controlProps: FieldControlProps = {
     "aria-describedby": joinTokens(errorId, descriptionId),
     "aria-invalid": error ? "true" : undefined,
-    "aria-labelledby": label ? labelId : undefined,
+    "aria-labelledby": hasLabel ? labelId : undefined,
     "aria-required": required ? "true" : undefined,
+    "data-invalid": error ? "" : undefined,
     id: controlId,
   };
 
   return (
     <div {...props} className={cn("flex flex-col gap-1.5", className)}>
-      {label && (
+      {hasLabel && (
         <label
           className="block truncate text-sm font-medium"
           htmlFor={controlId}
@@ -110,14 +122,7 @@ export default function Field({
           {label}
           {messages.form.labelSuffix}{" "}
           {/* The star is for the eye - `required` tells assistive technology */}
-          {required && (
-            <span
-              aria-hidden="true"
-              className="text-danger-700 dark:text-danger-400"
-            >
-              *
-            </span>
-          )}
+          {required && <RequiredMark />}
         </label>
       )}
 

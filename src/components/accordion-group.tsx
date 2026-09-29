@@ -68,11 +68,18 @@ const toOpenValues = (value: string | string[] | null | undefined) =>
       ? value
       : [value];
 
-/** The toggles of the accordions of the group `groupId`, in page order. */
+/**
+ * The toggles of the accordions of the group `groupId`, in page order - but
+ * the disabled ones, which the arrow keys skip.
+ */
 const getToggles = (root: HTMLElement, groupId: string) =>
   Array.from(
     root.querySelectorAll<HTMLElement>("[data-accordion-toggle]"),
-  ).filter((toggle) => toggle.dataset.accordionToggle === groupId);
+  ).filter(
+    (toggle) =>
+      toggle.dataset.accordionToggle === groupId &&
+      !toggle.matches(":disabled"),
+  );
 
 /** Where an arrow key, Home or End moves the focus from `index`. */
 function getKeyTarget(toggles: HTMLElement[], index: number, key: string) {

@@ -55,6 +55,17 @@ interface UseSlotDragOptions {
   scrollRef?: React.RefObject<HTMLElement | null>;
   /** A range was dragged over the slots - no drag without it. */
   onSlotDragEnd?: (range: NewEventTimeRange) => void;
+  /**
+   * The minutes a range from the slot at `anchor` may take - the working
+   * hours around it (`restrictToBusinessHours`). Without it, the hours
+   * shown.
+   */
+  getBounds?: (day: Date, anchor: number) => { from: number; to: number };
+  /**
+   * The axis the slots follow each other on - `x` in the timeline, which
+   * runs to the left in a right-to-left page.
+   */
+  axis?: "x" | "y";
 }
 
 /**
@@ -86,7 +97,9 @@ export default function useSlotDrag(options: UseSlotDragOptions) {
     resourceId?: string,
   ) => {
     const {
+      axis = "y",
       endHour,
+      getBounds,
       gridRef,
       onSlotDragEnd,
       scrollRef,
@@ -104,7 +117,13 @@ export default function useSlotDrag(options: UseSlotDragOptions) {
 
     // The range ends by the end hour at the latest - a press on the row of
     // the end hour starts the last slot before it
+    const grid = gridRef.current;
+    const rtl = !!grid && getComputedStyle(grid).direction === "rtl";
     const anchor = Math.min(minutes, endHour * 60 - slot);
+    const bounds = getBounds?.(day, anchor) ?? {
+      from: startHour * 60,
+      to: endHour * 60,
+    };
     let range: SlotRange = { day, from: anchor, resourceId, to: anchor + slot };
     setSlotDragState(range);
 
@@ -114,14 +133,22 @@ export default function useSlotDrag(options: UseSlotDragOptions) {
     };
 
     stopRef.current = startPointerDrag(e, {
-      axis: "y",
-      grid: gridRef.current,
+      axis,
+      grid,
       scroller: scrollRef?.current,
-      onMove: ({ y }) => {
-        // The slot under the pointer - within the hours shown
+      scrollSideways: axis === "x",
+      onMove: ({ x, y }) => {
+        const distance = axis === "x" ? (rtl ? -x : x) : y;
+        // The slot under the pointer - within the hours shown, or the
+        // working hours around the first one
+        const lowest =
+          anchor - Math.floor(Math.max(0, anchor - bounds.from) / slot) * slot;
+        const highest =
+          anchor +
+          Math.floor(Math.max(0, bounds.to - anchor - slot) / slot) * slot;
         const other = Math.min(
-          Math.max(anchor + Math.round(y / slotHeight) * slot, startHour * 60),
-          endHour * 60 - slot,
+          Math.max(anchor + Math.round(distance / slotHeight) * slot, lowest),
+          highest,
         );
         const from = Math.min(anchor, other);
         const to = Math.max(anchor, other) + slot;

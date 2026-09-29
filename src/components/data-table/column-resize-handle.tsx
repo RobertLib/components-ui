@@ -4,6 +4,10 @@ import { clampWidth, MAX_COLUMN_WIDTH } from "./cell-layout";
 import { formatMessage, formatPlural } from "../../i18n/format";
 import { useLocale } from "../../providers/ui-context";
 
+/** Whether an element is laid out right to left - `dir="rtl"` around it. */
+const isRtl = (element: Element) =>
+  getComputedStyle(element).direction === "rtl";
+
 // Pixels an arrow key resizes by - with Shift the bigger step
 const KEY_STEP = 10;
 const KEY_BIG_STEP = 50;
@@ -12,6 +16,8 @@ const KEY_BIG_STEP = 50;
 interface Drag {
   /** Stops listening for Escape. */
   cleanup: () => void;
+  /** `1` when moving the pointer right widens the column, `-1` otherwise. */
+  direction: 1 | -1;
   /** The width shown last. */
   last: number;
   /** Whether the pointer has moved the edge - a click alone keeps the width. */
@@ -26,10 +32,11 @@ interface ColumnResizeHandleProps {
   /** Name of the column - the name of the handle tells what it resizes. */
   columnName: string;
   /**
-   * The edge of the header cell the handle is on - `left` for a column
-   * pinned to the right edge, which grows to the left.
+   * The edge of the header cell the handle is on - `start` for a column
+   * pinned to the end edge, which grows towards the start. The start is the
+   * right edge in a right-to-left table.
    */
-  edge: "left" | "right";
+  edge: "end" | "start";
   /** Upper limit of the width - End jumps to it when the column has one. */
   maxWidth?: number;
   /** Lower limit of the width - Home jumps to it. */
@@ -70,8 +77,10 @@ export default function ColumnResizeHandle({
 
   const max = Math.max(minWidth, maxWidth ?? MAX_COLUMN_WIDTH);
   // Moving the handle to the left narrows a column - or widens one pinned
-  // to the right, whose handle is on its left edge
-  const direction = edge === "left" ? -1 : 1;
+  // to the end, whose handle is on its start edge. Right to left the other
+  // way round: the end of a column is its left edge.
+  const directionOf = (handle: Element): 1 | -1 =>
+    (edge === "start") !== isRtl(handle) ? -1 : 1;
 
   // The header cell as it is laid out - the start of a resize
   const measure = (handle: HTMLElement) =>
@@ -119,6 +128,7 @@ export default function ColumnResizeHandle({
     dragRef.current = {
       cleanup: () =>
         document.removeEventListener("keydown", handleKeyDown, true),
+      direction: directionOf(handle),
       last: startWidth,
       moved: false,
       pointerId: event.pointerId,
@@ -135,7 +145,7 @@ export default function ColumnResizeHandle({
     if (!drag || drag.pointerId !== event.pointerId) return;
 
     const next = clampWidth(
-      drag.startWidth + (event.clientX - drag.startX) * direction,
+      drag.startWidth + (event.clientX - drag.startX) * drag.direction,
       minWidth,
       max,
     );
@@ -149,6 +159,10 @@ export default function ColumnResizeHandle({
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const current = clampWidth(measure(event.currentTarget), minWidth, max);
     const step = event.shiftKey ? KEY_BIG_STEP : KEY_STEP;
+    const direction =
+      event.key === "ArrowLeft" || event.key === "ArrowRight"
+        ? directionOf(event.currentTarget)
+        : 1;
     let next: number | null = null;
 
     switch (event.key) {
@@ -192,10 +206,10 @@ export default function ColumnResizeHandle({
         valueNow,
       )}
       className={cn(
-        "group/resize absolute inset-y-0 z-1 flex w-2 cursor-col-resize touch-none select-none focus:outline-none pointer-coarse:w-4",
-        edge === "left" ? "left-0 justify-start" : "right-0 justify-end",
+        "group/resize absolute inset-y-0 z-1 flex w-2 cursor-col-resize touch-none select-none focus:outline-hidden pointer-coarse:w-4",
+        edge === "start" ? "start-0 justify-start" : "end-0 justify-end",
       )}
-      data-resizing={isDragging || undefined}
+      data-resizing={isDragging ? "" : undefined}
       // Not a click on the header - e.g. the sort button next to it
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => {
@@ -220,6 +234,8 @@ export default function ColumnResizeHandle({
           "group-hover/resize:w-0.5 group-hover/resize:bg-primary-400 group-hover/resize:opacity-100 group-hover/th:opacity-100",
           "group-focus-visible/resize:w-0.5 group-focus-visible/resize:bg-primary-500 group-focus-visible/resize:opacity-100",
           "group-data-resizing/resize:w-0.5 group-data-resizing/resize:bg-primary-500 group-data-resizing/resize:opacity-100",
+          // Forced colors drop the colors of the line - it keeps a system one
+          "forced-colors:bg-[CanvasText]!",
         )}
       />
     </div>

@@ -57,3 +57,64 @@ describe("DescriptionList", () => {
     );
   });
 });
+
+describe("DescriptionList in columns", () => {
+  const items = [
+    { desc: "Jana Nováková", term: "Name" },
+    { desc: "jana@example.com", term: "Email" },
+    { desc: "Prague", term: "City" },
+    { desc: "Leave at the door", fullWidth: true, term: "Note" },
+  ];
+
+  it("puts several pairs side by side, each term above its value", () => {
+    const { container } = render(<DescriptionList columns={3} items={items} />);
+
+    const list = container.querySelector("dl")!;
+    expect(list).toHaveClass(
+      "grid",
+      "grid-cols-1",
+      "sm:grid-cols-2",
+      "lg:grid-cols-3",
+    );
+    // A group of a term and its value - allowed in a <dl>
+    const groups = Array.from(list.children);
+    expect(groups).toHaveLength(4);
+    groups.forEach((group, index) => {
+      expect(group.tagName).toBe("DIV");
+      expect(group.querySelector("dt")).toHaveTextContent(items[index].term);
+      expect(group.querySelector("dd")).toHaveTextContent(
+        String(items[index].desc),
+      );
+    });
+    expect(groups[3]).toHaveClass("sm:col-span-full");
+  });
+
+  it("draws lines between the rows when bordered", () => {
+    const { container, rerender } = render(
+      <DescriptionList bordered columns={2} items={items} />,
+    );
+
+    const list = container.querySelector("dl")!;
+    expect(list).toHaveClass("overflow-hidden");
+    for (const group of Array.from(list.children)) {
+      expect(group).toHaveClass("border-t", "-mt-px");
+    }
+
+    // One column: the rows of the grid - the term keeps its column
+    rerender(<DescriptionList bordered items={items} />);
+    const rows = Array.from(container.querySelector("dl")!.children);
+    expect(rows).toHaveLength(4);
+    expect(rows[0]).not.toHaveClass("border-t");
+    expect(rows[1]).toHaveClass("border-t", "md:grid-cols-subgrid");
+    expect(rows[1].querySelector("dt")).toHaveTextContent("Email");
+  });
+
+  it("keeps the placeholders of the values while loading", () => {
+    const { container } = render(
+      <DescriptionList columns={2} items={items} loading />,
+    );
+
+    expect(screen.queryByText("Prague")).toBeNull();
+    expect(container.querySelectorAll("dd .animate-pulse")).toHaveLength(4);
+  });
+});

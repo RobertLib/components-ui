@@ -103,7 +103,7 @@ function Settings() {
             { label: "EN", value: "en" },
             { label: "CS", value: "cs" },
           ]}
-          size="sm"
+          dim="sm"
           value={localeName}
         />
       </Tooltip>

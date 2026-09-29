@@ -5,6 +5,7 @@ import cn from "../utils/cn";
 import CollapsibleContent from "./collapsible-content";
 import Overlay from "./overlay";
 import {
+  getActiveElement,
   getActiveFocusReturnTargets,
   getNextTabStop,
   isEscapeKey,
@@ -19,6 +20,7 @@ import Popover from "./popover";
 import Tooltip from "./tooltip";
 import { getTabbableElements } from "../utils/tabbable";
 import useIsMobile from "../hooks/use-is-mobile";
+import { attachRef } from "../hooks/use-form-control";
 import { findActiveLink } from "../providers/active-path";
 import { useDrawer } from "../providers/drawer-context";
 import { useMessages, useRouter } from "../providers/ui-context";
@@ -243,9 +245,12 @@ const hasContent = (node: React.ReactNode) =>
 const TOOLTIP_DELAY = 200;
 
 /**
- * The side navigation of an app. Collapses to icons on desktop and slides in
- * over the page on phones - the state lives in `DrawerProvider`, `Navbar`
- * toggles it. See `AppShell` for the page layout around it.
+ * The side navigation of an app, at the start edge of the page (the right
+ * one right to left). Collapses to icons on desktop and slides in over the
+ * page on phones - the state lives in `DrawerProvider`, `Navbar` toggles
+ * it. See `AppShell` for the page layout around it. `ref` and the other
+ * props go to the `<nav>`, which has `data-state="open"` or `"closed"`
+ * (slid out on a phone); a group has `data-state` like its `aria-expanded`.
  */
 export default function Drawer({
   className,
@@ -253,6 +258,7 @@ export default function Drawer({
   header,
   isLoading,
   items,
+  ref,
   ...props
 }: DrawerProps) {
   const { isCollapsed, isOpen, toggleOpen } = useDrawer();
@@ -324,7 +330,7 @@ export default function Drawer({
 
     if (isOverlaid) {
       returnFocusRef.current = getActiveFocusReturnTargets();
-      if (!root.contains(document.activeElement)) {
+      if (!root.contains(getActiveElement())) {
         (getTabbableElements(panel)[0] ?? panel).focus();
       }
       return lockPageScroll();
@@ -332,7 +338,7 @@ export default function Drawer({
 
     const targets = returnFocusRef.current;
     returnFocusRef.current = [];
-    const active = document.activeElement;
+    const active = getActiveElement();
     // Unless the focus has moved somewhere else meanwhile
     if (!active || active === document.body || root.contains(active)) {
       returnFocus(targets, root);
@@ -384,26 +390,38 @@ export default function Drawer({
         {...props}
         aria-hidden={!isOpen}
         className={cn(
-          "cui-drawer fixed inset-y-0 left-0 z-40 flex flex-col border-r border-neutral-100 bg-surface shadow-lg transition-all duration-300 motion-reduce:transition-none dark:border-neutral-900 dark:bg-surface-dark",
+          "cui-drawer fixed inset-y-0 start-0 z-40 flex flex-col border-e border-neutral-100 bg-surface shadow-lg transition-all duration-300 motion-reduce:transition-none dark:border-neutral-900 dark:bg-surface-dark",
           isCollapsed ? "cui-drawer-collapsed" : "",
+          // Out over the start edge - the right one right to left
           isOpen
             ? "cui-drawer-open translate-x-0"
-            : "cui-drawer-closed -translate-x-full",
+            : "cui-drawer-closed -translate-x-full rtl:translate-x-full",
           // Open as on a desktop, but on a phone-sized screen: a page
           // rendered on the server, before it hydrates - out of sight until
           // the drawer knows the device
-          isOpen && !isMobile && "max-md:-translate-x-full",
+          isOpen &&
+            !isMobile &&
+            "max-md:-translate-x-full max-md:rtl:translate-x-full",
           className,
         )}
+        data-state={isOpen ? "open" : "closed"}
         inert={!isOpen}
-        ref={rootRef}
+        // The drawer's own ref, and the one given to it
+        ref={(element) => {
+          rootRef.current = element;
+          const detachRef = attachRef(ref, element);
+          return () => {
+            rootRef.current = null;
+            detachRef();
+          };
+        }}
       >
         {/* Slid in over the page, the drawer is a modal dialog - the nav
             itself cannot take that role */}
         <div
           aria-label={isOverlaid ? messages.drawer.label : undefined}
           aria-modal={isOverlaid ? true : undefined}
-          className="flex min-h-0 flex-1 flex-col focus:outline-none"
+          className="flex min-h-0 flex-1 flex-col focus:outline-hidden"
           ref={panelRef}
           role={isOverlaid ? "dialog" : undefined}
           // Takes the focus when it slides in without any link in it
@@ -490,11 +508,13 @@ const initialOf = (label: string) =>
 
 // A row of the menu - a link, a group, an action
 const rowClasses =
-  "relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-start text-sm transition-colors hover:bg-neutral-100 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none dark:hover:bg-neutral-800";
+  "relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-start text-sm transition-colors hover:bg-neutral-100 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-hidden dark:hover:bg-neutral-800";
 
-// The current page - and the icon of a collapsed group with it
+// The current page - and the icon of a collapsed group with it. Forced
+// colors drop its background: the system colors of a selection keep it
+// seen.
 const activeClasses =
-  "bg-primary-50 font-medium text-primary-700 hover:bg-primary-100 dark:bg-primary-900/40 dark:text-primary-300 dark:hover:bg-primary-900/60";
+  "bg-primary-50 font-medium text-primary-700 hover:bg-primary-100 dark:bg-primary-900/40 dark:text-primary-300 dark:hover:bg-primary-900/60 forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]";
 
 interface DrawerMenuSectionProps {
   /** The one active item of the whole menu. */
@@ -704,7 +724,7 @@ function DrawerMenuItem({
             <>
               <span
                 aria-hidden="true"
-                className="absolute top-1.5 right-3 size-2 rounded-full bg-primary-600 ring-2 ring-surface dark:bg-primary-400 dark:ring-surface-dark"
+                className="absolute end-3 top-1.5 size-2 rounded-full bg-primary-600 ring-2 ring-surface dark:bg-primary-400 dark:ring-surface-dark forced-colors:bg-[CanvasText]"
               />
               <span className="sr-only">{item.badge}</span>
             </>
@@ -720,7 +740,8 @@ function DrawerMenuItem({
           aria-hidden="true"
           className={cn(
             "size-4 shrink-0 text-neutral-500 transition-transform duration-200 motion-reduce:transition-none dark:text-neutral-400",
-            isExpanded && "rotate-90",
+            // Towards the end of the line - down once expanded
+            isExpanded ? "rotate-90" : "rtl:rotate-180",
           )}
         />
       )}
@@ -737,7 +758,7 @@ function DrawerMenuItem({
     // Of a nested item, the part of the guide line beside it
     isActive &&
       level > 0 &&
-      "before:absolute before:inset-y-1.5 before:-left-2.5 before:w-0.5 before:rounded-full before:bg-primary-600 dark:before:bg-primary-400",
+      "before:absolute before:inset-y-1.5 before:-start-2.5 before:w-0.5 before:rounded-full before:bg-primary-600 dark:before:bg-primary-400 forced-colors:before:bg-[Highlight]",
     iconOnly && "justify-center",
   );
 
@@ -746,6 +767,7 @@ function DrawerMenuItem({
       aria-controls={hasChildren && isGroupOpen ? submenuId : undefined}
       aria-expanded={isGroupOpen}
       className={rowClassName}
+      data-state={isGroupOpen ? "open" : "closed"}
       onClick={handleToggle}
       ref={groupButtonRef}
       type="button"
@@ -781,7 +803,7 @@ function DrawerMenuItem({
             className="flex w-full"
             delay={TOOLTIP_DELAY}
             nowrap
-            position="right"
+            position="end"
             title={
               <span className="flex items-center gap-2">
                 {item.label}
@@ -811,7 +833,7 @@ function DrawerMenuItem({
           contentRef={popoverContentRef}
           onOpenChange={handlePopoverOpenChange}
           open={showPopover}
-          position="right"
+          position="end"
           trigger={groupButton}
           width="12rem"
         >
@@ -849,8 +871,8 @@ function DrawerMenuItem({
         <CollapsibleContent duration={200} id={submenuId} isOpen={isExpanded}>
           <ul
             className={cn(
-              "mt-1 space-y-1 border-l border-neutral-200 pl-2 dark:border-neutral-800",
-              item.icon ? "ml-5" : "ml-3",
+              "mt-1 space-y-1 border-s border-neutral-200 ps-2 dark:border-neutral-800",
+              item.icon ? "ms-5" : "ms-3",
             )}
           >
             {children.map((child, index) => (
@@ -891,7 +913,7 @@ function DrawerSkeleton({ isCollapsed }: DrawerSkeletonProps) {
             <div className="h-5 w-5 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
             {/* Label skeleton */}
             {!isCollapsed && (
-              <div className="ml-3 h-4 max-w-24 flex-1 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
+              <div className="ms-3 h-4 max-w-24 flex-1 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
             )}
           </div>
         </li>

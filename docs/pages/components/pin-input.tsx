@@ -46,6 +46,21 @@ export default function PinInputPage() {
         name="pin-input/form"
         title="In a form"
       />
+      <Example
+        description={
+          <p>
+            <code>groups</code> splits the cells into groups with a{" "}
+            <code>separator</code> between them - <code>[3, 3]</code> for
+            &quot;123 - 456&quot;; the length is their sum unless{" "}
+            <code>length</code> says otherwise. The separator is for the eye
+            only: the code is typed, pasted and submitted as one.{" "}
+            <code>readOnly</code> shows the code - the arrow keys move between
+            the cells, but nothing changes it, and it is still submitted.
+          </p>
+        }
+        name="pin-input/groups"
+        title="Groups and read-only"
+      />
 
       <Section title="Keyboard">
         <Prose>
@@ -85,9 +100,11 @@ export default function PinInputPage() {
             </li>
             <li>
               <code>id</code> and <code>ref</code> belong to the first cell -
-              the label focuses the cell the next character goes to.{" "}
-              <code>onFocus</code> / <code>onBlur</code> come when the focus
-              enters and leaves the cells, not as it moves between them.
+              the label focuses the cell the next character goes to. The other
+              attributes (<code>data-*</code>, <code>style</code>, event
+              handlers) go to the group of cells, as <code>className</code>{" "}
+              does. <code>onFocus</code> / <code>onBlur</code> come when the
+              focus enters and leaves the cells, not as it moves between them.
             </li>
           </ul>
         </Prose>

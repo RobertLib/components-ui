@@ -1,5 +1,9 @@
 import { X } from "lucide-react";
-import { attachRef, useFormReset } from "../hooks/use-form-control";
+import {
+  attachRef,
+  isAriaInvalid,
+  useFormReset,
+} from "../hooks/use-form-control";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
@@ -9,6 +13,7 @@ import { foldSearchText } from "../utils/remove-diacritics";
 import usePointerMoved from "../hooks/use-pointer-moved";
 import { formatMessage, formatPlural } from "../i18n/format";
 import { useLocale } from "../providers/ui-context";
+import RequiredMark from "./required-mark";
 
 export interface TagsInputProps extends Omit<
   React.ComponentProps<"input">,
@@ -34,6 +39,8 @@ export interface TagsInputProps extends Omit<
   defaultValue?: string[];
   /** Help text under the field - it describes the input. */
   description?: React.ReactNode;
+  /** Size of the field - the heights, paddings and text of `Input`. */
+  dim?: "xs" | "sm" | "md" | "lg";
   /**
    * Disables the field - like a disabled native one, it is then neither
    * submitted nor validated.
@@ -47,8 +54,8 @@ export interface TagsInputProps extends Omit<
    * that form resets the field too.
    */
   form?: string;
-  /** Text of the `<label>` above the field. */
-  label?: string;
+  /** Content of the `<label>` above the field - text, or text with markup. */
+  label?: React.ReactNode;
   /**
    * The most values the list takes - more are refused, and the field says
    * so.
@@ -64,7 +71,8 @@ export interface TagsInputProps extends Omit<
   onChange?: (tags: string[]) => void;
   /**
    * The values can't be changed - they are shown and submitted, and no ×
-   * buttons, typing, pasting or suggestions add or remove any.
+   * buttons, typing, pasting or suggestions add or remove any. The input
+   * stays focusable, with `aria-readonly` and `data-readonly`.
    */
   readOnly?: boolean;
   /**
@@ -95,6 +103,24 @@ export interface TagsInputProps extends Omit<
 }
 
 const DEFAULT_SEPARATORS = [","];
+
+// The field at each size - the paddings and the text of `Input`
+const dimStyles = {
+  xs: "px-1 py-0 text-sm",
+  sm: "px-1 py-0.5 text-sm",
+  md: "px-2 py-1 text-base",
+  lg: "px-3 py-2 text-lg",
+};
+
+// The values fit the line of text of the field, so that a field with values
+// is as tall as an `Input`
+const tagDimStyles = {
+  xs: "py-px text-xs",
+  sm: "py-px text-xs",
+  md: "py-px text-sm",
+  lg: "py-0.5 text-sm",
+};
+const removeIconSizes = { xs: 12, sm: 12, md: 14, lg: 14 };
 
 const normalizeText = foldSearchText;
 
@@ -130,6 +156,7 @@ export default function TagsInput({
   className,
   defaultValue,
   description,
+  dim = "md",
   disabled = false,
   error,
   form,
@@ -484,8 +511,12 @@ export default function TagsInput({
   const field = (
     <div
       className={cn(
-        "flex max-h-40 w-full flex-wrap items-center gap-1 overflow-y-auto rounded-md border border-neutral-300 bg-surface px-2 py-1 focus-within:ring-2 focus-within:ring-primary-500 dark:border-neutral-700 dark:bg-surface-dark",
-        error && "border-danger-500! focus-within:ring-danger-500!",
+        "flex max-h-40 w-full flex-wrap items-center gap-1 overflow-y-auto rounded-md border border-neutral-300 bg-surface focus-within:ring-2 focus-within:ring-primary-500 dark:border-neutral-700 dark:bg-surface-dark",
+        dimStyles[dim],
+        // Forced colors (Windows High Contrast) draw every border in one
+        // color - an outline makes the border of an invalid field thicker
+        error &&
+          "border-danger-500! focus-within:ring-danger-500! forced-colors:outline-1",
         disabled ? "cursor-not-allowed opacity-60" : "cursor-text",
       )}
       // The whole field acts as the input: a press on its padding or a value
@@ -503,7 +534,8 @@ export default function TagsInput({
       {tags.map((tag, index) => (
         <span
           className={cn(
-            "inline-flex max-w-full min-w-0 items-center gap-0.5 rounded-full border border-neutral-300 bg-surface py-0.5 text-sm text-neutral-800 dark:border-neutral-700 dark:bg-surface-dark dark:text-neutral-200",
+            "inline-flex max-w-full min-w-0 items-center gap-0.5 rounded-full border border-neutral-300 bg-surface text-neutral-800 dark:border-neutral-700 dark:bg-surface-dark dark:text-neutral-200",
+            tagDimStyles[dim],
             locked ? "px-2" : "ps-2 pe-1",
             // The value the keyboard is on
             "has-focus-visible:border-primary-500 has-focus-visible:bg-primary-50 dark:has-focus-visible:border-primary-400 dark:has-focus-visible:bg-primary-950",
@@ -514,7 +546,7 @@ export default function TagsInput({
           {!locked && (
             <button
               aria-label={formatMessage(messages.tagsInput.remove, { tag })}
-              className="relative shrink-0 cursor-pointer rounded-full p-0.5 text-neutral-500 after:absolute after:-inset-1 after:content-[''] hover:bg-neutral-100 hover:text-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+              className="relative shrink-0 cursor-pointer rounded-full p-0.5 text-neutral-500 after:absolute after:-inset-1 after:content-[''] hover:bg-neutral-100 hover:text-neutral-800 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
               data-tag-remove=""
               onClick={(event) => removeTag(index, event.currentTarget)}
               onKeyDown={(event) => handleTagKeyDown(index, event)}
@@ -525,7 +557,7 @@ export default function TagsInput({
               tabIndex={-1}
               type="button"
             >
-              <X aria-hidden="true" size={14} />
+              <X aria-hidden="true" size={removeIconSizes[dim]} />
             </button>
           )}
         </span>
@@ -545,10 +577,20 @@ export default function TagsInput({
         )}
         aria-expanded={suggestions ? isListShown : undefined}
         aria-invalid={error || inputError ? "true" : props["aria-invalid"]}
+        aria-readonly={readOnly ? "true" : props["aria-readonly"]}
         aria-required={required ? "true" : props["aria-required"]}
         // The browser's own suggestions would cover the list
         autoComplete={props.autoComplete ?? (suggestions ? "off" : undefined)}
-        className="w-16 min-w-16 grow bg-transparent focus:outline-none disabled:cursor-not-allowed"
+        className="w-16 min-w-16 grow bg-transparent focus:outline-hidden disabled:cursor-not-allowed"
+        data-disabled={disabled ? "" : undefined}
+        data-invalid={
+          error || inputError || isAriaInvalid(props["aria-invalid"])
+            ? ""
+            : undefined
+        }
+        data-readonly={readOnly ? "" : undefined}
+        // With suggestions the input opens a list
+        data-state={suggestions ? (isListShown ? "open" : "closed") : undefined}
         disabled={disabled}
         form={form}
         id={inputId}
@@ -584,14 +626,7 @@ export default function TagsInput({
           {label}
           {messages.form.labelSuffix}{" "}
           {/* The star is for the eye - `aria-required` tells assistive technology */}
-          {required && (
-            <span
-              aria-hidden="true"
-              className="text-danger-700 dark:text-danger-400"
-            >
-              *
-            </span>
-          )}
+          {required && <RequiredMark />}
         </label>
       )}
 
@@ -627,10 +662,14 @@ export default function TagsInput({
               aria-selected={index === active}
               className={cn(
                 "cursor-pointer px-2 py-1",
+                // Forced colors draw no background - the system's
+                // highlight colors then
                 index === active
-                  ? "bg-neutral-100 dark:bg-neutral-800"
+                  ? "bg-neutral-100 dark:bg-neutral-800 forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]"
                   : "hover:bg-neutral-100 dark:hover:bg-neutral-800",
               )}
+              data-highlighted={index === active ? "" : undefined}
+              data-selected={index === active ? "" : undefined}
               id={optionId(index)}
               key={`${suggestion}\u0000${index}`}
               onClick={() => addParts([suggestion], "")}

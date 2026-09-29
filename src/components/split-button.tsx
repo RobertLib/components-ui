@@ -30,8 +30,10 @@ const toggleStyles = {
 /**
  * The button of the main action joined with a button that opens a menu of
  * related ones, e.g. "Save" and "Save as draft". `color`, `variant`,
- * `size`, `disabled` and `loading` apply to both; the other props -
- * `onClick`, `type="submit"`, … - go to the main button.
+ * `size`, `disabled` and `loading` apply to both; `className` and `style`
+ * go to the group around them, the other props - `ref`, `onClick`,
+ * `type="submit"`, … - to the main button. The menu button has
+ * `data-state="open"` or `"closed"`.
  */
 export default function SplitButton({
   children,

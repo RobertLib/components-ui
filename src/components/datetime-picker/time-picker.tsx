@@ -21,11 +21,15 @@ import type { CustomPickerProps } from "./types";
 
 /** `type="time"` - value `HH:mm`. */
 export default function TimePicker({
+  // No days in a time
+  isDateDisabled: _isDateDisabled,
   max,
   min,
   minuteStep,
   onValueChange,
   placeholder,
+  popupActions: _popupActions,
+  presets: _presets,
   value,
   ...props
 }: CustomPickerProps) {
@@ -108,7 +112,7 @@ export default function TimePicker({
       pickCount={pickCount}
       placeholder={placeholder}
       popupLabel={messages.selectTime}
-      rangeMessage={rangeMessage}
+      validityMessage={rangeMessage}
       value={value}
     >
       {/* The popup is named so already */}

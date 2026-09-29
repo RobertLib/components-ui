@@ -4,6 +4,8 @@ import cn from "../../utils/cn";
 import { getRangeMessage, isInRange, parseDisplayValue } from "./parse";
 import PickerField from "./picker-field";
 import usePickerPopup from "./use-picker-popup";
+import { isMonthUnavailable, type DateDisabledPredicate } from "./availability";
+import { formatMessage } from "../../i18n/format";
 import {
   formatPattern,
   formatPlaceholder,
@@ -23,6 +25,11 @@ const parseMonth = (value: string | undefined) => {
 interface MonthGridProps {
   /** Moves the focus to the month - the popup was opened by a key. */
   autoFocus: boolean;
+  /**
+   * Days that cannot be picked - a month without any other can take the
+   * focus but not be picked.
+   */
+  isDateDisabled?: DateDisabledPredicate;
   /** Latest selectable month. */
   max: ReturnType<typeof parseMonth>;
   /** Earliest selectable month. */
@@ -38,8 +45,15 @@ interface MonthGridProps {
 // Months in a row of the grid
 const COLUMNS = 3;
 
+const isRtl = (element: Element) =>
+  getComputedStyle(element).direction === "rtl";
+
+const yearButtonClassName =
+  "rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700";
+
 function MonthGrid({
   autoFocus,
+  isDateDisabled,
   max,
   min,
   onEscape,
@@ -128,10 +142,13 @@ function MonthGrid({
 
     const current = year * 12 + tabStop;
     const pageOffset = 12 * (event.shiftKey ? 10 : 1);
+    // Left is forward in a right-to-left page - the months run from the
+    // right
+    const forward = isRtl(event.currentTarget) ? -1 : 1;
     const target = {
       ArrowDown: current + COLUMNS,
-      ArrowLeft: current - 1,
-      ArrowRight: current + 1,
+      ArrowLeft: current - forward,
+      ArrowRight: current + forward,
       ArrowUp: current - COLUMNS,
       End: year * 12 + 11,
       Home: year * 12,
@@ -162,22 +179,23 @@ function MonthGrid({
       <div className="mb-2 flex items-center justify-between">
         <button
           aria-label={messages.previousYear}
-          className="rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+          className={yearButtonClassName}
           onClick={() => setYear(year - 1)}
           type="button"
         >
-          <ChevronLeft size={20} />
+          {/* Pointing the other way in a right-to-left page */}
+          <ChevronLeft className="rtl:-scale-x-100" size={20} />
         </button>
         <div aria-live="polite" className="text-sm font-semibold">
           {year}
         </div>
         <button
           aria-label={messages.nextYear}
-          className="rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+          className={yearButtonClassName}
           onClick={() => setYear(year + 1)}
           type="button"
         >
-          <ChevronRight size={20} />
+          <ChevronRight className="rtl:-scale-x-100" size={20} />
         </button>
       </div>
 
@@ -196,29 +214,54 @@ function MonthGrid({
                 selected?.month === index + 1 && selected.year === year;
               const isFocused = tabStop === index;
               const disabled = isDisabled(index);
+              // Every day of it disabled - it takes the focus, like an
+              // unavailable day
+              const unavailable =
+                !disabled &&
+                !!isDateDisabled &&
+                isMonthUnavailable(year, index + 1, isDateDisabled);
+              const canPick = !disabled && !unavailable;
 
               return (
                 <div
-                  aria-disabled={disabled || undefined}
+                  aria-disabled={disabled || unavailable || undefined}
                   aria-selected={isSelected}
+                  data-disabled={!canPick ? "" : undefined}
+                  data-highlighted={isFocused ? "" : undefined}
+                  data-selected={isSelected ? "" : undefined}
                   key={index}
                   role="gridcell"
                 >
                   <button
+                    aria-disabled={unavailable || undefined}
                     aria-label={`${monthName} ${year}`}
                     className={cn(
-                      "w-full rounded p-1.5 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700",
-                      isSelected &&
-                        "bg-primary-600 text-white hover:bg-primary-700 dark:hover:bg-primary-700",
+                      "w-full rounded p-1.5 text-sm",
+                      // Forced colors (Windows High Contrast) draw no
+                      // background - the system's highlight colors then
+                      isSelected
+                        ? "bg-primary-600 text-white forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]"
+                        : unavailable &&
+                            "text-neutral-500 dark:text-neutral-400",
+                      !canPick && "forced-colors:text-[GrayText]",
+                      canPick &&
+                        (isSelected
+                          ? "hover:bg-primary-700 dark:hover:bg-primary-700"
+                          : "hover:bg-neutral-100 dark:hover:bg-neutral-700"),
+                      // The ring is a shadow - forced colors show the
+                      // outline of `outline-hidden` instead
                       isFocused &&
                         !isSelected &&
-                        "ring-2 ring-primary-500 outline-none",
-                      disabled &&
-                        "cursor-not-allowed opacity-40 hover:bg-transparent dark:hover:bg-transparent",
+                        "ring-2 ring-primary-500 outline-hidden",
+                      unavailable && "line-through",
+                      !canPick && "cursor-not-allowed",
+                      disabled && "opacity-40",
                     )}
                     data-month-index={index}
                     disabled={disabled}
-                    onClick={() => onSelect(year, index + 1)}
+                    onClick={() => {
+                      if (!unavailable) onSelect(year, index + 1);
+                    }}
                     onFocus={() => setFocusedMonth(index)}
                     tabIndex={isFocused ? 0 : -1}
                     type="button"
@@ -237,11 +280,15 @@ function MonthGrid({
 
 /** `type="month"` - value `YYYY-MM`. */
 export default function MonthPicker({
+  isDateDisabled,
   max,
   min,
   minuteStep: _minuteStep,
   onValueChange,
   placeholder,
+  // Of the date popup only
+  popupActions: _popupActions,
+  presets: _presets,
   value,
   ...props
 }: CustomPickerProps) {
@@ -293,18 +340,28 @@ export default function MonthPicker({
       pickCount={pickCount}
       placeholder={placeholder}
       popupLabel={messages.selectMonth}
-      rangeMessage={getRangeMessage(
-        messages,
-        selected
-          ? `${padYear(selected.year)}-${pad2(selected.month)}`
-          : undefined,
-        { max, min },
-        formatValue,
-      )}
+      validityMessage={
+        getRangeMessage(
+          messages,
+          selected
+            ? `${padYear(selected.year)}-${pad2(selected.month)}`
+            : undefined,
+          { max, min },
+          formatValue,
+        ) ||
+        // A month with no day left - one typed too, which is kept (the form
+        // cannot be submitted with it)
+        (selected &&
+        isDateDisabled &&
+        isMonthUnavailable(selected.year, selected.month, isDateDisabled)
+          ? formatMessage(messages.unavailable, { value: formatValue(value) })
+          : "")
+      }
       value={value}
     >
       <MonthGrid
         autoFocus={openedByKeyboard}
+        isDateDisabled={isDateDisabled}
         max={parseMonth(max)}
         min={parseMonth(min)}
         onEscape={close}

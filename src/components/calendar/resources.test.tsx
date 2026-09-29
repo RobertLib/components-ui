@@ -323,7 +323,7 @@ describe("Calendar resources in the day view", () => {
     );
     expect(container.querySelector(".time-column")).toHaveClass(
       "sticky",
-      "left-0",
+      "start-0",
       "z-10",
     );
     // Many resources get wider than the view - it scrolls sideways
@@ -495,5 +495,79 @@ describe("Calendar drags near the edges of resource columns", () => {
     // Further right than the pointer moved - by the scrolled distance
     const { newResourceId } = onEventDrop.mock.calls[0][0];
     expect(["e", "f"]).toContain(newResourceId);
+  });
+
+  it("scrolls a right-to-left view to the left, past its time column on the right", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    // Lays the page out right to left - jsdom knows no `dir`
+    const getComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element, pseudo) => {
+        const style = getComputedStyle(element, pseudo);
+        return new Proxy(style, {
+          get: (target, property) => {
+            if (property === "direction") return "rtl";
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+    );
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+    const { container } = render(
+      <div dir="rtl">
+        <Calendar
+          events={[standup]}
+          initialDate={d(24)}
+          initialView="day"
+          onEventDrop={() => {}}
+          resources={[
+            ...rooms,
+            { id: "d", title: "Room D" },
+            { id: "e", title: "Room E" },
+            { id: "f", title: "Room F" },
+          ]}
+        />
+      </div>,
+    );
+
+    // The view of 360px has its time column of 60px on the right - the
+    // columns go on to the left, where `scrollLeft` is negative
+    const scroller = container.querySelector<HTMLElement>(".resource-view")!;
+    const grid = container.querySelector(".day-column")!.parentElement!;
+    vi.spyOn(scroller, "scrollWidth", "get").mockReturnValue(660);
+    vi.spyOn(scroller, "clientWidth", "get").mockReturnValue(360);
+    vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue({
+      bottom: 600,
+      left: 0,
+      right: 360,
+      top: 0,
+    } as DOMRect);
+    vi.spyOn(grid, "getBoundingClientRect").mockImplementation(
+      () =>
+        ({
+          left: -300 - scroller.scrollLeft,
+          right: 300 - scroller.scrollLeft,
+          top: 50,
+        }) as DOMRect,
+    );
+
+    // Pressed at x 260, dragged to the left edge of the view
+    fireEvent.pointerDown(screen.getByTitle("Standup"), {
+      clientX: 260,
+      clientY: 300,
+      isPrimary: true,
+    });
+    fireEvent.pointerMove(document, { buttons: 1, clientX: 5, clientY: 300 });
+    for (let index = 0; index < 20 && frames.length > 0; index++) {
+      frames.shift()!(0);
+      fireEvent.scroll(scroller);
+    }
+    expect(scroller.scrollLeft).toBeLessThan(0);
+    fireEvent.pointerUp(document);
   });
 });

@@ -8,6 +8,7 @@ import {
   Overlay,
   OverlayScope,
   useOverlay,
+  usePortalContainer,
 } from "components-ui";
 
 const cities = [
@@ -23,6 +24,8 @@ export default function CustomOverlay() {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  // Where the library renders its overlays - `portalContainer` of UIProvider
+  const getPortalContainer = usePortalContainer();
   const close = () => setOpen(false);
   const { isTopmost, scope } = useOverlay({
     modal: true,
@@ -55,7 +58,7 @@ export default function CustomOverlay() {
             <div
               aria-labelledby={titleId}
               aria-modal="true"
-              className="fixed inset-y-0 right-0 z-50 flex w-80 max-w-full flex-col gap-4 border-l border-neutral-200 bg-surface p-6 shadow-lg focus:outline-none dark:border-neutral-800 dark:bg-surface-dark"
+              className="fixed inset-y-0 end-0 z-50 flex w-80 max-w-full flex-col gap-4 border-s border-neutral-200 bg-surface p-6 shadow-lg focus:outline-hidden dark:border-neutral-800 dark:bg-surface-dark"
               ref={panelRef}
               role="dialog"
               tabIndex={-1}
@@ -74,7 +77,7 @@ export default function CustomOverlay() {
               </OverlayScope>
             </div>
           </>,
-          document.body,
+          getPortalContainer(),
         )}
     </>
   );

@@ -33,6 +33,11 @@ export interface AccordionProps extends React.ComponentProps<"div"> {
    */
   defaultOpen?: boolean;
   /**
+   * The section cannot be opened or closed - it stays as it is, its toggle
+   * is disabled and the arrow keys of an `AccordionGroup` skip it.
+   */
+  disabled?: boolean;
+  /**
    * Always visible part - clicking it toggles the content, except on links,
    * buttons and fields inside it. It is a heading for assistive technology
    * (see `headingLevel`) - unless it is a heading element itself
@@ -45,6 +50,12 @@ export interface AccordionProps extends React.ComponentProps<"div"> {
    * @default 3
    */
   headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
+  /**
+   * Keeps the content of a closed section in the page, hidden - its state
+   * stays, e.g. what was typed into a form in it. By default closed content
+   * is unmounted.
+   */
+  keepMounted?: boolean;
   /** Called with the requested state when the header is clicked. */
   onOpenChange?: (open: boolean) => void;
   /**
@@ -70,13 +81,17 @@ const isHeadingElement = (node: React.ReactNode) =>
 /**
  * A `Panel` whose content collapses under a clickable header. From the
  * keyboard, the toggle button at the end of the header opens and closes it.
- * In an `AccordionGroup` the group opens and closes it.
+ * In an `AccordionGroup` the group opens and closes it. The panel, the
+ * toggle and the content have `data-state="open"` or `"closed"`, the panel
+ * and the toggle of a disabled section `data-disabled` - for styling.
  */
 export default function Accordion({
   defaultOpen = true,
+  disabled = false,
   header,
   headingLevel = 3,
   children,
+  keepMounted = false,
   onOpenChange,
   open,
   value,
@@ -122,7 +137,7 @@ export default function Accordion({
   const isHeading = !!header && !isHeadingElement(header);
 
   const handleToggle = () => {
-    if (isLocked) return;
+    if (isLocked || disabled) return;
 
     if (group) {
       group.toggle(itemValue);
@@ -132,14 +147,24 @@ export default function Accordion({
     onOpenChange?.(!isOpen);
   };
 
+  const state = isOpen ? "open" : "closed";
+
   return (
-    <Panel {...props}>
+    <Panel
+      {...props}
+      data-disabled={disabled ? "" : undefined}
+      data-state={state}
+    >
       {/* The whole header toggles on click - a convenience for the pointer,
           the button below is the control */}
       <div
         className={cn(
           "flex items-center justify-between gap-3",
-          isLocked ? "cursor-default" : "cursor-pointer",
+          disabled
+            ? "cursor-not-allowed opacity-60"
+            : isLocked
+              ? "cursor-default"
+              : "cursor-pointer",
         )}
         onClick={(e) => {
           const target = e.target as Element;
@@ -158,18 +183,24 @@ export default function Accordion({
           {header}
         </div>
         <IconButton
-          // Closed, the content is not there to point at
-          aria-controls={isOpen ? contentId : undefined}
+          // Closed, the content is not there to point at - unless kept
+          aria-controls={isOpen || keepMounted ? contentId : undefined}
           aria-disabled={isLocked || undefined}
           aria-expanded={isOpen}
           aria-label={header ? undefined : messages.accordion.toggle}
           aria-labelledby={header ? headerId : undefined}
           className={
-            isLocked
-              ? "cursor-default! hover:bg-transparent! dark:hover:bg-transparent!"
-              : undefined
+            disabled
+              ? // Dimmed with the header already
+                "opacity-100 hover:bg-transparent dark:hover:bg-transparent"
+              : isLocked
+                ? "cursor-default! hover:bg-transparent! dark:hover:bg-transparent!"
+                : undefined
           }
           data-accordion-toggle={group?.groupId}
+          data-disabled={disabled ? "" : undefined}
+          data-state={state}
+          disabled={disabled}
           onClick={(e) => {
             e.stopPropagation();
             handleToggle();
@@ -178,7 +209,11 @@ export default function Accordion({
           <Icon aria-hidden="true" size={18} />
         </IconButton>
       </div>
-      <CollapsibleContent id={contentId} isOpen={isOpen}>
+      <CollapsibleContent
+        id={contentId}
+        isOpen={isOpen}
+        keepMounted={keepMounted}
+      >
         {/* An accordion nested in the content is no section of the group */}
         <AccordionGroupContext value={null}>{children}</AccordionGroupContext>
       </CollapsibleContent>

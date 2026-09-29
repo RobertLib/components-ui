@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import DocPage, { Prose, Section } from "../../components/doc-page";
 import Example from "../../components/example";
 import PropsTable from "../../components/props-table";
@@ -34,6 +35,21 @@ export default function StatPage() {
         }
         name="stat/panel"
         title="In one panel, loading"
+      />
+      <Example
+        description={
+          <p>
+            <code>sparkline</code> draws the figure over time under it - the
+            values of a <Link to="/components/sparkline">Sparkline</Link>, or
+            its props (<code>{'{ data, color: "success" }'}</code>). It fills
+            the width with a tinted area, and screen readers hear it named by
+            the label with a summary of the values, written with the{" "}
+            <code>formatOptions</code> of the figure. While <code>loading</code>{" "}
+            a placeholder takes its place.
+          </p>
+        }
+        name="stat/sparkline"
+        title="With a sparkline"
       />
 
       <Section title="Accessibility">

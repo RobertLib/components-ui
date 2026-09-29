@@ -1,10 +1,11 @@
 import { useId } from "react";
 import PickerField from "../datetime-picker/picker-field";
-import RangeCalendar from "./range-calendar";
+import RangePanel from "./range-panel";
 import { getRangeMessage, parseDisplayRange } from "../datetime-picker/parse";
 import usePickerPopup from "../datetime-picker/use-picker-popup";
 import useIsMobile from "../../hooks/use-is-mobile";
 import { useFormControl } from "../../hooks/use-form-control";
+import { formatMessage } from "../../i18n/format";
 import { useLocale } from "../../providers/ui-context";
 import {
   formatDate,
@@ -14,14 +15,18 @@ import {
 } from "../../utils/date";
 import {
   decodeRange,
+  DEFAULT_PRESETS,
   encodeRange,
+  findUnavailableDay,
   formatRange,
   isAllowedRange,
   RANGE_SEPARATOR,
   toDateRange,
+  toDayLimit,
   toDayRange,
   type RangeLimits,
 } from "./range";
+import type { DateDisabledPredicate } from "../datetime-picker/availability";
 import type { DayRange } from "../datetime-picker/day-grid";
 
 /** A range of days - both in the `YYYY-MM-DD` format of `<input type="date">`. */
@@ -71,6 +76,13 @@ export interface DateRangePickerProps extends Omit<
   | "value"
 > {
   /**
+   * A range may have days of `isDateDisabled` between its first and its
+   * last day - e.g. weekends in a range of working days. Its first and last
+   * day can never be disabled ones. By default a range stops before the
+   * nearest disabled day, like a booking before a booked night.
+   */
+  allowDisabledInRange?: boolean;
+  /**
    * Whether the field has a clear button - by default when it is not
    * `required`.
    */
@@ -82,8 +94,8 @@ export interface DateRangePickerProps extends Omit<
    * described by it (after the error message).
    */
   description?: React.ReactNode;
-  /** Size of the field. */
-  dim?: "sm" | "md" | "lg";
+  /** Size of the field - the heights of `Input`. */
+  dim?: "xs" | "sm" | "md" | "lg";
   /**
    * Name of a hidden input submitting the last day (`YYYY-MM-DD`, `""`
    * without a range) - see `startName`.
@@ -91,8 +103,17 @@ export interface DateRangePickerProps extends Omit<
   endName?: string;
   /** Validation message - also marks the field as invalid. */
   error?: string;
-  /** Text of the label above the field - also its accessible name. */
-  label?: string;
+  /**
+   * Days that cannot be picked, e.g. booked days - called with the local
+   * midnight of a day. The calendar shows them struck through; the keys
+   * move over them, but they cannot start or end a range, nor lie in one
+   * (see `allowDisabledInRange`). A range over such a day - typed, a
+   * default one or one of the parent - makes the field invalid (a submit
+   * is blocked, the browser says `messages.dateRangePicker.unavailableInRange`).
+   */
+  isDateDisabled?: DateDisabledPredicate;
+  /** The label above the field - also its accessible name. */
+  label?: React.ReactNode;
   /**
    * The latest day that can be picked, `YYYY-MM-DD` - a range ending after
    * it makes the field invalid, like a native input (a submit is blocked).
@@ -129,9 +150,10 @@ export interface DateRangePickerProps extends Omit<
   /**
    * Ranges offered next to the calendar - built-in ones by their key (see
    * `DateRangePresetKey`) and your own. `true` offers today, yesterday,
-   * the last 7 and 30 days, this month and last month. A preset with no
-   * day in [`min`, `max`], or not as long as `minDays` / `maxDays` allow,
-   * is disabled.
+   * the last 7 and 30 days, this month and last month. A preset is cut to
+   * [`min`, `max`] and to days that are not disabled at its ends; one with
+   * no day left, not as long as `minDays` / `maxDays` allow, or over a
+   * disabled day, is disabled.
    */
   presets?: boolean | (DateRangePresetKey | DateRangePreset)[];
   /**
@@ -150,22 +172,6 @@ export interface DateRangePickerProps extends Omit<
   value?: DateRange | null;
 }
 
-// `presets` given as `true`
-const DEFAULT_PRESETS: DateRangePresetKey[] = [
-  "today",
-  "yesterday",
-  "last7Days",
-  "last30Days",
-  "thisMonth",
-  "lastMonth",
-];
-
-/** A whole number of days, at least 1 - `undefined` for no limit. */
-const toDayLimit = (days: number | undefined) =>
-  days === undefined || !Number.isFinite(days)
-    ? undefined
-    : Math.max(1, Math.round(days));
-
 /**
  * A from - to range of days: typed into the field in the date format of the
  * locale (`24.09.2026 – 30.09.2026`, also with the years left out or of two
@@ -176,6 +182,7 @@ const toDayLimit = (days: number | undefined) =>
  */
 export default function DateRangePicker({
   "aria-label": ariaLabel,
+  allowDisabledInRange = false,
   className,
   clearable,
   defaultValue,
@@ -185,6 +192,7 @@ export default function DateRangePicker({
   endName,
   error,
   id,
+  isDateDisabled,
   label,
   max,
   maxDays,
@@ -237,6 +245,8 @@ export default function DateRangePicker({
   const days = range && toDateRange(range);
   const fieldValue = encodeRange(days);
   const limits: RangeLimits = {
+    allowDisabledInRange,
+    isDateDisabled,
     max: parseISODate(max),
     maxDays: toDayLimit(maxDays),
     min: parseISODate(min),
@@ -271,7 +281,9 @@ export default function DateRangePicker({
     const date = parseISODate(day);
     return date ? formatDate(date, pattern) : day;
   };
-  const rangeMessage =
+  // So does a range over a disabled day - one typed too, which is kept
+  const unavailableDay = range && findUnavailableDay(range, limits);
+  const validityMessage =
     getRangeMessage(
       locale.messages.dateTimePicker,
       days?.start,
@@ -283,7 +295,12 @@ export default function DateRangePicker({
       days?.end,
       { max: dayLimit(limits.max) },
       formatDay,
-    );
+    ) ||
+    (unavailableDay
+      ? formatMessage(messages.unavailableInRange, {
+          date: formatDate(unavailableDay, pattern),
+        })
+      : "");
 
   return (
     <PickerField
@@ -328,15 +345,16 @@ export default function DateRangePicker({
       pickCount={pickCount}
       placeholder={placeholder ?? rangePlaceholder}
       popupLabel={messages.selectRange}
-      rangeMessage={rangeMessage}
       readOnly={readOnly}
       required={required}
+      validityMessage={validityMessage}
       value={fieldValue}
     >
-      <RangeCalendar
+      <RangePanel
         autoFocus={openedByKeyboard}
         compact={isMobile}
         limits={limits}
+        months={isMobile ? 1 : 2}
         onEscape={close}
         onPick={pickRange}
         presets={presets === true ? DEFAULT_PRESETS : presets || []}

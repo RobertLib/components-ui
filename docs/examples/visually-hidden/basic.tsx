@@ -6,7 +6,7 @@ export default function Basic() {
     <div className="relative space-y-4 text-sm">
       {/* Press Tab to see it - it shows while it has the focus */}
       <VisuallyHidden
-        className="absolute top-0 left-0 z-10 rounded-md bg-surface px-3 py-2 shadow-lg dark:bg-surface-dark"
+        className="absolute start-0 top-0 z-10 rounded-md bg-surface px-3 py-2 shadow-lg dark:bg-surface-dark"
         focusable
       >
         <Link
@@ -22,7 +22,7 @@ export default function Basic() {
       </VisuallyHidden>
 
       <table
-        className="w-full max-w-md text-left focus:outline-none"
+        className="w-full max-w-md text-start focus:outline-hidden"
         id="invoices"
         tabIndex={-1}
       >
@@ -45,8 +45,8 @@ export default function Basic() {
               <span aria-hidden="true"> €</span>
               <VisuallyHidden> euros</VisuallyHidden>
             </td>
-            <td className="py-2 text-right">
-              <IconButton variant="danger">
+            <td className="py-2 text-end">
+              <IconButton color="danger">
                 <Trash2 size={16} />
                 <VisuallyHidden>Delete invoice 2026-0141</VisuallyHidden>
               </IconButton>

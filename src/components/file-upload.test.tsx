@@ -6,8 +6,11 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createRequire } from "node:module";
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cs } from "../i18n/cs";
 import FileUpload, { type UploadedFile } from "./file-upload";
 import UIProvider from "../providers/ui-provider";
@@ -19,18 +22,57 @@ const file = (name: string, type = "application/pdf", size = 10) =>
 const drop = (target: Element, files: File[]) =>
   fireEvent.drop(target, { dataTransfer: { files, types: ["Files"] } });
 
-/** An upload that resolves when told to. */
+/** Pastes files - a screenshot, files copied in the file manager. */
+const paste = (target: Element, files: File[]) =>
+  fireEvent.paste(target, {
+    clipboardData: { files, types: files.length ? ["Files"] : ["text/plain"] },
+  });
+
+/** The input of the native picker - the first file input of the field. */
+const picker = () =>
+  document.querySelector<HTMLInputElement>(
+    "input[type=file]",
+  ) as HTMLInputElement;
+
+/** Picks files in the native picker. */
+const pick = (files: File[]) =>
+  fireEvent.change(picker(), { target: { files } });
+
+/** The names of the files a form submits under `name`. */
+const submitted = (form: HTMLFormElement, name: string) =>
+  new FormData(form)
+    .getAll(name)
+    .map((entry) => (typeof entry === "string" ? entry : entry.name));
+
+/** What the field last said to screen readers. */
+const announced = () => screen.getByRole("status").textContent;
+
+/** An upload that resolves or fails when told to. */
 function controllableUpload() {
   const pending: {
     file: File;
+    progress: (percent: number) => void;
+    reject: (error: unknown) => void;
     resolve: (result: UploadedFile) => void;
     signal: AbortSignal;
   }[] = [];
 
   const upload = vi.fn(
-    (uploaded: File, { signal }: { signal: AbortSignal }) =>
+    (
+      uploaded: File,
+      {
+        onProgress,
+        signal,
+      }: { onProgress: (percent: number) => void; signal: AbortSignal },
+    ) =>
       new Promise<UploadedFile>((resolve, reject) => {
-        pending.push({ file: uploaded, resolve, signal });
+        pending.push({
+          file: uploaded,
+          progress: onProgress,
+          reject,
+          resolve,
+          signal,
+        });
         signal.addEventListener("abort", () => reject(signal.reason));
       }),
   );
@@ -38,8 +80,36 @@ function controllableUpload() {
   return { pending, upload };
 }
 
+/**
+ * A `DataTransfer` whose `files` is a FileList of jsdom - jsdom has no
+ * `DataTransfer`, and a FileList a file input takes cannot be made
+ * otherwise. Built from its internals, so that `new FormData(form)` sees
+ * the files put in an input.
+ */
+function stubDataTransfer() {
+  const require = createRequire(import.meta.url);
+  const utils = require("jsdom/lib/generated/idl/utils.js");
+  const fileLists = require("jsdom/lib/generated/idl/FileList.js");
+  const globalObject = utils.implForWrapper(document)._globalObject;
+
+  class TestDataTransfer {
+    readonly #list = fileLists.createImpl(globalObject);
+    readonly items = {
+      add: (added: File) => {
+        this.#list.push(utils.implForWrapper(added));
+      },
+    };
+
+    get files(): FileList {
+      return utils.wrapperForImpl(this.#list);
+    }
+  }
+
+  vi.stubGlobal("DataTransfer", TestDataTransfer);
+}
+
 describe("FileUpload", () => {
-  it("uploads dropped files one after another", async () => {
+  it("uploads dropped files side by side", async () => {
     const { pending, upload } = controllableUpload();
     render(
       <FileUpload label="Attachments" multiple name="files" upload={upload} />,
@@ -50,11 +120,11 @@ describe("FileUpload", () => {
       file("b.pdf"),
     ]);
 
-    expect(upload).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("a.pdf")).toBeInTheDocument();
-    await act(async () => pending[0].resolve({ value: "blob-a" }));
     expect(upload).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByRole("progressbar")).toHaveLength(2);
+    // The list keeps the order of the files, whichever is stored first
     await act(async () => pending[1].resolve({ value: "blob-b" }));
+    await act(async () => pending[0].resolve({ value: "blob-a" }));
 
     expect(screen.getByText("a.pdf")).toBeInTheDocument();
     expect(screen.getByText("b.pdf")).toBeInTheDocument();
@@ -66,13 +136,31 @@ describe("FileUpload", () => {
     ).toEqual(["blob-a", "blob-b"]);
   });
 
+  it("uploads one after another with a concurrency of 1", async () => {
+    const { pending, upload } = controllableUpload();
+    render(<FileUpload concurrency={1} multiple upload={upload} />);
+
+    drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Waiting to upload…")).toBeInTheDocument();
+    await act(async () => pending[0].resolve({ value: "blob-a" }));
+    expect(upload).toHaveBeenCalledTimes(2);
+    expect(upload).toHaveBeenLastCalledWith(
+      expect.objectContaining({ name: "b.pdf" }),
+      expect.anything(),
+    );
+  });
+
   it("cancels the upload - and aborts it when it goes away", async () => {
     const user = userEvent.setup();
     const { pending, upload } = controllableUpload();
     const { unmount } = render(<FileUpload upload={upload} />);
 
     drop(screen.getByRole("group"), [file("a.pdf")]);
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(
+      screen.getByRole("button", { name: "Cancel uploading a.pdf" }),
+    );
 
     expect(pending[0].signal.aborted).toBe(true);
     expect(screen.queryByText("a.pdf")).toBeNull();
@@ -95,7 +183,7 @@ describe("FileUpload", () => {
     expect(upload).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Files of this type cannot be uploaded here.",
+      "notes.txt: Files of this type cannot be uploaded here.",
     );
   });
 
@@ -115,8 +203,10 @@ describe("FileUpload", () => {
     drop(screen.getByRole("group"), [file("b.pdf")]);
 
     expect(upload).not.toHaveBeenCalled();
+    expect(screen.getByRole("group")).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("button", { name: /Upload/ })).toBeDisabled();
     expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
+    expect(screen.queryByText("or drag and drop here")).toBeNull();
     const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
     expect([...new FormData(form).keys()]).toEqual([]);
   });
@@ -178,8 +268,12 @@ describe("FileUpload", () => {
       "c.pdf",
     ]);
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "You can attach up to 2 files.",
+      "c.pdf: You can attach up to 2 files.",
     );
+
+    // An upload takes its room while it runs
+    drop(screen.getByRole("group"), [file("d.pdf")]);
+    expect(upload).toHaveBeenCalledTimes(1);
 
     await act(async () => pending[0].resolve({ value: "blob-b" }));
     expect(upload).toHaveBeenCalledTimes(1);
@@ -209,7 +303,7 @@ describe("FileUpload", () => {
       ["a", "b", "c", "d"].map((name) => file(`${name}.pdf`)),
     );
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Připojit lze nejvýše 3 soubory.",
+      "d.pdf: Připojit lze nejvýše 3 soubory.",
     );
   });
 
@@ -222,8 +316,44 @@ describe("FileUpload", () => {
 
     drop(screen.getByRole("group"), [file("big.pdf", "application/pdf", 3e6)]);
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Maximální velikost souboru 2,5 MB byla překročena.",
+      "big.pdf: Maximální velikost souboru 2,5 MB byla překročena.",
     );
+  });
+
+  it("names the files refused for one reason once - many of them shortened", () => {
+    const upload = vi.fn();
+    const { rerender } = render(
+      <FileUpload accept=".pdf" multiple upload={upload} />,
+    );
+
+    drop(
+      screen.getByRole("group"),
+      ["a", "b", "c", "d", "e", "f"].map((name) =>
+        file(`${name}.txt`, "text/plain"),
+      ),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "a.txt, b.txt, c.txt, and 3 more: Files of this type cannot be uploaded here.",
+    );
+
+    rerender(
+      <UIProvider locale={cs}>
+        <FileUpload accept=".pdf" maxFileSize={1} multiple upload={upload} />
+      </UIProvider>,
+    );
+    drop(screen.getByRole("group"), [
+      file("a.txt", "text/plain"),
+      file("big.pdf", "application/pdf", 2e6),
+      file("b.txt", "text/plain"),
+    ]);
+    // Czech keeps "a" on the line of the next word
+    const lines = Array.from(screen.getByRole("alert").children, (line) =>
+      line.textContent?.replace(/\s/g, " "),
+    );
+    expect(lines).toEqual([
+      "a.txt a b.txt: Soubory tohoto typu sem nelze nahrát.",
+      "big.pdf: Maximální velikost souboru 1 MB byla překročena.",
+    ]);
   });
 
   it("keeps files dropped while it cannot take them from opening in the browser", async () => {
@@ -242,20 +372,19 @@ describe("FileUpload", () => {
     expect(fireEvent.drop(group, { dataTransfer })).toBe(false);
     expect(upload).not.toHaveBeenCalled();
 
-    // Nor while uploading
-    rerender(<FileUpload upload={upload} />);
+    // While a file uploads it takes more
+    rerender(<FileUpload multiple upload={upload} />);
     drop(group, [file("b.pdf")]);
     expect(upload).toHaveBeenCalledTimes(1);
     expect(fireEvent.dragOver(group, { dataTransfer })).toBe(false);
-    expect(dataTransfer.dropEffect).toBe("none");
+    expect(dataTransfer.dropEffect).toBe("copy");
     expect(fireEvent.drop(group, { dataTransfer })).toBe(false);
-    expect(upload).toHaveBeenCalledTimes(1);
+    expect(upload).toHaveBeenCalledTimes(2);
 
     await act(async () =>
       pending[0].resolve({ filename: "b.pdf", id: "b", url: "/b.pdf" }),
     );
-    expect(fireEvent.dragOver(group, { dataTransfer })).toBe(false);
-    expect(dataTransfer.dropEffect).toBe("copy");
+    expect(screen.getByRole("link", { name: "b.pdf" })).toBeInTheDocument();
   });
 
   it("requires a file when required", async () => {
@@ -269,6 +398,8 @@ describe("FileUpload", () => {
 
     expect(form.checkValidity()).toBe(false);
     drop(screen.getByRole("group"), [file("a.pdf")]);
+    // Not while it uploads
+    expect(form.checkValidity()).toBe(false);
     await act(async () => pending[0].resolve({}));
     expect(form.checkValidity()).toBe(true);
   });
@@ -286,6 +417,8 @@ describe("FileUpload", () => {
     );
 
     drop(screen.getByRole("group"), [file("b.pdf"), file("c.pdf")]);
+    // The attached file stays until the new one is stored
+    expect(screen.getByText("a.pdf")).toBeInTheDocument();
     await act(async () => pending[0].resolve({ value: "blob-b" }));
 
     expect(upload).toHaveBeenCalledTimes(1);
@@ -300,6 +433,21 @@ describe("FileUpload", () => {
         (input) => input.value,
       ),
     ).toEqual(["blob-b"]);
+  });
+
+  it("drops the running upload for a newer file without multiple", async () => {
+    const { pending, upload } = controllableUpload();
+    const onUpload = vi.fn();
+    render(<FileUpload onUpload={onUpload} upload={upload} />);
+
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    drop(screen.getByRole("group"), [file("b.pdf")]);
+
+    expect(pending[0].signal.aborted).toBe(true);
+    expect(screen.queryByText("a.pdf")).toBeNull();
+    await act(async () => pending[1].resolve({ value: "blob-b" }));
+    expect(onUpload).toHaveBeenCalledExactlyOnceWith({ value: "blob-b" });
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
 
   it("lists defaultAttachments arriving later until the user changes the list", async () => {
@@ -332,6 +480,22 @@ describe("FileUpload", () => {
     expect(screen.getByText("b.pdf")).toBeInTheDocument();
   });
 
+  it("keeps a running upload when defaultAttachments arrive", () => {
+    const { upload } = controllableUpload();
+    const { rerender } = render(<FileUpload multiple upload={upload} />);
+
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    rerender(
+      <FileUpload
+        defaultAttachments={[{ filename: "b.pdf", id: "b" }]}
+        multiple
+        upload={upload}
+      />,
+    );
+    expect(screen.getByText("a.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("b.pdf")).toBeNull();
+  });
+
   it("takes its defaultAttachments back when the form is reset", async () => {
     const user = userEvent.setup();
     const { pending, upload } = controllableUpload();
@@ -339,6 +503,7 @@ describe("FileUpload", () => {
     render(
       <form aria-label="Order">
         <FileUpload
+          accept=".pdf"
           defaultAttachments={[{ filename: "a.pdf", value: "blob-a" }]}
           multiple
           name="files"
@@ -352,11 +517,12 @@ describe("FileUpload", () => {
     drop(screen.getByRole("group"), [file("b.pdf")]);
     await act(async () => pending[0].resolve({ value: "blob-b" }));
     await user.click(screen.getByRole("button", { name: "Remove a.pdf" }));
-    drop(screen.getByRole("group"), [file("c.pdf")]);
+    drop(screen.getByRole("group"), [file("c.pdf"), file("x.exe", "")]);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Reset" }));
 
-    // The running upload is dropped with the rest
+    // The running upload is dropped with the rest, and the refusal
     expect(pending[1].signal.aborted).toBe(true);
     const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
     await waitFor(() =>
@@ -364,6 +530,7 @@ describe("FileUpload", () => {
     );
     expect(screen.queryByText("b.pdf")).toBeNull();
     expect(screen.queryByText("c.pdf")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
 
     // Only the file the user removed - the reset after a form action follows
     // a save, which has kept the uploaded files
@@ -390,7 +557,7 @@ describe("FileUpload", () => {
     expect(action.mock.calls[0][0].getAll("files")).toEqual(["blob-a"]);
   });
 
-  it("is ready again at once when cancelled, whatever upload does", async () => {
+  it("cancels one upload, whatever upload does - the others go on", async () => {
     const user = userEvent.setup();
     // Ignores the signal and resolves later
     const late: ((result: UploadedFile) => void)[] = [];
@@ -401,44 +568,44 @@ describe("FileUpload", () => {
     render(<FileUpload multiple onUpload={onUpload} upload={upload} />);
 
     drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-
-    expect(screen.queryByRole("progressbar")).toBeNull();
-    const button = screen.getByRole("button", { name: /Upload/ });
-    expect(button).toHaveFocus();
-
-    // The files after the cancelled one are dropped, a new one can be added
-    drop(screen.getByRole("group"), [file("c.pdf")]);
-    expect(upload).toHaveBeenCalledTimes(2);
-    expect(upload).toHaveBeenLastCalledWith(
-      expect.objectContaining({ name: "c.pdf" }),
-      expect.anything(),
+    await user.click(
+      screen.getByRole("button", { name: "Cancel uploading a.pdf" }),
     );
+
+    // The focus goes to the file taking its place
+    expect(screen.queryByText("a.pdf")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Cancel uploading b.pdf" }),
+    ).toHaveFocus();
+    expect(screen.getAllByRole("progressbar")).toHaveLength(1);
 
     // The cancelled upload finishing late changes nothing
     await act(async () => late[0]({ value: "blob-a" }));
     expect(screen.queryByText("a.pdf")).toBeNull();
     expect(onUpload).not.toHaveBeenCalled();
-    expect(screen.getByRole("progressbar")).toBeInTheDocument();
 
-    await act(async () => late[1]({ value: "blob-c" }));
-    expect(screen.getByText("c.pdf")).toBeInTheDocument();
+    await act(async () => late[1]({ value: "blob-b" }));
+    expect(screen.getByText("b.pdf")).toBeInTheDocument();
+    expect(onUpload).toHaveBeenCalledExactlyOnceWith({ value: "blob-b" });
   });
 
-  it("keeps the focus on the upload controls around an upload", async () => {
+  it("keeps the focus where it is while files upload", async () => {
     const user = userEvent.setup();
     const { pending, upload } = controllableUpload();
-    const { container } = render(<FileUpload upload={upload} />);
+    render(<FileUpload multiple upload={upload} />);
 
-    await user.click(screen.getByRole("button", { name: /Upload/ }));
-    fireEvent.change(
-      container.querySelector("input[type=file]") as HTMLInputElement,
-      { target: { files: [file("a.pdf")] } },
+    const button = screen.getByRole("button", { name: /Upload/ });
+    await user.click(button);
+    pick([file("a.pdf"), file("b.pdf")]);
+    // The button stays - more files can be picked meanwhile
+    expect(button).toHaveFocus();
+
+    // The cancel button of a finished upload becomes its remove button
+    act(() =>
+      screen.getByRole("button", { name: "Cancel uploading a.pdf" }).focus(),
     );
-    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
-
     await act(async () => pending[0].resolve({ value: "blob-a" }));
-    expect(screen.getByRole("button", { name: /Upload/ })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Remove a.pdf" })).toHaveFocus();
   });
 
   it("moves the focus to the next file when one is removed", async () => {
@@ -576,7 +743,7 @@ describe("FileUpload", () => {
             onUpload={(result) => setValues([...values, result.value ?? ""])}
             upload={upload}
           />
-          <output>{values.join()}</output>
+          <p data-testid="values">{values.join()}</p>
         </>
       );
     }
@@ -586,7 +753,7 @@ describe("FileUpload", () => {
     await act(async () => pending[0].resolve({ value: "a" }));
     await act(async () => pending[1].resolve({ value: "b" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("a,b");
+    expect(screen.getByTestId("values")).toHaveTextContent("a,b");
   });
 
   it("reports each file of an upload that settles at once to the latest callbacks", async () => {
@@ -604,7 +771,7 @@ describe("FileUpload", () => {
             onUpload={(result) => setValues([...values, result.value ?? ""])}
             upload={async (picked) => ({ value: picked.name })}
           />
-          <output>{values.join()}</output>
+          <p data-testid="values">{values.join()}</p>
           <p data-testid="refused">{refused.join()}</p>
         </>
       );
@@ -624,7 +791,7 @@ describe("FileUpload", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("listitem")).toHaveLength(3),
     );
-    expect(screen.getByRole("status")).toHaveTextContent("a.pdf,b.pdf,c.pdf");
+    expect(screen.getByTestId("values")).toHaveTextContent("a.pdf,b.pdf,c.pdf");
     expect(screen.getByTestId("refused")).toHaveTextContent("x.exe,y.exe");
   });
 
@@ -647,6 +814,7 @@ describe("FileUpload", () => {
         return open ? (
           <FileUpload
             accept=".pdf"
+            concurrency={1}
             multiple
             onError={() => callback === "onError" && setOpen(false)}
             onUpload={(result) => {
@@ -672,9 +840,28 @@ describe("FileUpload", () => {
       await screen.findByText("Closed");
       await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
       expect(onUpload).toHaveBeenCalledTimes(callback === "onUpload" ? 1 : 0);
-      expect(signals.slice(1).every((signal) => signal.aborted)).toBe(true);
+      expect(upload).toHaveBeenCalledTimes(callback === "onUpload" ? 1 : 0);
     },
   );
+
+  it("aborts the uploads running side by side once an onUpload takes the field away", async () => {
+    const { pending, upload } = controllableUpload();
+    function Parent() {
+      const [open, setOpen] = useState(true);
+      return open ? (
+        <FileUpload multiple onUpload={() => setOpen(false)} upload={upload} />
+      ) : (
+        <p>Closed</p>
+      );
+    }
+    render(<Parent />);
+
+    drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+    await act(async () => pending[0].resolve({ value: "a" }));
+
+    expect(screen.getByText("Closed")).toBeInTheDocument();
+    expect(pending[1].signal.aborted).toBe(true);
+  });
 
   it("takes classes and hides the required mark from screen readers", () => {
     render(
@@ -689,6 +876,23 @@ describe("FileUpload", () => {
     const group = screen.getByRole("group", { name: "Invoice:" });
     expect(group).toHaveClass("my-0!", "w-80");
     expect(screen.getByText("*")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("is named by a label of any content", () => {
+    render(
+      <FileUpload
+        label={
+          <>
+            Invoice <em>(PDF)</em>
+          </>
+        }
+        upload={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("group", { name: "Invoice (PDF):" }),
+    ).toBeInTheDocument();
   });
 
   it("describes the upload button and the group with the error", () => {
@@ -706,6 +910,814 @@ describe("FileUpload", () => {
     expect(
       screen.getByRole("button", { name: /Upload/ }),
     ).toHaveAccessibleDescription("Attach the invoice");
+  });
+
+  it("shows the error of the form and a refusal together", () => {
+    render(
+      <FileUpload
+        accept=".pdf"
+        error="Attach the invoice"
+        label="Invoice"
+        upload={vi.fn()}
+      />,
+    );
+
+    drop(screen.getByRole("group"), [file("notes.txt", "text/plain")]);
+    expect(
+      Array.from(
+        screen.getByRole("alert").children,
+        (line) => line.textContent,
+      ),
+    ).toEqual([
+      "Attach the invoice",
+      "notes.txt: Files of this type cannot be uploaded here.",
+    ]);
+  });
+});
+
+describe("FileUpload uploads side by side", () => {
+  it("starts up to concurrency uploads, and the next as one ends", async () => {
+    const { pending, upload } = controllableUpload();
+    render(<FileUpload concurrency={2} multiple upload={upload} />);
+
+    drop(screen.getByRole("group"), [
+      file("a.pdf"),
+      file("b.pdf"),
+      file("c.pdf"),
+    ]);
+
+    expect(upload).toHaveBeenCalledTimes(2);
+    const [, , waiting] = screen.getAllByRole("listitem");
+    expect(waiting).toHaveTextContent("c.pdfWaiting to upload…");
+
+    await act(async () => pending[1].resolve({ value: "b" }));
+    expect(upload).toHaveBeenCalledTimes(3);
+    expect(upload).toHaveBeenLastCalledWith(
+      expect.objectContaining({ name: "c.pdf" }),
+      expect.anything(),
+    );
+  });
+
+  it("shows the progress of each file", () => {
+    const { pending, upload } = controllableUpload();
+    render(<FileUpload multiple upload={upload} />);
+
+    drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+    act(() => {
+      pending[0].progress(30);
+      pending[1].progress(70.8);
+    });
+
+    const [a, b] = screen.getAllByRole("progressbar", { name: "Uploading…" });
+    expect(a).toHaveAttribute("aria-valuenow", "30");
+    expect(a).toHaveAccessibleDescription("a.pdf");
+    expect(b).toHaveAttribute("aria-valuenow", "70.8");
+    expect(b).toHaveAccessibleDescription("b.pdf");
+    // Rounded down - done only at 100 %
+    expect(screen.getByText("70%")).toBeInTheDocument();
+  });
+
+  it("shows a failed upload in its row, to be tried again", async () => {
+    const user = userEvent.setup();
+    const { pending, upload } = controllableUpload();
+    const onError = vi.fn();
+    const onUpload = vi.fn();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <FileUpload
+        label="Attachments"
+        multiple
+        name="files"
+        onError={onError}
+        onUpload={onUpload}
+        upload={upload}
+      />,
+    );
+
+    const failure = new Error("503 Service Unavailable");
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    await act(async () => pending[0].reject(failure));
+
+    const row = screen.getByRole("listitem");
+    expect(row).toHaveTextContent("a.pdfThe upload failed.");
+    expect(onError).toHaveBeenCalledExactlyOnceWith(
+      failure,
+      expect.objectContaining({ name: "a.pdf" }),
+    );
+    // The message is the row's - the field is not invalid
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("group")).not.toHaveAttribute("aria-invalid");
+    expect(document.querySelector("input[name='files']")).toBeNull();
+
+    // The retry button gives the focus to the cancel button of the row
+    const retry = screen.getByRole("button", { name: "Retry uploading a.pdf" });
+    expect(retry).toHaveTextContent("Retry");
+    await user.click(retry);
+    expect(upload).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByRole("button", { name: "Cancel uploading a.pdf" }),
+    ).toHaveFocus();
+
+    await act(async () => pending[1].resolve({ value: "blob-a" }));
+    expect(onUpload).toHaveBeenCalledExactlyOnceWith({ value: "blob-a" });
+    expect(
+      document.querySelector<HTMLInputElement>("input[name='files']")?.value,
+    ).toBe("blob-a");
+  });
+
+  it("removes a failed upload without onRemove", async () => {
+    const user = userEvent.setup();
+    const { pending, upload } = controllableUpload();
+    const onRemove = vi.fn();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<FileUpload onRemove={onRemove} upload={upload} />);
+
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    await act(async () => pending[0].reject(new Error("Failed")));
+    await user.click(screen.getByRole("button", { name: "Remove a.pdf" }));
+
+    expect(screen.queryByRole("listitem")).toBeNull();
+    expect(onRemove).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /Upload/ })).toHaveFocus();
+  });
+
+  it("cancels a waiting file before it starts", async () => {
+    const user = userEvent.setup();
+    const { pending, upload } = controllableUpload();
+    render(<FileUpload concurrency={1} multiple upload={upload} />);
+
+    drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+    await user.click(
+      screen.getByRole("button", { name: "Cancel uploading b.pdf" }),
+    );
+    await act(async () => pending[0].resolve({ value: "a" }));
+
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  });
+
+  it("says the uploads together - when they start and once they are over", async () => {
+    const { pending, upload } = controllableUpload();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<FileUpload multiple upload={upload} />);
+
+    expect(announced()).toBe("");
+    drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+    expect(announced()).toBe("Uploading 2 files…");
+
+    // Not at every step, nor at each file
+    act(() => pending[0].progress(50));
+    await act(async () => pending[0].resolve({ value: "a" }));
+    expect(announced()).toBe("Uploading 2 files…");
+
+    await act(async () => pending[1].reject(new Error("Failed")));
+    expect(announced()).toBe("1 file uploaded. 1 upload failed.");
+  });
+
+  it("says the uploads as the language does", async () => {
+    const upload = vi.fn(async (picked: File) => ({ value: picked.name }));
+    render(
+      <UIProvider locale={cs}>
+        <FileUpload multiple upload={upload} />
+      </UIProvider>,
+    );
+
+    await act(async () =>
+      drop(screen.getByRole("group"), [
+        file("a.pdf"),
+        file("b.pdf"),
+        file("c.pdf"),
+      ]),
+    );
+    await waitFor(() => expect(announced()).toBe("Byly nahrány 3 soubory."));
+  });
+});
+
+describe("FileUpload without upload", () => {
+  beforeEach(stubDataTransfer);
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("submits the picked, dropped and pasted files with the form", async () => {
+    const user = userEvent.setup();
+    const onFilesChange = vi.fn();
+    render(
+      <form aria-label="Order">
+        <FileUpload
+          label="Documents"
+          multiple
+          name="documents"
+          onFilesChange={onFilesChange}
+        />
+      </form>,
+    );
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+
+    pick([file("a.pdf"), file("b.pdf")]);
+    // The same file can be picked again
+    expect(picker().value).toBe("");
+    expect(submitted(form, "documents")).toEqual(["a.pdf", "b.pdf"]);
+
+    drop(screen.getByRole("group"), [file("c.pdf")]);
+    paste(screen.getByRole("button", { name: /Upload/ }), [
+      file("image.png", "image/png"),
+    ]);
+    expect(submitted(form, "documents")).toEqual([
+      "a.pdf",
+      "b.pdf",
+      "c.pdf",
+      "image.png",
+    ]);
+    expect(announced()).toBe("1 file added.");
+
+    await user.click(screen.getByRole("button", { name: "Remove b.pdf" }));
+    expect(submitted(form, "documents")).toEqual([
+      "a.pdf",
+      "c.pdf",
+      "image.png",
+    ]);
+    expect(
+      onFilesChange.mock.lastCall?.[0].map((picked: File) => picked.name),
+    ).toEqual(["a.pdf", "c.pdf", "image.png"]);
+    // Nothing is uploaded - no progress, no hidden inputs
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("gives the files to a form action - and is reset after it", async () => {
+    const user = userEvent.setup();
+    const action = vi.fn();
+    const onFilesChange = vi.fn();
+    render(
+      <form action={action}>
+        <FileUpload multiple name="documents" onFilesChange={onFilesChange} />
+        <button type="submit">Send</button>
+      </form>,
+    );
+
+    pick([file("a.pdf"), file("b.pdf")]);
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(screen.queryByText("a.pdf")).toBeNull());
+    const files = action.mock.calls[0][0].getAll("documents");
+    expect(files.map((sent: File) => sent.name)).toEqual(["a.pdf", "b.pdf"]);
+    expect(files[0]).toBeInstanceOf(File);
+    expect(onFilesChange).toHaveBeenLastCalledWith([]);
+  });
+
+  it("submits the files it accepts only", () => {
+    const onError = vi.fn();
+    render(
+      <form aria-label="Order">
+        <FileUpload
+          accept=".pdf"
+          maxFileSize={1}
+          maxFiles={2}
+          multiple
+          name="documents"
+          onError={onError}
+        />
+      </form>,
+    );
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+
+    pick([
+      file("a.pdf"),
+      file("notes.txt", "text/plain"),
+      file("big.pdf", "application/pdf", 2e6),
+      file("b.pdf"),
+      file("c.pdf"),
+    ]);
+
+    expect(submitted(form, "documents")).toEqual(["a.pdf", "b.pdf"]);
+    expect(onError.mock.calls.map(([, refused]) => refused.name)).toEqual([
+      "notes.txt",
+      "big.pdf",
+      "c.pdf",
+    ]);
+  });
+
+  it("keeps one file without multiple", () => {
+    const onRemove = vi.fn();
+    render(
+      <form aria-label="Order">
+        <FileUpload
+          defaultAttachments={[{ filename: "old.pdf", value: "blob-old" }]}
+          name="document"
+          onRemove={onRemove}
+        />
+      </form>,
+    );
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+
+    // The kept attachment submits its value under the same name
+    expect(submitted(form, "document")).toEqual(["blob-old"]);
+    drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+
+    expect(submitted(form, "document")).toEqual(["a.pdf"]);
+    expect(onRemove).toHaveBeenCalledWith(
+      expect.objectContaining({ filename: "old.pdf" }),
+    );
+  });
+
+  it("requires a picked file", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Order">
+        <FileUpload name="document" required />
+      </form>,
+    );
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+
+    expect(form.checkValidity()).toBe(false);
+    pick([file("a.pdf")]);
+    expect(form.checkValidity()).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Remove a.pdf" }));
+    expect(form.checkValidity()).toBe(false);
+  });
+
+  it("submits nothing while empty or disabled", () => {
+    const { rerender } = render(
+      <form aria-label="Order">
+        <FileUpload name="documents" />
+      </form>,
+    );
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+
+    // A native file input would submit an empty file
+    expect(submitted(form, "documents")).toEqual([]);
+
+    pick([file("a.pdf")]);
+    rerender(
+      <form aria-label="Order">
+        <FileUpload disabled name="documents" />
+      </form>,
+    );
+    expect(screen.getByText("a.pdf")).toBeInTheDocument();
+    expect(submitted(form, "documents")).toEqual([]);
+  });
+
+  it("submits to the form of its form attribute - and is reset with it", async () => {
+    const onFilesChange = vi.fn();
+    render(
+      <>
+        <form id="order" />
+        <FileUpload
+          form="order"
+          multiple
+          name="documents"
+          onFilesChange={onFilesChange}
+        />
+      </>,
+    );
+    const form = document.getElementById("order") as HTMLFormElement;
+
+    pick([file("a.pdf")]);
+    expect(submitted(form, "documents")).toEqual(["a.pdf"]);
+
+    act(() => form.reset());
+    await waitFor(() => expect(screen.queryByText("a.pdf")).toBeNull());
+    expect(submitted(form, "documents")).toEqual([]);
+    expect(onFilesChange).toHaveBeenLastCalledWith([]);
+  });
+
+  it("shows picked images with preview - and releases them", async () => {
+    const user = userEvent.setup();
+    const revoke = vi.fn();
+    // jsdom has no object URLs
+    Object.assign(URL, {
+      createObjectURL: () => "blob:local",
+      revokeObjectURL: revoke,
+    });
+    render(<FileUpload name="photos" preview />);
+
+    pick([file("photo.png", "image/png")]);
+    expect(document.querySelector("img")).toHaveAttribute("src", "blob:local");
+
+    await user.click(screen.getByRole("button", { name: "Remove photo.png" }));
+    expect(revoke).toHaveBeenCalledWith("blob:local");
+
+    const url = URL as Partial<typeof URL>;
+    delete url.createObjectURL;
+    delete url.revokeObjectURL;
+  });
+
+  it("lists the files of a picked folder by their path", () => {
+    render(
+      <form aria-label="Order">
+        <FileUpload directory multiple name="photos" />
+      </form>,
+    );
+
+    expect(picker()).toHaveAttribute("webkitdirectory");
+    const photo = file("a.jpg", "image/jpeg");
+    Object.defineProperty(photo, "webkitRelativePath", {
+      value: "holiday/a.jpg",
+    });
+    pick([photo]);
+
+    expect(screen.getByText("holiday/a.jpg")).toBeInTheDocument();
+  });
+});
+
+describe("FileUpload without DataTransfer", () => {
+  it("submits what the native picker put in its input", () => {
+    const onFilesChange = vi.fn();
+    render(
+      <form aria-label="Order">
+        <FileUpload multiple name="documents" onFilesChange={onFilesChange} />
+      </form>,
+    );
+
+    // The picker is the input the form submits
+    expect(document.querySelectorAll("input[type=file]")).toHaveLength(1);
+    expect(picker()).toHaveAttribute("name", "documents");
+
+    pick([file("a.pdf"), file("b.pdf")]);
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(onFilesChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ name: "a.pdf" }),
+      expect.objectContaining({ name: "b.pdf" }),
+    ]);
+    // One of several files cannot be taken out of the input
+    expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
+
+    // Like a native file input, a new pick replaces the files
+    pick([file("c.pdf")]);
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByText("c.pdf")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove c.pdf" }));
+    expect(screen.queryByRole("listitem")).toBeNull();
+    expect(onFilesChange).toHaveBeenLastCalledWith([]);
+  });
+
+  it("refuses a pick with a file it does not accept whole", () => {
+    render(<FileUpload accept=".pdf" multiple name="documents" />);
+
+    pick([file("a.pdf")]);
+    pick([file("b.pdf"), file("notes.txt", "text/plain")]);
+
+    // The input held the refused file too - it is empty now
+    expect(screen.queryByRole("listitem")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "notes.txt: Files of this type cannot be uploaded here.",
+    );
+  });
+
+  it("takes no dropped or pasted files", () => {
+    render(<FileUpload multiple name="documents" />);
+    const group = screen.getByRole("group");
+
+    const dataTransfer = {
+      dropEffect: "copy",
+      files: [file("a.pdf")],
+      types: ["Files"],
+    };
+    fireEvent.dragOver(group, { dataTransfer });
+    expect(dataTransfer.dropEffect).toBe("none");
+    // Still not opened in the browser
+    expect(fireEvent.drop(group, { dataTransfer })).toBe(false);
+    paste(screen.getByRole("button", { name: /Upload/ }), [file("b.pdf")]);
+
+    expect(screen.queryByRole("listitem")).toBeNull();
+    expect(screen.queryByText("or drag and drop here")).toBeNull();
+  });
+
+  it("still uploads with upload", () => {
+    const { upload } = controllableUpload();
+    render(<FileUpload multiple name="files" upload={upload} />);
+
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("or drag and drop here")).toBeInTheDocument();
+  });
+});
+
+describe("FileUpload validation", () => {
+  it("refuses a file its validate refuses - with the name of the file", () => {
+    const { upload } = controllableUpload();
+    const onError = vi.fn();
+    render(
+      <FileUpload
+        multiple
+        onError={onError}
+        upload={upload}
+        validate={(checked) =>
+          checked.size < 100 ? "The file is too small." : undefined
+        }
+      />,
+    );
+
+    drop(screen.getByRole("group"), [
+      file("tiny.pdf", "application/pdf", 10),
+      file("big.pdf", "application/pdf", 200),
+    ]);
+
+    expect(upload).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: "big.pdf" }),
+      expect.anything(),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "tiny.pdf: The file is too small.",
+    );
+    const [[error, refused]] = onError.mock.calls;
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe("The file is too small.");
+    expect(refused.name).toBe("tiny.pdf");
+  });
+
+  it("checks a file after accept and maxFileSize", () => {
+    const validate = vi.fn(() => undefined);
+    render(
+      <FileUpload
+        accept=".pdf"
+        multiple
+        upload={controllableUpload().upload}
+        validate={validate}
+      />,
+    );
+
+    drop(screen.getByRole("group"), [
+      file("notes.txt", "text/plain"),
+      file("a.pdf"),
+    ]);
+    expect(validate).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: "a.pdf" }),
+    );
+  });
+
+  it("waits for an async validate - a refused file takes no room", async () => {
+    const { upload } = controllableUpload();
+    const checks: ((message?: string) => void)[] = [];
+    render(
+      <FileUpload
+        maxFiles={2}
+        multiple
+        upload={upload}
+        validate={() =>
+          new Promise<string | undefined>((resolve) => checks.push(resolve))
+        }
+      />,
+    );
+
+    drop(screen.getByRole("group"), [
+      file("a.png", "image/png"),
+      file("b.png", "image/png"),
+      file("c.png", "image/png"),
+    ]);
+    expect(upload).not.toHaveBeenCalled();
+
+    await act(async () => {
+      checks[0]("The image must be at least 800 × 600 px.");
+      checks[1]();
+      checks[2]();
+    });
+
+    expect(upload).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "a.png: The image must be at least 800 × 600 px.",
+    );
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("refuses a file its validate fails on", async () => {
+    const onError = vi.fn();
+    const broken = new Error("Cannot decode the image");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <FileUpload
+        multiple
+        onError={onError}
+        upload={controllableUpload().upload}
+        validate={async (checked) => {
+          if (checked.name === "broken.png") throw broken;
+          return undefined;
+        }}
+      />,
+    );
+
+    await act(async () =>
+      drop(screen.getByRole("group"), [
+        file("broken.png", "image/png"),
+        file("fine.png", "image/png"),
+      ]),
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "broken.png: The file could not be checked.",
+    );
+    expect(onError).toHaveBeenCalledExactlyOnceWith(
+      broken,
+      expect.objectContaining({ name: "broken.png" }),
+    );
+    expect(screen.getByText("fine.png")).toBeInTheDocument();
+  });
+
+  it("adds none of the files still checked when the form is reset", async () => {
+    const { upload } = controllableUpload();
+    let pass = () => {};
+    render(
+      <form aria-label="Order">
+        <FileUpload
+          upload={upload}
+          validate={() =>
+            new Promise<undefined>((resolve) => {
+              pass = () => resolve(undefined);
+            })
+          }
+        />
+      </form>,
+    );
+
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    act(() =>
+      screen.getByRole<HTMLFormElement>("form", { name: "Order" }).reset(),
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve)));
+    await act(async () => pass());
+
+    expect(upload).not.toHaveBeenCalled();
+    expect(screen.queryByRole("listitem")).toBeNull();
+  });
+});
+
+describe("FileUpload paste", () => {
+  it("adds files pasted while the focus is in the field", () => {
+    const { upload } = controllableUpload();
+    render(<FileUpload accept="image/*" multiple upload={upload} />);
+
+    const button = screen.getByRole("button", { name: /Upload/ });
+    // `false` - the paste was handled
+    expect(
+      paste(button, [
+        file("image.png", "image/png"),
+        file("notes.txt", "text/plain"),
+      ]),
+    ).toBe(false);
+
+    expect(upload).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: "image.png" }),
+      expect.anything(),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "notes.txt: Files of this type cannot be uploaded here.",
+    );
+  });
+
+  // Safari fires it at the body while a button has the focus - and pastes
+  // at all only when `beforepaste` is canceled
+  it("takes files pasted at the body while the focus is in the field", () => {
+    const { upload } = controllableUpload();
+    render(
+      <>
+        <button type="button">Elsewhere</button>
+        <FileUpload multiple upload={upload} />
+      </>,
+    );
+    const beforePaste = () =>
+      fireEvent(
+        document.body,
+        new Event("beforepaste", { bubbles: true, cancelable: true }),
+      );
+
+    act(() => screen.getByRole("button", { name: "Elsewhere" }).focus());
+    expect(beforePaste()).toBe(true);
+    paste(document.body, [file("a.png", "image/png")]);
+    expect(upload).not.toHaveBeenCalled();
+
+    act(() => screen.getByRole("button", { name: /Upload/ }).focus());
+    // `false` - canceled, which offers to paste
+    expect(beforePaste()).toBe(false);
+    expect(paste(document.body, [file("b.png", "image/png")])).toBe(false);
+    expect(upload).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: "b.png" }),
+      expect.anything(),
+    );
+
+    // Taken once when it reaches the field
+    paste(screen.getByRole("button", { name: /Upload/ }), [file("c.png")]);
+    expect(upload).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves a paste of text alone", () => {
+    const upload = vi.fn();
+    render(<FileUpload upload={upload} />);
+
+    expect(paste(screen.getByRole("button", { name: /Upload/ }), [])).toBe(
+      true,
+    );
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it.each([{ disabled: true }, { readOnly: true }])(
+    "takes no pasted files when %o",
+    (props) => {
+      const upload = vi.fn();
+      render(
+        <FileUpload
+          {...props}
+          defaultAttachments={[{ filename: "a.pdf", url: "/a.pdf" }]}
+          upload={upload}
+        />,
+      );
+
+      paste(screen.getByRole("link", { name: "a.pdf" }), [file("b.pdf")]);
+      expect(upload).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("FileUpload read-only", () => {
+  it("shows and submits its files - none can be added or removed", () => {
+    const upload = vi.fn();
+    render(
+      <form aria-label="Order">
+        <FileUpload
+          defaultAttachments={[
+            { filename: "contract.pdf", url: "/contract.pdf", value: "1" },
+            { filename: "scan.pdf", value: "2" },
+          ]}
+          label="Attachments"
+          multiple
+          name="files"
+          readOnly
+          required
+          upload={upload}
+        />
+      </form>,
+    );
+
+    const group = screen.getByRole("group", { name: "Attachments:" });
+    expect(group).toHaveAttribute("data-readonly");
+    expect(screen.getByRole("link", { name: "contract.pdf" })).toHaveAttribute(
+      "href",
+      "/contract.pdf",
+    );
+    expect(screen.queryByRole("button")).toBeNull();
+
+    const dataTransfer = {
+      dropEffect: "copy",
+      files: [file("b.pdf")],
+      types: ["Files"],
+    };
+    fireEvent.dragOver(group, { dataTransfer });
+    expect(dataTransfer.dropEffect).toBe("none");
+    fireEvent.drop(group, { dataTransfer });
+    expect(upload).not.toHaveBeenCalled();
+
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+    expect(new FormData(form).getAll("files")).toEqual(["1", "2"]);
+  });
+
+  it("says it has no files - and is not required, like a native field", () => {
+    render(
+      <form aria-label="Order">
+        <FileUpload readOnly required upload={vi.fn()} />
+      </form>,
+    );
+
+    expect(screen.getByText("No files")).toBeInTheDocument();
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+    expect(form.checkValidity()).toBe(true);
+  });
+});
+
+describe("FileUpload button variant", () => {
+  it("puts the list under a compact button", () => {
+    render(
+      <FileUpload
+        defaultAttachments={[{ filename: "a.pdf", id: "a" }]}
+        upload={vi.fn()}
+        variant="button"
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "Upload" });
+    const list = screen.getByRole("list");
+    expect(
+      button.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByText("or drag and drop here")).toBeNull();
+  });
+
+  it.each([
+    ["xs", "py-0"],
+    ["sm", "py-0.5"],
+    ["md", "py-1"],
+    ["lg", "py-2"],
+  ] as const)("is as high as an Input of dim %s", (dim, padding) => {
+    render(<FileUpload dim={dim} upload={vi.fn()} variant="button" />);
+
+    const button = screen.getByRole("button", { name: "Upload" });
+    expect(button).toHaveClass(padding, "border");
+    // One width of the border, as the field has
+    expect(button).not.toHaveClass("border-[1.5px]");
+  });
+
+  it("takes dropped files too", () => {
+    const upload = vi.fn(() => new Promise<UploadedFile>(() => {}));
+    render(<FileUpload upload={upload} variant="button" />);
+
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    expect(upload).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -756,7 +1768,9 @@ describe("FileUpload with preview", () => {
     const { unmount } = render(<FileUpload preview upload={upload} />);
 
     drop(screen.getByRole("group"), [file("a.jpg", "image/jpeg")]);
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(
+      screen.getByRole("button", { name: "Cancel uploading a.jpg" }),
+    );
     expect(revoke).toHaveBeenLastCalledWith("blob:preview-1");
 
     drop(screen.getByRole("group"), [file("b.jpg", "image/jpeg")]);
@@ -841,6 +1855,7 @@ describe("FileUpload progress and description", () => {
     drop(screen.getByRole("group"), [file("a.pdf")]);
     const bar = screen.getByRole("progressbar", { name: "Uploading…" });
     expect(bar).not.toHaveAttribute("aria-valuenow");
+    expect(screen.queryByText("0%")).toBeNull();
 
     act(() => reports[0](40));
     expect(bar).toHaveAttribute("aria-valuenow", "40");
@@ -875,4 +1890,37 @@ describe("FileUpload progress and description", () => {
       "Attach the invoice PDF or images up to 5 MB Files are kept for 10 years.",
     );
   });
+});
+
+describe("FileUpload on the server", () => {
+  it.each([{}, { variant: "button" as const }])(
+    "hydrates without an upload %o",
+    async (props) => {
+      const page = (
+        <form aria-label="Order">
+          <FileUpload
+            {...props}
+            defaultAttachments={[{ filename: "a.pdf", value: "1" }]}
+            label="Documents"
+            name="documents"
+          />
+        </form>
+      );
+      const container = document.createElement("div");
+      container.innerHTML = renderToString(page);
+      document.body.append(container);
+      const onRecoverableError = vi.fn();
+
+      const root = await act(async () =>
+        hydrateRoot(container, page, { onRecoverableError }),
+      );
+
+      expect(onRecoverableError).not.toHaveBeenCalled();
+      // jsdom cannot write a FileList - the picker takes the name after the
+      // hydration
+      expect(picker()).toHaveAttribute("name", "documents");
+      act(() => root.unmount());
+      container.remove();
+    },
+  );
 });

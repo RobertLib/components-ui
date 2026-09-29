@@ -31,6 +31,40 @@ export default function PopoverPage() {
         name="popover/controlled"
         title="Controlled, with a form"
       />
+      <Example
+        description={
+          <p>
+            <code>position</code> is the side of the trigger - <code>top</code>,{" "}
+            <code>bottom</code>, or <code>start</code> / <code>end</code>, which
+            follow the writing direction (<code>left</code> / <code>right</code>{" "}
+            stay physical). <code>align</code> lines the panel up with the{" "}
+            <code>start</code>, the <code>center</code> or the <code>end</code>{" "}
+            of the trigger - the end edge is the left one right to left.{" "}
+            <code>offset</code> is the gap in pixels and <code>arrow</code> adds
+            an arrow pointing at the middle of the trigger: it goes along when
+            the panel flips or is moved into the viewport, and takes the colors
+            of the panel.
+          </p>
+        }
+        name="popover/placement"
+        title="Position, alignment and an arrow"
+      />
+      <Example
+        description={
+          <p>
+            <code>anchor</code> places the panel at something else than its
+            trigger: an element, a <code>DOMRect</code>, a point (
+            <code>{"{ x, y }"}</code>, e.g. of a click) or a function returning
+            one - here the box of the selected text, read again as the page
+            scrolls. Without a <code>trigger</code> it is controlled by{" "}
+            <code>open</code>; Escape and the focus leaving the panel still call{" "}
+            <code>onOpenChange(false)</code>, and the focus goes back to where
+            it was when the panel opened.
+          </p>
+        }
+        name="popover/anchor"
+        title="At an anchor - a toolbar over the selection"
+      />
 
       <Section title="Notes">
         <Prose>
@@ -39,17 +73,18 @@ export default function PopoverPage() {
               Popovers flip to the opposite side when there is not enough room -
               measured again while open, as the content grows. A panel that fits
               on neither side opens where there is more room, as tall as that
-              room, and scrolls. <code>align</code> picks the edge of the
-              trigger <code>top</code> / <code>bottom</code> ones line up with,
-              and <code>left</code> / <code>right</code> ones move up into the
-              viewport.
+              room, and scrolls. A panel reaching out of the viewport along its
+              trigger is moved back in - <code>left</code> / <code>right</code>{" "}
+              ones up or down.
             </li>
             <li>
-              The panel follows the trigger while the page scrolls or resizes,
-              on phones too - where the room it flips by is what the on-screen
-              keyboard leaves. There it stretches to the screen width when it
-              would overflow. The trigger stays clickable while the panel is
-              open.
+              The panel follows the trigger while the page - or a scrolling
+              container around the trigger - scrolls or resizes, on phones too,
+              where the room it flips by is what the on-screen keyboard leaves.
+              It hides while the trigger is scrolled out of view, out of the
+              screen or out of that container, and shows again once it is back.
+              On a phone it stretches to the screen width when it would
+              overflow. The trigger stays clickable while the panel is open.
             </li>
             <li>
               The panel is a <code>dialog</code> named by its trigger (or{" "}
@@ -82,7 +117,11 @@ export default function PopoverPage() {
             <li>
               The panel takes the writing direction of its trigger - in a part
               of the page with <code>dir=&quot;rtl&quot;</code> it is right to
-              left too, though it is rendered into the body.
+              left too, though it is rendered into the body (or the{" "}
+              <code>portalContainer</code> of <code>UIProvider</code>), and{" "}
+              <code>start</code> / <code>end</code> are the other way round. The{" "}
+              <code>align</code> values <code>left</code> / <code>right</code>{" "}
+              are deprecated - they keep the physical edge.
             </li>
             <li>
               A control in the panel that handles Escape itself and calls{" "}
@@ -98,6 +137,19 @@ export default function PopoverPage() {
               listeners - a capture listener (
               <code>addEventListener(&quot;click&quot;, fn, true)</code>) sees
               them.
+            </li>
+            <li>
+              <code>ref</code> and the other props go to the wrapper around the
+              trigger - <code>contentRef</code> is the panel&apos;s. For
+              styling, the wrapper (and a <code>buttonTrigger</code>) has{" "}
+              <code>data-state=&quot;open&quot;</code> or{" "}
+              <code>&quot;closed&quot;</code>; the panel has{" "}
+              <code>data-state=&quot;open&quot;</code>, the side it is shown on
+              after flipping (<code>data-side</code>: <code>top</code>,{" "}
+              <code>bottom</code>, <code>left</code>, <code>right</code>) and
+              its <code>data-align</code> (<code>start</code>,{" "}
+              <code>center</code>, <code>end</code>) - e.g.{" "}
+              <code>data-[side=top]:origin-bottom</code>.
             </li>
             <li>
               Dropdown, Autocomplete and the date pickers are built on it.

@@ -114,6 +114,16 @@ export default function DateRangePickerPage() {
               Escape closes the popup and drops a range picked halfway. The
               first day of the week comes from the locale.
             </li>
+            <li>
+              The days of <code>isDateDisabled</code>, and those a range being
+              picked cannot reach, take the focus - they are announced as
+              unavailable - but Enter and Space do not pick them.
+            </li>
+            <li>
+              In a right-to-left page (<code>dir="rtl"</code>) the left arrow
+              moves forward and the right arrow back, and the chevrons point the
+              other way.
+            </li>
           </ul>
         </Prose>
       </Section>
@@ -161,6 +171,28 @@ export default function DateRangePickerPage() {
       <Example
         description={
           <p>
+            <code>isDateDisabled</code> tells the days that cannot be picked -
+            booked nights, weekends. It gets the local midnight of a day. The
+            calendar strikes them through; they can neither start nor end a
+            range, and by default a range cannot reach over one: once the first
+            day is picked, the days past the nearest disabled day on either side
+            cannot end it, as a stay cannot reach over a booked night.{" "}
+            <code>allowDisabledInRange</code> lets a range reach over them -
+            leave from a working day to a working day, over a weekend. A preset
+            loses the disabled days at its ends (“This week” is Monday to Friday
+            with the weekends disabled); one over a disabled day is disabled. A
+            range over a disabled day - typed, a default one or one of the
+            parent - is kept, but makes the field invalid (
+            <code>messages.dateRangePicker.unavailableInRange</code>).
+          </p>
+        }
+        name="date-range-picker/disabled-dates"
+        title="Disabled dates"
+      />
+
+      <Example
+        description={
+          <p>
             <code>startName</code> and <code>endName</code> submit the days in
             hidden inputs, <code>name</code> the range as one ISO 8601 interval
             - an empty value without a range. <code>required</code>,{" "}
@@ -188,11 +220,13 @@ export default function DateRangePickerPage() {
             <code>error</code> marks the field as invalid and{" "}
             <code>description</code> adds a help text under it - the field is
             described by both, the error first. <code>readOnly</code> shows and
-            submits the range but does not open the calendar;{" "}
-            <code>disabled</code> neither. A <code>required</code> field has no
-            clear button unless <code>clearable</code> says so; <code>dim</code>{" "}
-            sets its size, and <code>aria-label</code> names a field without a
-            label.
+            submits the range but does not open the calendar (the field is{" "}
+            <code>aria-readonly</code> and has <code>data-readonly</code> for
+            styles); <code>disabled</code> neither. A <code>required</code>{" "}
+            field has no clear button unless <code>clearable</code> says so;{" "}
+            <code>dim</code> sets its size - <code>xs</code> to <code>lg</code>,
+            the heights of <code>Input</code>. The <code>label</code> takes any
+            content, and <code>aria-label</code> names a field without one.
           </p>
         }
         name="date-range-picker/states"
@@ -219,7 +253,8 @@ export default function DateRangePickerPage() {
             </li>
             <li>
               For a single day, a month or a week, use{" "}
-              <code>DateTimePicker</code>.
+              <code>DateTimePicker</code>; for a range calendar that is always
+              visible, <code>RangeCalendar</code>.
             </li>
           </ul>
         </Prose>

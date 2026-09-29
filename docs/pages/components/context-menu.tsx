@@ -66,6 +66,16 @@ export default function ContextMenuPage() {
               has run first; one that calls <code>preventDefault()</code> keeps
               the menu closed.
             </li>
+            <li>
+              <code>ref</code>, <code>className</code>, <code>style</code> and
+              the other props of the context menu go to the element - merged
+              with its own, its handlers running first - or to the{" "}
+              <code>&lt;div&gt;</code> around anything else. It has{" "}
+              <code>data-state=&quot;open&quot;</code> or{" "}
+              <code>&quot;closed&quot;</code>; the menu has the resolved{" "}
+              <code>data-side</code> / <code>data-align</code> and its items the
+              data attributes of the <code>Dropdown</code> items.
+            </li>
           </ul>
         </Prose>
       </Section>

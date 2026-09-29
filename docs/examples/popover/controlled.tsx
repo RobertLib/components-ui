@@ -7,7 +7,7 @@ export default function Controlled() {
 
   return (
     <Popover
-      align="left"
+      align="start"
       buttonTrigger
       contentClassName="w-64 p-3"
       onOpenChange={setOpen}

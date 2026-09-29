@@ -19,6 +19,37 @@ export default function TabsPage() {
       <Example
         description={
           <p>
+            A value tab with <code>content</code> shows it in a tab panel under
+            the bar (beside a vertical one): a <code>tabpanel</code> named by
+            its tab, which points at it with <code>aria-controls</code>. Only
+            the panel of the selected tab is rendered - with{" "}
+            <code>keepMounted</code> the others stay in the page, hidden, and
+            keep their state. Without <code>value</code> the bar selects its
+            tabs itself, starting at <code>defaultValue</code> or at the first
+            enabled tab; <code>onChange</code> still tells of every pick.{" "}
+            <code>panelClassName</code> styles the panels.
+          </p>
+        }
+        name="tabs/panels"
+        title="Tab panels"
+      />
+      <Example
+        description={
+          <p>
+            <code>onClose</code> makes a value tab closable: a × after the label
+            for the pointer, and the Delete key on the focused tab (
+            <code>aria-keyshortcuts="Delete"</code>). Remove the tab in it.
+            Closing the selected tab selects the next one - the previous one
+            after the last - through <code>onChange</code>, and it takes the
+            focus; the × of another tab leaves the focus where it is.
+          </p>
+        }
+        name="tabs/closable"
+        title="Closable tabs"
+      />
+      <Example
+        description={
+          <p>
             Items with an <code>href</code> are links rendered by the router of{" "}
             <code>UIProvider</code>. A tab is active on its path and below it,
             the most specific one of several. A relative path (
@@ -105,13 +136,21 @@ export default function TabsPage() {
             a heading next to it with <code>aria-label</code>.
           </p>
           <p>
-            To tie a value tab to the content it shows, give the item an{" "}
+            The tab panels of <code>content</code> are wired up for you. To
+            render the content yourself instead, give the item an{" "}
             <code>id</code> and a <code>panelId</code> (its{" "}
             <code>aria-controls</code>) and render the content as{" "}
             <code>
               {'<div role="tabpanel" id={panelId} aria-labelledby={id}>'}
             </code>
             .
+          </p>
+          <p>
+            A closable tab has no close button of its own - a button in a tab
+            would be a control in a control. The × is for the pointer, the
+            keyboard has Delete; on a touch screen with a screen reader neither
+            may be at hand, so offer closing elsewhere too when it matters (a
+            menu of the tab's content, a "Close" button in the panel).
           </p>
         </Prose>
       </Section>

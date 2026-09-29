@@ -74,17 +74,33 @@ export default function FileUploadPage() {
             showing the progress, and lists it. Each file's <code>value</code>{" "}
             is submitted in a hidden input named <code>name</code>. A file over{" "}
             <code>maxFileSize</code> (MB) or not matching <code>accept</code> is
-            rejected with a message; failures are also reported to{" "}
-            <code>onError</code>. Files can be dropped on the field too;{" "}
-            <code>multiple</code> uploads several one after another - without it
-            a new file replaces the listed one - and <code>maxFiles</code> caps
-            the list, the attached files included. The button next to the
-            progress cancels the upload: the field is ready for another file at
-            once, even if <code>upload</code> does not stop.
+            refused with a message under the field that names it; refusals and
+            failed uploads are also reported to <code>onError</code>. Files can
+            be dropped on the field or pasted into it too. Without{" "}
+            <code>multiple</code> a new file replaces the listed one once it is
+            stored. The × button of an upload cancels it: the field takes
+            another file at once, even if <code>upload</code> does not stop.
           </p>
         }
         name="file-upload/basic"
         title="Basic"
+      />
+      <Example
+        description={
+          <p>
+            With <code>multiple</code> several files upload side by side -{" "}
+            <code>concurrency</code> of them at once (3 by default, 1 uploads
+            them one after another); the others wait in the list and start as
+            those before them finish. Each file shows its own progress and can
+            be cancelled; more files can be added meanwhile. A failed upload
+            stays in the list with its message and a Retry button (this demo
+            fails every third one); removing it calls no <code>onRemove</code>.{" "}
+            <code>maxFiles</code> caps the list, the attached, uploading and
+            failed files included.
+          </p>
+        }
+        name="file-upload/parallel"
+        title="Uploads side by side"
       />
       <Example
         description={
@@ -101,38 +117,160 @@ export default function FileUploadPage() {
         name="file-upload/preview"
         title="Thumbnails and help text"
       />
+      <Example
+        description={
+          <p>
+            Without <code>upload</code> the field uploads nothing: the picked,
+            dropped and pasted files stay files, and the form submits them in a
+            file input named <code>name</code> - <code>new FormData(form)</code>{" "}
+            and a React form action (or a server action) get them.{" "}
+            <code>accept</code>, <code>maxFileSize</code>, <code>maxFiles</code>
+            , <code>validate</code> and <code>required</code> work as with{" "}
+            <code>upload</code>; <code>onFilesChange</code> gets the files
+            whenever they change. React resets the form after its action - the
+            list empties.
+          </p>
+        }
+        name="file-upload/native"
+        title="Without upload - the form submits the files"
+      />
+      <Example
+        description={
+          <p>
+            <code>validate</code> checks each file after <code>accept</code> and{" "}
+            <code>maxFileSize</code> - here the dimensions of an image, read in
+            the browser. It returns why the file cannot be added, or nothing; it
+            may be async. The message is shown under the field after the name of
+            the file (leave the name out of it) and reaches <code>onError</code>{" "}
+            as an <code>Error</code>; a check that throws refuses the file with
+            a general message. A refused file takes no room of{" "}
+            <code>maxFiles</code>. Several files refused for one reason share a
+            line. Screenshots and files copied in the file manager can be pasted
+            (⌘V / Ctrl+V) while the focus is in the field.
+          </p>
+        }
+        name="file-upload/validation"
+        title="Validation and pasting"
+      />
+      <Example
+        description={
+          <p>
+            <code>variant="button"</code> is a compact button with the list
+            under it, for a row of fields - files can still be dropped on it.
+            Its <code>dim</code> is that of the form fields: the button is as
+            high as an <code>Input</code> of the same <code>dim</code> - 22, 26,
+            34 or 46 px. The default <code>variant="dropzone"</code> lists the
+            files above the button and says that they can be dropped.{" "}
+            <code>id</code>, <code>ref</code> and the other attributes of a{" "}
+            <code>div</code> go to the group of the field, which takes the
+            dropped files.
+          </p>
+        }
+        name="file-upload/compact"
+        title="Compact"
+      />
+      <Example
+        description={
+          <p>
+            <code>readOnly</code> shows the files - their links open - and
+            submits their values, but none can be added or removed: there is no
+            upload button, and dropped or pasted files are ignored. Like a
+            read-only native field it is not <code>required</code>, and without
+            files it says so. <code>disabled</code> takes no files either and
+            submits none, as a disabled field; a disabled{" "}
+            <code>&lt;fieldset&gt;</code> around the field disables it too.
+          </p>
+        }
+        name="file-upload/read-only"
+        title="Read-only and disabled"
+      />
+      <Example
+        description={
+          <p>
+            <code>directory</code> makes the picker pick a folder with all its
+            files (<code>webkitdirectory</code>) - use it with{" "}
+            <code>multiple</code>. The list shows the path of each file in the
+            folder, and <code>upload</code> gets files whose{" "}
+            <code>webkitRelativePath</code> has it. A dropped folder is not read
+            - only dropped files are.
+          </p>
+        }
+        name="file-upload/folder"
+        title="Folders"
+      />
 
       <Section title="Forms">
         <Prose>
           <p>
-            With a <code>name</code>, <code>required</code> counts the files
-            with a <code>value</code> - they are what the form submits; without
-            one, any listed file will do. A disabled{" "}
+            With a <code>name</code>, <code>required</code> counts the files the
+            form submits - those with a <code>value</code>, or the picked files
+            without <code>upload</code>; without a name, any attached file will
+            do. A file still uploading does not count. A disabled{" "}
             <code>&lt;fieldset&gt;</code> around the field disables it - it
             takes no dropped files either.
           </p>
           <p>
+            Without <code>upload</code>, the field puts the picked files into
+            its file input by a <code>DataTransfer</code> - every browser
+            Tailwind CSS 4 supports can do that. While no file is picked,
+            nothing is submitted (a native file input submits an empty file).
+            The <code>defaultAttachments</code> kept in the list submit their{" "}
+            <code>value</code> under the same name - the server gets the new
+            files and the ids of the kept ones: <code>getAll(name)</code>. A
+            browser without the <code>DataTransfer</code> constructor (Safari
+            before 14.1, Chrome before 60, or jsdom in tests) cannot put files
+            into an input: the field then submits what its native picker put in
+            it. A new pick replaces the listed files, a pick with a refused file
+            is refused whole, one of several picked files cannot be removed, and
+            dropped or pasted files are not taken - the hint is not shown.{" "}
+            <code>onFilesChange</code> still gets the files.
+          </p>
+          <p>
             A form reset brings back the <code>defaultAttachments</code> and
-            drops the files uploaded since, without calling{" "}
-            <code>onRemove</code> - it is for files the user removes. React
-            resets a form after its <code>action</code> too, when the files have
-            just been saved: deleting them there would lose them. To clean up
-            after a reset that discards them (a Reset button), listen to the{" "}
-            <code>reset</code> event of the form and compare with what{" "}
-            <code>onUpload</code> reported.
+            drops the files uploaded or picked since - and cancels the running
+            uploads - without calling <code>onRemove</code>: it is for files the
+            user removes. React resets a form after its <code>action</code> too,
+            when the files have just been saved: deleting them there would lose
+            them. To clean up after a reset that discards them (a Reset button),
+            listen to the <code>reset</code> event of the form and compare with
+            what <code>onUpload</code> reported.
           </p>
           <p>
             The field keeps a vertical margin (<code>my-4</code>);{" "}
             <code>className</code> adds classes to it, and an important class
             such as <code>my-0!</code> overrides the margin.
           </p>
-          <p>
-            The focus stays with the field: on the cancel button while a file
-            uploads, back on the upload button afterwards, and on the next file
-            when one is removed. Until <code>upload</code> reports progress, the
-            bar moves without a value - an upload without progress events does
-            not sit at 0 %.
-          </p>
+        </Prose>
+      </Section>
+
+      <Section title="Keyboard and screen readers">
+        <Prose>
+          <ul>
+            <li>
+              The field is a group named by its <code>label</code> and described
+              by its error and <code>description</code>. The upload button opens
+              the picker; files can be pasted while the focus is on it or on a
+              button of the list.
+            </li>
+            <li>
+              The focus stays with the field: on the upload button while files
+              upload, on the remove button that takes the place of the cancel
+              button of a finished upload, on the cancel button of a file tried
+              again, and on the next file when one is removed.
+            </li>
+            <li>
+              The uploads are said together in a live region - &quot;Uploading 3
+              files…&quot; as they start and &quot;2 files uploaded. 1 upload
+              failed.&quot; once all are over - not at every step of their
+              progress. Without <code>upload</code> it says how many files were
+              added. Refusals are said at once, as an alert.
+            </li>
+            <li>
+              Until <code>upload</code> reports progress, the bar of a file
+              moves without a value - an upload without progress events does not
+              sit at 0 %. It fades in place for users who prefer reduced motion.
+            </li>
+          </ul>
         </Prose>
       </Section>
 

@@ -2,6 +2,8 @@ import { Monitor, Moon, Sun } from "lucide-react";
 import { useRef } from "react";
 import cn from "../utils/cn";
 import Tooltip from "./tooltip";
+import { getDirection } from "./overlay-stack";
+import { attachRef } from "../hooks/use-form-control";
 import useColorScheme, {
   type ColorScheme,
   type UseColorSchemeOptions,
@@ -16,8 +18,11 @@ export interface ColorSchemeToggleProps
   onChange?: (colorScheme: ColorScheme) => void;
   /** Size of the buttons. */
   size?: "sm" | "md";
-  /** Side of the buttons their tooltips appear on. */
-  tooltipPosition?: "top" | "bottom" | "left" | "right";
+  /**
+   * Side of the buttons their tooltips appear on - `start` / `end` follow
+   * the writing direction, as in `Tooltip`.
+   */
+  tooltipPosition?: "top" | "bottom" | "left" | "right" | "start" | "end";
 }
 
 const schemes = [
@@ -34,7 +39,10 @@ const sizeClasses = {
 /**
  * Three buttons for the color scheme of the page - light, dark and that of
  * the system - built on `useColorScheme` (pass its options). A radio group
- * for assistive technology: one tab stop, the arrow keys choose.
+ * for assistive technology: one tab stop, the arrow keys choose (ArrowRight
+ * the next one - the previous one right to left). `ref` and the other
+ * props go to the group (`data-orientation="horizontal"`); a button has
+ * `data-state="checked"` or `"unchecked"`.
  */
 export default function ColorSchemeToggle({
   "aria-label": ariaLabel,
@@ -42,6 +50,7 @@ export default function ColorSchemeToggle({
   defaultColorScheme,
   onChange,
   onKeyDown,
+  ref,
   size = "md",
   storageKey,
   tooltipPosition = "bottom",
@@ -65,10 +74,14 @@ export default function ColorSchemeToggle({
     onKeyDown?.(event);
     if (event.defaultPrevented) return;
 
+    // Right to left, ArrowLeft moves on - like native radio buttons
+    const forward =
+      getDirection(event.currentTarget) === "rtl" ? "ArrowLeft" : "ArrowRight";
+    const back = forward === "ArrowRight" ? "ArrowLeft" : "ArrowRight";
     const step =
-      event.key === "ArrowRight" || event.key === "ArrowDown"
+      event.key === forward || event.key === "ArrowDown"
         ? 1
-        : event.key === "ArrowLeft" || event.key === "ArrowUp"
+        : event.key === back || event.key === "ArrowUp"
           ? -1
           : 0;
     if (step === 0) return;
@@ -90,8 +103,17 @@ export default function ColorSchemeToggle({
         "inline-flex gap-0.5 rounded-md bg-background p-0.5 dark:bg-background-dark",
         className,
       )}
+      data-orientation="horizontal"
       onKeyDown={handleKeyDown}
-      ref={groupRef}
+      // The group's own ref, and the one given to it
+      ref={(element) => {
+        groupRef.current = element;
+        const detachRef = attachRef(ref, element);
+        return () => {
+          groupRef.current = null;
+          detachRef();
+        };
+      }}
       role="radiogroup"
     >
       {schemes.map(({ icon: Icon, value }) => {
@@ -104,12 +126,15 @@ export default function ColorSchemeToggle({
               aria-checked={checked}
               aria-label={name}
               className={cn(
-                "cursor-pointer rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 motion-reduce:transition-none",
+                "cursor-pointer rounded-md transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 motion-reduce:transition-none",
                 sizeClasses[size].button,
+                // Forced colors drop the background and the shadow - the
+                // system colors of a selection keep the choice seen
                 checked
-                  ? "bg-surface text-neutral-900 shadow dark:bg-surface-dark dark:text-neutral-100"
+                  ? "bg-surface text-neutral-900 shadow dark:bg-surface-dark dark:text-neutral-100 forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]"
                   : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200",
               )}
+              data-state={checked ? "checked" : "unchecked"}
               onClick={() => choose(value)}
               role="radio"
               // The chosen one is the tab stop of the group

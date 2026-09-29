@@ -24,8 +24,16 @@ export const en: Locale = {
     accordion: {
       toggle: "Toggle section",
     },
+    alert: {
+      close: "Close alert",
+    },
     autocomplete: {
       clear: "Clear",
+      create: "Add “{value}”",
+      created: "Added “{value}”.",
+      createError: "“{value}” could not be added.",
+      createHint: "{results}, or add “{value}”",
+      creating: "Adding “{value}”…",
       emptyOption: "No selection",
       listLabel: "Options for {label}",
       loadError: "The options could not be loaded.",
@@ -35,11 +43,13 @@ export const en: Locale = {
         one: "You can select only one option.",
         other: "You can select up to {count} options.",
       },
+      moreSelected: { other: "+{count} more" },
       noResults: "No results",
       resultCount: {
         one: "{count} result",
         other: "{count} results",
       },
+      selectAll: "Select all",
     },
     avatar: {
       more: { other: "+{count} more" },
@@ -51,9 +61,13 @@ export const en: Locale = {
       },
       statusLabel: "{name}, {status}",
     },
+    badge: {
+      overflow: "{max}+",
+    },
     breadcrumbs: {
       home: "Home",
       label: "Breadcrumb",
+      showAll: "Show the whole path",
     },
     calendar: {
       agenda: "Agenda",
@@ -68,11 +82,18 @@ export const en: Locale = {
       month: "Month",
       more: { other: "+{count} more" },
       moreLabel: "{more}, {day}",
+      moveCancelled: "{title} put back.",
+      moved: "{title} moved to {time}.",
+      moveStart:
+        "{title} picked up. Move it with the arrow keys, put it down with Enter, put it back with Escape.",
       next: "Next",
       noEvents: "No events",
       previous: "Previous",
       rangeSelected: "Selected: {range}",
+      resized: "{title} changed to {time}.",
       resourceTime: "{resource}, {time}",
+      timelineDay: "Day timeline",
+      timelineWeek: "Week timeline",
       today: "Today",
       until: "until {time}",
       week: "Week",
@@ -90,6 +111,19 @@ export const en: Locale = {
     },
     chip: {
       remove: "Remove",
+    },
+    colorInput: {
+      alpha: "Opacity",
+      area: "Saturation and brightness",
+      areaRole: "2D slider",
+      areaValue: "Saturation {saturation}, brightness {brightness}",
+      eyeDropper: "Pick a color from the screen",
+      hue: "Hue",
+      hueValue: "{degrees}°",
+      invalid: "“{text}” is not a color. Enter one like {example}.",
+      openPicker: "Choose a color",
+      picker: "Color picker",
+      swatches: "Preset colors",
     },
     colorScheme: {
       dark: "Dark",
@@ -110,6 +144,10 @@ export const en: Locale = {
       results: "Results",
       select: "to select",
       title: "Command menu",
+    },
+    confirmDialog: {
+      ok: "OK",
+      typeToConfirm: "Type {text} to confirm",
     },
     copyButton: {
       copied: "Copied",
@@ -135,9 +173,15 @@ export const en: Locale = {
       expandRow: "Expand row",
       exportCsv: "Export to CSV",
       filterColumn: "Filter {label}",
+      filterFrom: "{label} from",
+      filterTo: "{label} to",
+      groupLabel: "{label}: {value}",
+      groupRowCount: { one: "{count} row", other: "{count} rows" },
       invalidNumber: "Enter a number.",
       moveColumn: "Move {label} (arrow keys)",
+      multiSortHint: "Shift+click adds the column to the sorting",
       noData: "No data",
+      noValue: "(empty)",
       openSearch: "Open search",
       paginationLabel: "{label} pagination",
       pinLeft: "Pin {label} to the left",
@@ -150,6 +194,7 @@ export const en: Locale = {
       search: "Search",
       searchColumn: "Search {label}",
       selectAllRows: "Select all rows",
+      selectColumn: "Select",
       selectRow: "Select row",
       selectedCount: {
         one: "{count} item selected",
@@ -175,6 +220,8 @@ export const en: Locale = {
         },
       },
       sortBy: "Sort by {label}",
+      sortOrder: { asc: "ascending", desc: "descending" },
+      sortPriority: "sorted {priority} of {count}, {order}",
       summary: {
         avg: "Average",
         count: "Count",
@@ -183,6 +230,12 @@ export const en: Locale = {
         sum: "Sum",
       },
       toggleFullScreen: "Toggle full screen",
+    },
+    dateCalendar: {
+      selectedDays: {
+        one: "{count} day selected",
+        other: "{count} days selected",
+      },
     },
     dateRangePicker: {
       days: { one: "{count} day", other: "{count} days" },
@@ -202,9 +255,12 @@ export const en: Locale = {
       selectEnd: "Select the last day",
       selectRange: "Select date range",
       selectStart: "Select the first day",
+      unavailableInRange:
+        "The range includes {date}, which cannot be selected.",
     },
     dateTimePicker: {
       clear: "Clear value",
+      clearButton: "Clear",
       hours: "Hours",
       invalidText: "“{text}” is not a valid value. Use the format {format}.",
       minutes: "Minutes",
@@ -214,6 +270,7 @@ export const en: Locale = {
       openCalendar: "Open calendar",
       outOfRangeText: "“{text}” is outside the allowed range.",
       placeholderTokens: { A: "AM/PM" },
+      presetsLabel: "Presets",
       previousMonth: "Previous month",
       previousYear: "Previous year",
       rangeOverflow: "Enter a value of {max} or earlier.",
@@ -223,6 +280,8 @@ export const en: Locale = {
       selectMonth: "Select month",
       selectTime: "Select time",
       selectWeek: "Select week",
+      today: "Today",
+      unavailable: "{value} cannot be selected.",
       week: "Week {week}, {year}",
       year: "Year",
     },
@@ -240,17 +299,44 @@ export const en: Locale = {
       title: "Something went wrong",
     },
     fileUpload: {
+      addedCount: {
+        one: "{count} file added.",
+        other: "{count} files added.",
+      },
+      cancelUpload: "Cancel uploading {name}",
       dropHint: "or drag and drop here",
+      failedCount: {
+        one: "{count} upload failed.",
+        other: "{count} uploads failed.",
+      },
       fileTypeNotAccepted: "Files of this type cannot be uploaded here.",
       maxFileSizeExceeded: "The file exceeds the maximum size of {size} MB.",
       maxFiles: {
         one: "You can attach only one file.",
         other: "You can attach up to {count} files.",
       },
+      moreFiles: {
+        one: "{count} more",
+        other: "{count} more",
+      },
+      noFiles: "No files",
+      queued: "Waiting to upload…",
+      refused: "{files}: {message}",
       remove: "Remove",
+      retry: "Retry",
+      retryUpload: "Retry uploading {name}",
       upload: "Upload",
+      uploadedCount: {
+        one: "{count} file uploaded.",
+        other: "{count} files uploaded.",
+      },
       uploadFailed: "The upload failed.",
       uploading: "Uploading…",
+      uploadingCount: {
+        one: "Uploading {count} file…",
+        other: "Uploading {count} files…",
+      },
+      validationFailed: "The file could not be checked.",
     },
     form: {
       labelSuffix: ":",
@@ -260,6 +346,9 @@ export const en: Locale = {
     },
     input: {
       clear: "Clear",
+      maskIncomplete: "Enter the complete value.",
+      passwordStrength: "Password strength: {strength}",
+      passwordStrengths: ["very weak", "weak", "fair", "good", "strong"],
       showPassword: "Show password",
     },
     link: {
@@ -277,15 +366,26 @@ export const en: Locale = {
     },
     pagination: {
       first: "First page",
+      go: "Go",
+      goTo: "Go to page",
       label: "Pagination",
       last: "Last page",
       next: "Next page",
+      page: "Page {page}",
+      pageSize: "Per page",
       previous: "Previous page",
       range: "{from}–{to} of {total}",
     },
     pinInput: {
       character: "Character {index} of {length}",
       digit: "Digit {index} of {length}",
+    },
+    rating: {
+      none: "No rating",
+      value: {
+        one: "{value} of {count} star",
+        other: "{value} of {count} stars",
+      },
     },
     richTextEditor: {
       addColumnLeft: "Insert column left",
@@ -297,6 +397,7 @@ export const en: Locale = {
       bulletList: "Bulleted list",
       clearFormatting: "Clear formatting",
       code: "Code",
+      codeBlock: "Code block",
       columns: "Columns",
       deleteColumn: "Delete column",
       deleteRow: "Delete row",
@@ -305,6 +406,11 @@ export const en: Locale = {
       heading2: "Heading 2",
       heading3: "Heading 3",
       horizontalRule: "Horizontal line",
+      image: "Image",
+      imageAlt: "Alternative text",
+      imageUploadError: "The image could not be uploaded.",
+      imageUploading: "Uploading the image…",
+      imageUrl: "Image URL",
       indent: "Increase indent",
       insertTable: "Insert table",
       italic: "Italic",
@@ -319,12 +425,15 @@ export const en: Locale = {
       outdent: "Decrease indent",
       paragraph: "Paragraph",
       redo: "Redo",
+      removeImage: "Remove image",
       removeLink: "Remove link",
       rows: "Rows",
       strikethrough: "Strikethrough",
       table: "Table",
       underline: "Underline",
       undo: "Undo",
+      uploadImage: "Upload from device",
+      waitForUpload: "Wait until the image is uploaded.",
     },
     select: {
       emptyOption: "No selection",
@@ -333,6 +442,10 @@ export const en: Locale = {
       rangeEnd: "maximum",
       rangeStart: "minimum",
       rangeValue: "{start} – {end}",
+    },
+    sparkline: {
+      label: "{label}: {summary}",
+      summary: "From {first} to {last}, lowest {min}, highest {max}",
     },
     splitButton: {
       moreOptions: "More options",
@@ -343,6 +456,10 @@ export const en: Locale = {
     stepper: {
       completed: "Completed",
       error: "Error",
+      optional: "Optional",
+    },
+    tabs: {
+      close: "Close tab",
     },
     tagsInput: {
       duplicate: "“{tag}” is already in the list.",
@@ -371,8 +488,38 @@ export const en: Locale = {
     toast: {
       close: "Close notification",
     },
+    treeSelect: {
+      clear: "Clear",
+      more: { other: "+{count} more" },
+      pathSeparator: " / ",
+      search: "Search",
+      searchPlaceholder: "Search…",
+    },
     treeView: {
+      beingMoved: "Being moved",
+      cannotMove: "“{item}” cannot be moved.",
+      dropAfter: "After {item}",
+      dropAfterIn: "After {item}, in {parent}",
+      dropBefore: "Before {item}",
+      dropInside: "Inside {item}",
+      itemCount: {
+        one: "{count} item",
+        other: "{count} items",
+      },
       loadError: "The items could not be loaded.",
+      moveCancelled: "Moving cancelled.",
+      moved: "Moved “{item}”.",
+      movedMany: {
+        one: "Moved {count} item.",
+        other: "Moved {count} items.",
+      },
+      moveInstructions:
+        "Choose the place with the up and down arrows, then press Enter to move there or Escape to cancel.",
+      moving: "Moving “{item}”.",
+      movingMany: {
+        one: "Moving {count} item.",
+        other: "Moving {count} items.",
+      },
       noItems: "No items",
       noMatches: "No matching items",
       retry: "Try again",

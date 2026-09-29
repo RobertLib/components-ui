@@ -25,13 +25,27 @@ const variables = toRelayVariables(query);
 const queryShape = `interface DataTableQuery {
   page: number;                     // 1-based
   pageSize: number;
-  sortBy: string | null;            // column key
-  order: "asc" | "desc";
+  sort: { key: string; order: "asc" | "desc" }[]; // the first column first
+  sortBy: string | null;            // the key of sort[0]
+  order: "asc" | "desc";            // the order of sort[0]
   search: string;                   // the global search field
-  filters: Record<string, string>;  // column filters by column key
+  filters: Record<string, DataTableFilterValue>; // by column key
   after: string | null;             // cursor pagination
   before: string | null;
-}`;
+}
+
+// A text: contains (input), equals (select), that day (date) - "2026-09-24"
+// A list: any of them (multiSelect)                  - ["active", "invited"]
+// A range: between, both included, either side open  - { from: "1000", to: "5000" }
+type DataTableFilterValue = string | string[] | { from?: string; to?: string };`;
+
+const restFilters = `const { filters, sort } = toOffsetParams(query);
+const params = new URLSearchParams(toFilterParams(filters));
+// status=active&status=invited&salary[from]=1000&salary[to]=5000
+if (sort.length) {
+  params.set("sort", sort.map((s) => (s.order === "desc" ? "-" : "") + s.key).join(","));
+}
+// sort=department,-salary`;
 
 export default function DataTablePage() {
   return (
@@ -95,6 +109,56 @@ export default function DataTablePage() {
         collapsed
         description={
           <p>
+            Besides a text (<code>input</code>), an option (<code>select</code>)
+            and a day (<code>date</code>), a filter can be a list or a range:{" "}
+            <code>multiSelect</code> picks several of the{" "}
+            <code>filterSelectOptions</code> in a panel of checkboxes - the
+            value is a list, <code>{'["active", "invited"]'}</code>, and a row
+            matches any of them. <code>numberRange</code> has two number fields,
+            from and to, and <code>dateRange</code> a date range picker - the
+            value is a range, <code>{'{ from: "50000", to: "80000" }'}</code>,
+            both bounds included and either one left out for &quot;at
+            least&quot; / &quot;at most&quot;; a <code>to</code> day includes
+            the whole day. The number fields wait for typing to pause, like the
+            text filter, and &quot;Clear filters&quot; empties them. The values
+            go into the URL, the REST and GraphQL helpers and{" "}
+            <code>applyDataTableQuery</code> as they are - a text filter of an
+            older URL still reads. A <code>custom</code> filter may set any of
+            them (<code>handleFilterChange(key, value)</code>) and gets the
+            value as its third argument, a <code>filterFn</code> too.
+          </p>
+        }
+        name="data-table/filters"
+        title="Filters: lists and ranges"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            A click on a sortable header sorts by that column alone; Shift +
+            click - Shift + Enter or Shift + Space on its button - adds it to
+            the sorting, turns it and takes it out again. Rows equal in the
+            first column are sorted by the next one, rows equal in all of them
+            keep their order. While several columns sort, their headers show
+            their places, which screen readers hear with the button
+            (&quot;sorted 2 of 2, descending&quot;); <code>aria-sort</code> is
+            on the first one only. The query has them in <code>sort</code> -{" "}
+            <code>sortBy</code> / <code>order</code> stay the first of them, so
+            code knowing only those keeps working - and the URL in{" "}
+            <code>sort=department,-salary</code> (one column still as{" "}
+            <code>sortBy</code> / <code>order</code>). <code>multiSort</code> is
+            on for a <code>clientSide</code> table; turn it on for a server that
+            reads <code>query.sort</code>, as the REST table on{" "}
+            <Link to="/guides/data-fetching">REST &amp; GraphQL</Link> does.
+          </p>
+        }
+        name="data-table/multi-sort"
+        title="Sorting by several columns"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
             <code>groupActions</code> adds a checkbox column and buttons acting
             on the selected rows. With <code>filteredSelection</code>, selecting
             a whole page offers selecting every row matching the filters - the
@@ -120,14 +184,112 @@ export default function DataTablePage() {
         collapsed
         description={
           <p>
+            <code>selectionMode</code> gives the rows checkboxes without group
+            actions - <code>multiple</code> (the default with{" "}
+            <code>groupActions</code> or a selection prop) or{" "}
+            <code>single</code>, where checking a row unchecks the other one.
+            Shift + click on a checkbox - or Shift + Space - selects the rows
+            from the one checked before in the order they are shown, or unchecks
+            them. <code>selectedIds</code> with{" "}
+            <code>onSelectedIdsChange(ids, selection)</code> controls the
+            selection; a controlled selection stays as it is given - also for
+            rows of other pages or filtered out, which an uncontrolled one (
+            <code>defaultSelectedIds</code>) drops - so clear it yourself when
+            the rows change. With <code>filteredSelection</code>, &quot;select
+            all N rows&quot; reports the loaded matching rows with{" "}
+            <code>selection.allFiltered</code> (and the rows unchecked since as{" "}
+            <code>excludedRows</code>); a <code>selectedIds</code> of other ids
+            ends it. Group actions get all the ids as <code>selection.ids</code>
+            . The number of selected rows is announced.
+          </p>
+        }
+        name="data-table/controlled-selection"
+        title="Controlled selection, one row or a range"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            <code>getRowHref(row)</code> makes each row open a page: its first
+            column shows its content as a link (<code>useRouter().Link</code>,
+            so Tab, Enter, middle and Ctrl + click work as on any link), and a
+            click anywhere else on the row follows it too, with the keys held.
+            Keep controls out of the first column - a link cannot hold them.
+          </p>
+        }
+        name="data-table/row-links"
+        title="Row links"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            <code>onRowClick(row, event)</code> is called for a click on a row -
+            not on a control in it (a button, a checkbox, a link, an editable
+            cell, the cells of the checkboxes, the expand buttons and the
+            actions), nor at the end of selecting text. Without{" "}
+            <code>getRowHref</code> the rows are one Tab stop: the arrow keys
+            move between them, Home / End to the first / last one, and Enter
+            calls <code>onRowClick</code> with the keyboard event. With{" "}
+            <code>getRowHref</code> it is called before the link is followed -{" "}
+            <code>event.preventDefault()</code> stays on the page.
+          </p>
+        }
+        name="data-table/row-click"
+        title="Row clicks"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
             <code>renderSubRow</code> makes rows expandable,{" "}
             <code>getRowBackgroundColor</code> / <code>getRowClassName</code>{" "}
             style rows, and a <code>custom</code> filter renders any field -
-            client-side it is matched by the column's <code>filterFn</code>.
+            client-side it is matched by the column's <code>filterFn</code>.{" "}
+            <code>emptyMessage</code> takes any content - here an{" "}
+            <code>EmptyState</code>.
           </p>
         }
         name="data-table/expandable"
         title="Expandable rows, row colors and a custom filter"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            <code>{'groupBy="department"'}</code> groups the rows of a{" "}
+            <code>clientSide</code> table by a column: each group has a header
+            row with its value and number of rows - a button that collapses and
+            expands it (<code>aria-expanded</code>) - and, when a column has a{" "}
+            <code>summary</code>, a row of it over all rows of the group. The
+            groups follow the order of the value - the direction of its column
+            when that is sorted, an empty value last - and the rows keep their
+            order in them. The pagination pages the rows: a group may go on on
+            the next page, its number counts all its rows. A grouped table is
+            not <code>virtualized</code>.
+          </p>
+        }
+        name="data-table/row-grouping"
+        title="Grouped rows"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            An entry of <code>columns</code> with <code>children</code> (
+            <code>ColumnGroup</code>) puts its columns under a common header - a
+            row above theirs, the group header spanning them (
+            <code>scope=&quot;colgroup&quot;</code>). The columns are reordered
+            within their group - by dragging or from the column settings, which
+            list them under the group&apos;s name; a column of no group steps
+            over a group as a whole. Pinned, a column takes its part of the
+            group header along - a group split by pinning shows its header over
+            each part. Hidden columns leave it; a group with no visible column
+            has no header.
+          </p>
+        }
+        name="data-table/column-groups"
+        title="Column groups"
       />
       <Example
         collapsed
@@ -167,11 +329,33 @@ export default function DataTablePage() {
             cover more than half of the table, they scroll along - a pinned
             column is resized only as far as they still stick. Widths and pins
             are remembered under <code>tableId</code> - "Reset columns" forgets
-            them.
+            them. In a right-to-left page <code>"left"</code> is the start of a
+            row - the right edge - and <code>"right"</code> its end: the
+            offsets, the shadows, the resize handles and the names of the pin
+            buttons follow the direction.
           </p>
         }
         name="data-table/column-layout"
         title="Column widths and pinning"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            The column settings - order, visibility, pinning and widths - are a
+            value too, <code>DataTableColumnState</code>: only what differs from
+            the column definitions, so a column added or changed later follows
+            its definition. <code>onColumnStateChange</code> reports every
+            change (also of an uncontrolled table), so you can store it on a
+            server per user; <code>columnState</code> controls it and{" "}
+            <code>defaultColumnState</code> starts an uncontrolled table with it
+            - with <code>tableId</code> while nothing is saved under it. With{" "}
+            <code>columnState</code>, <code>tableId</code> keeps only the row
+            density. &quot;Reset columns&quot; brings back the definitions.
+          </p>
+        }
+        name="data-table/column-state"
+        title="Column settings as a value"
       />
       <Example
         collapsed
@@ -227,26 +411,30 @@ export default function DataTablePage() {
           edited last, or the first one in view. The arrow keys move between
           them (up and down in the column, skipping cells that cannot be
           edited), Home / End to the first / last one of the row and Ctrl + Home
-          / End to the first / last one of the table. Enter or F2 - or a
-          double-click, on a touch screen a tap on the focused cell - starts
-          editing, Enter saves, Escape cancels, Tab saves and edits the next
-          editable cell (Shift + Tab the previous one), and moving the focus
-          elsewhere saves too. Enter and Escape in an open date picker are the
-          picker&apos;s. Messages of validation and of failed saves are
-          announced. Column resize handles are separators with their width in
-          pixels: the arrow keys resize, Home / End go to the limits, Enter
-          brings back the column&apos;s width. The focus moving into the
+          / End to the first / last one of the table; laid out right to left (
+          <code>dir=&quot;rtl&quot;</code>), ArrowLeft goes to the next column.
+          Enter or F2 - or a double-click, on a touch screen a tap on the
+          focused cell - starts editing, Enter saves, Escape cancels, Tab saves
+          and edits the next editable cell (Shift + Tab the previous one), and
+          moving the focus elsewhere saves too. Enter and Escape in an open date
+          picker are the picker&apos;s. Messages of validation and of failed
+          saves are announced. Column resize handles are separators with their
+          width in pixels: the arrow keys resize, Home / End go to the limits,
+          Enter brings back the column&apos;s width. The focus moving into the
           toolbar, a sort button or a filter field does not scroll the rows, and
           another page, sorting or filter shows them from the top. Escape
           empties a text filter - in an empty one it leaves the full screen. The
           info icon of a header (<code>labelInfo</code>) is a Tab stop that
-          opens its text on focus. The number of selected rows is announced.
-          "Clear filters", "Reset columns", the group actions and the paging
-          buttons keep the focus when pressing them leaves nothing more to do.
-          Give each table of a page a name with <code>aria-label</code> (or{" "}
-          <code>aria-labelledby</code>) - the region, the table and its
-          pagination ("People pagination") take it, so screen readers tell them
-          apart.
+          opens its text on focus. Shift + Enter on a sort button adds its
+          column to the sorting (<code>multiSort</code>); rows of{" "}
+          <code>onRowClick</code> without links are one Tab stop with the arrow
+          keys and Enter, and Shift + Space on a checkbox selects a range. The
+          number of selected rows is announced. "Clear filters", "Reset
+          columns", the group actions and the paging buttons keep the focus when
+          pressing them leaves nothing more to do. Give each table of a page a
+          name with <code>aria-label</code> (or <code>aria-labelledby</code>) -
+          the region, the table and its pagination ("People pagination") take
+          it, so screen readers tell them apart.
         </p>
       </Callout>
       <Example
@@ -323,6 +511,16 @@ export default function DataTablePage() {
 
       <Section title="Server-side data">
         <CodeBlock code={serverSide} />
+        <Prose>
+          <p>
+            Lists and ranges of the filters and several sorted columns go to a
+            REST API as parameters of your choice - <code>toFilterParams</code>{" "}
+            writes the filters as <code>qs</code> and most frameworks read them
+            back (<code>{'{ prefix: "filter" }'}</code> puts them under{" "}
+            <code>filter[…]</code>):
+          </p>
+        </Prose>
+        <CodeBlock code={restFilters} />
         <Callout title="Pagination modes">
           <p>
             With <code>pageInfo</code> the table pages by cursors (the next page
@@ -399,10 +597,10 @@ export default function DataTablePage() {
               the same, so "Clear filters" clears it there.
             </li>
             <li>
-              A <code>sortBy</code> of a column that is not{" "}
+              A <code>sortBy</code> or a column of <code>sort</code> that is not{" "}
               <code>sortable</code> or hidden (a hand-edited URL) sorts nothing
-              client-side and marks no header; hiding the sorted column in the
-              column settings drops the sorting.
+              client-side and marks no header; hiding a sorted column in the
+              column settings drops it from the sorting.
             </li>
           </ul>
         </Prose>
@@ -417,14 +615,21 @@ export default function DataTablePage() {
               <code>toOffsetParams(query)</code> -{" "}
               <code>
                 {
-                  "{ page, pageSize, offset, limit, sortBy, order, search, filters }"
+                  "{ page, pageSize, offset, limit, sort, sortBy, order, search, filters }"
                 }
               </code>
             </li>
             <li>
               <code>toRelayVariables(query)</code> -{" "}
               <code>{"{ first, after }"}</code> or{" "}
-              <code>{"{ last, before }"}</code> plus sorting, search and filters
+              <code>{"{ last, before }"}</code> plus sorting (<code>sort</code>{" "}
+              and its first column as <code>sortBy</code> / <code>order</code>),
+              search and filters
+            </li>
+            <li>
+              <code>toFilterParams(filters, {"{ prefix }"})</code> - the filters
+              as URL parameters: a text under its key, each item of a list, the
+              bounds of a range as <code>key[from]</code> / <code>key[to]</code>
             </li>
             <li>
               <code>applyDataTableQuery(rows, query, columns)</code> - what{" "}
@@ -441,10 +646,14 @@ export default function DataTablePage() {
               with defaults
             </li>
             <li>
-              <code>setFilter(query, key, value)</code>,{" "}
-              <code>toggleSort(query, key)</code> and{" "}
+              <code>setFilter(query, key, value)</code> (a text, a list or a
+              range - an empty one removes the filter),{" "}
+              <code>toggleSort(query, key, {"{ multi }"})</code> and{" "}
               <code>resetPagination(query, changes)</code> - the changes the
-              table makes, for filters and sorting of your own outside it
+              table makes, for filters and sorting of your own outside it.
+              Change the sorting with them, or set <code>sortBy</code> /{" "}
+              <code>order</code> alone: a <code>sort</code> that disagrees with
+              them is taken for one of older code and replaced by them.
             </li>
             <li>
               <code>createCsv(rows, columns, {"{ locale }"})</code> and{" "}
@@ -459,12 +668,19 @@ export default function DataTablePage() {
       <Section title="Props">
         <PropsTable of="DataTable" />
         <PropsTable of="Column" />
+        <PropsTable of="ColumnGroup" />
+        <PropsTable of="DataTableColumnState" />
+        <PropsTable of="DataTableRangeFilter" />
+        <PropsTable of="DataTableSort" />
         <PropsTable
           of="CellEditorProps"
           title="CellEditorProps (renderEditor)"
         />
         <PropsTable of="GroupAction" />
-        <PropsTable of="GroupActionSelection" />
+        <PropsTable
+          of="GroupActionSelection"
+          title="GroupActionSelection (also of onSelectedIdsChange)"
+        />
         <PropsTable of="FilteredSelectionConfig" />
         <PropsTable of="CsvOptions" title="createCsv options" />
         <PropsTable

@@ -11,11 +11,14 @@ import {
   snapDateTime,
 } from "./parse";
 import usePickerPopup from "./use-picker-popup";
+import { findEnabledDay } from "./availability";
+import { formatMessage } from "../../i18n/format";
 import {
   formatPattern,
   formatPlaceholder,
   getDayPeriods,
   parseISODate,
+  startOfDay,
   toISODate,
   usesHour12,
 } from "../../utils/date";
@@ -24,11 +27,15 @@ import type { CustomPickerProps } from "./types";
 
 /** `type="datetime-local"` - value `YYYY-MM-DDTHH:mm`. */
 export default function DateTimePanelPicker({
+  isDateDisabled,
   max,
   min,
   minuteStep,
   onValueChange,
   placeholder,
+  // Of the date popup only
+  popupActions: _popupActions,
+  presets: _presets,
   value,
   ...props
 }: CustomPickerProps) {
@@ -60,8 +67,21 @@ export default function DateTimePanelPicker({
   const maxDay = maxValue?.slice(0, 10);
 
   // The day the time lists set - without a picked one today, moved into the
-  // allowed days. Local date - toISOString() would give the UTC one.
-  const day = datePart || clampValue(toISODate(new Date()), minDay, maxDay);
+  // allowed days, or the nearest one that is not disabled. Local date -
+  // toISOString() would give the UTC one.
+  const minDate = parseISODate(min);
+  const maxDate = parseISODate(max);
+  const day =
+    datePart ||
+    toISODate(
+      findEnabledDay(
+        parseISODate(clampValue(toISODate(new Date()), minDay, maxDay)) ??
+          startOfDay(new Date()),
+        isDateDisabled,
+        minDate,
+        maxDate,
+      ),
+    );
 
   // The time part of a limit applies on its own day only
   const timeLimit = (limit: string | undefined) =>
@@ -105,6 +125,21 @@ export default function DateTimePanelPicker({
     ? `${toISODate(selectedDate)}T${hours}:${minutes}`
     : undefined;
 
+  // Out of `min` / `max`, or on a disabled day - one typed too, which is
+  // kept (the form cannot be submitted with it)
+  const validityMessage =
+    getRangeMessage(
+      messages,
+      selectedValue,
+      { max: maxValue, min: minValue },
+      formatValue,
+    ) ||
+    (selectedValue && selectedDate && isDateDisabled?.(selectedDate)
+      ? formatMessage(messages.unavailable, {
+          value: formatValue(selectedValue),
+        })
+      : "");
+
   return (
     <PickerField
       {...props}
@@ -146,12 +181,7 @@ export default function DateTimePanelPicker({
       pickCount={pickCount}
       placeholder={placeholder}
       popupLabel={messages.selectDateTime}
-      rangeMessage={getRangeMessage(
-        messages,
-        selectedValue,
-        { max: maxValue, min: minValue },
-        formatValue,
-      )}
+      validityMessage={validityMessage}
       value={value}
     >
       {/* Side by side from the `sm` breakpoint up, stacked on phones */}
@@ -163,8 +193,9 @@ export default function DateTimePanelPicker({
         >
           <DayGrid
             autoFocus={openedByKeyboard}
-            max={parseISODate(max)}
-            min={parseISODate(min)}
+            isDateDisabled={isDateDisabled}
+            max={maxDate}
+            min={minDate}
             onEscape={close}
             onSelect={(date) => change(toISODate(date), hours, minutes)}
             selected={selectedDate}
@@ -173,7 +204,7 @@ export default function DateTimePanelPicker({
 
         <div
           aria-label={messages.selectTime}
-          className="border-t border-neutral-300 pt-2 sm:w-44 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-2 dark:border-neutral-600"
+          className="border-t border-neutral-300 pt-2 sm:w-44 sm:border-s sm:border-t-0 sm:ps-2 sm:pt-0 dark:border-neutral-600"
           role="group"
         >
           <TimeLists

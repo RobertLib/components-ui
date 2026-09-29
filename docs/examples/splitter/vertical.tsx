@@ -14,13 +14,13 @@ export default function Vertical() {
     >
       <textarea
         aria-label="SQL query"
-        className="block h-full w-full resize-none bg-transparent p-3 font-mono text-sm focus:outline-none"
+        className="block h-full w-full resize-none bg-transparent p-3 font-mono text-sm focus:outline-hidden"
         defaultValue={
           "SELECT name, department, role\nFROM people\nWHERE city = 'Prague'\nORDER BY name;"
         }
         spellCheck={false}
       />
-      <table className="w-full text-left text-sm">
+      <table className="w-full text-start text-sm">
         <thead className="sticky top-0 bg-neutral-50 text-xs text-neutral-500 uppercase dark:bg-neutral-900 dark:text-neutral-400">
           <tr>
             <th className="px-3 py-2">Name</th>

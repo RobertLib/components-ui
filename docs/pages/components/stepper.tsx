@@ -45,6 +45,18 @@ export default function StepperPage() {
       <Example
         description={
           <p>
+            A step marked <code>optional</code> can be skipped: the localized
+            "Optional" is written under its title in the vertical layout and in
+            its tooltip in the horizontal one, and screen readers hear it with
+            the step.
+          </p>
+        }
+        name="stepper/optional"
+        title="Optional steps"
+      />
+      <Example
+        description={
+          <p>
             The <code>content</code> of the current step is shown right under it
             - a vertical wizard, with the fields and the buttons of each step in
             its content. Only the content of the current step is rendered, so

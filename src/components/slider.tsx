@@ -17,6 +17,7 @@ import FormError from "./form-error";
 import { formatMessage, formatNumber } from "../i18n/format";
 import { getNumberFormat, toCanonical } from "./number-input/number-format";
 import { useLocale } from "../providers/ui-context";
+import RequiredMark from "./required-mark";
 
 /** A single value, or a range - its start and its end. */
 export type SliderValue = number | [number, number];
@@ -28,7 +29,19 @@ export interface SliderMark {
   label?: React.ReactNode;
 }
 
-export interface SliderProps<T extends SliderValue = number> {
+/**
+ * The attributes of an HTML element not listed here - `data-*`, `style`,
+ * `title`, event handlers - go to the element around the track and the
+ * thumbs, as `className` does. `id` and `ref` are the first thumb's.
+ */
+export interface SliderProps<T extends SliderValue = number> extends Omit<
+  React.HTMLAttributes<HTMLDivElement>,
+  | "children"
+  | "dangerouslySetInnerHTML"
+  | "defaultChecked"
+  | "defaultValue"
+  | "onChange"
+> {
   /**
    * Id of the element describing the slider - the error message and the
    * description describe it too.
@@ -52,6 +65,11 @@ export interface SliderProps<T extends SliderValue = number> {
   /** Help text under the slider - it describes it. */
   description?: React.ReactNode;
   /**
+   * Size of the track and the thumbs.
+   * @default "md"
+   */
+  dim?: "xs" | "sm" | "md" | "lg";
+  /**
    * Disables the slider - it is then neither submitted nor focusable. A
    * disabled `<fieldset>` around it disables it too, as a native field.
    */
@@ -74,8 +92,8 @@ export interface SliderProps<T extends SliderValue = number> {
    * Id of the first thumb - the ids of the messages derive from it.
    */
   id?: string;
-  /** Text above the slider - the name of its thumbs. */
-  label?: string;
+  /** Content of the label above the slider - the name of its thumbs. */
+  label?: React.ReactNode;
   /** Marks along the track, with an optional label under each. */
   marks?: SliderMark[];
   /** The highest value. */
@@ -104,6 +122,12 @@ export interface SliderProps<T extends SliderValue = number> {
   onFocus?: React.FocusEventHandler<HTMLDivElement>;
   /** `vertical` - the value grows upwards. */
   orientation?: "horizontal" | "vertical";
+  /**
+   * The thumbs show the value and take the focus, but neither a drag nor a
+   * key moves them (`onChange` is not called) - unlike a disabled slider,
+   * the value is submitted with the form.
+   */
+  readOnly?: boolean;
   /** Ref to the first thumb - e.g. for `focus()`. */
   ref?: React.Ref<HTMLDivElement>;
   /**
@@ -113,7 +137,10 @@ export interface SliderProps<T extends SliderValue = number> {
   required?: boolean;
   /** Shows the value next to the label. */
   showValue?: boolean;
-  /** Size of the track and the thumbs. */
+  /**
+   * Deprecated - use `dim`.
+   * @deprecated Use `dim`.
+   */
   size?: "sm" | "md" | "lg";
   /**
    * The values lie on steps of this size from `min` - a drag and the arrow
@@ -286,6 +313,13 @@ function followPointer(
 }
 
 const sizeStyles = {
+  xs: {
+    rail: "h-0.5",
+    railVertical: "w-0.5",
+    thumb: "size-3",
+    inset: "mx-1.5",
+    insetVertical: "my-1.5",
+  },
   sm: {
     rail: "h-1",
     railVertical: "w-1",
@@ -323,6 +357,7 @@ export default function Slider<T extends SliderValue = number>({
   className,
   defaultValue,
   description,
+  dim: dimProp,
   disabled: disabledProp = false,
   error,
   form,
@@ -339,13 +374,15 @@ export default function Slider<T extends SliderValue = number>({
   onChangeEnd,
   onFocus,
   orientation = "horizontal",
+  readOnly = false,
   ref,
   required = false,
   showValue = false,
-  size = "md",
+  size,
   step = 1,
   value,
   valueLabel = "auto",
+  ...props
 }: SliderProps<T>) {
   const locale = useLocale();
   const { messages } = locale;
@@ -376,7 +413,9 @@ export default function Slider<T extends SliderValue = number>({
   // A tenth of the range, in whole steps
   const pageStep = Math.max(1, Math.round((max - min) / 10 / step)) * step;
   const vertical = orientation === "vertical";
-  const styles = sizeStyles[size];
+  const styles = sizeStyles[dimProp ?? size ?? "md"];
+  // Neither a drag nor a key changes the value
+  const locked = disabled || readOnly;
 
   // The number of the locale shows 3 fraction digits - a finer step more
   const format = (thumbValue: number) =>
@@ -445,8 +484,8 @@ export default function Slider<T extends SliderValue = number>({
   /** Moves a thumb to `target` - returns the new values, `null` for no change. */
   const moveThumb = (index: number, target: number) => {
     const [low, high] = boundsOf(index);
-    // Also a drag of a slider disabled meanwhile stops
-    if (disabled || low > high) return null;
+    // Also a drag of a slider disabled (or made read-only) meanwhile stops
+    if (locked || low > high) return null;
 
     // Up to the last step within `max` - a thumb past it (a `value` of the
     // parent) may stay there, but never moves back towards it going up
@@ -502,7 +541,7 @@ export default function Slider<T extends SliderValue = number>({
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (disabled || !isPrimaryPress(event)) return;
+    if (locked || !isPrimaryPress(event)) return;
 
     const pressed =
       event.target instanceof Element
@@ -619,7 +658,9 @@ export default function Slider<T extends SliderValue = number>({
                       : undefined;
     if (target === undefined) return;
 
+    // Also in a read-only slider - the key moves nothing, not the page
     event.preventDefault();
+    if (readOnly) return;
     const nextValues = moveThumb(index, target);
     if (nextValues) onChangeEnd?.(report(nextValues));
   };
@@ -658,14 +699,7 @@ export default function Slider<T extends SliderValue = number>({
             >
               {label}
               {messages.form.labelSuffix} {/* The star is for the eye */}
-              {required && (
-                <span
-                  aria-hidden="true"
-                  className="text-danger-700 dark:text-danger-400"
-                >
-                  *
-                </span>
-              )}
+              {required && <RequiredMark />}
             </label>
           )}
           {/* The thumbs tell their values to assistive technology */}
@@ -697,27 +731,42 @@ export default function Slider<T extends SliderValue = number>({
       )}
 
       <div
+        {...props}
         className={cn(
           "relative select-none",
           vertical
             ? "flex h-48 w-fit touch-pan-x"
             : // Room above the track for a value label that stays
               cn("touch-pan-y", valueLabel === "always" ? "pt-8 pb-2" : "py-2"),
-          disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+          disabled
+            ? "cursor-not-allowed opacity-60"
+            : readOnly
+              ? "cursor-default"
+              : "cursor-pointer",
           className,
         )}
+        data-disabled={disabled ? "" : undefined}
+        data-invalid={error ? "" : undefined}
+        data-orientation={orientation}
+        data-readonly={readOnly ? "" : undefined}
         onBlur={(event) => {
           if (!isOwnElement(event.relatedTarget)) onBlur?.(event);
         }}
         onFocus={(event) => {
           if (!isOwnElement(event.relatedTarget)) onFocus?.(event);
         }}
-        onPointerDown={handlePointerDown}
+        onPointerDown={(event) => {
+          props.onPointerDown?.(event);
+          if (!event.defaultPrevented) handlePointerDown(event);
+        }}
         ref={controlRef}
       >
         <div
           className={cn(
-            "relative rounded-full bg-neutral-200 dark:bg-neutral-700",
+            // Forced colors (Windows High Contrast) draw no background: the
+            // track gets an outline, the filled part the system's
+            // highlight color
+            "relative rounded-full bg-neutral-200 dark:bg-neutral-700 forced-colors:outline-1",
             vertical
               ? cn(styles.railVertical, styles.insetVertical, "mx-2")
               : cn(styles.rail, styles.inset),
@@ -730,10 +779,10 @@ export default function Slider<T extends SliderValue = number>({
               "absolute rounded-full",
               vertical ? "inset-x-0" : "inset-y-0",
               disabled
-                ? "bg-neutral-400 dark:bg-neutral-500"
+                ? "bg-neutral-400 dark:bg-neutral-500 forced-colors:bg-[GrayText]"
                 : error
-                  ? "bg-danger-500"
-                  : "bg-primary-500 dark:bg-primary-400",
+                  ? "bg-danger-500 forced-colors:bg-[Highlight]"
+                  : "bg-primary-500 dark:bg-primary-400 forced-colors:bg-[Highlight]",
             )}
             style={
               vertical
@@ -761,8 +810,8 @@ export default function Slider<T extends SliderValue = number>({
                     ? "left-1/2 -translate-x-1/2 translate-y-1/2"
                     : "top-1/2 -translate-x-1/2 -translate-y-1/2 rtl:translate-x-1/2",
                   filled
-                    ? "bg-white/80 dark:bg-neutral-900/60"
-                    : "bg-neutral-400 dark:bg-neutral-500",
+                    ? "bg-white/80 dark:bg-neutral-900/60 forced-colors:bg-[HighlightText]"
+                    : "bg-neutral-400 dark:bg-neutral-500 forced-colors:bg-[CanvasText]",
                 )}
                 key={mark.value}
                 style={
@@ -792,12 +841,15 @@ export default function Slider<T extends SliderValue = number>({
                   isRange ? joinTokens(nameId, thumbNameIds[index]) : nameId
                 }
                 aria-orientation={orientation}
+                aria-readonly={readOnly ? "true" : undefined}
                 aria-valuemax={high}
                 aria-valuemin={low}
                 aria-valuenow={thumbValue}
                 aria-valuetext={format(thumbValue)}
                 className={cn(
-                  "group/thumb absolute touch-none rounded-full border-2 bg-white shadow transition-shadow focus:outline-none focus-visible:ring-4 motion-reduce:transition-none dark:bg-neutral-900",
+                  // The ring of the keyboard focus is a shadow - forced colors
+                  // show the outline of `outline-hidden` instead
+                  "group/thumb absolute touch-none rounded-full border-2 bg-white shadow transition-shadow focus:outline-hidden focus-visible:ring-4 motion-reduce:transition-none dark:bg-neutral-900",
                   styles.thumb,
                   vertical
                     ? "left-1/2 -translate-x-1/2 translate-y-1/2"
@@ -807,7 +859,7 @@ export default function Slider<T extends SliderValue = number>({
                     : error
                       ? "border-danger-500 focus-visible:ring-danger-500"
                       : "border-primary-500 focus-visible:ring-primary-500 dark:border-primary-400",
-                  !disabled && isDragged && "ring-4 ring-primary-300/40",
+                  !locked && isDragged && "ring-4 ring-primary-300/40",
                   // Of two thumbs on the same spot, the one that can move
                   // away from the end they are at is on top
                   isRange &&
@@ -816,7 +868,11 @@ export default function Slider<T extends SliderValue = number>({
                   // A bigger target for fingers than the thumb looks
                   "before:absolute before:-inset-2 before:rounded-full before:content-['']",
                 )}
+                data-disabled={disabled ? "" : undefined}
                 data-index={index}
+                data-invalid={error ? "" : undefined}
+                data-orientation={orientation}
+                data-readonly={readOnly ? "" : undefined}
                 id={index === 0 ? sliderId : undefined}
                 key={index}
                 onKeyDown={(event) => handleKeyDown(index, event)}

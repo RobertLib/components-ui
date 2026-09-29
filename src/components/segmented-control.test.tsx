@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
@@ -281,7 +281,8 @@ describe("SegmentedControl", () => {
 
   it("slides the indicator under the picked option", async () => {
     const user = userEvent.setup();
-    const rect = (left: number, width: number) => ({ left, width }) as DOMRect;
+    const rect = (left: number, width: number) =>
+      ({ height: 28, left, top: 4, width }) as DOMRect;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       function (this: HTMLElement) {
         if (this.hasAttribute("data-option")) {
@@ -307,9 +308,151 @@ describe("SegmentedControl", () => {
 
     expect(indicator.style.left).toBe("4px");
     expect(indicator.style.width).toBe("60px");
+    expect(indicator.style.top).toBe("0px");
+    expect(indicator.style.height).toBe("28px");
 
     await user.click(radio("Month"));
     expect(indicator.style.left).toBe("124px");
+  });
+
+  it("slides the indicator down a vertical bar", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.hasAttribute("data-option")) {
+          const index = [...this.parentElement!.children]
+            .filter((child) => child.hasAttribute("data-option"))
+            .indexOf(this);
+          return {
+            height: 26,
+            left: 14,
+            top: 24 + index * 26,
+            width: 80,
+          } as DOMRect;
+        }
+        return { height: 86, left: 10, top: 20, width: 88 } as DOMRect;
+      },
+    );
+
+    const { container } = render(
+      <SegmentedControl
+        aria-label="View"
+        defaultValue="day"
+        options={periods}
+        orientation="vertical"
+      />,
+    );
+    const indicator = container.querySelector<HTMLElement>(
+      "[aria-hidden='true']",
+    )!;
+    expect(indicator.style.top).toBe("4px");
+    expect(indicator.style.left).toBe("4px");
+    expect(indicator.style.width).toBe("80px");
+
+    await user.click(radio("Month"));
+    expect(indicator.style.top).toBe("56px");
+  });
+
+  it("stacks the options of a vertical bar, the arrow keys moving through them", async () => {
+    const user = userEvent.setup();
+    render(
+      <SegmentedControl
+        aria-label="View"
+        defaultValue="day"
+        options={periods}
+        orientation="vertical"
+      />,
+    );
+
+    const group = screen.getByRole("radiogroup", { name: "View" });
+    expect(group).toHaveAttribute("aria-orientation", "vertical");
+    expect(radio("Day").closest("label")!.parentElement).toHaveClass(
+      "flex-col",
+    );
+
+    await user.tab();
+    await user.keyboard("{ArrowDown}");
+    expect(radio("Week")).toBeChecked();
+  });
+
+  it("is as high as an Input of its dim - size still works", () => {
+    render(
+      <>
+        <SegmentedControl aria-label="Extra small" dim="xs" options={periods} />
+        <SegmentedControl aria-label="Medium" options={periods} />
+        <SegmentedControl aria-label="Large" dim="lg" options={periods} />
+        <SegmentedControl aria-label="Old small" options={periods} size="sm" />
+      </>,
+    );
+
+    const optionOf = (name: string) =>
+      within(screen.getByRole("radiogroup", { name }))
+        .getByRole("radio", { name: "Day" })
+        .closest("label")!;
+    // The padding of the bar and the height of the options - 22px, 34px
+    // and 46px with the bar, the heights of Input
+    expect(optionOf("Extra small")).toHaveClass("h-4.5", "text-sm");
+    expect(optionOf("Extra small").parentElement).toHaveClass("p-0.5");
+    expect(optionOf("Medium")).toHaveClass("h-6.5", "text-base");
+    expect(optionOf("Medium").parentElement).toHaveClass("p-1");
+    expect(optionOf("Large")).toHaveClass("h-8.5", "text-lg");
+    expect(optionOf("Large").parentElement).toHaveClass("p-1.5");
+    // 26px - a small Input
+    expect(optionOf("Old small")).toHaveClass("h-5.5");
+  });
+
+  describe("read-only", () => {
+    it("keeps the pick on a click and on the arrow keys, which move the focus", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <form aria-label="Report">
+          <SegmentedControl
+            aria-label="Period"
+            defaultValue="day"
+            name="period"
+            onChange={onChange}
+            options={periods}
+            readOnly
+          />
+        </form>,
+      );
+
+      await user.click(radio("Week"));
+      expect(radio("Day")).toBeChecked();
+      expect(radio("Week")).toHaveFocus();
+      await user.keyboard("{ArrowRight}");
+      expect(radio("Month")).toHaveFocus();
+      expect(radio("Day")).toBeChecked();
+
+      expect(onChange).not.toHaveBeenCalled();
+      expect(screen.getByRole("radiogroup")).toHaveAttribute(
+        "aria-readonly",
+        "true",
+      );
+      expect(new FormData(getForm()).get("period")).toBe("day");
+    });
+
+    it("is not validated", () => {
+      render(
+        <form aria-label="Report">
+          <SegmentedControl
+            aria-label="Period"
+            options={periods}
+            readOnly
+            required
+          />
+        </form>,
+      );
+
+      expect(getForm().checkValidity()).toBe(true);
+    });
+  });
+
+  it("takes any content as its label", () => {
+    render(<SegmentedControl label={<span>Period</span>} options={periods} />);
+
+    expect(screen.getByRole("radiogroup")).toHaveAccessibleName("Period:");
   });
 
   it("measures the indicator once where ResizeObserver is missing", async () => {

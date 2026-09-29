@@ -313,3 +313,61 @@ describe("isInEmptyItem", () => {
     expect(isInEmptyItem(editor, editor)).toBe(false);
   });
 });
+
+describe("code blocks", () => {
+  it("makes the selected lines one code block of their text", () => {
+    const editor = createEditor(
+      "<p>One <b>bold</b></p><h2>Two</h2><p><br></p><ul><li>Three</li></ul>",
+    );
+    const one = textNode(editor, "One");
+
+    run(editor, selectText(editor, "One", "Three"), (lines) =>
+      setLineType(lines, "code"),
+    );
+    expect(editor.innerHTML).toBe(
+      "<pre><code>One bold<br>Two<br><br>Three</code></pre>",
+    );
+    expect(selection().startContainer).toBe(one);
+    expect(getBlockState(editor, selection()).type).toBe("code");
+  });
+
+  it("makes the lines of a code block paragraphs again", () => {
+    const editor = createEditor(
+      "<p>Before</p><pre><code>a<br><br>b</code></pre>",
+    );
+
+    run(editor, selectText(editor, "a", "b"), (lines) =>
+      setLineType(lines, "code"),
+    );
+    expect(editor.innerHTML).toBe("<p>Before</p><p>a</p><p><br></p><p>b</p>");
+  });
+
+  it("takes a line out of a code block, keeping the block of the others", () => {
+    const editor = createEditor("<pre><code>a<br>b<br>c</code></pre>");
+    const pre = editor.firstElementChild;
+
+    run(editor, selectText(editor, "c"), (lines) => setLineType(lines, "h2"));
+    expect(editor.innerHTML).toBe(
+      "<pre><code>a<br>b<br></code></pre><h2>c</h2>",
+    );
+    expect(editor.firstElementChild).toBe(pre);
+  });
+
+  it("joins a line made code with the code block next to it", () => {
+    const editor = createEditor("<pre><code>a</code></pre><p>b</p>");
+
+    run(editor, selectText(editor, "b"), (lines) => setLineType(lines, "code"));
+    expect(editor.innerHTML).toBe("<pre><code>a<br>b</code></pre>");
+  });
+
+  it("keeps the empty last line and an empty block", () => {
+    const editor = createEditor(
+      "<pre><code>a<br><br></code></pre><p>x</p><pre></pre>",
+    );
+
+    run(editor, selectText(editor, "x"), (lines) => setLineType(lines, "h3"));
+    expect(editor.innerHTML).toBe(
+      "<pre><code>a<br><br></code></pre><h3>x</h3><pre><code><br></code></pre>",
+    );
+  });
+});

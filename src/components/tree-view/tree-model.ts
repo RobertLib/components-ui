@@ -374,6 +374,51 @@ export function getCheckStates<T extends TreeItem>(
 }
 
 /**
+ * The checkbox state of every loaded item of a tree that checks its items
+ * independently (`checkMode="independent"`): checked when its own id is in
+ * `checked` - nothing follows from its parent or its children.
+ */
+export function getIndependentCheckStates<T extends TreeItem>(
+  items: readonly T[],
+  loads: LoadStates<T>,
+  checked: ReadonlySet<TreeItemId>,
+): Map<TreeItemId, CheckState> {
+  const states = new Map<TreeItemId, CheckState>();
+
+  const visit = (list: readonly T[]) => {
+    for (const item of list) {
+      // Also what stops an item nested in itself
+      if (states.has(item.id)) continue;
+      states.set(item.id, checked.has(item.id));
+
+      const children = getChildren(item, loads);
+      if (children) visit(children);
+    }
+  };
+
+  visit(items);
+  return states;
+}
+
+/**
+ * The checked ids after the user toggled the item `id` in a tree that
+ * checks its items independently: `id` is added at the end, or taken out -
+ * the others stay as they are, in their order. `null` for a disabled item
+ * or one not in the tree.
+ */
+export function toggleIndependentCheck<T>(
+  id: TreeItemId,
+  checked: readonly TreeItemId[],
+  index: TreeIndex<T>,
+): TreeItemId[] | null {
+  if (!index.byId.has(id) || index.disabled.has(id)) return null;
+
+  return checked.includes(id)
+    ? checked.filter((checkedId) => checkedId !== id)
+    : [...checked, id];
+}
+
+/**
  * The ids of the checked items in tree order, parents included - followed
  * by the ids of `checked` that are not in the tree (not loaded yet).
  */

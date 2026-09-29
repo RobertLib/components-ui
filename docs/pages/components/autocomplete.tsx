@@ -55,7 +55,11 @@ function UserSelect() {
 export default function AutocompletePage() {
   return (
     <DocPage
-      imports={["Autocomplete", "type LoadOptionsParams"]}
+      imports={[
+        "Autocomplete",
+        "defaultFilterOptions",
+        "type LoadOptionsParams",
+      ]}
       title="Autocomplete"
     >
       <Section title="Static options">
@@ -83,6 +87,24 @@ export default function AutocompletePage() {
         <Example
           description={
             <p>
+              <code>maxVisibleChips</code> sums up the chips past it as "+N
+              more" while the focus is elsewhere (their labels in its tooltip);
+              the focus in the field shows them all, to be removed.{" "}
+              <code>selectAll</code> starts the list with an option that selects
+              all the options it shows - those the typed term found, not{" "}
+              <code>disabled</code> - and deselects them once all are selected;
+              a text instead of <code>true</code> labels it. It is there for
+              static <code>options</code> only (a loaded list is never
+              complete), and not when <code>maxSelections</code> would not let
+              them all be selected.
+            </p>
+          }
+          name="autocomplete/chips"
+          title="Many selected values"
+        />
+        <Example
+          description={
+            <p>
               <code>asSelect</code> turns off typing: a click opens the whole
               list on the selected option, and typed letters highlight the next
               option starting with them, as in a native select.{" "}
@@ -102,6 +124,132 @@ export default function AutocompletePage() {
           }
           name="autocomplete/controlled"
           title="Controlled"
+        />
+      </Section>
+
+      <Section title="Groups, filtering and long lists">
+        <Example
+          description={
+            <p>
+              An option with a <code>group</code> is listed under the heading of
+              its group - a <code>group</code> named by the heading, as in the
+              APG listbox; options without one come first. The groups keep the
+              order their first options come in, so a page loaded later adds to
+              the groups it has options of. Items of any shape get theirs from{" "}
+              <code>getOptionGroup</code> (by default from a <code>group</code>{" "}
+              field) - here the department of each loaded person. The arrow keys
+              go on across the groups, in single and multiple mode.
+            </p>
+          }
+          name="autocomplete/groups"
+          title="Groups"
+        />
+        <Example
+          description={
+            <p>
+              <code>filterOptions</code> picks the options for the typed term
+              itself - it gets the options and the term, and returns the ones to
+              list in their order. <code>defaultFilterOptions</code> is the
+              default match (the label contains the term, ignoring case and
+              diacritics) to build on. With <code>loadOptions</code> it filters
+              the loaded options further. <code>highlightMatches</code> puts the
+              matched part of each label in bold - a <code>renderOption</code>{" "}
+              gets the term as <code>search</code> to do it itself.
+            </p>
+          }
+          name="autocomplete/filtering"
+          title="Custom filtering and highlighting"
+        />
+        <Example
+          description={
+            <p>
+              <code>virtualized</code> renders only the options in view of the
+              list (and a few around them) - for thousands of options. Options
+              are measured as they are rendered, so a <code>renderOption</code>{" "}
+              of any height works. The highlighted option is always rendered (
+              <code>aria-activedescendant</code> points to it), the options say
+              their place in the list or group (<code>aria-posinset</code> /{" "}
+              <code>aria-setsize</code>), and the arrow keys, PageUp / PageDown,
+              Home / End and a select opening on its selection far down scroll
+              to options not rendered yet.
+            </p>
+          }
+          name="autocomplete/virtualized"
+          title="10,000 options"
+        />
+      </Section>
+
+      <Section title="Adding options and free text">
+        <Example
+          description={
+            <p>
+              <code>onCreate</code> lets the user add what the list does not
+              have: while no option is named by the typed term exactly (ignoring
+              case and diacritics), the list ends with "Add “term”". Picking it
+              calls <code>onCreate</code> with the term; it returns the new item
+              - read like the other options - or a promise of it. While it runs,
+              the option says "Adding…" and cannot be picked again; then the new
+              option is selected (added to the chips in multiple mode) and
+              announced. An error it throws is shown in the list - its{" "}
+              <code>message</code>, or a text of the locale - and the user can
+              try again. Add the new option to your <code>options</code>, as
+              here, to offer it from then on.
+            </p>
+          }
+          name="autocomplete/creatable"
+          title="Creatable options"
+        />
+        <Example
+          description={
+            <p>
+              <code>allowCustomValue</code> (single typing field) keeps the
+              typed text when no option is picked: it becomes the value as the
+              focus leaves the field, or on Enter - which submits the form, as
+              in a text input. A text that is the label of an option picks that
+              option. <code>onChange</code> gets the text (without the spaces
+              around it) and <code>null</code> as the item; the form gets what
+              the input shows, also before it is taken. Escape closes the list
+              and leaves the text; erasing it clears the value.
+            </p>
+          }
+          name="autocomplete/free-text"
+          title="Free text"
+        />
+      </Section>
+
+      <Section title="Sizes and read-only">
+        <Example
+          description={
+            <p>
+              <code>dim</code> - <code>xs</code>, <code>sm</code>,{" "}
+              <code>md</code> (default) or <code>lg</code> - gives the field the
+              height, padding and text of an <code>Input</code> of that size,
+              with chips to fit. The <code>label</code> may hold markup; the
+              listbox is then named by it.
+            </p>
+          }
+          name="autocomplete/sizes"
+          title="Sizes"
+        />
+        <Example
+          description={
+            <p>
+              <code>readOnly</code> shows the value and submits it with the
+              form, but it cannot be changed: the field stays focusable, its
+              list does not open, and there is no clear button, chevron or × on
+              the chips. The combobox has <code>aria-readonly</code> and{" "}
+              <code>data-readonly</code>; Enter in a typing one submits the
+              form, as in a read-only text input. The combobox is also the{" "}
+              <code>ref</code> of the field - React Hook Form&apos;s{" "}
+              <code>field.ref</code> focuses it - and has{" "}
+              <code>data-state=&quot;open&quot;</code> while the list is open;
+              the options have <code>data-selected</code> and{" "}
+              <code>data-highlighted</code>. The other attributes of a{" "}
+              <code>div</code> go to the wrapper.
+            </p>
+          }
+          name="autocomplete/read-only"
+          title="Read-only"
         />
       </Section>
 
@@ -223,18 +371,18 @@ export default function AutocompletePage() {
             </li>
             <li>
               The field is a <code>combobox</code> with a <code>listbox</code>:
-              ArrowDown opens it, the arrow keys move the highlight, Enter picks
-              and Escape closes. Enter in a closed typing field submits the
-              form, as in a text input. Home / End move the highlight in an{" "}
-              <code>asSelect</code> field and the caret in a typing one. An{" "}
-              <code>asSelect</code> field is a select-only combobox: Enter,
-              Space and the arrow keys open it on the selected option, Home and
-              End on the first and last one; Enter and Space pick, and so does
-              Tab as the focus moves on (in single mode). Letters highlight the
-              next option starting with them - from the selection on, as in a
-              native select, and a space typed among them is part of the search
-              ("New Y" finds "New York"). Keys of an input method (IME)
-              composing text are left to it.
+              ArrowDown opens it, the arrow keys move the highlight, PageUp /
+              PageDown by a view of the list, Enter picks and Escape closes.
+              Enter in a closed typing field submits the form, as in a text
+              input. Home / End move the highlight in an <code>asSelect</code>{" "}
+              field and the caret in a typing one. An <code>asSelect</code>{" "}
+              field is a select-only combobox: Enter, Space and the arrow keys
+              open it on the selected option, Home and End on the first and last
+              one; Enter and Space pick, and so does Tab as the focus moves on
+              (in single mode). Letters highlight the next option starting with
+              them - from the selection on, as in a native select, and a space
+              typed among them is part of the search ("New Y" finds "New York").
+              Keys of an input method (IME) composing text are left to it.
             </li>
             <li>
               Screen readers hear how many options the open list shows (or that

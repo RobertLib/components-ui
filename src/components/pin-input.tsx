@@ -5,10 +5,25 @@ import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { formatMessage } from "../i18n/format";
 import { useMessages } from "../providers/ui-context";
+import RequiredMark from "./required-mark";
 
 type PinType = "numeric" | "alphanumeric";
 
-export interface PinInputProps {
+/**
+ * The attributes of an HTML element not listed here - `data-*`, `style`,
+ * `title`, event handlers - go to the row of cells (the group), as
+ * `className` does. `id` and `ref` are the first cell's.
+ */
+export interface PinInputProps extends Omit<
+  React.HTMLAttributes<HTMLDivElement>,
+  | "children"
+  | "dangerouslySetInnerHTML"
+  | "defaultChecked"
+  | "defaultValue"
+  | "onBlur"
+  | "onChange"
+  | "onFocus"
+> {
   /**
    * Id of the element describing the field - the error message and the
    * description describe it too.
@@ -39,13 +54,23 @@ export interface PinInputProps {
    */
   form?: string;
   /**
+   * Splits the cells into groups of these sizes with a `separator` between
+   * them, e.g. `[3, 3]` for "123 - 456". For the eye only: the code is one
+   * value, typed and pasted as one. Cells past the groups join the last
+   * one.
+   */
+  groups?: number[];
+  /**
    * Id of the first cell - the ids of the other cells and of the messages
    * derive from it.
    */
   id?: string;
-  /** Text of the `<label>` above the cells - the name of the group of cells. */
-  label?: string;
-  /** Number of cells - of characters of the code. */
+  /** Content of the `<label>` above the cells - the name of the group of cells. */
+  label?: React.ReactNode;
+  /**
+   * Number of cells - of characters of the code. 6 by default, or the sum
+   * of `groups`.
+   */
   length?: number;
   /** Shows dots instead of the characters, as a password field does. */
   mask?: boolean;
@@ -65,10 +90,19 @@ export interface PinInputProps {
   onFocus?: React.FocusEventHandler<HTMLInputElement>;
   /** Shown in the empty cells, e.g. `"○"`. */
   placeholder?: string;
+  /**
+   * The cells show the code and take the focus - the arrow keys move
+   * between them - but typing, pasting or deleting changes nothing. Unlike
+   * a disabled field, the code is submitted with the form. As a native
+   * read-only field, it is not validated.
+   */
+  readOnly?: boolean;
   /** Ref to the first cell - e.g. for `focus()`. */
   ref?: React.Ref<HTMLInputElement>;
   /** All cells must be filled before the form can be submitted. */
   required?: boolean;
+  /** Shown between the `groups` of cells - a dash by default. */
+  separator?: React.ReactNode;
   /**
    * `numeric` takes digits and opens the number keyboard of phones,
    * `alphanumeric` takes letters and digits.
@@ -102,6 +136,8 @@ const digitOfKey = (event: React.KeyboardEvent) =>
 const isRtl = (element: Element) =>
   getComputedStyle(element).direction === "rtl";
 
+// Square cells of their own sizes, larger than the heights of an Input -
+// each holds one character
 const cellSizeStyles = {
   xs: "h-7 text-sm",
   sm: "h-8 text-sm",
@@ -116,6 +152,29 @@ const cellWidths = {
   md: "2.5rem",
   lg: "3rem",
 };
+
+const separatorSizes = {
+  xs: "text-sm",
+  sm: "text-sm",
+  md: "text-lg",
+  lg: "text-xl",
+};
+
+/**
+ * The indexes of the cells a separator follows - the ends of the groups,
+ * not the end of the code.
+ */
+function groupEnds(groups: number[] | undefined, length: number) {
+  const ends = new Set<number>();
+  let end = 0;
+  // The cells past the last group belong to it - no separator after it
+  for (const size of groups?.slice(0, -1) ?? []) {
+    end += Math.max(0, Math.floor(size));
+    if (end >= length) break;
+    if (end > 0) ends.add(end - 1);
+  }
+  return ends;
+}
 
 /**
  * A one-time code or a PIN in a row of cells, one character each. Typing
@@ -135,9 +194,10 @@ export default function PinInput({
   disabled = false,
   error,
   form,
+  groups,
   id,
   label,
-  length = 6,
+  length: lengthProp,
   mask = false,
   name,
   onBlur,
@@ -145,12 +205,19 @@ export default function PinInput({
   onComplete,
   onFocus,
   placeholder,
+  readOnly = false,
   ref,
   required = false,
+  separator,
   type = "numeric",
   value,
+  ...props
 }: PinInputProps) {
   const messages = useMessages();
+  const length =
+    lengthProp ??
+    (groups ? groups.reduce((sum, size) => sum + Math.max(0, size), 0) : 6);
+  const separatorAfter = groupEnds(groups, length);
 
   // What the user entered into an uncontrolled field. Until then, and again
   // after a reset, it shows `defaultValue` - also one that arrived late.
@@ -260,6 +327,11 @@ export default function PinInput({
     const { key } = event;
     const index = targetIndex(cellIndex);
 
+    // Nothing changes a read-only code - Tab and the navigation keys work
+    if (readOnly && !["ArrowLeft", "ArrowRight", "End", "Home"].includes(key)) {
+      return;
+    }
+
     switch (key) {
       case "Backspace":
         event.preventDefault();
@@ -311,6 +383,7 @@ export default function PinInput({
     cellIndex: number,
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
+    if (readOnly) return;
     const index = targetIndex(cellIndex);
     const text = event.target.value;
     const current = code[index] ?? "";
@@ -367,30 +440,33 @@ export default function PinInput({
           {label}
           {messages.form.labelSuffix}{" "}
           {/* The star is for the eye - `required` tells assistive technology */}
-          {required && (
-            <span
-              aria-hidden="true"
-              className="text-danger-700 dark:text-danger-400"
-            >
-              *
-            </span>
-          )}
+          {required && <RequiredMark />}
         </label>
       )}
 
       <div
+        {...props}
         aria-label={label || ariaLabelledBy ? undefined : ariaLabel}
         aria-labelledby={label ? labelId : ariaLabelledBy}
-        className={cn("grid gap-2", className)}
+        className={cn("grid items-center gap-2", className)}
+        data-disabled={disabled ? "" : undefined}
+        data-invalid={error ? "" : undefined}
+        data-readonly={readOnly ? "" : undefined}
         ref={groupRef}
         role="group"
         // Columns that shrink - a row wider than the screen of a phone does
-        // not stretch the page
+        // not stretch the page. A separator between the groups takes the
+        // width it needs.
         style={{
-          gridTemplateColumns: `repeat(${length}, minmax(0, ${cellWidths[dim]}))`,
+          ...props.style,
+          gridTemplateColumns: Array.from(
+            { length },
+            (_, index) =>
+              `minmax(0, ${cellWidths[dim]})${separatorAfter.has(index) ? " auto" : ""}`,
+          ).join(" "),
         }}
       >
-        {Array.from({ length }, (_, index) => (
+        {Array.from({ length }, (_, index) => index).flatMap((index) => [
           <input
             // On the cells, which take the focus - not on the group, whose
             // description would be read once more on entering it
@@ -406,14 +482,22 @@ export default function PinInput({
             autoCorrect="off"
             autoFocus={autoFocus && index === activeIndex}
             className={cn(
-              "w-full min-w-0 rounded-md border border-neutral-300 bg-surface p-0 text-center font-medium transition-colors placeholder:text-neutral-500 focus:ring-2 focus:ring-primary-500 focus:outline-none motion-reduce:transition-none dark:border-neutral-700 dark:bg-surface-dark dark:placeholder:text-neutral-400",
+              // The ring of the focus is a shadow - forced colors (Windows
+              // High Contrast) show the outline of `outline-hidden` instead
+              "w-full min-w-0 rounded-md border border-neutral-300 bg-surface p-0 text-center font-medium transition-colors placeholder:text-neutral-500 focus:ring-2 focus:ring-primary-500 focus:outline-hidden motion-reduce:transition-none dark:border-neutral-700 dark:bg-surface-dark dark:placeholder:text-neutral-400",
               cellSizeStyles[dim],
-              error && "border-danger-500! focus:ring-danger-500!",
+              // Forced colors draw every border in one color - an outline
+              // makes the border of an invalid cell thicker
+              error &&
+                "border-danger-500! focus:ring-danger-500! forced-colors:outline-1",
               // Also for a disabled fieldset around, which no prop tells
               "disabled:cursor-not-allowed disabled:opacity-50",
             )}
             disabled={disabled}
             form={form}
+            data-disabled={disabled ? "" : undefined}
+            data-invalid={error ? "" : undefined}
+            data-readonly={readOnly ? "" : undefined}
             id={cellId(index)}
             inputMode={type === "numeric" ? "numeric" : "text"}
             key={index}
@@ -423,9 +507,11 @@ export default function PinInput({
             onKeyDown={(event) => handleKeyDown(index, event)}
             onPaste={(event) => {
               event.preventDefault();
+              if (readOnly) return;
               insert(targetIndex(index), event.clipboardData.getData("text"));
             }}
             placeholder={placeholder}
+            readOnly={readOnly}
             ref={index === 0 ? firstCellRef : undefined}
             required={required}
             spellCheck={false}
@@ -433,8 +519,20 @@ export default function PinInput({
             tabIndex={index === activeIndex ? 0 : -1}
             type={mask ? "password" : "text"}
             value={code[index] ?? ""}
-          />
-        ))}
+          />,
+          separatorAfter.has(index) && (
+            <span
+              aria-hidden="true"
+              className={cn(
+                "flex items-center justify-center text-neutral-500 select-none dark:text-neutral-400",
+                separatorSizes[dim],
+              )}
+              key={`separator-${index}`}
+            >
+              {separator ?? "–"}
+            </span>
+          ),
+        ])}
       </div>
 
       {name && (

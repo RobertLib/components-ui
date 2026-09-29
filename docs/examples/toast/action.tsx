@@ -25,7 +25,7 @@ export default function Action() {
   return (
     <ul
       aria-label="Attachments"
-      className="max-w-sm divide-y divide-neutral-200 rounded focus:outline-none dark:divide-neutral-800"
+      className="max-w-sm divide-y divide-neutral-200 rounded focus:outline-hidden dark:divide-neutral-800"
       ref={listRef}
       tabIndex={-1}
     >

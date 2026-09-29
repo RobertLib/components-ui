@@ -94,9 +94,9 @@ export default function Basic() {
   return (
     <>
       <Button onClick={() => setOpen(true)} variant="outline">
-        <Search className="mr-2" size={16} />
+        <Search className="me-2" size={16} />
         Search…
-        <Kbd className="ml-3" shortcut="mod+k" size="sm" />
+        <Kbd className="ms-3" shortcut="mod+k" size="sm" />
       </Button>
       {/* ⌘K / Ctrl+K opens it from anywhere on this page */}
       <CommandPalette items={commands} onOpenChange={setOpen} open={open} />

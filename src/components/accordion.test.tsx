@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import Accordion from "./accordion";
 import CollapsibleContent from "./collapsible-content";
@@ -21,6 +22,36 @@ describe("Accordion", () => {
     expect(
       screen.getByRole("button", { expanded: false, name: "Shipping" }),
     ).toBeInTheDocument();
+  });
+
+  it("tells its state to styles - on the panel, the toggle and the content", async () => {
+    const user = userEvent.setup();
+    const ref = createRef<HTMLDivElement>();
+    const { rerender } = render(
+      <Accordion data-testid="section" header="Shipping" ref={ref}>
+        Details
+      </Accordion>,
+    );
+    const section = screen.getByTestId("section");
+    const toggle = screen.getByRole("button", { name: "Shipping" });
+
+    expect(ref.current).toBe(section);
+    expect(section).toHaveAttribute("data-state", "open");
+    expect(toggle).toHaveAttribute("data-state", "open");
+    expect(screen.getByText("Details")).toHaveAttribute("data-state", "open");
+    expect(section).not.toHaveAttribute("data-disabled");
+
+    await user.click(toggle);
+    expect(section).toHaveAttribute("data-state", "closed");
+    expect(toggle).toHaveAttribute("data-state", "closed");
+
+    rerender(
+      <Accordion data-testid="section" disabled header="Shipping" ref={ref}>
+        Details
+      </Accordion>,
+    );
+    expect(section).toHaveAttribute("data-disabled", "");
+    expect(toggle).toHaveAttribute("data-disabled", "");
   });
 
   it("starts collapsed with defaultOpen and toggles from the keyboard", async () => {
@@ -159,5 +190,61 @@ describe("Accordion", () => {
     expect(
       screen.getByRole("button", { expanded: true, name: "Shipping" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("Accordion - disabled and kept mounted", () => {
+  it("cannot be toggled while disabled", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(
+      <Accordion
+        defaultOpen={false}
+        disabled
+        header="Shipping"
+        onOpenChange={onOpenChange}
+      >
+        Details
+      </Accordion>,
+    );
+
+    const toggle = screen.getByRole("button", { name: "Shipping" });
+    expect(toggle).toBeDisabled();
+    await user.click(screen.getByText("Shipping"));
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.queryByText("Details")).toBeNull();
+    // Not a Tab stop
+    await user.tab();
+    expect(toggle).not.toHaveFocus();
+  });
+
+  it("keeps closed content in the page, hidden, with keepMounted", async () => {
+    const user = userEvent.setup();
+    render(
+      <Accordion defaultOpen={false} header="Notes" keepMounted>
+        <input aria-label="Note" />
+      </Accordion>,
+    );
+
+    const toggle = screen.getByRole("button", { name: "Notes" });
+    const content = document.getElementById(
+      toggle.getAttribute("aria-controls")!,
+    );
+    // Pointed at also while closed - it is there
+    expect(content).not.toBeNull();
+    expect(content).toHaveAttribute("hidden");
+    expect(screen.queryByRole("textbox")).toBeNull();
+
+    await user.click(toggle);
+    expect(content).not.toHaveAttribute("hidden");
+    await user.type(screen.getByRole("textbox", { name: "Note" }), "Fragile");
+
+    await user.click(toggle);
+    await waitFor(() => expect(content).toHaveAttribute("hidden"));
+    // The same element with its state
+    await user.click(toggle);
+    expect(screen.getByRole("textbox", { name: "Note" })).toHaveValue(
+      "Fragile",
+    );
   });
 });

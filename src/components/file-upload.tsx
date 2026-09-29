@@ -1,4 +1,4 @@
-import { File as FileIcon, Upload, X } from "lucide-react";
+import { File as FileIcon, RotateCw, Upload, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
 import Button from "./button";
@@ -16,11 +17,29 @@ import IconButton from "./icon-button";
 import logger from "../utils/logger";
 import Progress from "./progress";
 import Tooltip from "./tooltip";
-import { formatMessage, formatNumber, formatPlural } from "../i18n/format";
-import { useFieldsetDisabled, useFormReset } from "../hooks/use-form-control";
+import {
+  formatMessage,
+  formatNumber,
+  formatPlural,
+  toIntlLocale,
+} from "../i18n/format";
+import {
+  attachRef,
+  useFieldsetDisabled,
+  useFormReset,
+} from "../hooks/use-form-control";
 import { useLocale } from "../providers/ui-context";
+import type { Messages } from "../i18n/types";
+import RequiredMark from "./required-mark";
 
 const MAX_FILE_SIZE = 200; // MB
+
+// Uploads running side by side - more would share the bandwidth for no
+// gain, and a browser opens only about six connections to one host
+const DEFAULT_CONCURRENCY = 3;
+
+// The names of refused files a line lists - more end in "and 4 more"
+const MAX_LISTED_NAMES = 3;
 
 const hiddenValidationStyle: React.CSSProperties = {
   position: "absolute",
@@ -29,6 +48,16 @@ const hiddenValidationStyle: React.CSSProperties = {
   width: 1,
   height: 1,
 };
+
+// The button of the `button` variant has the height of an `Input` of the
+// same `dim` - its padding, text and a border as wide as the field's
+const buttonDimStyles = {
+  xs: "border px-2 py-0 text-sm",
+  sm: "border px-2 py-0.5 text-sm",
+  md: "border px-3 py-1 text-base",
+  lg: "border px-4 py-2 text-lg",
+};
+const buttonIconSizes = { xs: 14, sm: 14, md: 16, lg: 18 };
 
 export interface UploadedFile {
   /** Stable key of an already attached file. */
@@ -46,14 +75,50 @@ export interface UploadedFile {
   value?: string | null;
 }
 
+/**
+ * Where a file of the list is: attached (`done`), waiting for its upload
+ * (`queued`), uploading, or failed to upload.
+ */
+type FileStatus = "done" | "failed" | "queued" | "uploading";
+
 interface ListedFile {
+  /** Key of the row - it stays while the file uploads. */
+  key: string;
+  /** The id `onRemove` reports. */
   id: string;
   filename: string;
   /** An image - its `url` shows as the thumbnail. */
   isImage: boolean;
+  status: FileStatus;
+  /** Why the upload failed. */
+  error?: string;
+  /**
+   * The picked file - kept without `upload` (the form submits it) and until
+   * its upload is done.
+   */
+  file?: File;
+  /**
+   * A local URL of a picked image, for its thumbnail - it holds the file in
+   * memory until revoked.
+   */
+  localUrl?: string;
+  /** Of an upload, 0-100 - `null` until `upload` reports it. */
+  progress?: number | null;
   thumbnailUrl?: string | null;
   url?: string | null;
   value?: string | null;
+}
+
+/** Why a file was not added - the text shown and what `onError` gets. */
+interface Refusal {
+  error: unknown;
+  message: string;
+}
+
+/** The files refused for one message - a line under the field. */
+interface RefusedGroup {
+  message: string;
+  names: string[];
 }
 
 let nextFileId = 0;
@@ -63,14 +128,28 @@ let nextFileId = 0;
 const createFileId = () => `file-${++nextFileId}`;
 
 const toListedFiles = (attachments: UploadedFile[]): ListedFile[] =>
-  attachments.map((attachment) => ({
-    id: attachment.id || createFileId(),
-    filename: attachment.filename || "...",
-    isImage: isImageFile(attachment.filename ?? "", ""),
-    thumbnailUrl: attachment.thumbnailUrl || undefined,
-    url: attachment.url || undefined,
-    value: attachment.value || undefined,
-  }));
+  attachments.map((attachment) => {
+    const id = attachment.id || createFileId();
+    return {
+      filename: attachment.filename || "...",
+      id,
+      isImage: isImageFile(attachment.filename ?? "", ""),
+      key: id,
+      status: "done",
+      thumbnailUrl: attachment.thumbnailUrl || undefined,
+      url: attachment.url || undefined,
+      value: attachment.value || undefined,
+    };
+  });
+
+/** What `onRemove` gets of a listed file. */
+const toUploadedFile = ({
+  filename,
+  id,
+  thumbnailUrl,
+  url,
+  value,
+}: ListedFile): UploadedFile => ({ filename, id, thumbnailUrl, url, value });
 
 // Compares attachments by content - callers pass inline arrays
 const attachmentsKey = (attachments: UploadedFile[]) =>
@@ -83,6 +162,19 @@ const attachmentsKey = (attachments: UploadedFile[]) =>
       value,
     ]),
   );
+
+/** Waits for its upload - or runs it. */
+const isPending = (file: ListedFile) =>
+  file.status === "queued" || file.status === "uploading";
+
+/** The picked files the form submits - without `upload`. */
+const pickedFiles = (files: ListedFile[]) =>
+  files.flatMap((file) =>
+    file.status === "done" && file.file ? file.file : [],
+  );
+
+/** The name of a picked file - its path in a picked folder. */
+const nameOf = (file: File) => file.webkitRelativePath || file.name;
 
 // The extensions of types that systems report differently - Windows with
 // Excel installed calls a .csv `application/vnd.ms-excel`, and some files
@@ -147,14 +239,20 @@ const isImageFile = (name: string, type: string) =>
   isOfGroup(name.toLowerCase(), type.toLowerCase(), "image/");
 
 /**
- * A local URL of a picked file - for the thumbnail of an image while it
- * uploads. Revoke it once it is not shown. (Not in every environment - the
- * tests of an app may run without it.)
+ * A local URL of a picked file - for the thumbnail of an image. Revoke it
+ * once it is not shown. (Not in every environment - the tests of an app may
+ * run without it.)
  */
 const createLocalUrl = (file: File) =>
   typeof URL.createObjectURL === "function"
     ? URL.createObjectURL(file)
     : undefined;
+
+const revokeLocalUrl = (url: string | undefined) => {
+  if (url && typeof URL.revokeObjectURL === "function") {
+    URL.revokeObjectURL(url);
+  }
+};
 
 /**
  * Whether a file fits an `accept` list like `.pdf,image/*`. The name counts
@@ -186,6 +284,156 @@ function isAccepted(file: File, accept: string | undefined) {
             !!TYPE_EXTENSIONS[token]?.some((extension) =>
               name.endsWith(extension),
             ),
+  );
+}
+
+const isPromiseLike = <T,>(value: unknown): value is PromiseLike<T> =>
+  typeof (value as PromiseLike<T> | null)?.then === "function";
+
+/** What `run` returns - or what it threw. */
+function attempt<T>(run: () => T): { value: T } | { thrown: unknown } {
+  try {
+    return { value: run() };
+  } catch (thrown) {
+    return { thrown };
+  }
+}
+
+// The browser the field last checked, and whether it can write a FileList
+let checkedTransfer: unknown;
+let fileListsWritable = false;
+
+/**
+ * Whether the browser can put files into a file input - by a FileList of a
+ * `DataTransfer` it makes (Safari 14.1, Chrome 60, Firefox 62 and later).
+ * Checked once per `DataTransfer` - tests may stub it.
+ */
+function canWriteFileLists() {
+  const Transfer =
+    typeof DataTransfer === "undefined" ? undefined : DataTransfer;
+  if (Transfer !== checkedTransfer) {
+    checkedTransfer = Transfer;
+    try {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.files = new DataTransfer().files;
+      fileListsWritable = true;
+    } catch {
+      fileListsWritable = false;
+    }
+  }
+  return fileListsWritable;
+}
+
+// The check depends on nothing that changes while the page is open
+const subscribeToNothing = () => () => {};
+// The server renders the field of the browsers that can write the files
+const assumeWritable = () => true;
+
+/** What the paste handler reads of a React or a native paste event. */
+interface PasteEvent {
+  clipboardData: DataTransfer | null;
+  preventDefault: () => void;
+}
+
+/**
+ * Passes on the pastes while the focus is in `element` that do not reach
+ * it - Safari fires them at the body when the focus is on a button, and
+ * offers to paste there at all only when `beforepaste` is canceled.
+ * `getHandler` gives the handler, or null while the field takes no files.
+ */
+function watchPastesAround(
+  element: Element,
+  getHandler: () => ((event: PasteEvent) => void) | null,
+) {
+  const document = element.ownerDocument;
+  const hasFocus = () => element.contains(document.activeElement);
+
+  const handleBeforePaste = (event: Event) => {
+    if (getHandler() && hasFocus()) event.preventDefault();
+  };
+  const handlePaste = (event: ClipboardEvent) => {
+    const handler = getHandler();
+    if (
+      handler &&
+      !event.defaultPrevented &&
+      hasFocus() &&
+      !element.contains(event.target as Node | null)
+    ) {
+      handler(event);
+    }
+  };
+
+  document.addEventListener("beforepaste", handleBeforePaste);
+  document.addEventListener("paste", handlePaste);
+
+  return () => {
+    document.removeEventListener("beforepaste", handleBeforePaste);
+    document.removeEventListener("paste", handlePaste);
+  };
+}
+
+/** Puts `files` into a file input - what the form submits from it. */
+function writeFileList(input: HTMLInputElement, files: File[]) {
+  if (files.length === 0) {
+    input.value = "";
+    return;
+  }
+
+  try {
+    const transfer = new DataTransfer();
+    for (const file of files) transfer.items.add(file);
+    input.files = transfer.files;
+  } catch (error) {
+    logger.error("The picked files cannot be put in the file input", error);
+  }
+}
+
+const listFormats = new Map<string, Intl.ListFormat>();
+
+/** "a.pdf, b.pdf and c.pdf" as the language joins a list. */
+function formatList(localeCode: string, items: string[]) {
+  let format = listFormats.get(localeCode);
+
+  if (!format) {
+    format = new Intl.ListFormat(toIntlLocale(localeCode), {
+      type: "conjunction",
+    });
+    listFormats.set(localeCode, format);
+  }
+
+  return format.format(items);
+}
+
+const percentFormats = new Map<string, Intl.NumberFormat>();
+
+/**
+ * A percentage (0-100) as the language writes it ("40 %" in Czech) -
+ * rounded down like that of `Progress`: 99.6 % is not done yet.
+ */
+function formatPercent(localeCode: string, percent: number) {
+  let format = percentFormats.get(localeCode);
+
+  if (!format) {
+    format = new Intl.NumberFormat(toIntlLocale(localeCode), {
+      maximumFractionDigits: 0,
+      roundingMode: "floor",
+      style: "percent",
+    });
+    percentFormats.set(localeCode, format);
+  }
+
+  const share = Number.isFinite(percent) ? percent / 100 : 0;
+  return format.format(Math.min(Math.max(share, 0), 1));
+}
+
+/** Adds a refused file to the line of its message. */
+function addRefused(groups: RefusedGroup[], message: string, name: string) {
+  const index = groups.findIndex((group) => group.message === message);
+  if (index === -1) return [...groups, { message, names: [name] }];
+
+  return groups.map((group, i) =>
+    i === index ? { ...group, names: [...group.names, name] } : group,
   );
 }
 
@@ -241,7 +489,148 @@ function Thumbnail({ src }: { src?: string | null }) {
   );
 }
 
-export interface FileUploadProps<TResult extends UploadedFile = UploadedFile> {
+/** A file of the list - attached, waiting, uploading or failed. */
+function FileItem({
+  canChange,
+  file,
+  localeCode,
+  messages,
+  onRemove,
+  onRetry,
+  preview,
+}: {
+  /** Shows its buttons - cancel, retry, remove. */
+  canChange: boolean;
+  file: ListedFile;
+  localeCode: string;
+  messages: Messages;
+  onRemove: () => void;
+  onRetry: () => void;
+  preview: boolean;
+}) {
+  const nameId = useId();
+  const { common, fileUpload } = messages;
+  const pending = isPending(file);
+  const failed = file.status === "failed";
+
+  const name = file.url ? (
+    <a
+      className="cui-link text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+      href={file.url}
+      rel="noopener noreferrer"
+      target="_blank"
+    >
+      {file.filename}
+    </a>
+  ) : (
+    file.filename
+  );
+
+  return (
+    <li
+      className={cn(
+        "mb-2 flex items-center rounded-md border bg-surface p-2 shadow-sm last:mb-0 dark:bg-neutral-800",
+        failed
+          ? "border-danger-300 dark:border-danger-800"
+          : "border-neutral-200 dark:border-neutral-700",
+        preview ? "gap-3" : "gap-2",
+      )}
+    >
+      {preview && (
+        <Thumbnail
+          src={
+            file.localUrl ??
+            file.thumbnailUrl ??
+            (file.isImage ? file.url : null)
+          }
+        />
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className="min-w-0 flex-1 truncate" id={nameId}>
+            {name}
+          </span>
+          {file.status === "uploading" && file.progress != null && (
+            <span className="shrink-0 text-sm text-neutral-600 tabular-nums dark:text-neutral-400">
+              {formatPercent(localeCode, file.progress)}
+            </span>
+          )}
+        </div>
+        {file.status === "uploading" && (
+          <Progress
+            aria-describedby={nameId}
+            aria-label={fileUpload.uploading}
+            className="mt-1"
+            size="sm"
+            value={file.progress}
+          />
+        )}
+        {file.status === "queued" && (
+          <div className="text-sm text-neutral-600 dark:text-neutral-400">
+            {fileUpload.queued}
+          </div>
+        )}
+        {failed && (
+          <div className="text-sm text-danger-700 dark:text-danger-400">
+            {file.error}
+          </div>
+        )}
+      </div>
+      {canChange && failed && (
+        <Button
+          aria-label={formatMessage(fileUpload.retryUpload, {
+            name: file.filename,
+          })}
+          onClick={onRetry}
+          size="sm"
+          startIcon={<RotateCw size={14} />}
+          variant="ghost"
+        >
+          {fileUpload.retry}
+        </Button>
+      )}
+      {canChange && (
+        <Tooltip
+          // Above - beside it, it would stand out of a right-to-left field
+          position="top"
+          title={pending ? common.cancel : fileUpload.remove}
+        >
+          <IconButton
+            aria-label={
+              pending
+                ? formatMessage(fileUpload.cancelUpload, {
+                    name: file.filename,
+                  })
+                : `${fileUpload.remove} ${file.filename}`
+            }
+            color={pending ? "default" : "danger"}
+            onClick={onRemove}
+          >
+            <X size={16} />
+          </IconButton>
+        </Tooltip>
+      )}
+    </li>
+  );
+}
+
+/**
+ * `id`, `ref` and the attributes of an HTML element not listed here -
+ * `data-*`, `style`, `title`, event handlers - go to the group element
+ * around the field (`role="group"`), which also takes the dropped and
+ * pasted files.
+ */
+export interface FileUploadProps<
+  TResult extends UploadedFile = UploadedFile,
+> extends Omit<
+  React.HTMLAttributes<HTMLDivElement>,
+  | "children"
+  | "dangerouslySetInnerHTML"
+  | "defaultChecked"
+  | "defaultValue"
+  | "onChange"
+  | "onError"
+> {
   /** Accepted file types, like the `accept` attribute of a file input. */
   accept?: string;
   /**
@@ -255,68 +644,112 @@ export interface FileUploadProps<TResult extends UploadedFile = UploadedFile> {
    */
   className?: string;
   /**
+   * How many files upload at once - the others wait in the list and start
+   * as those before them finish. `1` uploads them one after another. Only
+   * with `upload`.
+   */
+  concurrency?: number;
+  /**
    * Files attached before, e.g. when editing a record. Attachments arriving
    * later (loaded data) replace the list as long as the user has not changed
    * it. A reset of the form brings them back and drops the files uploaded
-   * since - without `onRemove`: the reset React does after a form action
-   * follows a save, which has kept them.
+   * or picked since - without `onRemove`: the reset React does after a form
+   * action follows a save, which has kept them.
    */
   defaultAttachments?: UploadedFile[];
   /** Help text under the field, e.g. the accepted types and sizes. */
   description?: React.ReactNode;
   /**
-   * No files can be added or removed - and, like a disabled field, none
-   * are submitted. A disabled `<fieldset>` around the field disables it
-   * too.
+   * Size of the button of the `button` variant - it is as high as an
+   * `Input` of the same `dim`.
+   */
+  dim?: "xs" | "sm" | "md" | "lg";
+  /**
+   * The picker picks a folder, with all the files in it (`webkitdirectory`)
+   * - use it with `multiple`. The list shows the path of each file in the
+   * folder. A dropped folder is not read - only dropped files are.
+   */
+  directory?: boolean;
+  /**
+   * No files can be added, removed, retried or cancelled - and, like a
+   * disabled field, none are submitted or required. The links of the
+   * attachments still open. A disabled `<fieldset>` around the field
+   * disables it too.
    */
   disabled?: boolean;
   /** Validation message from the form. */
   error?: string;
+  /**
+   * Id of a form elsewhere in the page - the inputs of the field belong to
+   * it, and its reset resets the field.
+   */
+  form?: string;
+  /**
+   * Id of the group element - the ids of the label and the messages derive
+   * from it.
+   */
+  id?: string;
   /** Text above the field - also the name of its group. */
-  label?: string;
+  label?: React.ReactNode;
   /** In megabytes. */
   maxFileSize?: number;
   /**
-   * With `multiple`: the most files the list holds, the attached ones
-   * included. Further picked or dropped files are refused with a message.
+   * With `multiple`: the most files the list holds - the attached ones, and
+   * those uploading or failed, included. Further picked, dropped or pasted
+   * files are refused with a message.
    */
   maxFiles?: number;
   /**
-   * Several files can be picked or dropped at once - they are uploaded one
-   * after another. Without it the field holds one file: a new one replaces
-   * the listed one (reported through `onRemove`).
+   * Several files can be picked, dropped or pasted at once - they upload
+   * side by side (`concurrency`). Without it the field holds one file: a new
+   * one replaces the listed one (reported through `onRemove`) - with
+   * `upload`, once it is uploaded.
    */
   multiple?: boolean;
   /**
-   * Id of a form elsewhere in the page - the hidden inputs belong to it, and
-   * its reset resets the field.
+   * Name of the hidden inputs that submit the `value` of each file - and,
+   * without `upload`, of the file input that submits the picked files.
    */
-  form?: string;
-  /** Name of the hidden inputs that submit the `value` of each file. */
   name?: string;
   /**
-   * Called when a file is rejected (too large, not accepted) or `upload`
-   * fails - e.g. to show a toast. The message is also shown under the field.
+   * Called when a file is refused - not accepted, too large, over
+   * `maxFiles`, refused by `validate` - or its upload fails, e.g. to show a
+   * toast. A refusal is also shown under the field with the name of the
+   * file, a failed upload in its row, with a button to retry it.
    */
   onError?: (error: unknown, file: File) => void;
   /**
+   * Without `upload`: called with the picked files - the ones the form
+   * submits - whenever they change, also by a form reset.
+   */
+  onFilesChange?: (files: File[]) => void;
+  /**
    * Called when the user removes a file from the list - or replaces it with
    * a new one, without `multiple`. Not for the files a form reset drops (see
-   * `defaultAttachments`).
+   * `defaultAttachments`), nor for a failed or cancelled upload.
    */
   onRemove?: (file: UploadedFile) => void;
   /** Called with the result of `upload` once a file is stored. */
   onUpload?: (result: TResult) => void;
   /**
-   * Shows a thumbnail in front of each file: an image while it uploads
-   * (from the computer), then its `thumbnailUrl` or `url`; other files get
-   * an icon. Off by default - the pictures load the images from their URLs.
+   * Shows a thumbnail in front of each file: a picked image from the
+   * computer, then - once uploaded - its `thumbnailUrl` or `url`; other
+   * files get an icon. Off by default - the pictures load the images from
+   * their URLs.
    */
   preview?: boolean;
   /**
+   * The files are shown - their links open - and submitted, but none can be
+   * added or removed: there is no upload button, and dropped or pasted files
+   * are ignored. Like a read-only native field, it is not `required`.
+   */
+  readOnly?: boolean;
+  /** Ref to the group element (see `id`). */
+  ref?: React.Ref<HTMLDivElement>;
+  /**
    * At least one file has to be attached - the browser checks it on submit.
-   * With a `name`, only files with a `value` count: they are what the form
-   * submits.
+   * With a `name`, only files the form submits count: those with a `value`,
+   * or the picked files without `upload`.
    */
   required?: boolean;
   /**
@@ -324,19 +757,39 @@ export interface FileUploadProps<TResult extends UploadedFile = UploadedFile> {
    * what to list and submit for it. Report the progress (0-100) through
    * `onProgress`, and pass `signal` on to the request (`uploadWithProgress`,
    * `fetch`) - it aborts when the user cancels the upload or the field goes
-   * away. The field is ready for another file as soon as the user cancels;
-   * what `upload` resolves with after that is ignored.
+   * away. What `upload` resolves with after that is ignored.
+   *
+   * Without it the field uploads nothing: the picked files stay files, and
+   * the form submits them in a file input named `name` - `formData` of a
+   * submit or of a React form action has them.
    */
-  upload: (
+  upload?: (
     file: File,
     options: { onProgress: (percent: number) => void; signal: AbortSignal },
   ) => Promise<TResult>;
+  /**
+   * Checks a file after `accept` and `maxFileSize` - returns why it cannot
+   * be added, or nothing when it is fine. It may be async, e.g. to read the
+   * dimensions of an image. The message is shown under the field after the
+   * name of the file (leave the name out of it), and `onError` gets it as an
+   * `Error`. A refused file takes no room of `maxFiles`.
+   */
+  validate?: (
+    file: File,
+  ) => string | null | undefined | Promise<string | null | undefined>;
+  /**
+   * `dropzone` - the list with the upload button under it and the hint that
+   * files can be dropped. `button` - a compact button (`dim`) with the list
+   * under it; files can still be dropped on the field.
+   */
+  variant?: "dropzone" | "button";
 }
 
 /**
- * Uploads files and lists them - picked with the button or dropped on the
- * field. Storing a file is up to the `upload` callback, so it works with any
- * backend - a REST endpoint, a presigned S3 URL, a GraphQL mutation, …
+ * Uploads files and lists them - picked with the button, dropped on the
+ * field or pasted into it. Storing a file is up to the `upload` callback, so
+ * it works with any backend - a REST endpoint, a presigned S3 URL, a GraphQL
+ * mutation, … Without `upload`, the form submits the picked files.
  */
 export default function FileUpload<
   TResult extends UploadedFile = UploadedFile,
@@ -344,26 +797,38 @@ export default function FileUpload<
   accept,
   "aria-describedby": ariaDescribedBy,
   className,
+  concurrency = DEFAULT_CONCURRENCY,
   defaultAttachments = [],
   description,
+  dim = "md",
+  directory = false,
   disabled: disabledProp = false,
   error,
   form,
+  id,
   label,
   maxFileSize = MAX_FILE_SIZE,
   maxFiles,
   multiple = false,
   name,
   onError,
+  onFilesChange,
   onRemove,
   onUpload,
   preview = false,
+  readOnly = false,
+  ref,
   required,
   upload,
+  validate,
+  variant = "dropzone",
+  ...props
 }: Readonly<FileUploadProps<TResult>>) {
   const locale = useLocale();
   const { messages } = locale;
-  const labelId = useId();
+  const generatedId = useId();
+  const groupId = id ?? generatedId;
+  const labelId = `${groupId}-label`;
 
   // The drop zone is no native field - a disabled fieldset around it leaves
   // it alone unless told
@@ -372,15 +837,27 @@ export default function FileUpload<
   const errorId = `${labelId}-error`;
   const descriptionId = `${labelId}-description`;
 
-  // The file being uploaded: its progress - unknown until `upload` reports
-  // it - and the local URL of its thumbnail
-  const [uploading, setUploading] = useState<{
-    name: string;
-    previewUrl?: string;
-    progress: number | null;
-  } | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  // Without `upload` the form submits the picked files - from a file input
+  // the field puts them in. A browser that cannot do that submits what its
+  // native picker put in the input.
+  const isNative = !upload;
+  const canWriteFiles = useSyncExternalStore(
+    subscribeToNothing,
+    canWriteFileLists,
+    assumeWritable,
+  );
+  const isFallback = isNative && !canWriteFiles;
+  const canAdd = !disabled && !readOnly;
+  // Dropped and pasted files have to be put in the input
+  const canDrop = canAdd && !isFallback;
+
+  const [refused, setRefused] = useState<RefusedGroup[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
+  // What the live region says - a new id repeats the same text
+  const [announcement, setAnnouncement] = useState<{
+    id: number;
+    text: string;
+  } | null>(null);
 
   const [files, setFiles] = useState<ListedFile[]>(() =>
     toListedFiles(defaultAttachments),
@@ -399,237 +876,493 @@ export default function FileUpload<
     if (!interacted) setFiles(toListedFiles(defaultAttachments));
   }
 
-  // The list as of the last render - read after an upload finished
+  // The list as of the last change - read by the uploads, which outlive the
+  // render they started in
   const filesRef = useRef(files);
-  // The callbacks of the last render - files uploaded one after another
-  // outlive the render they were picked in, whose callbacks would see its
-  // state (an `onUpload` adding to a list of the parent would lose files)
-  const callbacksRef = useRef({ onError, onRemove, onUpload, upload });
+  // The list the page shows - the rows of the DOM
+  const shownFiles = useRef(files);
+  // What the uploads read of the last render - its callbacks: those of the
+  // render a file was picked in would see its state (an `onUpload` adding
+  // to a list of the parent would lose files)
+  const latest = useRef({
+    concurrency,
+    onError,
+    onFilesChange,
+    onRemove,
+    onUpload,
+    upload,
+    validate,
+  });
 
   // In a layout effect - a render forced by `flushSync` updates them at once
   useLayoutEffect(() => {
     filesRef.current = files;
-    callbacksRef.current = { onError, onRemove, onUpload, upload };
+    shownFiles.current = files;
+    latest.current = {
+      concurrency,
+      onError,
+      onFilesChange,
+      onRemove,
+      onUpload,
+      upload,
+      validate,
+    };
   });
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const storeRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const cancelButtonRef = useRef<HTMLButtonElement>(null);
-  // Aborts the running upload - the cancel button, unmounting
-  const uploadController = useRef<AbortController | null>(null);
-  // The local URL of the thumbnail of the file being uploaded - it holds the
-  // file in memory until revoked
-  const previewUrl = useRef<string | null>(null);
-  // Where the focus goes once the control it was on is gone: the cancel
-  // button, the upload button, or the remove button at this index
-  const pendingFocus = useRef<"cancel" | "upload" | number | null>(null);
+  // Abort the running uploads, by the key of their row
+  const controllers = useRef<Map<string, AbortController>>(new Map());
+  // The focused element of a row as the list changed, with the row - the
+  // focus moves on when the change took the element away
+  const pendingFocus = useRef<{
+    element: Element;
+    index: number;
+    key: string;
+  } | null>(null);
   // Whether the field is on the page - a callback may take it away (an
   // `onUpload` closing its dialog), and the files still waiting stay then
   const mounted = useRef(false);
-
-  const releasePreviewUrl = () => {
-    if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
-    previewUrl.current = null;
-  };
+  // Counts the resets - a check of `validate` from before one is dropped
+  const generation = useRef(0);
+  // The uploads that ended since the field last had none running - said
+  // together once all have ended
+  const session = useRef({ failed: 0, uploaded: 0 });
 
   useEffect(() => {
     mounted.current = true;
+    const running = controllers.current;
+    // The list and the count as they are when the field goes away
+    const listed = filesRef;
+    const rounds = generation;
 
     return () => {
       mounted.current = false;
-      uploadController.current?.abort();
-      releasePreviewUrl();
+      rounds.current++;
+      running.forEach((controller) => controller.abort());
+      running.clear();
+      listed.current.forEach((file) => revokeLocalUrl(file.localUrl));
     };
   }, []);
 
+  // The form submits the picked files from this input
+  useLayoutEffect(() => {
+    if (storeRef.current) writeFileList(storeRef.current, pickedFiles(files));
+  }, [files, isFallback, name]);
+
   useEffect(() => {
     const target = pendingFocus.current;
-    if (target === null) return;
+    if (!target) return;
     pendingFocus.current = null;
 
-    const removeButtons =
-      listRef.current?.querySelectorAll<HTMLElement>("li button") ?? [];
-    const next =
-      typeof target === "number"
-        ? removeButtons[Math.min(target, removeButtons.length - 1)]
-        : target === "cancel"
-          ? cancelButtonRef.current
-          : null;
+    // Still on the page - the focus stays on it
+    if (target.element.isConnected) return;
 
-    (next ?? buttonRef.current ?? cancelButtonRef.current)?.focus();
+    // The row of the element - a failed upload tried again gets a cancel
+    // button in place of its retry button - or the row that took the place
+    // of the removed one, the one before it, the upload button
+    const own = files.findIndex((file) => file.key === target.key);
+    const index = own === -1 ? Math.min(target.index, files.length - 1) : own;
+    const next =
+      index >= 0
+        ? listRef.current?.children[index]?.querySelector("button")
+        : null;
+
+    (next ?? buttonRef.current)?.focus();
   });
 
-  // The upload button and the progress with its cancel button take turns -
-  // the focus moves along from the one going away
-  const moveFocusFrom = (
-    control: HTMLElement | null,
-    to: "cancel" | "upload",
+  const announce = (text: string) =>
+    setAnnouncement((prev) => ({ id: (prev?.id ?? 0) + 1, text }));
+
+  // Renders a change - the field's and what the callbacks change in the
+  // parent - before the next one: of files told one right after another (an
+  // `upload` that settles at once, several refused ones), the later ones
+  // would go to the callbacks of the state before
+  const report = (change: (callbacks: typeof latest.current) => void) =>
+    flushSync(() => change(latest.current));
+
+  // Notes the focused element of a row before the list changes
+  const rememberFocus = () => {
+    const list = listRef.current;
+    const active = document.activeElement;
+    if (pendingFocus.current || !list || !active || !list.contains(active)) {
+      return;
+    }
+
+    const index = Array.from(list.children).findIndex((row) =>
+      row.contains(active),
+    );
+    const row = shownFiles.current[index];
+    if (row) pendingFocus.current = { element: active, index, key: row.key };
+  };
+
+  const commit = (next: ListedFile[]) => {
+    rememberFocus();
+    filesRef.current = next;
+    setFiles(next);
+  };
+
+  const update = (key: string, change: Partial<ListedFile>) => {
+    if (!filesRef.current.some((file) => file.key === key)) return;
+    commit(
+      filesRef.current.map((file) =>
+        file.key === key ? { ...file, ...change } : file,
+      ),
+    );
+  };
+
+  // Stops the upload of a file leaving the list, and frees its thumbnail
+  const release = (file: ListedFile) => {
+    controllers.current.get(file.key)?.abort();
+    controllers.current.delete(file.key);
+    revokeLocalUrl(file.localUrl);
+  };
+
+  const announceUploading = () =>
+    announce(
+      formatPlural(
+        locale.code,
+        messages.fileUpload.uploadingCount,
+        filesRef.current.filter(isPending).length,
+      ),
+    );
+
+  // Once no upload waits or runs, says how those since the last time went
+  const endSessionWhenIdle = () => {
+    if (filesRef.current.some(isPending)) return;
+
+    const { failed, uploaded } = session.current;
+    session.current = { failed: 0, uploaded: 0 };
+    const text = [
+      uploaded > 0 &&
+        formatPlural(locale.code, messages.fileUpload.uploadedCount, uploaded),
+      failed > 0 &&
+        formatPlural(locale.code, messages.fileUpload.failedCount, failed),
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    if (text) announce(text);
+  };
+
+  const finishUpload = (
+    key: string,
+    file: File,
+    controller: AbortController,
+    outcome: UploadOutcome<TResult>,
   ) => {
-    if (control && document.activeElement === control) {
-      pendingFocus.current = to;
-    }
-  };
-
-  const finishUpload = () => {
-    uploadController.current = null;
-    releasePreviewUrl();
-    moveFocusFrom(cancelButtonRef.current, "upload");
-    setUploading(null);
-  };
-
-  const cancelUpload = () => {
-    uploadController.current?.abort();
-    finishUpload();
-  };
-
-  // `form.reset()` - also the one after a React form action - brings back
-  // the `defaultAttachments` and drops a running upload
-  const formResetRef = useFormReset(() => {
-    cancelUpload();
-    setFiles(toListedFiles(defaultAttachments));
-    setInteracted(false);
-    setUploadError(null);
-  }, form);
-
-  const groupRef = useCallback(
-    (element: HTMLDivElement | null) => {
-      const detachReset = formResetRef(element);
-      const detachFieldset = fieldsetRef(element);
-
-      return () => {
-        detachReset?.();
-        detachFieldset?.();
-      };
-    },
-    [fieldsetRef, formResetRef],
-  );
-
-  const canAdd = !disabled && !uploading;
-
-  // Renders the change of a file - the field's and what the callbacks
-  // change in the parent - before the next file: of files told one right
-  // after another (an `upload` that settles at once, several refused ones),
-  // the later ones would go to the callbacks of the state before
-  const report = (change: (callbacks: typeof callbacksRef.current) => void) =>
-    flushSync(() => change(callbacksRef.current));
-
-  const reject = (file: File, message: string) =>
-    report(({ onError }) => {
-      setUploadError(message);
-      onError?.(new Error(message), file);
-    });
-
-  // Why a file cannot be added - null when it can. `room` is the number of
-  // files the list takes still.
-  const refusal = (file: File, room: number) =>
-    !isAccepted(file, accept)
-      ? messages.fileUpload.fileTypeNotAccepted
-      : file.size > Math.pow(1024, 2) * maxFileSize
-        ? formatMessage(messages.fileUpload.maxFileSizeExceeded, {
-            size: formatNumber(locale.code, maxFileSize),
-          })
-        : room <= 0 && maxFiles !== undefined
-          ? formatPlural(locale.code, messages.fileUpload.maxFiles, maxFiles)
-          : null;
-
-  const uploadFiles = async (picked: File[]) => {
-    setUploadError(null);
-
-    // All files are checked before the first one uploads - a refused one is
-    // said at once, not after the uploads before it
-    const room =
-      multiple && maxFiles !== undefined
-        ? maxFiles - filesRef.current.length
-        : Infinity;
-    const accepted: File[] = [];
-
-    for (const file of picked) {
-      const problem = refusal(file, room - accepted.length);
-      if (problem) {
-        reject(file, problem);
-      } else {
-        accepted.push(file);
-      }
+    if (controllers.current.get(key) === controller) {
+      controllers.current.delete(key);
     }
 
-    for (const file of accepted) {
-      // A callback reported before took the field away
-      if (!mounted.current) return;
+    // Cancelled, reset or gone - the field has moved on
+    if (!outcome || !mounted.current) return;
+    const entry = filesRef.current.find((listed) => listed.key === key);
+    if (!entry) return;
 
-      const controller = new AbortController();
-      uploadController.current = controller;
-      moveFocusFrom(buttonRef.current, "cancel");
-
-      // The thumbnail of the previous file is done with
-      releasePreviewUrl();
-      const isImage = isImageFile(file.name, file.type);
-      previewUrl.current = (preview && isImage && createLocalUrl(file)) || null;
-      setUploading({
-        name: file.name,
-        previewUrl: previewUrl.current ?? undefined,
-        progress: null,
+    if ("error" in outcome) {
+      logger.error("File upload failed", outcome.error);
+      session.current.failed++;
+      update(key, {
+        error: messages.fileUpload.uploadFailed,
+        progress: undefined,
+        status: "failed",
       });
-
-      const outcome = await runUpload(
-        () =>
-          callbacksRef.current.upload(file, {
-            onProgress: (progress) => {
-              // A cancelled upload that goes on reports nothing
-              if (controller.signal.aborted) return;
-              setUploading((current) => current && { ...current, progress });
-            },
-            signal: controller.signal,
-          }),
-        controller.signal,
-      );
-
-      // Cancelled - the field is ready again since the click, and the files
-      // still waiting are not uploaded either
-      if (!outcome) return;
-
-      if ("error" in outcome) {
-        logger.error("File upload failed", outcome.error);
-
-        report(({ onError }) => {
-          setUploadError(messages.fileUpload.uploadFailed);
-          onError?.(outcome.error, file);
-        });
-        continue;
-      }
-
+      report(({ onError }) => onError?.(outcome.error, file));
+    } else {
       const { result } = outcome;
+      // The stored file shows from now on
+      revokeLocalUrl(entry.localUrl);
       const uploaded: ListedFile = {
-        id: result.id || createFileId(),
-        filename: result.filename || file.name,
-        isImage,
+        filename: result.filename || entry.filename,
+        id: result.id || entry.id,
+        isImage: entry.isImage,
+        key,
+        status: "done",
         thumbnailUrl: result.thumbnailUrl,
         url: result.url,
         value: result.value,
       };
 
       // A single file field holds the new file only
-      const replaced = multiple ? [] : filesRef.current;
-      filesRef.current = multiple
-        ? [...filesRef.current, uploaded]
-        : [uploaded];
+      const replaced = multiple
+        ? []
+        : filesRef.current.filter((listed) => listed.key !== key);
+      replaced.forEach(release);
+      session.current.uploaded++;
+      commit(
+        multiple
+          ? filesRef.current.map((listed) =>
+              listed.key === key ? uploaded : listed,
+            )
+          : [uploaded],
+      );
       report(({ onRemove, onUpload }) => {
-        setFiles(filesRef.current);
         setInteracted(true);
         onUpload?.(result);
-        replaced.forEach((replacedFile) => onRemove?.(replacedFile));
+        replaced.forEach((listed) => {
+          if (listed.status === "done") onRemove?.(toUploadedFile(listed));
+        });
       });
     }
 
-    if (mounted.current) finishUpload();
+    // A callback took the field away - the files still waiting stay
+    if (!mounted.current) return;
+    endSessionWhenIdle();
+    startUploads();
   };
+
+  const startUpload = (entry: ListedFile) => {
+    const send = latest.current.upload;
+    const { file } = entry;
+    if (!send || !file) return;
+
+    const controller = new AbortController();
+    controllers.current.set(entry.key, controller);
+    update(entry.key, {
+      error: undefined,
+      progress: null,
+      status: "uploading",
+    });
+
+    void runUpload(
+      () =>
+        send(file, {
+          onProgress: (progress) => {
+            // A cancelled upload that goes on reports nothing
+            if (!controller.signal.aborted) update(entry.key, { progress });
+          },
+          signal: controller.signal,
+        }),
+      controller.signal,
+    ).then((outcome) => finishUpload(entry.key, file, controller, outcome));
+  };
+
+  // Starts the waiting uploads there is room for
+  const startUploads = () => {
+    if (!mounted.current || !latest.current.upload) return;
+
+    const limit = Math.max(1, Math.floor(latest.current.concurrency) || 1);
+    let running = filesRef.current.filter(
+      (file) => file.status === "uploading",
+    ).length;
+
+    for (const file of filesRef.current) {
+      if (running >= limit) break;
+      if (file.status !== "queued") continue;
+      running++;
+      startUpload(file);
+    }
+  };
+
+  const refusal = (message: string): Refusal => ({
+    error: new Error(message),
+    message,
+  });
+
+  // Why a file cannot be added - null when it can, a promise while an async
+  // `validate` decides
+  const checkFile = (file: File): Refusal | null | Promise<Refusal | null> => {
+    if (!isAccepted(file, accept)) {
+      return refusal(messages.fileUpload.fileTypeNotAccepted);
+    }
+    if (file.size > Math.pow(1024, 2) * maxFileSize) {
+      return refusal(
+        formatMessage(messages.fileUpload.maxFileSizeExceeded, {
+          size: formatNumber(locale.code, maxFileSize),
+        }),
+      );
+    }
+
+    const check = latest.current.validate;
+    if (!check) return null;
+
+    const toRefusal = (message: string | null | undefined) =>
+      message ? refusal(message) : null;
+    // A check that breaks refuses the file - `onError` gets what it threw
+    const broken = (thrown: unknown): Refusal => {
+      logger.error("File validation failed", thrown);
+      return { error: thrown, message: messages.fileUpload.validationFailed };
+    };
+
+    const outcome = attempt(() => check(file));
+    if ("thrown" in outcome) return broken(outcome.thrown);
+
+    const { value } = outcome;
+    return isPromiseLike<string | null | undefined>(value)
+      ? Promise.resolve(value).then(toRefusal, broken)
+      : toRefusal(value);
+  };
+
+  // Adds the files that passed their checks. `pickerInput` holds them in a
+  // browser that cannot put files into an input - the form submits what it
+  // holds, so it has to be the whole list of picked files.
+  const addChecked = (
+    taken: File[],
+    results: (Refusal | null)[],
+    pickerInput?: HTMLInputElement,
+  ) => {
+    const current = filesRef.current;
+    // What stays besides the new files: a single file field replaces its
+    // file - an upload only once it is stored - and the input of the
+    // fallback holds the new files only
+    const kept = pickerInput
+      ? multiple
+        ? current.filter((file) => !file.file)
+        : []
+      : multiple
+        ? current
+        : isNative
+          ? []
+          : current.filter((file) => file.status === "done");
+
+    // All files are checked before the first one is added - a refused one
+    // is said at once, and one refused for its type takes no room
+    const room =
+      multiple && maxFiles !== undefined ? maxFiles - kept.length : Infinity;
+    let accepted: File[] = [];
+    const refusals: { file: File; refusal: Refusal }[] = [];
+
+    taken.forEach((file, index) => {
+      const problem =
+        results[index] ??
+        (accepted.length >= room
+          ? refusal(
+              formatPlural(
+                locale.code,
+                messages.fileUpload.maxFiles,
+                maxFiles ?? 0,
+              ),
+            )
+          : null);
+
+      if (problem) refusals.push({ file, refusal: problem });
+      else accepted.push(file);
+    });
+
+    for (const { file, refusal: problem } of refusals) {
+      report(({ onError }) => {
+        setRefused((groups) =>
+          addRefused(groups, problem.message, nameOf(file)),
+        );
+        onError?.(problem.error, file);
+      });
+      // A callback took the field away
+      if (!mounted.current) return;
+    }
+
+    // The input holds the refused files too - the pick is refused whole
+    if (pickerInput && refusals.length > 0) {
+      pickerInput.value = "";
+      accepted = [];
+    }
+
+    const added = accepted.map((file): ListedFile => {
+      const key = createFileId();
+      const isImage = isImageFile(file.name, file.type);
+      return {
+        file,
+        filename: nameOf(file),
+        id: key,
+        isImage,
+        key,
+        localUrl: (preview && isImage && createLocalUrl(file)) || undefined,
+        status: isNative ? "done" : "queued",
+      };
+    });
+    const leaving = current.filter((file) => !kept.includes(file));
+    if (added.length === 0 && (!pickerInput || leaving.length === 0)) return;
+
+    leaving.forEach(release);
+    commit([...kept, ...added]);
+
+    if (!isNative) {
+      setInteracted(true);
+      announceUploading();
+      startUploads();
+      return;
+    }
+
+    report(({ onFilesChange, onRemove }) => {
+      setInteracted(true);
+      leaving.forEach((file) => onRemove?.(toUploadedFile(file)));
+      onFilesChange?.(pickedFiles(filesRef.current));
+    });
+    if (added.length > 0) {
+      announce(
+        formatPlural(locale.code, messages.fileUpload.addedCount, added.length),
+      );
+    }
+  };
+
+  const addFiles = (picked: File[], pickerInput?: HTMLInputElement) => {
+    setRefused([]);
+
+    const taken = multiple ? picked : picked.slice(0, 1);
+    const round = generation.current;
+    const results = taken.map(checkFile);
+
+    // A check of `validate` that takes time - the files are added once all
+    // are checked, unless the form was reset or the field went away
+    if (results.some((result) => isPromiseLike(result))) {
+      void Promise.all(results).then((settled) => {
+        if (round === generation.current) {
+          addChecked(taken, settled, pickerInput);
+        }
+      });
+    } else {
+      addChecked(taken, results as (Refusal | null)[], pickerInput);
+    }
+  };
+
+  // `form.reset()` - also the one after a React form action - brings back
+  // the `defaultAttachments` and drops the uploads and the picked files
+  const formResetRef = useFormReset(() => {
+    generation.current++;
+    const current = filesRef.current;
+    current.forEach(release);
+    session.current = { failed: 0, uploaded: 0 };
+    commit(toListedFiles(defaultAttachments));
+    setInteracted(false);
+    setRefused([]);
+    if (pickedFiles(current).length > 0) latest.current.onFilesChange?.([]);
+  }, form);
+
+  // Handles the pastes of the last render - null while it takes no files
+  const pasteHandler = useRef<((event: PasteEvent) => void) | null>(null);
+
+  const groupRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      const detachReset = formResetRef(element);
+      const detachFieldset = fieldsetRef(element);
+      const detachPastes =
+        element && watchPastesAround(element, () => pasteHandler.current);
+      const detachRef = attachRef(ref, element);
+
+      return () => {
+        detachRef();
+        detachReset?.();
+        detachFieldset?.();
+        detachPastes?.();
+      };
+    },
+    [fieldsetRef, formResetRef, ref],
+  );
 
   const handleChange = ({ target }: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(target.files ?? []);
+
+    // The input keeps what the browser put in it - the form submits it
+    if (isFallback) {
+      addFiles(picked, target);
+      return;
+    }
+
     // The same file can be picked again
     target.value = "";
-
-    if (picked.length > 0) uploadFiles(picked);
+    if (picked.length > 0) addFiles(picked);
   };
 
   const hasFiles = (event: React.DragEvent) =>
@@ -641,8 +1374,8 @@ export default function FileUpload<
     if (!hasFiles(event)) return;
 
     event.preventDefault();
-    event.dataTransfer.dropEffect = canAdd ? "copy" : "none";
-    setIsDragOver(canAdd);
+    event.dataTransfer.dropEffect = canDrop ? "copy" : "none";
+    setIsDragOver(canDrop);
   };
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
@@ -650,176 +1383,245 @@ export default function FileUpload<
     if (!hasFiles(event)) return;
 
     event.preventDefault();
-    if (!canAdd) return;
+    if (!canDrop) return;
 
     const dropped = Array.from(event.dataTransfer.files);
-    if (dropped.length > 0) uploadFiles(multiple ? dropped : [dropped[0]]);
+    if (dropped.length > 0) addFiles(dropped);
   };
+
+  // A screenshot or files copied in the file manager, pasted while the
+  // focus is in the field - text pastes as usual
+  const handlePaste = (event: PasteEvent) => {
+    const pasted = Array.from(event.clipboardData?.files ?? []);
+    if (pasted.length === 0 || !canDrop) return;
+
+    event.preventDefault();
+    addFiles(pasted);
+  };
+
+  useLayoutEffect(() => {
+    pasteHandler.current = canDrop ? handlePaste : null;
+  });
 
   const handleRemove = (file: ListedFile) => {
-    // The focus stays in the list - on the file taking the place of the
-    // removed one, the one before it, or the upload button
-    pendingFocus.current = files.findIndex(({ id }) => id === file.id);
-    setFiles((prev) => prev.filter(({ id }) => id !== file.id));
+    release(file);
+    // The input of the fallback cannot lose one file - it holds this one
+    // only (the others have no remove button)
+    if (isFallback && file.file && inputRef.current) {
+      inputRef.current.value = "";
+    }
+    commit(filesRef.current.filter(({ key }) => key !== file.key));
     setInteracted(true);
-    onRemove?.(file);
+
+    if (isPending(file)) {
+      endSessionWhenIdle();
+      startUploads();
+    } else if (file.status === "done") {
+      onRemove?.(toUploadedFile(file));
+      if (file.file) onFilesChange?.(pickedFiles(filesRef.current));
+    }
   };
 
-  const shownError = error || uploadError;
+  const handleRetry = (file: ListedFile) => {
+    update(file.key, { error: undefined, progress: null, status: "queued" });
+    announceUploading();
+    startUploads();
+  };
+
+  const hasError = !!error || refused.length > 0;
   // The error first, then the help text, then what the page adds
   const describedBy = joinTokens(
-    shownError ? errorId : undefined,
+    hasError ? errorId : undefined,
     description ? descriptionId : undefined,
     ariaDescribedBy,
   );
-  // Without a name nothing is submitted - any listed file will do
-  const hasRequiredFile = name
-    ? files.some((file) => file.value)
-    : files.length > 0;
+  // Without a name nothing is submitted - any attached file will do
+  const hasRequiredFile = files.some(
+    (file) => file.status === "done" && (!name || !!file.value || !!file.file),
+  );
+  const picked = pickedFiles(files);
+  // The input of the fallback cannot lose one of several files
+  const canRemovePicked = !isFallback || picked.length <= 1;
+
+  const refusedLines = refused.map(({ message, names }) => {
+    // "a.pdf, b.pdf, c.pdf and 4 more" - a whole list when it is short
+    const shown =
+      names.length > MAX_LISTED_NAMES + 1
+        ? [
+            ...names.slice(0, MAX_LISTED_NAMES),
+            formatPlural(
+              locale.code,
+              messages.fileUpload.moreFiles,
+              names.length - MAX_LISTED_NAMES,
+            ),
+          ]
+        : names;
+
+    return formatMessage(messages.fileUpload.refused, {
+      files: formatList(locale.code, shown),
+      message,
+    });
+  });
+
+  const list = files.length > 0 && (
+    <ul
+      className={cn(
+        "overflow-auto",
+        // Room for 5 rows - of uploads, errors - before it scrolls
+        preview ? "max-h-72" : "max-h-60",
+        // Apart from the button - there is none in a read-only field
+        !readOnly && (variant === "button" ? "mt-2" : "mb-4"),
+        disabled && "opacity-60",
+      )}
+      ref={listRef}
+    >
+      {files.map((file) => (
+        <FileItem
+          canChange={canAdd && (!file.file || canRemovePicked)}
+          file={file}
+          key={file.key}
+          localeCode={locale.code}
+          messages={messages}
+          onRemove={() => handleRemove(file)}
+          onRetry={() => handleRetry(file)}
+          preview={preview}
+        />
+      ))}
+    </ul>
+  );
 
   return (
     <div
+      {...props}
       aria-describedby={describedBy}
-      aria-invalid={shownError ? "true" : undefined}
+      aria-disabled={disabled || undefined}
+      aria-invalid={hasError ? "true" : undefined}
       aria-labelledby={label ? labelId : undefined}
       className={cn(
-        "relative my-4 rounded-md transition-colors",
+        "relative my-4 rounded-md transition-colors motion-reduce:transition-none",
+        // Forced colors (Windows High Contrast) draw no tint and no ring -
+        // an outline of the system's highlight color then
         isDragOver &&
-          "bg-primary-50 ring-2 ring-primary-500 dark:bg-primary-950/40",
+          "bg-primary-50 ring-2 ring-primary-500 dark:bg-primary-950/40 forced-colors:outline-2 forced-colors:outline-[Highlight]",
         className,
       )}
+      data-disabled={disabled ? "" : undefined}
+      data-invalid={hasError ? "" : undefined}
+      data-readonly={readOnly ? "" : undefined}
+      id={groupId}
       onDragLeave={(event) => {
+        props.onDragLeave?.(event);
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
           setIsDragOver(false);
         }
       }}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
+      onDragOver={(event) => {
+        props.onDragOver?.(event);
+        if (!event.defaultPrevented) handleDragOver(event);
+      }}
+      onDrop={(event) => {
+        props.onDrop?.(event);
+        handleDrop(event);
+      }}
+      onPaste={(event) => {
+        props.onPaste?.(event);
+        handlePaste(event);
+      }}
       ref={groupRef}
       role="group"
     >
-      {label && (
+      {label ? (
         <div
           className="mb-2 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
           id={labelId}
         >
           {label}
-          {messages.form.labelSuffix}{" "}
-          {required && (
-            <span
-              aria-hidden="true"
-              className="text-danger-700 dark:text-danger-400"
-            >
-              *
-            </span>
-          )}
+          {messages.form.labelSuffix} {required && <RequiredMark />}
         </div>
-      )}
+      ) : null}
 
-      {files.length > 0 && (
-        <ul
-          className={cn(
-            "mb-4 overflow-auto",
-            preview ? "max-h-72" : "max-h-44",
-          )}
-          ref={listRef}
-        >
-          {files.map((file) => (
-            <li
-              className={cn(
-                "mb-2 flex items-center rounded-md border border-neutral-200 bg-surface p-2 shadow-sm last:mb-0 dark:border-neutral-700 dark:bg-neutral-800",
-                preview && "gap-3",
-              )}
-              key={file.id}
-            >
-              {preview && (
-                <Thumbnail
-                  src={file.thumbnailUrl ?? (file.isImage ? file.url : null)}
-                />
-              )}
-              <div className="flex-1 truncate">
-                {file.url ? (
-                  <a
-                    className="cui-link text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
-                    href={file.url}
-                    rel="noopener noreferrer"
-                    target="_blank"
-                  >
-                    {file.filename}
-                  </a>
-                ) : (
-                  file.filename
-                )}
-              </div>
-              {!disabled && (
-                <Tooltip title={messages.fileUpload.remove} position="left">
-                  <IconButton
-                    aria-label={`${messages.fileUpload.remove} ${file.filename}`}
-                    onClick={() => handleRemove(file)}
-                    variant="danger"
-                  >
-                    <X size={16} />
-                  </IconButton>
-                </Tooltip>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      {variant === "dropzone" && list}
 
-      {uploading ? (
-        <div className="flex items-end gap-2">
-          {preview && <Thumbnail src={uploading.previewUrl} />}
-          <Progress
-            className="flex-1"
-            description={uploading.name}
-            label={messages.fileUpload.uploading}
-            showPercentage
-            value={uploading.progress}
-          />
-          <IconButton
-            aria-label={messages.common.cancel}
-            onClick={cancelUpload}
-            ref={cancelButtonRef}
-          >
-            <X size={16} />
-          </IconButton>
-        </div>
-      ) : (
+      {!readOnly && (
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            aria-describedby={describedBy}
-            disabled={disabled}
-            onClick={() => inputRef.current?.click()}
-            ref={buttonRef}
-            size="sm"
-            variant="outline"
-          >
-            <Upload className="mr-2" size={16} />
-            {messages.fileUpload.upload}
-          </Button>
-          {/* Nothing to drag on a touch screen */}
-          {!disabled && (
-            <span className="text-sm text-neutral-500 dark:text-neutral-400 pointer-coarse:hidden">
-              {messages.fileUpload.dropHint}
-            </span>
+          {variant === "button" ? (
+            <Button
+              aria-describedby={describedBy}
+              className={buttonDimStyles[dim]}
+              disabled={disabled}
+              onClick={() => inputRef.current?.click()}
+              ref={buttonRef}
+              startIcon={<Upload size={buttonIconSizes[dim]} />}
+              variant="outline"
+            >
+              {messages.fileUpload.upload}
+            </Button>
+          ) : (
+            <>
+              <Button
+                aria-describedby={describedBy}
+                disabled={disabled}
+                onClick={() => inputRef.current?.click()}
+                ref={buttonRef}
+                size="sm"
+                variant="outline"
+              >
+                <Upload className="me-2" size={16} />
+                {messages.fileUpload.upload}
+              </Button>
+              {/* Nothing to drag on a touch screen */}
+              {canDrop && (
+                <span className="text-sm text-neutral-500 dark:text-neutral-400 pointer-coarse:hidden">
+                  {messages.fileUpload.dropHint}
+                </span>
+              )}
+            </>
           )}
         </div>
+      )}
+
+      {variant === "button" && list}
+
+      {readOnly && files.length === 0 && (
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">
+          {messages.fileUpload.noFiles}
+        </p>
       )}
 
       <input
         accept={accept}
         aria-hidden="true"
         disabled={disabled}
+        // The fallback submits the files from here
+        form={isFallback ? form : undefined}
         multiple={multiple}
+        name={isFallback ? name : undefined}
         onChange={handleChange}
         ref={inputRef}
         style={{ display: "none" }}
         tabIndex={-1}
         type="file"
+        {...(directory ? { webkitdirectory: "" } : undefined)}
       />
 
-      {/* Lets the browser enforce `required` - it leads the user to the button */}
+      {/* The picked files - nothing is submitted without one, where a
+          native file input would submit an empty file */}
+      {isNative && !isFallback && name && (
+        <input
+          aria-hidden="true"
+          disabled={disabled || picked.length === 0}
+          form={form}
+          multiple={multiple}
+          name={name}
+          ref={storeRef}
+          style={{ display: "none" }}
+          tabIndex={-1}
+          type="file"
+        />
+      )}
+
+      {/* Lets the browser enforce `required` - it leads the user to the
+          button. Read-only, it is not validated, like a native field. */}
       {required && (
         <input
           aria-hidden="true"
@@ -827,6 +1629,7 @@ export default function FileUpload<
           form={form}
           onChange={() => {}}
           onFocus={() => buttonRef.current?.focus()}
+          readOnly={readOnly}
           required
           style={hiddenValidationStyle}
           tabIndex={-1}
@@ -839,18 +1642,27 @@ export default function FileUpload<
         {description}
       </FormDescription>
 
-      {shownError && (
+      {hasError && (
         <FormError className="mt-2" id={errorId}>
-          {shownError}
+          {error && <div>{error}</div>}
+          {refusedLines.map((line) => (
+            <div key={line}>{line}</div>
+          ))}
         </FormError>
       )}
 
-      {files.map(({ id, value }) =>
-        value ? (
+      {/* The uploads said together - when they start and once they are
+          over, not at every step of their progress */}
+      <div className="sr-only" role="status">
+        {announcement && <span key={announcement.id}>{announcement.text}</span>}
+      </div>
+
+      {files.map(({ key, status, value }) =>
+        status === "done" && value ? (
           <input
             disabled={disabled}
             form={form}
-            key={id}
+            key={key}
             name={name}
             type="hidden"
             value={value}

@@ -36,6 +36,35 @@ export default function DialogPage() {
         name="dialog/uncontrolled"
         title="Uncontrolled (route dialogs)"
       />
+      <Example
+        description={
+          <p>
+            <code>fullScreenOnMobile</code> fills the whole screen below the{" "}
+            <code>md</code> breakpoint (768px) - for a form too long for a
+            window on a phone. The header stays at the top and a{" "}
+            <code>DialogFooter</code> at the bottom, clear of the notch and the
+            home indicator of the phone (with <code>viewport-fit=cover</code> in
+            the viewport meta tag). From <code>md</code> up it is a window of
+            its <code>size</code>.
+          </p>
+        }
+        name="dialog/full-screen-mobile"
+        title="Full screen on phones"
+      />
+      <Example
+        description={
+          <p>
+            <code>closeOnBackdropClick</code> closes the dialog on a click on
+            the dimmed page - off by default, so a stray click does not throw
+            away a form. <code>closeOnEscape={"{false}"}</code> makes Escape do
+            nothing (it is still used up, so nothing under the dialog takes it);
+            the close button still closes it. <code>closeDisabled</code> keeps
+            it open by any means, e.g. while its form is saved.
+          </p>
+        }
+        name="dialog/closing"
+        title="Closing on the backdrop, not on Escape"
+      />
 
       <Section title="Behavior">
         <Prose>
@@ -84,8 +113,18 @@ export default function DialogPage() {
               mobile browser (<code>dvh</code>).
             </li>
             <li>
-              It is rendered into <code>document.body</code>, so sticky table
-              headers and transformed parents never paint over it.
+              It is rendered into <code>document.body</code> - or the{" "}
+              <code>portalContainer</code> of <code>UIProvider</code> - so
+              sticky table headers and transformed parents never paint over it.
+            </li>
+            <li>
+              <code>ref</code>, <code>className</code> and the other props go to
+              the window - the element with the <code>role</code>. It and the
+              backdrop have <code>data-state=&quot;open&quot;</code> or{" "}
+              <code>&quot;closed&quot;</code> (also while they animate in and
+              out), e.g. for an animation of your own. In forced colors (Windows
+              High Contrast) the window keeps its border, and an outline marks
+              it while it has the focus itself.
             </li>
             <li>
               <code>role=&quot;alertdialog&quot;</code> is for a dialog that

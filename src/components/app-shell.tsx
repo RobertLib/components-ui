@@ -19,9 +19,11 @@ export interface AppShellProps extends React.ComponentProps<"main"> {
 }
 
 /**
- * The page frame of an app: a `Drawer` on the left, a `Navbar` on top and
- * the page content in `<main>`, which make room for the drawer as it opens
- * and collapses. Provides the drawer state (`DrawerProvider`) itself.
+ * The page frame of an app: a `Drawer` at the start edge (the left one, the
+ * right one right to left), a `Navbar` on top and the page content in
+ * `<main>`, which make room for the drawer as it opens and collapses.
+ * Provides the drawer state (`DrawerProvider`) itself. `ref` and the other
+ * props go to the `<main>`.
  */
 export default function AppShell({
   children,

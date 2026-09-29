@@ -26,7 +26,7 @@ export default function Indeterminate() {
         showPercentage
         value={uploaded}
       />
-      <Progress aria-label="Syncing" size="sm" variant="success" />
+      <Progress aria-label="Syncing" color="success" size="sm" />
     </div>
   );
 }

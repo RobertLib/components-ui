@@ -1,13 +1,14 @@
-import { createContext, use } from "react";
+import { createContext, use, useCallback } from "react";
 import type { ConfirmDialogProps } from "../components/confirm-dialog";
 
 /**
- * What `confirm()` asks - the props of `ConfirmDialog`, which it shows, with
- * an `onConfirm` that may run the action before the dialog closes.
+ * What `confirm()` asks - the props of `ConfirmDialog`, which it shows (all
+ * but its `ref` - e.g. a `data-testid` for the dialog), with an
+ * `onConfirm` that may run the action before the dialog closes.
  */
 export interface ConfirmOptions extends Omit<
   ConfirmDialogProps,
-  "loading" | "onClose" | "onConfirm" | "open"
+  "loading" | "onClose" | "onConfirm" | "open" | "ref"
 > {
   /**
    * Runs when the user confirms, before `confirm()` resolves `true` - e.g.
@@ -23,9 +24,25 @@ export interface ConfirmOptions extends Omit<
 
 /**
  * Asks the user in a `ConfirmDialog` - resolves `true` once they confirm,
- * `false` when they cancel (Cancel, the close button, Escape).
+ * `false` when they cancel (Cancel, the close button, Escape). An `alert`
+ * resolves `true` however it is closed.
  */
 export type ConfirmFunction = (options: ConfirmOptions) => Promise<boolean>;
+
+/**
+ * What `alert()` shows - the options of `confirm()` but those of a question
+ * (`alert`, `cancelLabel`, `confirmationText`).
+ */
+export type AlertOptions = Omit<
+  ConfirmOptions,
+  "alert" | "cancelLabel" | "confirmationText"
+>;
+
+/**
+ * Tells the user something in a dialog with an OK button - resolves once
+ * they have closed it (OK, the close button, Escape).
+ */
+export type AlertFunction = (options: AlertOptions) => Promise<void>;
 
 export const ConfirmContext = createContext<ConfirmFunction | null>(null);
 
@@ -49,4 +66,24 @@ export function useConfirm(): ConfirmFunction {
   }
 
   return confirm;
+}
+
+/**
+ * Returns `alert(options)`, which shows a message in a `ConfirmDialog` with
+ * an OK button only and resolves once the user has closed it - queued with
+ * the questions of `useConfirm()`. Requires a `ConfirmProvider` above.
+ *
+ * ```tsx
+ * const alert = useAlert();
+ * await alert({ title: "Export finished", message: "12 invoices." });
+ * ```
+ */
+export function useAlert(): AlertFunction {
+  const confirm = useConfirm();
+
+  return useCallback(
+    (options: AlertOptions) =>
+      confirm({ ...options, alert: true }).then(() => undefined),
+    [confirm],
+  );
 }

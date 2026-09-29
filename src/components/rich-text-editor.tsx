@@ -3,6 +3,7 @@ import {
   Code,
   Heading2,
   Heading3,
+  ImageIcon,
   Italic,
   Link as LinkIcon,
   List,
@@ -13,6 +14,7 @@ import {
   Pilcrow,
   Redo2,
   RemoveFormatting,
+  SquareCode,
   Strikethrough,
   Table,
   TextQuote,
@@ -24,7 +26,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -35,16 +36,23 @@ import Button from "./button";
 import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
+import { formatMessage, formatNumber, formatPlural } from "../i18n/format";
 import sanitizeRichText, {
   isSafeHref,
+  isSafeImageSrc,
   sanitizeEditorContent,
   sanitizeRichTextLines,
   sanitizeRichTextParagraphs,
   type RichTextFormat,
 } from "../utils/sanitize-rich-text";
-import { useFormReset } from "../hooks/use-form-control";
+import {
+  attachRef,
+  isAriaInvalid,
+  useFormReset,
+} from "../hooks/use-form-control";
 import useIsApplePlatform from "../hooks/use-is-apple-platform";
-import { useMessages } from "../providers/ui-context";
+import { useLocale } from "../providers/ui-context";
+import { applyAutoformat, findAutoformat } from "./rich-text/autoformat";
 import {
   applyLineCommand,
   getBlockState,
@@ -54,6 +62,14 @@ import {
   toggleList,
   type Line,
 } from "./rich-text/blocks";
+import { leaveCodeBlock } from "./rich-text/code-blocks";
+import {
+  countCharacters,
+  countHtmlCharacters,
+  countTextCharacters,
+  truncateHtml,
+  truncateText,
+} from "./rich-text/count";
 import {
   changeTag,
   closestIn,
@@ -76,6 +92,16 @@ import {
   type ChangeKind,
   type Snapshot,
 } from "./rich-text/history";
+import {
+  imageAt,
+  imageFilesOf,
+  insertInline,
+  isImageFile,
+  selectImage,
+  toImageSrc,
+  UPLOAD_ATTRIBUTE,
+  uploadPlaceholdersIn,
+} from "./rich-text/images";
 import {
   ColumnLeftIcon,
   ColumnRightIcon,
@@ -127,6 +153,7 @@ import {
   type RichTextTool,
   type RichTextToolbarItem,
 } from "./rich-text/tools";
+import RequiredMark from "./required-mark";
 
 export type { RichTextTool, RichTextToolbarItem } from "./rich-text/tools";
 
@@ -183,6 +210,7 @@ const TOGGLES = new Set<RichTextTool>([
   "bold",
   "bulletList",
   "code",
+  "codeBlock",
   "heading2",
   "heading3",
   "italic",
@@ -198,9 +226,11 @@ const TOOL_ICONS: Record<RichTextTool, LucideIcon> = {
   bulletList: List,
   clearFormatting: RemoveFormatting,
   code: Code,
+  codeBlock: SquareCode,
   heading2: Heading2,
   heading3: Heading3,
   horizontalRule: Minus,
+  image: ImageIcon,
   indent: ListIndentIncrease,
   italic: Italic,
   link: LinkIcon,
@@ -252,17 +282,17 @@ function splitGroups<T>(items: readonly (T | "|")[]): T[][] {
 
 /**
  * Groups of tools, which wrap as a whole on narrow screens. The divider of
- * a group is left of it - where a group starts a line, the divider falls
+ * a group is at its start - where a group starts a line, the divider falls
  * outside of the clipped box, so no line starts or ends with one.
  */
 function ToolGroups({ groups }: { groups: React.ReactNode[][] }) {
   return (
     // The padding keeps the focus rings of the tools inside the clip
     <div className="overflow-hidden p-[3px]">
-      <div className="-ml-[9px] flex flex-wrap items-center gap-y-1">
+      <div className="-ms-[9px] flex flex-wrap items-center gap-y-1">
         {groups.map((group, index) => (
           <div
-            className="relative ml-1 flex items-center gap-0.5 pl-[5px] before:absolute before:top-1/2 before:left-0 before:h-5 before:w-px before:-translate-y-1/2 before:bg-neutral-300 dark:before:bg-neutral-700"
+            className="relative ms-1 flex items-center gap-0.5 ps-[5px] before:absolute before:start-0 before:top-1/2 before:h-5 before:w-px before:-translate-y-1/2 before:bg-neutral-300 dark:before:bg-neutral-700"
             key={index}
           >
             {group}
@@ -371,23 +401,104 @@ const hiddenValidationStyle: React.CSSProperties = {
   height: 1,
 };
 
+// The lines of text an empty editor has room for by default
+const DEFAULT_MIN_ROWS = 8;
+
+/** The height of lines of text in the editor - with its padding (`p-3`). */
+const rowsHeight = (rows: number) => `calc(${rows}lh + 1.5rem)`;
+
+// The count of characters is told to screen readers this long after the
+// typing pauses - as by Textarea
+const ANNOUNCE_DELAY = 750;
+
+// The inputs that add text - they stop at `maxLength`. A composition cannot
+// be stopped; it is cut back when it ends.
+const TEXT_INPUTS = new Set([
+  "insertFromDrop",
+  "insertFromYank",
+  "insertReplacementText",
+  "insertText",
+]);
+
+/** An image being uploaded - by the id of its placeholder. */
+interface Upload {
+  controller: AbortController;
+  /** The URL of the preview of the file - revoked when the upload ends. */
+  preview: string | null;
+  /** The URL of the uploaded image - `null` while it uploads, `""` when it failed. */
+  src: string | null;
+}
+
+/** A URL of the file to show while it uploads - `null` where there is none. */
+function previewOf(file: File) {
+  try {
+    return typeof URL.createObjectURL === "function"
+      ? URL.createObjectURL(file)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The HTML of plain text in a code block - its lines separated by line breaks. */
+function codeHtml(text: string) {
+  const element = document.createElement("div");
+  text.split(/\r\n?|\n/).forEach((line, index) => {
+    if (index > 0) element.append(document.createElement("br"));
+    element.append(line);
+  });
+  return element.innerHTML;
+}
+
+/**
+ * The next (or previous) sibling of a block - whitespace between blocks (of
+ * loaded HTML) is none.
+ */
+function blockSibling(block: Node, forward: boolean) {
+  let sibling = forward ? block.nextSibling : block.previousSibling;
+  while (sibling && isWhitespace(sibling)) {
+    sibling = forward ? sibling.nextSibling : sibling.previousSibling;
+  }
+  return sibling;
+}
+
+// The mark of a content key whose images may load from `data:` URLs
+const DATA_URLS_KEY = "|data-urls";
+
+/**
+ * The rules of a content key - the formats of the tools (a key of
+ * `formatsByKey`) and whether images may load from `data:` URLs.
+ */
+function rulesOf(key: string) {
+  const allowImageDataUrls = key.endsWith(DATA_URLS_KEY);
+  return {
+    allowImageDataUrls,
+    formats: formatsByKey(
+      allowImageDataUrls ? key.slice(0, -DATA_URLS_KEY.length) : key,
+    ),
+  };
+}
+
 /**
  * The value of HTML in the editor - reduced to the formatting of its tools
  * (typing and the toolbar leave `<span style>` and `<font>` behind in some
- * browsers), and empty without text, whatever `<p><br></p>` it still holds.
- * The inline styles of a value from outside are read like those of pasted
- * content; those of the editor's own content are the browser's (`isOwn`).
+ * browsers), and empty without text or an image, whatever `<p><br></p>` it
+ * still holds. The inline styles of a value from outside are read like
+ * those of pasted content; those of the editor's own content are the
+ * browser's (`isOwn`). `key` - see `rulesOf`.
  */
-function normalize(
-  html: string,
-  formats: readonly RichTextFormat[],
-  isOwn: boolean,
-) {
+function normalize(html: string, key: string, isOwn: boolean) {
   // Nothing to sanitize with on the server - and nothing unsanitized goes out
   if (!html || typeof document === "undefined") return "";
 
-  const content = sanitizeEditorContent(html, formats, !isOwn);
-  return content.hasText ? content.html : "";
+  const { allowImageDataUrls, formats } = rulesOf(key);
+  const content = sanitizeEditorContent(
+    html,
+    formats,
+    !isOwn,
+    allowImageDataUrls,
+  );
+  return content.hasContent ? content.html : "";
 }
 
 /**
@@ -558,6 +669,10 @@ function readToolState(
     ? !!closestIn(editor, range.startContainer, "code")
     : isAllIn(editor, range, "code");
   const inLines = block.hasLines;
+  // A code block holds plain text - no marks, links or images
+  const inCodeBlock =
+    !!closestIn(editor, range.startContainer, "pre") ||
+    !!closestIn(editor, range.endContainer, "pre");
 
   return {
     active: {
@@ -565,8 +680,10 @@ function readToolState(
       bold: !inBoldBlock && isMarkActive(editor, range, "bold", "b, strong"),
       bulletList: block.type === "ul",
       code: isAtPending(range, pending) ? pending?.on : inCode,
+      codeBlock: block.type === "code",
       heading2: block.type === "h2",
       heading3: block.type === "h3",
+      image: !!imageAt(editor, range),
       italic: isMarkActive(editor, range, "italic", "i, em"),
       link: inLink,
       numberedList: block.type === "ol",
@@ -584,24 +701,36 @@ function readToolState(
     inTable,
     unavailable: {
       blockquote: !inLines,
-      bold: inBoldBlock,
+      bold: inBoldBlock || inCodeBlock,
       bulletList: !inLines,
-      clearFormatting: range.collapsed,
+      clearFormatting: range.collapsed || inCodeBlock,
+      code: inCodeBlock,
+      codeBlock: !inLines,
       heading2: !inLines,
       heading3: !inLines,
       horizontalRule: inTable,
+      image: inCodeBlock,
       indent: !block.canIndent,
+      italic: inCodeBlock,
+      link: inCodeBlock,
       numberedList: !inLines,
       outdent: !block.canOutdent,
       paragraph: !inLines,
+      strikethrough: inCodeBlock,
       table: inTable,
+      underline: inCodeBlock,
     },
   };
 }
 
+const isRtl = (element: Element) =>
+  getComputedStyle(element).direction === "rtl";
+
 /**
  * Arrow keys and Home / End move the focus between the buttons of a
- * toolbar - it is one stop of Tab, as the ARIA toolbar pattern has it.
+ * toolbar - it is one stop of Tab, as the ARIA toolbar pattern has it. The
+ * arrow keys follow the direction of the text: right to left, the left one
+ * moves on.
  */
 function moveToolbarFocus(event: React.KeyboardEvent<HTMLElement>) {
   if (!["ArrowLeft", "ArrowRight", "End", "Home"].includes(event.key)) return;
@@ -615,13 +744,14 @@ function moveToolbarFocus(event: React.KeyboardEvent<HTMLElement>) {
   if (index === -1) return;
 
   event.preventDefault();
+  const forward =
+    (event.key === "ArrowRight") !== isRtl(event.currentTarget as Element);
   const next =
     event.key === "Home"
       ? 0
       : event.key === "End"
         ? buttons.length - 1
-        : (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) %
-          buttons.length;
+        : (index + (forward ? 1 : -1) + buttons.length) % buttons.length;
   buttons[next].focus();
 }
 
@@ -673,9 +803,11 @@ function ToolButton({
       aria-label={label}
       aria-pressed={pressed}
       className={cn(
-        "inline-flex size-8 shrink-0 items-center justify-center rounded-md text-neutral-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 motion-reduce:transition-none dark:text-neutral-300",
+        "inline-flex size-8 shrink-0 items-center justify-center rounded-md text-neutral-700 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 motion-reduce:transition-none dark:text-neutral-300",
+        // Forced colors (Windows High Contrast) draw no tint - the
+        // system's highlight colors then
         active &&
-          "bg-primary-100 text-primary-700 dark:bg-primary-900/60 dark:text-primary-200",
+          "bg-primary-100 text-primary-700 dark:bg-primary-900/60 dark:text-primary-200 forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]",
         enabled
           ? cn(
               "cursor-pointer",
@@ -698,7 +830,37 @@ function ToolButton({
   );
 }
 
-export interface RichTextEditorProps {
+/** Uploads an image file - resolves with the URL of the uploaded image. */
+export type RichTextImageUpload = (
+  file: File,
+  options: {
+    /** Aborted when the upload is no longer wanted - the editor unmounted. */
+    signal: AbortSignal;
+  },
+) => Promise<string>;
+
+/**
+ * The attributes of an HTML element not listed here - `data-*`, `style`,
+ * `title`, event handlers - go to the editable element (`role="textbox"`),
+ * as `id` and `ref` do.
+ */
+export interface RichTextEditorProps extends Omit<
+  React.HTMLAttributes<HTMLDivElement>,
+  | "children"
+  | "contentEditable"
+  | "dangerouslySetInnerHTML"
+  | "defaultChecked"
+  | "defaultValue"
+  | "onBlur"
+  | "onChange"
+> {
+  /**
+   * Keeps images whose `src` is a base64 `data:` URL of a PNG, JPEG, GIF,
+   * WebP or AVIF image - in a loaded value, in pasted content and as the
+   * URL `uploadImage` gives. Off by default: such an image is part of the
+   * HTML, as big as the image. Other `data:` URLs (SVG, HTML) never pass.
+   */
+  allowImageDataUrls?: boolean;
   /**
    * Id of the element describing the editor - the error message and the
    * `description` describe it too.
@@ -708,6 +870,14 @@ export interface RichTextEditorProps {
   "aria-label"?: string;
   /** Id of the element naming the editor - instead of `label`. */
   "aria-labelledby"?: string;
+  /**
+   * Markdown shortcuts typed at the start of a paragraph format it - "# "
+   * or "## " a heading 2, "### " a heading 3, "- " or "* " a bulleted list,
+   * "1. " a numbered list, "> " a quote, "---" a horizontal line, "```" a
+   * code block - and "`code`" makes inline code anywhere. Each only with
+   * its tool; one undo brings back the typed text. `false` turns them off.
+   */
+  autoformat?: boolean;
   /**
    * Classes of the wrapper around the label, the editor, its description and
    * its error message.
@@ -721,7 +891,10 @@ export interface RichTextEditorProps {
   defaultValue?: string;
   /** Help text under the editor - it describes the editor for screen readers. */
   description?: React.ReactNode;
-  /** Nothing can be edited - and, like a disabled field, nothing is submitted. */
+  /**
+   * Nothing can be edited or focused - and, like a disabled field, nothing
+   * is submitted. See `readOnly` for content that is shown and submitted.
+   */
   disabled?: boolean;
   /** Validation message - also marks the editor as invalid. */
   error?: string;
@@ -732,8 +905,23 @@ export interface RichTextEditorProps {
   form?: string;
   /** Id of the editable element. */
   id?: string;
-  /** Text above the editor - also its accessible name. */
-  label?: string;
+  /** Text above the editor - also its accessible name, and that of its toolbar. */
+  label?: React.ReactNode;
+  /**
+   * The most characters of text - typing, pasting and dropping stop there,
+   * like in a native field (the characters of the text as it shows: line
+   * breaks and images count none). A longer value from outside stays,
+   * counted over the limit; once the user edits it, it keeps its form from
+   * being submitted until it is short enough, like a native field does.
+   */
+  maxLength?: number;
+  /**
+   * The most lines of text the editor grows to - more text scrolls inside
+   * it, under the toolbar. No limit by default.
+   */
+  maxRows?: number;
+  /** The lines of text the empty editor has room for - 8 by default. */
+  minRows?: number;
   /** Submits the HTML in a hidden input of this name. */
   name?: string;
   /**
@@ -750,6 +938,13 @@ export interface RichTextEditorProps {
    */
   placeholder?: string;
   /**
+   * The content is shown and can be selected and copied, but not changed -
+   * the toolbar is hidden. Unlike a disabled editor it is focusable and
+   * submitted with its form (like a read-only native field, it is not
+   * validated). Marked with `aria-readonly` and `data-readonly`.
+   */
+  readOnly?: boolean;
+  /**
    * The editable element - e.g. for React Hook Form, which focuses a field
    * that failed validation.
    */
@@ -757,13 +952,35 @@ export interface RichTextEditorProps {
   /** An empty editor blocks the submit of its form. */
   required?: boolean;
   /**
+   * Lets the user drag the editor taller or shorter, by the handle at its
+   * bottom - between `minRows` and `maxRows`.
+   */
+  resize?: boolean;
+  /**
+   * Shows how many characters the text has - with `maxLength` "123 / 500",
+   * and near the limit screen readers are told how many are left once the
+   * typing pauses, like with `Textarea`.
+   */
+  showCount?: boolean;
+  /**
    * The tools of the toolbar in their order, `"|"` dividing them into groups
    * - `DEFAULT_RICH_TEXT_TOOLBAR` by default. The value keeps only the
    * formatting of these tools: without `"table"`, pasted tables become lines
-   * of text; without `"underline"`, Ctrl+U does nothing. `[]` leaves out
-   * the toolbar - paragraphs and line breaks remain.
+   * of text; without `"image"`, pasted images go; without `"underline"`,
+   * Ctrl+U does nothing. `[]` leaves out the toolbar - paragraphs and line
+   * breaks remain.
    */
   toolbar?: readonly RichTextToolbarItem[];
+  /**
+   * Uploads an image file the user picked with the image tool, pasted or
+   * dropped - resolves with its URL (`http(s):` or relative; a `data:` URL
+   * with `allowImageDataUrls`), rejects when the upload fails. Until then a
+   * placeholder shows the image and the form cannot be submitted; `signal`
+   * aborts when the editor unmounts. Without it, the image tool takes a URL
+   * only, and pasted or dropped image files are refused. Check the type
+   * and size of the file on the server.
+   */
+  uploadImage?: RichTextImageUpload;
   /**
    * HTML content of a controlled editor - an input the parent does not take
    * into it is undone, like in a controlled native field.
@@ -773,20 +990,23 @@ export interface RichTextEditorProps {
 
 /**
  * A WYSIWYG editor producing HTML, without a heavy editor dependency:
- * headings, lists, quotes, tables, links and inline formatting, each tool
- * with a keyboard shortcut, and its own undo history. The toolbar is one
- * stop of Tab (arrow keys move in it, Alt+F10 gets there from the text).
- * Loaded values and pasted or dropped content are reduced to the formatting
- * of its tools. The output is user input - sanitize it on the server, and
- * render stored HTML sanitized again, inside an element with the
- * `rich-text` class: `<div className="rich-text" dangerouslySetInnerHTML={{
- * __html: sanitizeRichText(html) }} />` (on a page rendered on a server
- * without a `DOMParser`, once it is hydrated - `sanitizeRichText` needs one).
+ * headings, lists, quotes, code blocks, tables, links, images and inline
+ * formatting, keyboard shortcuts and Markdown shortcuts, and its own undo
+ * history. The toolbar is one stop of Tab (arrow keys move in it, Alt+F10
+ * gets there from the text). Loaded values and pasted or dropped content
+ * are reduced to the formatting of its tools. The output is user input -
+ * sanitize it on the server, and render stored HTML sanitized again,
+ * inside an element with the `rich-text` class: `<div className="rich-text"
+ * dangerouslySetInnerHTML={{ __html: sanitizeRichText(html) }} />` (on a
+ * page rendered on a server without a `DOMParser`, once it is hydrated -
+ * `sanitizeRichText` needs one).
  */
 export default function RichTextEditor({
+  allowImageDataUrls = false,
   "aria-describedby": ariaDescribedBy,
   "aria-label": ariaLabel,
   "aria-labelledby": ariaLabelledBy,
+  autoformat = true,
   className,
   defaultValue,
   description,
@@ -795,18 +1015,28 @@ export default function RichTextEditor({
   form,
   id,
   label,
+  maxLength,
+  maxRows,
+  minRows = DEFAULT_MIN_ROWS,
   name,
   onBlur,
   onChange,
   placeholder,
+  readOnly = false,
   ref,
   required,
+  resize = false,
+  showCount = false,
   toolbar = DEFAULT_RICH_TEXT_TOOLBAR,
+  uploadImage,
   value,
+  ...props
 }: RichTextEditorProps) {
-  const messages = useMessages();
+  const locale = useLocale();
+  const { messages } = locale;
   const texts = messages.richTextEditor;
   const labelId = useId();
+  const labelTextId = useId();
   const linkInputId = useId();
   const tableLabelId = useId();
   // The ids of the messages derive from the id of the field, like those of
@@ -824,10 +1054,20 @@ export default function RichTextEditor({
   // The formats of the tools by a key - a toolbar passed inline is a new
   // array on every render, the key the same for the same tools. A string
   // the React Compiler sees as one, so the content can be memoized by it.
-  const formatKey = String(formatsOf(items).join());
-  const formats = formatsByKey(formatKey);
+  // It tells whether images may load from `data:` URLs too.
+  const toolFormatKey = String(formatsOf(items).join());
+  const formats = formatsByKey(toolFormatKey);
+  const formatKey = allowImageDataUrls
+    ? toolFormatKey + DATA_URLS_KEY
+    : toolFormatKey;
   const hasLists =
     tools.includes("bulletList") || tools.includes("numberedList");
+  // Nothing can change the content - the toolbar and its forms are gone
+  const isEditable = !disabled && !readOnly;
+  const canUploadImages =
+    isEditable && uploadImage !== undefined && tools.includes("image");
+  const limit =
+    typeof maxLength === "number" && maxLength >= 0 ? maxLength : undefined;
 
   const editorRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -849,6 +1089,34 @@ export default function RichTextEditor({
   } | null>(null);
   // Where the new table goes
   const tableRange = useRef<Range | null>(null);
+  // The URL and alternative text typed for an image - `null` while the image
+  // form is closed
+  const [imageForm, setImageForm] = useState<{
+    alt: string;
+    /** It edits the image at the selection - it offers to remove it. */
+    isEditing: boolean;
+    isInvalid: boolean;
+    url: string;
+  } | null>(null);
+  // Where the new image goes - the selection when the form opened
+  const imageRange = useRef<Range | null>(null);
+  // The image at the selection when the form opened - the form edits it
+  const imageElement = useRef<HTMLImageElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // The uploads of images by the ids of their placeholders - also those
+  // that ended, for the placeholders an undo brings back
+  const uploads = useRef(new Map<string, Upload>());
+  const [uploadCount, setUploadCount] = useState(0);
+  // An upload failed - told under the editor until the next one
+  const [uploadFailed, setUploadFailed] = useState(false);
+  // The input that keeps the form from being submitted - while an image
+  // uploads, or the user made the text too long
+  const validationRef = useRef<HTMLInputElement>(null);
+  // The focus is in the editor - the count of characters is told then
+  const [isFocused, setIsFocused] = useState(false);
+  // The characters when a composition started - it cannot be stopped at
+  // `maxLength`, what it goes past it by is cut when it ends
+  const compositionCount = useRef(0);
   // The selection when the focus left the editor - the toolbar acts on it
   // (Firefox puts the caret at the start of a focused editor)
   const savedRange = useRef<Range | null>(null);
@@ -891,9 +1159,7 @@ export default function RichTextEditor({
   const passedHtml = value ?? entered?.html ?? defaultValue ?? "";
   const normalizedHtml = useMemo(
     () =>
-      canSanitize && !isReported
-        ? normalize(passedHtml, formatsByKey(formatKey), false)
-        : "",
+      canSanitize && !isReported ? normalize(passedHtml, formatKey, false) : "",
     [canSanitize, formatKey, isReported, passedHtml],
   );
   const content = !canSanitize
@@ -909,6 +1175,9 @@ export default function RichTextEditor({
   // The latest handlers, for the listeners added once
   const handleBeforeInputRef = useRef<(event: InputEvent) => void>(() => {});
   const updateToolStateRef = useRef(() => {});
+  // The latest handler of an upload that ended - it reports the change as
+  // the editor is then, not as it was when the upload started
+  const finishUploadRef = useRef<(id: string, url: unknown) => void>(() => {});
   // Counts the inputs of a controlled editor - an input the parent did not
   // take into its `value` is undone, like in a controlled native field
   const [inputCount, setInputCount] = useState(0);
@@ -932,14 +1201,103 @@ export default function RichTextEditor({
   const [blank, setBlank] = useState(true);
   const showsPlaceholder = !content && blank;
 
-  useImperativeHandle(ref, () => editorRef.current as HTMLDivElement, []);
+  // The characters of the text - counted only when they are shown or limited
+  const isCounted = showCount || limit !== undefined;
+  const count = useMemo(
+    () => (isCounted ? countHtmlCharacters(content) : 0),
+    [content, isCounted],
+  );
+  const remaining = limit === undefined ? undefined : limit - count;
+  const counterText =
+    limit === undefined
+      ? formatNumber(locale.code, count)
+      : formatMessage(messages.textarea.characterCount, {
+          count: formatNumber(locale.code, count),
+          max: formatNumber(locale.code, limit),
+        });
+  // Near the limit - the last tenth, or the last 10 characters - as Textarea
+  // tells it
+  const limitMessage =
+    remaining === undefined || limit === undefined
+      ? ""
+      : remaining < 0
+        ? formatPlural(
+            locale.code,
+            messages.textarea.charactersOver,
+            -remaining,
+          )
+        : remaining <= Math.max(10, limit / 10)
+          ? formatPlural(
+              locale.code,
+              messages.textarea.charactersLeft,
+              remaining,
+            )
+          : "";
+  // Told to screen readers when the typing pauses, not at every keystroke
+  const [countAnnouncement, setCountAnnouncement] = useState("");
+
+  useEffect(() => {
+    if (!showCount || !isFocused) return;
+
+    const timeout = setTimeout(
+      () => setCountAnnouncement(limitMessage),
+      ANNOUNCE_DELAY,
+    );
+    return () => clearTimeout(timeout);
+  }, [isFocused, limitMessage, showCount]);
+
+  // Like a native field, a value too long is invalid once the user edited
+  // it - one from outside is only counted over the limit
+  const validationMessage =
+    uploadCount > 0
+      ? texts.waitForUpload
+      : remaining !== undefined && remaining < 0 && entered !== null
+        ? formatPlural(
+            locale.code,
+            messages.textarea.charactersOver,
+            -remaining,
+          )
+        : "";
+  const validates = required || limit !== undefined || canUploadImages;
+
+  useLayoutEffect(() => {
+    validationRef.current?.setCustomValidity(validationMessage);
+  }, [validates, validationMessage]);
+
+  // An upload is not wanted once the editor is gone
+  useEffect(() => {
+    const current = uploads.current;
+    return () => {
+      for (const upload of current.values()) {
+        upload.controller.abort();
+        if (upload.preview && upload.src === null) {
+          URL.revokeObjectURL(upload.preview);
+        }
+      }
+      current.clear();
+    };
+  }, []);
+
+  // The editable element is the `ref` of the editor too
+  const editorCallbackRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      editorRef.current = element;
+      const detachRef = attachRef(ref, element);
+
+      return () => {
+        editorRef.current = null;
+        detachRef();
+      };
+    },
+    [ref],
+  );
 
   /** The value of the content of the editor - normalized once for each change. */
   const normalizeEditor = (html: string, key: string) => {
     const last = normalized.current;
     if (last?.html === html && last.formatKey === key) return last.value;
 
-    const next = normalize(html, formatsByKey(key), true);
+    const next = normalize(html, key, true);
     normalized.current = { formatKey: key, html, value: next };
     return next;
   };
@@ -1076,8 +1434,9 @@ export default function RichTextEditor({
   };
 
   const handleFocus = () => {
+    setIsFocused(true);
     const editor = editorRef.current;
-    if (!editor || disabled) return;
+    if (!editor || !isEditable) return;
 
     configureEditing();
     openEmptyEditor(editor);
@@ -1108,7 +1467,7 @@ export default function RichTextEditor({
     range?: Range | null,
   ) => {
     const editor = editorRef.current;
-    if (!editor || disabled) return;
+    if (!editor || !isEditable) return;
 
     const target = range ?? getEditorRange();
     editor.focus();
@@ -1131,12 +1490,32 @@ export default function RichTextEditor({
   const runLineCommand = (transform: (lines: Line[]) => boolean) =>
     runCommand((editor, range) => applyLineCommand(editor, range, transform));
 
+  /**
+   * The placeholders of the uploads that ended - the image they uploaded,
+   * or none. Those still uploading stay; an undo can bring back any of them.
+   */
+  const resolveUploads = (editor: HTMLElement) => {
+    for (const placeholder of uploadPlaceholdersIn(editor)) {
+      const id = placeholder.getAttribute(UPLOAD_ATTRIBUTE) ?? "";
+      const src = uploads.current.get(id)?.src;
+      if (src === null) continue;
+
+      if (src) {
+        placeholder.setAttribute("src", src);
+        placeholder.removeAttribute(UPLOAD_ATTRIBUTE);
+      } else {
+        placeholder.remove();
+      }
+    }
+  };
+
   const restoreSnapshot = (snapshot: Snapshot | null) => {
     const editor = editorRef.current;
-    if (!editor || !snapshot || disabled) return;
+    if (!editor || !snapshot || !isEditable) return;
 
     editor.focus();
     editor.innerHTML = snapshot.html;
+    resolveUploads(editor);
     const range = restoreSelection(editor, snapshot.selection);
     if (range) select(range);
     else placeCaret(editor, true);
@@ -1241,7 +1620,7 @@ export default function RichTextEditor({
 
   const openLinkForm = () => {
     const editor = editorRef.current;
-    if (disabled) return;
+    if (!isEditable) return;
     const range = getEditorRange();
     const link = editor && range ? linkAt(editor, range) : null;
 
@@ -1305,7 +1684,7 @@ export default function RichTextEditor({
   };
 
   const openTableForm = () => {
-    if (disabled) return;
+    if (!isEditable) return;
     tableRange.current = getEditorRange();
     setTableForm({ columns: "3", header: true, rows: "3" });
   };
@@ -1330,6 +1709,189 @@ export default function RichTextEditor({
       placeCaret(table.rows[0].cells[0]);
       return true;
     }, tableRange.current);
+  };
+
+  /**
+   * An upload ended - its image replaces its placeholder, or it goes when it
+   * failed (`url` is no safe image source then).
+   */
+  const finishUpload = (id: string, url: unknown) => {
+    const upload = uploads.current.get(id);
+    // Not when the editor is gone
+    if (!upload || upload.controller.signal.aborted || upload.src !== null) {
+      return;
+    }
+
+    const src =
+      typeof url === "string" && isSafeImageSrc(url, allowImageDataUrls)
+        ? url
+        : null;
+    upload.src = src ?? "";
+    if (upload.preview) URL.revokeObjectURL(upload.preview);
+    setUploadCount((count) => count - 1);
+    if (!src) setUploadFailed(true);
+
+    const editor = editorRef.current;
+    if (!editor || !editor.querySelector(`img[${UPLOAD_ATTRIBUTE}="${id}"]`)) {
+      return;
+    }
+    // Not a step of the undo history - the placeholder was the image
+    resolveUploads(editor);
+    reportChange(null, false);
+  };
+
+  /**
+   * Uploads image files - a placeholder for each where `range` is (or in
+   * place of `replaced`, an image the form edited), until its URL comes.
+   */
+  const startUploads = (
+    files: File[],
+    range: Range | null,
+    alt = "",
+    replaced: HTMLImageElement | null = null,
+  ) => {
+    const upload = uploadImage;
+    if (!upload || files.length === 0) return;
+
+    setUploadFailed(false);
+    runCommand((editor, current) => {
+      let target = current;
+
+      for (const file of files) {
+        const id = Math.random().toString(36).slice(2);
+        const preview = previewOf(file);
+        const controller = new AbortController();
+        uploads.current.set(id, { controller, preview, src: null });
+
+        const placeholder = editor.ownerDocument.createElement("img");
+        placeholder.setAttribute(UPLOAD_ATTRIBUTE, id);
+        placeholder.setAttribute("alt", alt);
+        if (preview) placeholder.setAttribute("src", preview);
+
+        if (replaced && editor.contains(replaced)) {
+          replaced.replaceWith(placeholder);
+          replaced = null;
+          target = document.createRange();
+          target.setStartAfter(placeholder);
+          select(target);
+        } else {
+          target = insertInline(editor, target, placeholder);
+        }
+
+        setUploadCount((count) => count + 1);
+        upload(file, { signal: controller.signal }).then(
+          (url) => finishUploadRef.current(id, url),
+          () => finishUploadRef.current(id, null),
+        );
+      }
+      return true;
+    }, range);
+  };
+
+  const openImageForm = () => {
+    const editor = editorRef.current;
+    if (!isEditable) return;
+    const range = getEditorRange();
+    const image = editor && range ? imageAt(editor, range) : null;
+
+    imageRange.current = range;
+    imageElement.current = image;
+    setImageForm({
+      alt: image?.getAttribute("alt") ?? "",
+      isEditing: !!image,
+      isInvalid: false,
+      url: image?.getAttribute("src") ?? "",
+    });
+  };
+
+  const closeImageForm = () => {
+    setImageForm(null);
+    editorRef.current?.focus();
+    select(imageRange.current);
+  };
+
+  const confirmImage = () => {
+    if (!imageForm) return;
+
+    const url = imageForm.url.trim();
+    const image = imageElement.current;
+    const isEditing = !!image && !!editorRef.current?.contains(image);
+    if (!url && !isEditing) {
+      closeImageForm();
+      return;
+    }
+
+    const src = toImageSrc(url);
+    if (!isSafeImageSrc(src, allowImageDataUrls)) {
+      setImageForm({ ...imageForm, isInvalid: true });
+      return;
+    }
+
+    // An empty alternative text marks an image as decoration
+    const alt = imageForm.alt.trim();
+    closeImageForm();
+
+    if (image && isEditing) {
+      runCommand(() => {
+        if (image.getAttribute("src") === src && image.alt === alt) {
+          return false;
+        }
+        image.setAttribute("src", src);
+        image.setAttribute("alt", alt);
+        selectImage(image);
+        return true;
+      }, imageRange.current);
+    } else {
+      runCommand((editor, range) => {
+        const element = editor.ownerDocument.createElement("img");
+        element.setAttribute("src", src);
+        element.setAttribute("alt", alt);
+        insertInline(editor, range, element);
+        return true;
+      }, imageRange.current);
+    }
+  };
+
+  const removeImage = () => {
+    const image = imageElement.current;
+    closeImageForm();
+    if (!image) return;
+
+    runCommand((editor) => {
+      if (!editor.contains(image)) return false;
+      const caret = document.createRange();
+      caret.setStartBefore(image);
+      image.remove();
+      select(caret);
+      return true;
+    }, imageRange.current);
+  };
+
+  // The files picked in the image form - uploaded with its alternative text
+  const handleImageFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter(isImageFile);
+    event.target.value = "";
+    if (!imageForm || files.length === 0) return;
+
+    const alt = imageForm.alt.trim();
+    const image = imageElement.current;
+    setImageForm(null);
+    startUploads(files, imageRange.current, alt, image);
+  };
+
+  const handleImageFormKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    // The keys of the form - not a submit of the form around, nor the
+    // Escape of a dialog
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeImageForm();
+    } else if (
+      event.key === "Enter" &&
+      (event.target as HTMLElement).tagName === "INPUT"
+    ) {
+      event.preventDefault();
+      confirmImage();
+    }
   };
 
   const handleTableFormKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
@@ -1379,8 +1941,10 @@ export default function RichTextEditor({
         break;
       case "addColumnLeft":
       case "addColumnRight":
+        // Left and right as the table shows them - a right-to-left table
+        // has its first cell on the right
         runTableCommand((_, cell) =>
-          addColumn(cell, tool === "addColumnRight"),
+          addColumn(cell, (tool === "addColumnRight") !== isRtl(cell)),
         );
         break;
       case "deleteRow":
@@ -1435,6 +1999,9 @@ export default function RichTextEditor({
       case "blockquote":
         runLineCommand((lines) => setLineType(lines, "quote"));
         break;
+      case "codeBlock":
+        runLineCommand((lines) => setLineType(lines, "code"));
+        break;
       case "bulletList":
       case "numberedList":
         runLineCommand((lines) =>
@@ -1457,6 +2024,10 @@ export default function RichTextEditor({
       case "table":
         if (tableForm === null) openTableForm();
         else closeTableForm();
+        break;
+      case "image":
+        if (imageForm === null) openImageForm();
+        else closeImageForm();
         break;
       case "clearFormatting":
         runClearFormatting();
@@ -1520,32 +2091,38 @@ export default function RichTextEditor({
     }
   };
 
-  // The arrow keys leave a table at the start or end of the content - into
-  // a new paragraph, as there is nowhere else for the caret
-  const leaveTable = (event: React.KeyboardEvent<HTMLDivElement>) => {
+  // The arrow keys leave a table or a code block at the start or end of the
+  // content - into a new paragraph, as there is nowhere else for the caret.
+  // Right to left, the left arrow key moves forward.
+  const leaveBlock = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const editor = editorRef.current;
     const range = editor && rangeIn(editor);
-    const cell = editor && range ? cellOf(editor, range.startContainer) : null;
-    if (!editor || !range || !range.collapsed || !cell) return;
+    if (!editor || !range || !range.collapsed) return;
 
-    const table = cell.closest("table") as HTMLTableElement;
-    const block = topLevelOf(editor, table) as HTMLElement;
-    const forward = event.key === "ArrowDown" || event.key === "ArrowRight";
-    const rows = table.rows;
-    const row = cell.parentElement as HTMLTableRowElement;
-    const cells = row.cells;
+    const cell = cellOf(editor, range.startContainer);
+    const pre = cell ? null : closestIn(editor, range.startContainer, "pre");
+    const element = cell?.closest("table") ?? pre;
+    if (!element) return;
 
-    const atEdge =
-      event.key === "ArrowDown" || event.key === "ArrowUp"
-        ? row === rows[forward ? rows.length - 1 : 0]
-        : cell === cells[forward ? cells.length - 1 : 0] &&
-          row === rows[forward ? rows.length - 1 : 0];
-    // Whitespace between blocks (of loaded HTML) is nowhere to go either
-    let sibling = forward ? block.nextSibling : block.previousSibling;
-    while (sibling && isWhitespace(sibling)) {
-      sibling = forward ? sibling.nextSibling : sibling.previousSibling;
+    const forward =
+      event.key === "ArrowDown" ||
+      event.key === (isRtl(editor) ? "ArrowLeft" : "ArrowRight");
+    const block = topLevelOf(editor, element) as HTMLElement;
+    let atEdge = !!pre && isAtEdgeOf(pre, range, forward);
+    if (cell) {
+      const table = element as HTMLTableElement;
+      const rows = table.rows;
+      const row = cell.parentElement as HTMLTableRowElement;
+      const cells = row.cells;
+      atEdge =
+        (event.key === "ArrowDown" || event.key === "ArrowUp"
+          ? row === rows[forward ? rows.length - 1 : 0]
+          : cell === cells[forward ? cells.length - 1 : 0] &&
+            row === rows[forward ? rows.length - 1 : 0]) &&
+        isAtEdgeOf(cell, range, forward);
     }
-    if (!atEdge || sibling || !isAtEdgeOf(cell, range, forward)) return;
+    // Whitespace between blocks (of loaded HTML) is nowhere to go either
+    if (!atEdge || blockSibling(block, forward)) return;
 
     event.preventDefault();
     runCommand(() => {
@@ -1592,8 +2169,9 @@ export default function RichTextEditor({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    // A disabled editor takes no commands - it may have the focus of a click
-    if (event.nativeEvent.isComposing || disabled) return;
+    // A disabled or read-only editor takes no commands - it may have the
+    // focus of a click
+    if (event.nativeEvent.isComposing || !isEditable) return;
 
     // To the toolbar - the shortcut of TinyMCE and CKEditor
     if (event.altKey && event.key === "F10") {
@@ -1634,7 +2212,7 @@ export default function RichTextEditor({
 
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === "Tab") handleTab(event);
-    else if (event.key.startsWith("Arrow")) leaveTable(event);
+    else if (event.key.startsWith("Arrow")) leaveBlock(event);
   };
 
   // The input types the value cannot keep never get into the editor; lists
@@ -1683,20 +2261,46 @@ export default function RichTextEditor({
       return;
     }
 
+    // Formatting only of the tools - and none where they have nothing to act
+    // on (a heading is bold anyway, a code block holds plain text)
     const format = INPUT_FORMATS[type];
     const isFormat = type.startsWith("format") || format !== undefined;
     if (
       isFormat &&
       (!format ||
         !formats.includes(format) ||
-        (format === "bold" && isUnavailable("bold")))
+        isUnavailable(format as RichTextTool))
     ) {
       event.preventDefault();
       return;
     }
 
+    // Text stops at `maxLength`, like in a native field - typed text that
+    // does not fit is cut
+    if (limit !== undefined && range && TEXT_INPUTS.has(type)) {
+      const text =
+        event.data ?? event.dataTransfer?.getData("text/plain") ?? "";
+      const room =
+        limit -
+        (countCharacters(editor) - countCharacters(range.cloneContents()));
+      if (countTextCharacters(text) > room) {
+        event.preventDefault();
+        const fitting = truncateText(text, Math.max(room, 0));
+        if (type === "insertText" && fitting)
+          execCommand("insertText", fitting);
+        return;
+      }
+    }
+
     if (type === "insertParagraph" && range) {
-      if (cellOf(editor, range.startContainer)) {
+      const pre = closestIn(editor, range.startContainer, "pre");
+      if (pre) {
+        // Enter breaks the line of code - on the empty last line, it leaves
+        // the code block
+        event.preventDefault();
+        if (leaveCodeBlock(pre, range)) reportChange(null, true);
+        else execCommand("insertLineBreak");
+      } else if (cellOf(editor, range.startContainer)) {
         // A cell holds lines, not paragraphs
         event.preventDefault();
         execCommand("insertLineBreak");
@@ -1738,6 +2342,7 @@ export default function RichTextEditor({
   useLayoutEffect(() => {
     handleBeforeInputRef.current = handleBeforeInput;
     updateToolStateRef.current = updateToolState;
+    finishUploadRef.current = finishUpload;
   });
 
   useEffect(() => {
@@ -1763,23 +2368,116 @@ export default function RichTextEditor({
 
     getHistory(editor).beforeChange(saveSelection(editor, rangeIn(editor)));
     isComposing.current = true;
+    compositionCount.current =
+      limit === undefined ? 0 : countCharacters(editor);
+  };
+
+  /**
+   * Cuts what a composition went past `maxLength` by - the end of the
+   * composed text, before the caret. It cannot be stopped as it goes, like
+   * in a native field.
+   */
+  const cutComposition = (editor: HTMLElement) => {
+    if (limit === undefined) return;
+
+    const over =
+      countCharacters(editor) - Math.max(limit, compositionCount.current);
+    const range = rangeIn(editor);
+    if (over <= 0 || !range?.collapsed) return;
+    if (range.startContainer.nodeType !== Node.TEXT_NODE) return;
+
+    const text = range.startContainer as Text;
+    const start = Math.max(0, range.startOffset - over);
+    text.deleteData(start, range.startOffset - start);
+    const caret = document.createRange();
+    caret.setStart(text, start);
+    select(caret);
   };
 
   // The composed text is one step - joined with the typing right before
   const handleCompositionEnd = () => {
     isComposing.current = false;
+    const editor = editorRef.current;
+    if (editor) cutComposition(editor);
     reportChange("type", true);
+  };
+
+  /**
+   * Makes what a Markdown shortcut just typed makes - the typed text a step
+   * of the undo history of its own, so one undo brings it back. Returns
+   * whether there was one.
+   */
+  const runAutoformat = (typed: string) => {
+    const editor = editorRef.current;
+    const range = editor && rangeIn(editor);
+    const shortcut =
+      editor && range ? findAutoformat(editor, range, typed, tools) : null;
+    if (!editor || !range || !shortcut) return false;
+
+    const history = getHistory(editor);
+    const selection = saveSelection(editor, range);
+    history.record({ html: editor.innerHTML, selection }, "type");
+    history.beforeChange(selection);
+
+    const caret = applyAutoformat(editor, shortcut);
+    // The text typed after inline code is no code
+    pendingCode.current = caret ? { ...caret, on: false } : null;
+    reportChange(null, true);
+    return true;
+  };
+
+  const handleInput = (event: React.FormEvent<HTMLDivElement>) => {
+    const input = event.nativeEvent as InputEvent;
+    const typed = input.inputType === "insertText" ? input.data : null;
+    if (autoformat && typed && !isComposing.current) {
+      if (runAutoformat(typed.slice(-1))) return;
+    }
+    reportChange(changeKindOf(input), true);
+  };
+
+  // A click on an image selects it - for the image tool, which edits it;
+  // a double click opens the tool
+  const handleImageClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (
+      !isEditable ||
+      target.tagName !== "IMG" ||
+      target.hasAttribute(UPLOAD_ATTRIBUTE)
+    ) {
+      return;
+    }
+
+    selectImage(target as HTMLImageElement);
+    updateToolState();
+    if (event.detail === 2 && tools.includes("image")) openImageForm();
   };
 
   const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
     // The toolbar and the forms are part of the editor
     if (event.currentTarget.contains(event.relatedTarget)) return;
 
+    setIsFocused(false);
+    setCountAnnouncement("");
+
     // Whatever the value does not keep (formatting of a browser menu) leaves
-    // the editor too, so it shows what is submitted
+    // the editor too, so it shows what is submitted - not while an image
+    // uploads, whose placeholder it would take
     const editor = editorRef.current;
-    if (editor && linkUrl === null && tableForm === null) {
-      const sanitized = sanitizeEditorContent(editor.innerHTML, formats).html;
+    if (
+      editor &&
+      linkUrl === null &&
+      tableForm === null &&
+      imageForm === null
+    ) {
+      const sanitized =
+        uploadPlaceholdersIn(editor).length > 0
+          ? editor.innerHTML
+          : sanitizeEditorContent(
+              editor.innerHTML,
+              formats,
+              false,
+              allowImageDataUrls,
+            ).html;
       if (sanitized !== editor.innerHTML) {
         editor.innerHTML = sanitized;
         historyRef.current?.replaceCurrent(sanitized);
@@ -1808,15 +2506,20 @@ export default function RichTextEditor({
    */
   const sanitizeInserted = (html: string, range: Range | null) => {
     const editor = editorRef.current;
-    const blocks = sanitizeRichText(html, { formats });
+    const blocks = sanitizeRichText(html, { allowImageDataUrls, formats });
     if (!editor || !range) return blocks;
+
+    // A code block holds plain text - the lines of the content
+    if (closestIn(editor, range.startContainer, "pre")) {
+      return sanitizeRichTextLines(html, []);
+    }
 
     const cell = cellOf(editor, range.startContainer);
     if (cell) {
       const table = cell.closest("table") as HTMLElement;
       return isReplacedWhole(table, range)
         ? blocks
-        : sanitizeRichTextLines(html, formats);
+        : sanitizeRichTextLines(html, formats, allowImageDataUrls);
     }
 
     const target = textLineAt(editor, range.startContainer);
@@ -1836,26 +2539,91 @@ export default function RichTextEditor({
     }
 
     return target.kind === "quote" && kind !== "line"
-      ? sanitizeRichTextParagraphs(html, formats)
-      : sanitizeRichTextLines(html, formats);
+      ? sanitizeRichTextParagraphs(html, formats, allowImageDataUrls)
+      : sanitizeRichTextLines(html, formats, allowImageDataUrls);
+  };
+
+  /**
+   * The characters that can still be inserted in place of the selection -
+   * all of them without `maxLength`.
+   */
+  const roomAt = (editor: HTMLElement, range: Range | null) =>
+    limit === undefined
+      ? Infinity
+      : limit -
+        countCharacters(editor) +
+        (range ? countCharacters(range.cloneContents()) : 0);
+
+  /** Pasted or dropped HTML that fits into `maxLength` - cut after it. */
+  const fitHtml = (editor: HTMLElement, range: Range | null, html: string) => {
+    const room = roomAt(editor, range);
+    return countHtmlCharacters(html) > room
+      ? truncateHtml(html, Math.max(room, 0))
+      : html;
+  };
+
+  /**
+   * Uploads image files pasted or dropped where `range` is - not into a
+   * code block, which holds text. Returns whether they were taken.
+   */
+  const uploadDropped = (
+    editor: HTMLElement,
+    range: Range | null,
+    files: File[],
+  ) => {
+    if (!canUploadImages || files.length === 0) return false;
+    if (range && closestIn(editor, range.startContainer, "pre")) return true;
+
+    getHistory(editor).beforeChange(saveSelection(editor, range));
+    startUploads(files, range);
+    return true;
   };
 
   // Pasted pages and documents keep only the formatting of the editor, plain
-  // text is inserted as text - and images alone have no place in the text
+  // text is inserted as text - and image files are uploaded with
+  // `uploadImage`, without it they have no place in the text. What does not
+  // fit into `maxLength` is cut.
   const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
     const editor = editorRef.current;
-    if (!editor || disabled) return;
+    if (!editor || !isEditable) return;
     event.preventDefault();
 
     const pastedHtml = event.clipboardData.getData("text/html");
     const pastedText = event.clipboardData.getData("text/plain");
-    if (!pastedHtml && !pastedText) return;
-
     const range = rangeIn(editor);
+
+    // A screenshot, a copied image - the files, not their HTML of no text
+    const images = imageFilesOf(event.clipboardData);
+    if (
+      images.length > 0 &&
+      !pastedText.trim() &&
+      countHtmlCharacters(pastedHtml) === 0 &&
+      uploadDropped(editor, range, images)
+    ) {
+      return;
+    }
+
+    if (!pastedHtml && !pastedText) return;
+    // Nothing more fits - like a native field at its `maxLength`
+    const pastedCount = pastedHtml
+      ? countHtmlCharacters(pastedHtml)
+      : countTextCharacters(pastedText);
+    if (pastedCount > 0 && roomAt(editor, range) <= 0) return;
     getHistory(editor).beforeChange(saveSelection(editor, range));
 
-    if (pastedHtml) {
-      execCommand("insertHTML", sanitizeInserted(pastedHtml, range));
+    if (range && closestIn(editor, range.startContainer, "pre")) {
+      // A code block takes the lines of the text
+      execCommand(
+        "insertHTML",
+        pastedText
+          ? codeHtml(truncateText(pastedText, roomAt(editor, range)))
+          : fitHtml(editor, range, sanitizeInserted(pastedHtml, range)),
+      );
+    } else if (pastedHtml) {
+      execCommand(
+        "insertHTML",
+        fitHtml(editor, range, sanitizeInserted(pastedHtml, range)),
+      );
     } else {
       // Lines replacing a heading, list item or quoted line as a whole are
       // paragraphs, like pasted blocks - the browser would give the first
@@ -1870,7 +2638,10 @@ export default function RichTextEditor({
       ) {
         makeParagraphAt(editor, range);
       }
-      execCommand("insertText", pastedText);
+      execCommand(
+        "insertText",
+        truncateText(pastedText, roomAt(editor, rangeIn(editor))),
+      );
     }
     reportChange(null, true);
   };
@@ -1891,15 +2662,31 @@ export default function RichTextEditor({
     }
   };
 
-  // Dropped content from other pages is reduced like pasted content. Moving
-  // text within the editor and dropping plain text are left to the browser.
+  // Dropped content from other pages is reduced like pasted content, image
+  // files are uploaded like pasted ones. Moving text within the editor and
+  // dropping plain text are left to the browser.
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     const expectedDrag = ownDrag.current;
     ownDrag.current = null;
 
-    // Files have no place in the text
-    if (event.dataTransfer.files.length > 0) {
+    // Files have no place in the text - images uploaded with `uploadImage`
+    const files = Array.from(event.dataTransfer.files ?? []);
+    if (files.length > 0) {
       event.preventDefault();
+      const editor = editorRef.current;
+      const images = imageFilesOf(event.dataTransfer);
+      if (!editor || !canUploadImages || images.length === 0) return;
+
+      // Where they were dropped - or the selection, where the browser
+      // cannot tell
+      const range = caretRangeAt(event.clientX, event.clientY);
+      uploadDropped(
+        editor,
+        range && editor.contains(range.startContainer)
+          ? range
+          : getEditorRange(),
+        images,
+      );
       return;
     }
 
@@ -1914,14 +2701,17 @@ export default function RichTextEditor({
 
     const droppedHtml = event.dataTransfer.getData("text/html");
     const editor = editorRef.current;
-    if (!droppedHtml || !editor || disabled) return;
+    if (!droppedHtml || !editor || !isEditable) return;
 
     event.preventDefault();
     editor.focus();
     const range = caretRangeAt(event.clientX, event.clientY);
     select(range);
     getHistory(editor).beforeChange(saveSelection(editor, range));
-    execCommand("insertHTML", sanitizeInserted(droppedHtml, range));
+    execCommand(
+      "insertHTML",
+      fitHtml(editor, range, sanitizeInserted(droppedHtml, range)),
+    );
     reportChange(null, true);
   };
 
@@ -1955,16 +2745,8 @@ export default function RichTextEditor({
           id={labelId}
           onClick={() => editorRef.current?.focus()}
         >
-          {label}
-          {messages.form.labelSuffix}{" "}
-          {required && (
-            <span
-              aria-hidden="true"
-              className="text-danger-700 dark:text-danger-400"
-            >
-              *
-            </span>
-          )}
+          <span id={labelTextId}>{label}</span>
+          {messages.form.labelSuffix} {required && <RequiredMark />}
         </label>
       )}
 
@@ -1984,12 +2766,16 @@ export default function RichTextEditor({
           // tools show their own
           "relative form-control has-[.rich-text-editor:focus]:ring-2 has-[.rich-text-editor:focus]:ring-primary-500",
           disabled && "cursor-not-allowed opacity-50",
+          // Forced colors draw every border in one color - an outline makes
+          // the border of an invalid editor thicker
           error &&
-            "border-danger-500! has-[.rich-text-editor:focus]:ring-danger-500!",
+            "border-danger-500! has-[.rich-text-editor:focus]:ring-danger-500! forced-colors:outline-1",
         )}
       >
-        {/* Lets the browser enforce `required` on the editable element */}
-        {required && (
+        {/* Lets the browser enforce `required`, `maxLength` and uploads on
+            the editable element - read-only, it is not validated, like a
+            read-only native field */}
+        {validates && (
           <input
             aria-hidden="true"
             disabled={disabled}
@@ -1998,17 +2784,19 @@ export default function RichTextEditor({
             // The browser focuses an invalid field on submit - the user
             // belongs in the editor (the message still shows)
             onFocus={() => editorRef.current?.focus()}
-            required
+            readOnly={readOnly}
+            ref={validationRef}
+            required={required}
             style={hiddenValidationStyle}
             tabIndex={-1}
             type="text"
             value={content ? "valid" : ""}
           />
         )}
-        {items.length > 0 && (
+        {items.length > 0 && !readOnly && (
           <div
-            aria-label={label ?? (ariaLabelledBy ? undefined : ariaLabel)}
-            aria-labelledby={label ? undefined : ariaLabelledBy}
+            aria-label={label || ariaLabelledBy ? undefined : ariaLabel}
+            aria-labelledby={label ? labelTextId : ariaLabelledBy}
             className="border-b border-neutral-300 p-[3px] dark:border-neutral-700"
             onKeyDown={moveToolbarFocus}
             ref={toolbarRef}
@@ -2020,11 +2808,14 @@ export default function RichTextEditor({
                   const Icon = TOOL_ICONS[item];
                   const shortcut = SHORTCUTS[item];
                   const toolLabel = texts[item];
-                  const opensForm = item === "link" || item === "table";
+                  const opensForm =
+                    item === "link" || item === "table" || item === "image";
                   const isOpen =
                     item === "link"
                       ? linkUrl !== null
-                      : item === "table" && tableForm !== null;
+                      : item === "table"
+                        ? tableForm !== null
+                        : item === "image" && imageForm !== null;
 
                   return (
                     <ToolButton
@@ -2065,7 +2856,7 @@ export default function RichTextEditor({
           </div>
         )}
 
-        {toolState.hasTable && tools.includes("table") && (
+        {toolState.hasTable && tools.includes("table") && !readOnly && (
           <div
             aria-labelledby={tableLabelId}
             className="border-b border-neutral-300 bg-neutral-50 p-[3px] dark:border-neutral-700 dark:bg-neutral-900/50"
@@ -2113,7 +2904,7 @@ export default function RichTextEditor({
           </div>
         )}
 
-        {linkUrl !== null && !disabled && (
+        {linkUrl !== null && isEditable && (
           <div className="flex flex-wrap items-center gap-2 border-b border-neutral-300 p-2 dark:border-neutral-700">
             <label className="text-sm" htmlFor={linkInputId}>
               {texts.linkPrompt}
@@ -2169,7 +2960,95 @@ export default function RichTextEditor({
           </div>
         )}
 
-        {tableForm !== null && !disabled && (
+        {imageForm !== null && isEditable && (
+          <div
+            aria-label={texts.image}
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-neutral-300 p-2 dark:border-neutral-700"
+            onKeyDown={handleImageFormKeyDown}
+            role="group"
+          >
+            <label className="flex min-w-56 flex-1 items-center gap-1.5 text-sm">
+              {texts.imageUrl}
+              <input
+                aria-invalid={imageForm.isInvalid || undefined}
+                autoCapitalize="none"
+                // The focus goes to the URL of a new image - to the
+                // alternative text of one being edited
+                autoFocus={!imageForm.isEditing}
+                className={cn(
+                  "form-control min-w-0 flex-1 px-2 py-0.5 text-sm",
+                  imageForm.isInvalid &&
+                    "border-danger-500! focus:ring-danger-500!",
+                )}
+                onChange={(event) => {
+                  const url = event.target.value;
+                  setImageForm(
+                    (current) =>
+                      current && { ...current, isInvalid: false, url },
+                  );
+                }}
+                spellCheck={false}
+                // Also relative paths - no `url` type that would stop the
+                // form around with its own validation
+                type="text"
+                value={imageForm.url}
+              />
+            </label>
+            <label className="flex min-w-56 flex-1 items-center gap-1.5 text-sm">
+              {texts.imageAlt}
+              <input
+                autoFocus={imageForm.isEditing}
+                className="form-control min-w-0 flex-1 px-2 py-0.5 text-sm"
+                onChange={(event) => {
+                  const alt = event.target.value;
+                  setImageForm((current) => current && { ...current, alt });
+                }}
+                type="text"
+                value={imageForm.alt}
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={confirmImage} size="sm">
+                {messages.common.confirm}
+              </Button>
+              {canUploadImages && (
+                <>
+                  <Button
+                    onClick={() => fileInputRef.current?.click()}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {texts.uploadImage}
+                  </Button>
+                  <input
+                    accept="image/*"
+                    className="hidden"
+                    multiple
+                    onChange={handleImageFiles}
+                    ref={fileInputRef}
+                    tabIndex={-1}
+                    type="file"
+                  />
+                </>
+              )}
+              {imageForm.isEditing && (
+                <Button
+                  color="danger"
+                  onClick={removeImage}
+                  size="sm"
+                  variant="outline"
+                >
+                  {texts.removeImage}
+                </Button>
+              )}
+              <Button onClick={closeImageForm} size="sm" variant="outline">
+                {messages.common.cancel}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {tableForm !== null && isEditable && (
           <div
             aria-label={texts.insertTable}
             className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-neutral-300 p-2 dark:border-neutral-700"
@@ -2229,41 +3108,120 @@ export default function RichTextEditor({
         )}
 
         <div
+          {...props}
+          // While an image uploads
+          aria-busy={uploadCount > 0 || undefined}
           aria-describedby={
             joinTokens(errorId, descriptionId, ariaDescribedBy) || undefined
           }
           aria-disabled={disabled || undefined}
-          aria-invalid={error ? "true" : undefined}
+          aria-invalid={error ? "true" : props["aria-invalid"]}
           aria-label={textboxLabelledBy ? undefined : ariaLabel}
           aria-labelledby={textboxLabelledBy}
           aria-multiline="true"
           // Screen readers get the placeholder here - not from the CSS
           aria-placeholder={showsPlaceholder ? placeholder : undefined}
+          aria-readonly={readOnly || undefined}
           aria-required={required || undefined}
-          className="rich-text-editor rich-text min-h-50 p-3 text-sm focus:outline-none"
-          contentEditable={!disabled}
+          // Scrolls under the toolbar past `maxRows`
+          className={cn(
+            "rich-text-editor rich-text overflow-y-auto p-3 text-sm focus:outline-hidden",
+            resize && "resize-y",
+          )}
+          contentEditable={isEditable}
+          data-disabled={disabled ? "" : undefined}
           data-empty={showsPlaceholder ? "" : undefined}
-          data-placeholder={placeholder}
-          id={id}
-          onBlur={rememberSelection}
-          onCompositionEnd={handleCompositionEnd}
-          onCompositionStart={handleCompositionStart}
-          onDragStart={handleDragStart}
-          onDrop={handleDrop}
-          onFocus={handleFocus}
-          onInput={(event) =>
-            reportChange(changeKindOf(event.nativeEvent), true)
+          data-invalid={
+            error || isAriaInvalid(props["aria-invalid"]) ? "" : undefined
           }
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          ref={editorRef}
+          data-placeholder={placeholder}
+          data-readonly={readOnly ? "" : undefined}
+          id={id}
+          // The page's handlers first - preventing the default of a key,
+          // a paste or a drop skips the editor's
+          onBlur={rememberSelection}
+          onClick={(event) => {
+            props.onClick?.(event);
+            handleImageClick(event);
+          }}
+          onCompositionEnd={(event) => {
+            props.onCompositionEnd?.(event);
+            handleCompositionEnd();
+          }}
+          onCompositionStart={(event) => {
+            props.onCompositionStart?.(event);
+            handleCompositionStart();
+          }}
+          onDragStart={(event) => {
+            props.onDragStart?.(event);
+            if (!event.defaultPrevented) handleDragStart(event);
+          }}
+          onDrop={(event) => {
+            props.onDrop?.(event);
+            if (!event.defaultPrevented) handleDrop(event);
+          }}
+          onFocus={(event) => {
+            props.onFocus?.(event);
+            handleFocus();
+          }}
+          onInput={(event) => {
+            props.onInput?.(event);
+            handleInput(event);
+          }}
+          onKeyDown={(event) => {
+            props.onKeyDown?.(event);
+            if (!event.defaultPrevented) handleKeyDown(event);
+          }}
+          onPaste={(event) => {
+            props.onPaste?.(event);
+            if (!event.defaultPrevented) handlePaste(event);
+          }}
+          ref={editorCallbackRef}
           role="textbox"
+          style={{
+            maxHeight:
+              maxRows === undefined
+                ? undefined
+                : rowsHeight(Math.max(maxRows, minRows)),
+            minHeight: rowsHeight(minRows),
+            ...props.style,
+          }}
           suppressContentEditableWarning
           tabIndex={disabled ? -1 : 0}
         />
       </div>
 
-      <FormDescription id={descriptionId}>{description}</FormDescription>
+      {/* Told as an upload starts - its placeholder shows it */}
+      {canUploadImages && (
+        <span className="sr-only" role="status">
+          {uploadCount > 0 ? texts.imageUploading : ""}
+        </span>
+      )}
+      {uploadFailed && <FormError>{texts.imageUploadError}</FormError>}
+
+      {showCount ? (
+        <div className="flex items-start gap-2">
+          <FormDescription className="min-w-0 flex-1" id={descriptionId}>
+            {description}
+          </FormDescription>
+          <p
+            className={cn(
+              "ms-auto shrink-0 text-xs tabular-nums",
+              // One color or the other - with both, the CSS order decides
+              remaining !== undefined && remaining < 0
+                ? "text-danger-700 dark:text-danger-400"
+                : "text-neutral-500 dark:text-neutral-400",
+            )}
+          >
+            {counterText}
+          </p>
+          <span className="sr-only" role="status">
+            {countAnnouncement}
+          </span>
+        </div>
+      ) : (
+        <FormDescription id={descriptionId}>{description}</FormDescription>
+      )}
       {error && <FormError id={errorId}>{error}</FormError>}
     </div>
   );

@@ -36,17 +36,33 @@ export default function SheetPage() {
       <Example
         description={
           <p>
-            <code>side</code> is the edge it slides in from. A <code>left</code>{" "}
-            / <code>right</code> sheet is as tall as the screen and{" "}
-            <code>size</code> wide (the whole width on phones); a{" "}
-            <code>top</code> / <code>bottom</code> one is as tall as its
-            content, at most <code>size</code>. This one closes also on a click
-            on the backdrop - <code>closeOnBackdropClick</code>, off by default
-            so a stray click does not throw away a form being filled in.
+            <code>side</code> is the edge it slides in from - <code>start</code>{" "}
+            / <code>end</code> follow the writing direction of the page (
+            <code>end</code> is the right edge, the left one right to left),{" "}
+            <code>left</code> / <code>right</code> do not. A side sheet is as
+            tall as the screen and <code>size</code> wide (the whole width on
+            phones); a <code>top</code> / <code>bottom</code> one is as tall as
+            its content, at most <code>size</code>. This one closes also on a
+            click on the backdrop - <code>closeOnBackdropClick</code>, off by
+            default so a stray click does not throw away a form being filled in.
           </p>
         }
         name="sheet/sides"
         title="Sides"
+      />
+      <Example
+        description={
+          <p>
+            A <code>bottom</code> sheet can be swiped down by its header on a
+            touch screen, which shows a handle there: it follows the finger and
+            closes once let go far enough down (or flicked), else it goes back.
+            Users who prefer reduced motion see it fade out.{" "}
+            <code>swipeToClose={"{false}"}</code> turns it off;{" "}
+            <code>closeDisabled</code> keeps it in place.
+          </p>
+        }
+        name="sheet/bottom-sheet"
+        title="A bottom sheet, swiped away"
       />
       <Example
         description={
@@ -77,8 +93,21 @@ export default function SheetPage() {
             </li>
             <li>
               The page behind does not scroll, and the sheet is rendered into{" "}
-              <code>document.body</code>, above sticky headers and transformed
+              <code>document.body</code> (or the <code>portalContainer</code> of{" "}
+              <code>UIProvider</code>), above sticky headers and transformed
               parents. Toasts show above it and stay reachable with Tab.
+            </li>
+            <li>
+              <code>ref</code> and the other props go to the panel, which has{" "}
+              <code>data-state=&quot;open&quot;</code> or{" "}
+              <code>&quot;closed&quot;</code> - also while it slides in and out
+              - like its backdrop.
+            </li>
+            <li>
+              At an edge of a phone screen its header and footer keep clear of
+              the notch and the home indicator (with{" "}
+              <code>viewport-fit=cover</code>). <code>closeOnEscape</code> - on
+              by default - lets Escape close it.
             </li>
             <li>
               Controlled by <code>open</code>, it slides in and out; users who

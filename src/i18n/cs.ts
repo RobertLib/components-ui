@@ -24,8 +24,16 @@ export const cs: Locale = {
     accordion: {
       toggle: "Rozbalit nebo sbalit sekci",
     },
+    alert: {
+      close: "Zavřít upozornění",
+    },
     autocomplete: {
       clear: "Vymazat",
+      create: "Přidat „{value}“",
+      created: "Přidáno: „{value}“.",
+      createError: "„{value}“ se nepodařilo přidat.",
+      createHint: "{results}, nebo přidejte „{value}“",
+      creating: "Přidávání „{value}“…",
       emptyOption: "Bez výběru",
       listLabel: "Možnosti pro {label}",
       loadError: "Možnosti se nepodařilo načíst.",
@@ -37,6 +45,12 @@ export const cs: Locale = {
         many: "Vybrat lze nejvýše {count} možnosti.",
         other: "Vybrat lze nejvýše {count} možností.",
       },
+      moreSelected: {
+        one: "+{count} další",
+        few: "+{count} další",
+        many: "+{count} dalšího",
+        other: "+{count} dalších",
+      },
       noResults: "Žádné výsledky",
       resultCount: {
         one: "{count} výsledek",
@@ -44,6 +58,7 @@ export const cs: Locale = {
         many: "{count} výsledku",
         other: "{count} výsledků",
       },
+      selectAll: "Vybrat vše",
     },
     avatar: {
       more: {
@@ -60,9 +75,13 @@ export const cs: Locale = {
       },
       statusLabel: "{name}, {status}",
     },
+    badge: {
+      overflow: "{max}+",
+    },
     breadcrumbs: {
       home: "Domů",
       label: "Drobečková navigace",
+      showAll: "Zobrazit celou cestu",
     },
     calendar: {
       agenda: "Agenda",
@@ -92,11 +111,18 @@ export const cs: Locale = {
         other: "+{count} dalších",
       },
       moreLabel: "{more}, {day}",
+      moveCancelled: "Událost {title} je vrácena zpět.",
+      moved: "Událost {title} je přesunuta na {time}.",
+      moveStart:
+        "Událost {title} je zvednutá. Posuňte ji šipkami, položte klávesou Enter, vraťte klávesou Escape.",
       next: "Další",
       noEvents: "Žádné události",
       previous: "Předchozí",
       rangeSelected: "Vybráno: {range}",
+      resized: "Událost {title} je změněna na {time}.",
       resourceTime: "{resource}, {time}",
+      timelineDay: "Denní osa",
+      timelineWeek: "Týdenní osa",
       today: "Dnes",
       until: "do {time}",
       week: "Týden",
@@ -119,6 +145,19 @@ export const cs: Locale = {
     chip: {
       remove: "Odebrat",
     },
+    colorInput: {
+      alpha: "Krytí",
+      area: "Sytost a jas",
+      areaRole: "2D posuvník",
+      areaValue: "Sytost {saturation}, jas {brightness}",
+      eyeDropper: "Vybrat barvu z obrazovky",
+      hue: "Odstín",
+      hueValue: "{degrees}°",
+      invalid: "„{text}“ není barva. Zadejte ji třeba jako {example}.",
+      openPicker: "Vybrat barvu",
+      picker: "Výběr barvy",
+      swatches: "Předvolené barvy",
+    },
     colorScheme: {
       dark: "Tmavý",
       label: "Barevný režim",
@@ -140,6 +179,10 @@ export const cs: Locale = {
       results: "Výsledky",
       select: "vybrat",
       title: "Nabídka příkazů",
+    },
+    confirmDialog: {
+      ok: "OK",
+      typeToConfirm: "Pro potvrzení napište {text}",
     },
     copyButton: {
       copied: "Zkopírováno",
@@ -170,9 +213,20 @@ export const cs: Locale = {
       expandRow: "Rozbalit řádek",
       exportCsv: "Exportovat do CSV",
       filterColumn: "Filtr {label}",
+      filterFrom: "{label} od",
+      filterTo: "{label} do",
+      groupLabel: "{label}: {value}",
+      groupRowCount: {
+        one: "{count} řádek",
+        few: "{count} řádky",
+        many: "{count} řádku",
+        other: "{count} řádků",
+      },
       invalidNumber: "Zadejte číslo.",
       moveColumn: "Přesunout {label} (šipky)",
+      multiSortHint: "Shift+kliknutím přidáte sloupec do řazení",
       noData: "Žádná data",
+      noValue: "(prázdné)",
       openSearch: "Otevřít hledání",
       paginationLabel: "Stránkování – {label}",
       pinLeft: "Připnout {label} vlevo",
@@ -185,6 +239,7 @@ export const cs: Locale = {
       search: "Hledat",
       searchColumn: "Hledat {label}",
       selectAllRows: "Vybrat všechny řádky",
+      selectColumn: "Výběr",
       selectRow: "Vybrat řádek",
       selectedCount: {
         one: "Vybrána {count} položka",
@@ -220,6 +275,8 @@ export const cs: Locale = {
         },
       },
       sortBy: "Seřadit podle {label}",
+      sortOrder: { asc: "vzestupně", desc: "sestupně" },
+      sortPriority: "řazení {priority} z {count}, {order}",
       summary: {
         avg: "Průměr",
         count: "Počet",
@@ -228,6 +285,14 @@ export const cs: Locale = {
         sum: "Součet",
       },
       toggleFullScreen: "Přepnout na celou obrazovku",
+    },
+    dateCalendar: {
+      selectedDays: {
+        one: "Vybrán {count} den",
+        few: "Vybrány {count} dny",
+        many: "Vybráno {count} dne",
+        other: "Vybráno {count} dní",
+      },
     },
     dateRangePicker: {
       days: {
@@ -252,9 +317,11 @@ export const cs: Locale = {
       selectEnd: "Vyberte poslední den",
       selectRange: "Vyberte období",
       selectStart: "Vyberte první den",
+      unavailableInRange: "Období zahrnuje den {date}, který nelze vybrat.",
     },
     dateTimePicker: {
       clear: "Vymazat hodnotu",
+      clearButton: "Vymazat",
       hours: "Hodiny",
       invalidText: "„{text}“ není platná hodnota. Použijte formát {format}.",
       minutes: "Minuty",
@@ -264,6 +331,7 @@ export const cs: Locale = {
       openCalendar: "Otevřít kalendář",
       outOfRangeText: "„{text}“ je mimo povolený rozsah.",
       placeholderTokens: { WW: "TT", YYYY: "RRRR" },
+      presetsLabel: "Rychlý výběr",
       previousMonth: "Předchozí měsíc",
       previousYear: "Předchozí rok",
       rangeOverflow: "Zadejte hodnotu {max} nebo dřívější.",
@@ -273,6 +341,8 @@ export const cs: Locale = {
       selectMonth: "Vyberte měsíc",
       selectTime: "Vyberte čas",
       selectWeek: "Vyberte týden",
+      today: "Dnes",
+      unavailable: "{value} nelze vybrat.",
       week: "Týden {week}, {year}",
       year: "Rok",
     },
@@ -290,7 +360,20 @@ export const cs: Locale = {
       title: "Něco se pokazilo",
     },
     fileUpload: {
+      addedCount: {
+        one: "Byl přidán {count} soubor.",
+        few: "Byly přidány {count} soubory.",
+        many: "Bylo přidáno {count} souboru.",
+        other: "Bylo přidáno {count} souborů.",
+      },
+      cancelUpload: "Zrušit nahrávání souboru {name}",
       dropHint: "nebo sem přetáhněte",
+      failedCount: {
+        one: "Nepodařilo se nahrát {count} soubor.",
+        few: "Nepodařilo se nahrát {count} soubory.",
+        many: "Nepodařilo se nahrát {count} souboru.",
+        other: "Nepodařilo se nahrát {count} souborů.",
+      },
       fileTypeNotAccepted: "Soubory tohoto typu sem nelze nahrát.",
       maxFileSizeExceeded:
         "Maximální velikost souboru {size} MB byla překročena.",
@@ -300,10 +383,34 @@ export const cs: Locale = {
         many: "Připojit lze nejvýše {count} souboru.",
         other: "Připojit lze nejvýše {count} souborů.",
       },
+      moreFiles: {
+        one: "{count} další",
+        few: "{count} další",
+        many: "{count} dalšího",
+        other: "{count} dalších",
+      },
+      noFiles: "Žádné soubory",
+      queued: "Čeká na nahrání…",
+      refused: "{files}: {message}",
       remove: "Odebrat",
+      retry: "Zkusit znovu",
+      retryUpload: "Zkusit znovu nahrát soubor {name}",
       upload: "Nahrát",
+      uploadedCount: {
+        one: "Byl nahrán {count} soubor.",
+        few: "Byly nahrány {count} soubory.",
+        many: "Bylo nahráno {count} souboru.",
+        other: "Bylo nahráno {count} souborů.",
+      },
       uploadFailed: "Nahrávání se nezdařilo.",
       uploading: "Nahrávání…",
+      uploadingCount: {
+        one: "Nahrává se {count} soubor…",
+        few: "Nahrávají se {count} soubory…",
+        many: "Nahrává se {count} souboru…",
+        other: "Nahrává se {count} souborů…",
+      },
+      validationFailed: "Soubor se nepodařilo zkontrolovat.",
     },
     form: {
       labelSuffix: ":",
@@ -313,6 +420,9 @@ export const cs: Locale = {
     },
     input: {
       clear: "Vymazat",
+      maskIncomplete: "Zadejte celou hodnotu.",
+      passwordStrength: "Síla hesla: {strength}",
+      passwordStrengths: ["velmi nízká", "nízká", "střední", "dobrá", "vysoká"],
       showPassword: "Zobrazit heslo",
     },
     link: {
@@ -330,15 +440,28 @@ export const cs: Locale = {
     },
     pagination: {
       first: "První stránka",
+      go: "Přejít",
+      goTo: "Přejít na stránku",
       label: "Stránkování",
       last: "Poslední stránka",
       next: "Další stránka",
+      page: "Stránka {page}",
+      pageSize: "Na stránku",
       previous: "Předchozí stránka",
       range: "{from}–{to} z {total}",
     },
     pinInput: {
       character: "Znak {index} z {length}",
       digit: "Číslice {index} z {length}",
+    },
+    rating: {
+      none: "Bez hodnocení",
+      value: {
+        one: "{value} z {count} hvězdy",
+        few: "{value} z {count} hvězd",
+        many: "{value} z {count} hvězdy",
+        other: "{value} z {count} hvězd",
+      },
     },
     richTextEditor: {
       addColumnLeft: "Vložit sloupec vlevo",
@@ -350,6 +473,7 @@ export const cs: Locale = {
       bulletList: "Odrážkový seznam",
       clearFormatting: "Vymazat formátování",
       code: "Kód",
+      codeBlock: "Blok kódu",
       columns: "Sloupce",
       deleteColumn: "Odstranit sloupec",
       deleteRow: "Odstranit řádek",
@@ -358,6 +482,11 @@ export const cs: Locale = {
       heading2: "Nadpis 2",
       heading3: "Nadpis 3",
       horizontalRule: "Vodorovná čára",
+      image: "Obrázek",
+      imageAlt: "Alternativní text",
+      imageUploadError: "Obrázek se nepodařilo nahrát.",
+      imageUploading: "Nahrává se obrázek…",
+      imageUrl: "URL obrázku",
       indent: "Zvětšit odsazení",
       insertTable: "Vložit tabulku",
       italic: "Kurzíva",
@@ -372,12 +501,15 @@ export const cs: Locale = {
       outdent: "Zmenšit odsazení",
       paragraph: "Odstavec",
       redo: "Znovu",
+      removeImage: "Odebrat obrázek",
       removeLink: "Odebrat odkaz",
       rows: "Řádky",
       strikethrough: "Přeškrtnutí",
       table: "Tabulka",
       underline: "Podtržení",
       undo: "Zpět",
+      uploadImage: "Nahrát ze zařízení",
+      waitForUpload: "Počkejte, až se obrázek nahraje.",
     },
     select: {
       emptyOption: "Bez výběru",
@@ -386,6 +518,10 @@ export const cs: Locale = {
       rangeEnd: "do",
       rangeStart: "od",
       rangeValue: "{start} – {end}",
+    },
+    sparkline: {
+      label: "{label}: {summary}",
+      summary: "Od {first} do {last}, minimum {min}, maximum {max}",
     },
     splitButton: {
       moreOptions: "Další možnosti",
@@ -396,6 +532,10 @@ export const cs: Locale = {
     stepper: {
       completed: "Dokončeno",
       error: "Chyba",
+      optional: "Volitelný",
+    },
+    tabs: {
+      close: "Zavřít kartu",
     },
     tagsInput: {
       duplicate: "„{tag}“ už v seznamu je.",
@@ -430,8 +570,49 @@ export const cs: Locale = {
     toast: {
       close: "Zavřít oznámení",
     },
+    treeSelect: {
+      clear: "Vymazat",
+      more: {
+        one: "+{count} další",
+        few: "+{count} další",
+        many: "+{count} dalšího",
+        other: "+{count} dalších",
+      },
+      pathSeparator: " / ",
+      search: "Hledat",
+      searchPlaceholder: "Hledat…",
+    },
     treeView: {
+      beingMoved: "Přesouvá se",
+      cannotMove: "Položku „{item}“ nelze přesunout.",
+      dropAfter: "Za položku „{item}“",
+      dropAfterIn: "Za položku „{item}“ v položce „{parent}“",
+      dropBefore: "Před položku „{item}“",
+      dropInside: "Do položky „{item}“",
+      itemCount: {
+        one: "{count} položka",
+        few: "{count} položky",
+        many: "{count} položky",
+        other: "{count} položek",
+      },
       loadError: "Položky se nepodařilo načíst.",
+      moveCancelled: "Přesun zrušen.",
+      moved: "Položka „{item}“ je přesunuta.",
+      movedMany: {
+        one: "Přesunuta {count} položka.",
+        few: "Přesunuty {count} položky.",
+        many: "Přesunuto {count} položky.",
+        other: "Přesunuto {count} položek.",
+      },
+      moveInstructions:
+        "Místo vyberte šipkami nahoru a dolů, Enterem položku přesunete, Escapem přesun zrušíte.",
+      moving: "Přesouváte položku „{item}“.",
+      movingMany: {
+        one: "Přesouváte {count} položku.",
+        few: "Přesouváte {count} položky.",
+        many: "Přesouváte {count} položky.",
+        other: "Přesouváte {count} položek.",
+      },
       noItems: "Žádné položky",
       noMatches: "Žádné odpovídající položky",
       retry: "Zkusit znovu",

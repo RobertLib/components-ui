@@ -21,7 +21,9 @@ const FULL_TOOLBAR: RichTextToolbarItem[] = [
   "indent",
   "|",
   "blockquote",
+  "codeBlock",
   "link",
+  "image",
   "table",
   "horizontalRule",
   "|",
@@ -37,7 +39,8 @@ export default function FullToolbar() {
         "<blockquote><p>The rollback finished within 6 minutes.</p></blockquote>" +
         "<h3>Next steps</h3>" +
         "<ol><li>Fix the migration<ul><li>Add a test for empty tables</li></ul></li>" +
-        "<li>Deploy again on <u>Monday</u></li></ol>"
+        "<li>Deploy again on <u>Monday</u></li></ol>" +
+        "<pre><code>npm run migrate -- --dry-run</code></pre>"
       }
       label="Report"
       toolbar={FULL_TOOLBAR}

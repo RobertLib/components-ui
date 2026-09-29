@@ -20,6 +20,31 @@ export default function AlertPage() {
         name="alert/title"
         title="Title, no icon and conditional content"
       />
+      <Example
+        description={
+          <p>
+            <code>variant</code> is <code>subtle</code> by default - a tint with
+            a border; <code>solid</code> fills the alert with its color,{" "}
+            <code>outline</code> draws a colored border on the surface. Every
+            text stands out from its background by at least 4.5:1.
+          </p>
+        }
+        name="alert/variants"
+        title="Variants"
+      />
+      <Example
+        description={
+          <p>
+            <code>onClose</code> adds a close button at the end - named "Close
+            alert" in the language of the page; remove the alert in it. When the
+            button had the focus, the focus moves on to the next control of the
+            page once the alert is gone. <code>actions</code> are buttons under
+            the message - small ones fit best.
+          </p>
+        }
+        name="alert/dismissible"
+        title="Dismissible, with actions"
+      />
 
       <Section title="Accessibility">
         <Prose>

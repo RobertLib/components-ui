@@ -87,6 +87,12 @@ export interface NumberInputProps extends Omit<
    * label, description or error message.
    */
   className?: string;
+  /**
+   * Adds a button that empties the field while it has a value - not while
+   * it is disabled or read-only. `onChange` gets `null`, and the focus
+   * moves into the field.
+   */
+  clearable?: boolean;
   /** Initial value of an uncontrolled field - `null` for an empty one. */
   defaultValue?: number | null;
   /** Help text under the field - it describes the field for screen readers. */
@@ -108,10 +114,16 @@ export interface NumberInputProps extends Omit<
    * the digits.
    */
   formatOptions?: Intl.NumberFormatOptions;
-  /** Hides the step buttons - the keyboard still steps. */
+  /**
+   * Hides the step buttons - the keyboard still steps. A `readOnly` field
+   * has none either.
+   */
   hideStepper?: boolean;
-  /** Text of the `<label>` of the field. */
-  label?: string;
+  /**
+   * The `<label>` of the field - a text, or content like a text with an
+   * icon. Without a label give the field an `aria-label`.
+   */
+  label?: React.ReactNode;
   /**
    * The largest value - End sets it, and a larger typed value is lowered to
    * it when the field loses the focus. A larger value the field holds
@@ -173,6 +185,7 @@ export interface NumberInputProps extends Omit<
 export default function NumberInput({
   changeOnWheel = false,
   className,
+  clearable = false,
   defaultValue,
   description,
   dim = "md",
@@ -491,30 +504,32 @@ export default function NumberInput({
         tabIndex={-1}
         type="button"
       >
-        {/* Chevrons for a mouse, larger plus and minus for a finger */}
+        {/* Chevrons for a mouse, larger plus and minus for a finger. The
+            negative margins keep the two buttons from making a small field
+            taller than an Input - the icons draw a mark in their middle. */}
         {isUp ? (
           <ChevronUp
             aria-hidden="true"
-            className="pointer-coarse:hidden"
+            className="-my-1 pointer-coarse:hidden"
             size={chevronSizes[dim]}
           />
         ) : (
           <ChevronDown
             aria-hidden="true"
-            className="pointer-coarse:hidden"
+            className="-my-1 pointer-coarse:hidden"
             size={chevronSizes[dim]}
           />
         )}
         {isUp ? (
           <Plus
             aria-hidden="true"
-            className="hidden pointer-coarse:block"
+            className="-my-1 hidden pointer-coarse:block"
             size={signSizes[dim]}
           />
         ) : (
           <Minus
             aria-hidden="true"
-            className="hidden pointer-coarse:block"
+            className="-my-1 hidden pointer-coarse:block"
             size={signSizes[dim]}
           />
         )}
@@ -555,7 +570,9 @@ export default function NumberInput({
         aria-valuetext={value === null ? undefined : numberFormat.format(value)}
         autoCorrect="off"
         className={className}
-        controls={hideStepper ? undefined : stepper}
+        clearable={clearable}
+        // Nothing to step in a read-only field
+        controls={hideStepper || readOnly ? undefined : stepper}
         description={description}
         dim={dim}
         disabled={disabled}

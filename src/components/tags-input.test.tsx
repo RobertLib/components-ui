@@ -688,4 +688,53 @@ describe("TagsInput read-only", () => {
     await user.keyboard("{Enter}");
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
+
+  it("marks its input read-only for assistive technology and styling", () => {
+    render(<TagsInput defaultValue={["alpha"]} label="Tags" readOnly />);
+    const field = input();
+
+    expect(field).toHaveAttribute("aria-readonly", "true");
+    expect(field).toHaveAttribute("data-readonly");
+    // Still a tab stop - it can be read and its form submitted
+    expect(field).not.toHaveAttribute("tabindex", "-1");
+  });
+});
+
+describe("TagsInput dim and label", () => {
+  it("takes the sizes of Input", () => {
+    render(
+      <>
+        <TagsInput defaultValue={["a"]} dim="xs" label="Extra small" />
+        <TagsInput defaultValue={["b"]} dim="sm" label="Small" />
+        <TagsInput defaultValue={["c"]} label="Medium" />
+        <TagsInput defaultValue={["d"]} dim="lg" label="Large" />
+      </>,
+    );
+    const field = (name: string) =>
+      screen.getByRole("textbox", { name }).parentElement!;
+
+    expect(field("Extra small:")).toHaveClass("px-1", "py-0", "text-sm");
+    expect(field("Small:")).toHaveClass("px-1", "py-0.5", "text-sm");
+    expect(field("Medium:")).toHaveClass("px-2", "py-1", "text-base");
+    expect(field("Large:")).toHaveClass("px-3", "py-2", "text-lg");
+
+    // The values fit the line of the small fields
+    expect(removeButton("b").parentElement).toHaveClass("text-xs");
+    expect(removeButton("c").parentElement).toHaveClass("text-sm");
+  });
+
+  it("is named by a label with markup", () => {
+    render(
+      <TagsInput
+        label={
+          <>
+            Keywords <em>(optional)</em>
+          </>
+        }
+      />,
+    );
+    expect(
+      screen.getByRole("textbox", { name: "Keywords (optional):" }),
+    ).toBeInTheDocument();
+  });
 });

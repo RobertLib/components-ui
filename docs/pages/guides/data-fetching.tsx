@@ -153,7 +153,13 @@ export default function DataFetchingGuide() {
               Numbered pages: <code>toOffsetParams(query)</code> gives{" "}
               <code>page</code>, <code>pageSize</code> (also as{" "}
               <code>offset</code> / <code>limit</code>), sorting, search and
-              filters; the response brings the rows and <code>total</code>.
+              filters; the response brings the rows and <code>total</code>. The
+              table sorts by several columns (<code>multiSort</code>, sent as{" "}
+              <code>sort=department,-salary</code>) and filters several
+              departments and a salary range - <code>toFilterParams</code>{" "}
+              writes them as{" "}
+              <code>department=Sales&amp;department=Support</code> and{" "}
+              <code>salary[from]=50000</code>.
             </p>
           }
           name="guides/rest-table"

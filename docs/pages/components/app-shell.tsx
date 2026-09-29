@@ -153,6 +153,21 @@ export default function AppShellPage() {
             name), and the navbar is inside the <code>&lt;header&gt;</code> of
             the page - the banner landmark - not a navigation of its own.
           </p>
+          <p>
+            The drawer is at the start edge of the page - the right one in a
+            right-to-left page (<code>dir=&quot;rtl&quot;</code> on{" "}
+            <code>&lt;html&gt;</code>), where it slides in from the right and
+            the navbar and <code>&lt;main&gt;</code> make room on that side; the
+            panel icons of the toggle are mirrored. <code>ref</code> and the
+            other props go to the <code>&lt;nav&gt;</code> of the drawer, the
+            bar inside the <code>&lt;header&gt;</code> of the navbar and the{" "}
+            <code>&lt;main&gt;</code> of <code>AppShell</code>. For styling, the
+            drawer has <code>data-state=&quot;open&quot;</code> or{" "}
+            <code>&quot;closed&quot;</code> (slid out on a phone), and so do a
+            group of the menu and the toggle of the navbar, like their{" "}
+            <code>aria-expanded</code>. The current page keeps the system colors
+            of a selection in forced colors (Windows High Contrast).
+          </p>
         </Prose>
       </Section>
 

@@ -14,7 +14,10 @@ import MenuPopup from "./menu/menu-popup";
 import { pointRect, type AnchorRect, type Point } from "./menu/position";
 import { isSkippedEntry, type DropdownEntry } from "./menu/types";
 import {
+  getActiveElement,
   getDirection,
+  getElementByIdAt,
+  getEventTarget,
   getFocusReturnTargetsWithNeighbors,
   isEscapeKey,
   isInOverlayTree,
@@ -24,15 +27,22 @@ import {
   returnFocus,
   useOverlayLayer,
 } from "./overlay-stack";
+import { attachRef } from "../hooks/use-form-control";
+import { usePortalContainer } from "../providers/ui-context";
 
-export interface ContextMenuProps {
+export interface ContextMenuProps extends Omit<
+  React.ComponentProps<"div">,
+  "aria-label" | "children" | "ref"
+> {
   /** Accessible name of the menu, e.g. "Actions for report.pdf". */
   "aria-label"?: string;
   /**
    * The element the menu belongs to, e.g. a row. A single element gets the
-   * event handlers itself - it must pass them on to the DOM, as native
-   * elements and the library's components do; anything else is wrapped in
-   * a `<div>`. Make it focusable (`tabIndex={0}`) for the keyboard.
+   * event handlers itself - and `ref`, the `className` and the other props
+   * given to the context menu, merged with its own; it must pass them on
+   * to the DOM, as native elements and the library's components do.
+   * Anything else is wrapped in a `<div>` that gets them. Make it focusable
+   * (`tabIndex={0}`) for the keyboard.
    */
   children: React.ReactNode;
   /** The browser's own context menu shows instead. */
@@ -44,16 +54,51 @@ export interface ContextMenuProps {
   items: DropdownEntry[];
   /** Called when the menu opens or closes. */
   onOpenChange?: (open: boolean) => void;
+  /**
+   * The target - the element given as `children` (along with its own ref),
+   * or the `<div>` around anything else.
+   */
+  ref?: React.Ref<HTMLElement>;
 }
 
 interface TargetProps {
   className?: string;
+  "data-state"?: string;
   onContextMenu?: React.MouseEventHandler<HTMLElement>;
   onKeyDown?: React.KeyboardEventHandler<HTMLElement>;
   onPointerCancel?: React.PointerEventHandler<HTMLElement>;
   onPointerDown?: React.PointerEventHandler<HTMLElement>;
   onPointerMove?: React.PointerEventHandler<HTMLElement>;
   onPointerUp?: React.PointerEventHandler<HTMLElement>;
+  ref?: React.Ref<HTMLElement>;
+  style?: React.CSSProperties;
+}
+
+/**
+ * The props given to the context menu for its target, merged into the own
+ * props of a single element: event handlers both run (the element's
+ * first), the rest are the context menu's.
+ */
+function mergeTargetProps(
+  own: Record<string, unknown>,
+  given: Record<string, unknown>,
+) {
+  return Object.fromEntries(
+    Object.entries(given).map(([key, value]) => {
+      const ownValue = own[key];
+      return /^on[A-Z]/.test(key) &&
+        typeof value === "function" &&
+        typeof ownValue === "function"
+        ? [
+            key,
+            (...args: unknown[]) => {
+              ownValue(...args);
+              value(...args);
+            },
+          ]
+        : [key, value];
+    }),
+  );
 }
 
 interface OpenMenu {
@@ -187,38 +232,39 @@ function useLongPress(
  * of to the page.
  */
 function FocusRescue({
-  panelId,
+  findPanel,
   targets,
 }: {
-  panelId: string;
+  /** The panel - its ref is gone by the time it goes away. */
+  findPanel: () => HTMLElement | null;
   /** Where the focus goes, best first. */
   targets: HTMLElement[];
 }) {
-  const targetsRef = useRef(targets);
+  const callbacksRef = useRef({ findPanel, targets });
 
   useLayoutEffect(() => {
-    targetsRef.current = targets;
+    callbacksRef.current = { findPanel, targets };
   });
 
   useLayoutEffect(
     () => () => {
-      const panel = document.getElementById(panelId);
-      const active = document.activeElement;
+      const panel = callbacksRef.current.findPanel();
+      const active = getActiveElement();
       if (!active || !panel?.contains(active)) return;
 
       // A Dialog opened by the pick that closed the menu finds the focus on
       // the page body - it gives it back to where this focus would go
       noteFocusLoss(active);
 
-      const targets = targetsRef.current;
+      const { targets } = callbacksRef.current;
       queueMicrotask(() => {
-        const current = document.activeElement;
+        const current = getActiveElement();
         if (!panel.isConnected && (!current || current === document.body)) {
           returnFocus(targets);
         }
       });
     },
-    [panelId],
+    [],
   );
 
   return null;
@@ -229,21 +275,37 @@ function FocusRescue({
  * pointer by a right click, by a long press on touch screens, and from the
  * keyboard next to the focused element (Shift + F10 or the context menu
  * key). The items and keys are those of `Dropdown`; it closes on Escape, a
- * click outside, scrolling and resizing.
+ * click outside, scrolling and resizing. `ref` and the other props go to
+ * the target (see `children`), which has `data-state="open"` or `"closed"`;
+ * the menu has `data-state="open"`, the `data-side` and `data-align` it is
+ * shown at, and the data attributes of the menus on its items.
  */
 export default function ContextMenu({
   "aria-label": ariaLabel,
   children,
+  className,
   disabled = false,
   items,
+  onContextMenu,
+  onKeyDown,
   onOpenChange,
+  onPointerCancel,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  ref,
+  ...props
 }: ContextMenuProps) {
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const getPortalContainer = usePortalContainer();
 
   const generatedId = useId();
   const menuId = `context-menu-${generatedId}`;
   const panelId = `${menuId}-panel`;
+  // Before its ref is set, and as it goes away - in the document or the
+  // shadow root the menu is rendered into
+  const findPanel = () => getElementByIdAt(getPortalContainer(), panelId);
   const enabled = !disabled && items.some((entry) => !isSkippedEntry(entry));
   const isOpen = menu !== null && enabled;
 
@@ -254,7 +316,7 @@ export default function ContextMenu({
   const { childContext, id: layerId } = useOverlayLayer(isOpen, {
     getElements: () => [
       // Going away: the panel is still in the page, its ref is not
-      panelRef.current ?? document.getElementById(panelId),
+      panelRef.current ?? findPanel(),
     ],
     getFocusFallback: () => menu?.returnFocus,
   });
@@ -288,7 +350,7 @@ export default function ContextMenu({
     // Opened once already - on Android a long press fires `contextmenu` too
     if (menu) return;
 
-    const active = document.activeElement;
+    const active = getActiveElement();
     const focused =
       active instanceof HTMLElement && active !== document.body ? active : null;
     setMenu({
@@ -317,7 +379,7 @@ export default function ContextMenu({
         return;
       }
       event.preventDefault();
-      if (isInOverlayTree(layerId, document.activeElement)) {
+      if (isInOverlayTree(layerId, getActiveElement())) {
         giveFocusBackRef.current();
       }
       closeRef.current();
@@ -334,8 +396,10 @@ export default function ContextMenu({
   useEffect(() => {
     if (!isOpen) return;
 
+    // The path, not the target: in a shadow root the target seen here is
+    // its host
     const closeFromOutside = (event: Event) => {
-      if (!isInOverlayTree(layerId, event.target as Node)) closeRef.current();
+      if (!isInOverlayTree(layerId, getEventTarget(event))) closeRef.current();
     };
     const close = () => closeRef.current();
 
@@ -427,52 +491,79 @@ export default function ContextMenu({
     }
   };
 
-  // The consumer's handlers first - one that prevents the default keeps the
-  // menu closed
-  const targetHandlers = (props: TargetProps) => ({
+  // The consumer's handlers first - those of the element, then those given
+  // to the context menu. One that prevents the default keeps the menu
+  // closed.
+  const targetHandlers = (own: TargetProps) => ({
     onContextMenu: (event: React.MouseEvent<HTMLElement>) => {
-      props.onContextMenu?.(event);
+      own.onContextMenu?.(event);
+      onContextMenu?.(event as React.MouseEvent<HTMLDivElement>);
       handleContextMenu(event);
     },
     onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
-      props.onKeyDown?.(event);
+      own.onKeyDown?.(event);
+      onKeyDown?.(event as React.KeyboardEvent<HTMLDivElement>);
       handleKeyDown(event);
     },
     onPointerCancel: (event: React.PointerEvent<HTMLElement>) => {
-      props.onPointerCancel?.(event);
+      own.onPointerCancel?.(event);
+      onPointerCancel?.(event as React.PointerEvent<HTMLDivElement>);
       longPress.onPointerEnd(event);
     },
     onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
-      props.onPointerDown?.(event);
+      own.onPointerDown?.(event);
+      onPointerDown?.(event as React.PointerEvent<HTMLDivElement>);
       longPress.onPointerDown(event);
     },
     onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
-      props.onPointerMove?.(event);
+      own.onPointerMove?.(event);
+      onPointerMove?.(event as React.PointerEvent<HTMLDivElement>);
       longPress.onPointerMove(event);
     },
     onPointerUp: (event: React.PointerEvent<HTMLElement>) => {
-      props.onPointerUp?.(event);
+      own.onPointerUp?.(event);
+      onPointerUp?.(event as React.PointerEvent<HTMLDivElement>);
       longPress.onPointerEnd(event);
     },
   });
 
-  const target =
-    isValidElement<TargetProps>(children) && children.type !== Fragment ? (
-      cloneElement(children, {
-        ...targetHandlers(children.props),
-        className: cn(
-          children.props.className,
-          enabled && TOUCH_TARGET_CLASSES,
-        ),
-      })
-    ) : (
+  const state = isOpen ? "open" : "closed";
+  const touchClasses = enabled && TOUCH_TARGET_CLASSES;
+
+  let target: React.ReactNode;
+  if (isValidElement<TargetProps>(children) && children.type !== Fragment) {
+    const own = children.props;
+    target = cloneElement(children, {
+      ...mergeTargetProps(own as Record<string, unknown>, props),
+      ...targetHandlers(own),
+      className: cn(own.className, className, touchClasses),
+      // An own `data-state` of the element stays
+      "data-state": own["data-state"] ?? state,
+      style: props.style ? { ...own.style, ...props.style } : own.style,
+      // Its own ref, and the one given to the context menu
+      ref: (element: HTMLElement | null) => {
+        const detachOwn = attachRef(own.ref, element);
+        const detachGiven = attachRef(ref, element);
+        return () => {
+          detachOwn();
+          detachGiven();
+        };
+      },
+    });
+  } else {
+    target = (
       <div
-        className={enabled ? TOUCH_TARGET_CLASSES : undefined}
+        {...props}
+        className={cn(touchClasses, className) || undefined}
+        data-state={state}
+        // Typed for any element the target may be - a div is one
+        ref={ref as React.Ref<HTMLDivElement>}
         {...targetHandlers({})}
       >
         {children}
       </div>
     );
+  }
 
   return (
     <>
@@ -496,7 +587,7 @@ export default function ContextMenu({
               onClose={closeMenu}
             />
           </OverlayContext>
-          <FocusRescue panelId={panelId} targets={menu.returnTargets} />
+          <FocusRescue findPanel={findPanel} targets={menu.returnTargets} />
         </MenuPopup>
       )}
     </>

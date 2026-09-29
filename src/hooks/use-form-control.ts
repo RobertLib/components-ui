@@ -73,39 +73,46 @@ function readValue(element: FieldElement): FieldValue {
     : element.value;
 }
 
-/** The `value` property of `element` - its own or that of its prototype. */
-function findValueProperty(element: FieldElement) {
+type WatchedProperty = "checked" | "indeterminate" | "value";
+
+/** A property of `element` - its own or that of its prototype. */
+function findProperty(element: FieldElement, name: WatchedProperty) {
   for (
     let target: object | null = element;
     target;
     target = Object.getPrototypeOf(target)
   ) {
-    const descriptor = Object.getOwnPropertyDescriptor(target, "value");
+    const descriptor = Object.getOwnPropertyDescriptor(target, name);
     if (descriptor) return descriptor;
   }
   return undefined;
 }
 
 /**
- * Calls `onWrite` whenever a script sets the `value` of `element` - which
- * fires no event: React Hook Form's `register()`, `setValue()` and
- * `reset()` do so. Wraps the property the way React tracks it, and passes
- * every write on to it. Returns what stops the watch.
+ * Calls `onWrite` whenever a script sets the property `name` of `element` -
+ * which fires no event: React Hook Form's `register()`, `setValue()` and
+ * `reset()` set the `value` (the `checked` of a checkbox). Wraps the
+ * property the way React tracks it, and passes every write on to it.
+ * Returns what stops the watch.
  */
-function watchValueWrites(element: FieldElement, onWrite: () => void) {
-  const property = findValueProperty(element);
+function watchPropertyWrites(
+  element: FieldElement,
+  name: WatchedProperty,
+  onWrite: () => void,
+) {
+  const property = findProperty(element, name);
   const get = property?.get;
   const set = property?.set;
   if (!property || !get || !set) return () => {};
 
-  const own = Object.getOwnPropertyDescriptor(element, "value");
+  const own = Object.getOwnPropertyDescriptor(element, name);
   let active = true;
   const setValue = function (this: FieldElement, next: unknown) {
     set.call(this, next);
     if (active) onWrite();
   };
 
-  Object.defineProperty(element, "value", {
+  Object.defineProperty(element, name, {
     configurable: true,
     enumerable: property.enumerable,
     get() {
@@ -117,11 +124,11 @@ function watchValueWrites(element: FieldElement, onWrite: () => void) {
   return () => {
     active = false;
     // Wrapped once more meanwhile - that wrapper keeps calling this one
-    if (Object.getOwnPropertyDescriptor(element, "value")?.set !== setValue) {
+    if (Object.getOwnPropertyDescriptor(element, name)?.set !== setValue) {
       return;
     }
-    if (own) Object.defineProperty(element, "value", own);
-    else Reflect.deleteProperty(element, "value");
+    if (own) Object.defineProperty(element, name, own);
+    else Reflect.deleteProperty(element, name);
   };
 }
 
@@ -288,7 +295,7 @@ export function useFormControl<T extends FieldElement = FieldElement>({
       // writes the default value into it right then
       const stopWatching =
         element && followScriptWrites && holdsValue(element)
-          ? watchValueWrites(element, handleWrite)
+          ? watchPropertyWrites(element, "value", handleWrite)
           : undefined;
       const detachRef = attachRef(ref, element);
 
@@ -343,11 +350,65 @@ export function useFormControl<T extends FieldElement = FieldElement>({
 }
 
 /**
+ * Whether an `aria-invalid` of the page marks a field as invalid - `"true"`,
+ * `"grammar"`, `"spelling"`, not `"false"`.
+ */
+export const isAriaInvalid = (value: React.AriaAttributes["aria-invalid"]) =>
+  value !== undefined && value !== false && value !== "false";
+
+/**
+ * The `data-state` of a checkbox (a switch, an option of a group) - what it
+ * shows: `checked`, `unchecked` or `indeterminate` (partly checked).
+ */
+export const checkedState = (
+  checked: boolean | undefined,
+  indeterminate?: boolean,
+) => (indeterminate ? "indeterminate" : checked ? "checked" : "unchecked");
+
+/**
+ * Keeps the `data-state` of `checkbox` telling its state - also when the
+ * state changes without a render: a click on an uncontrolled checkbox, a
+ * reset of its form, a script setting `checked` (React Hook Form) or
+ * `indeterminate`. Returns what stops it.
+ */
+function watchCheckedState(checkbox: HTMLInputElement) {
+  const update = () => {
+    checkbox.dataset.state = checkedState(
+      checkbox.checked,
+      checkbox.indeterminate,
+    );
+  };
+  // The form resets its fields after the reset event
+  const updateAfterReset = () => setTimeout(update);
+
+  const stopChecked = watchPropertyWrites(checkbox, "checked", update);
+  const stopIndeterminate = watchPropertyWrites(
+    checkbox,
+    "indeterminate",
+    update,
+  );
+  const stopReset = checkbox.form
+    ? watchFormReset(checkbox.form, updateAfterReset)
+    : undefined;
+  checkbox.addEventListener("change", update);
+  update();
+
+  return () => {
+    checkbox.removeEventListener("change", update);
+    stopReset?.();
+    stopIndeterminate();
+    stopChecked();
+  };
+}
+
+/**
  * For a checkbox that works controlled (`checked` + `onChange`) and
  * uncontrolled (`defaultChecked`) like a native one: makes `form.reset()` -
  * also the one after a React form action - leave a controlled checkbox
  * showing `checked`. (An uncontrolled one goes back to `defaultChecked` by
- * itself.) Also sets `indeterminate`, which exists only as a DOM property.
+ * itself.) Also sets `indeterminate`, which exists only as a DOM property,
+ * and keeps `data-state` telling what the checkbox shows (`checkedState` -
+ * render it too, for the first paint and the server).
  *
  * Put the returned ref on the checkbox - it keeps its own `ref` prop working.
  */
@@ -372,11 +433,13 @@ export function useCheckedControl({
   const checkboxRef = useCallback(
     (checkbox: HTMLInputElement | null) => {
       element.current = checkbox;
+      const stopState = checkbox ? watchCheckedState(checkbox) : undefined;
       const detachRef = attachRef(ref, checkbox);
 
       return () => {
         element.current = null;
         detachRef();
+        stopState?.();
       };
     },
     [ref],
@@ -396,6 +459,13 @@ export function useCheckedControl({
       checkbox.indeterminate = false;
     }
     wasIndeterminate.current = indeterminate === true;
+
+    // A render writes the `data-state` of the props - the checkbox may show
+    // another one (an uncontrolled checkbox the user clicked)
+    checkbox.dataset.state = checkedState(
+      checkbox.checked,
+      checkbox.indeterminate,
+    );
   });
 
   return checkboxRef;

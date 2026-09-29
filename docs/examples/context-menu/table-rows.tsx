@@ -18,12 +18,12 @@ export default function TableRows() {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-md text-left text-sm">
+      <table className="w-full min-w-md text-start text-sm">
         <thead className="text-xs text-neutral-500 uppercase dark:text-neutral-400">
           <tr>
             <th className="px-3 py-2 font-semibold">Order</th>
             <th className="px-3 py-2 font-semibold">Customer</th>
-            <th className="px-3 py-2 text-right font-semibold">Total</th>
+            <th className="px-3 py-2 text-end font-semibold">Total</th>
           </tr>
         </thead>
         <tbody>
@@ -46,7 +46,7 @@ export default function TableRows() {
                   danger: true,
                   label: "Cancel the order",
                   onClick: () =>
-                    enqueueSnackbar(`${order.id} cancelled`, "error"),
+                    enqueueSnackbar(`${order.id} cancelled`, "danger"),
                 },
               ]}
               key={order.id}
@@ -57,7 +57,7 @@ export default function TableRows() {
                   the table and its rows */}
               <tr
                 className={cn(
-                  "border-t border-neutral-200 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-300 focus-visible:outline-solid dark:border-neutral-800",
+                  "border-t border-neutral-200 outline-hidden focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-300 focus-visible:outline-solid dark:border-neutral-800",
                   menuFor === order.id &&
                     "bg-primary-50 dark:bg-primary-950/50",
                 )}
@@ -65,7 +65,7 @@ export default function TableRows() {
               >
                 <td className="px-3 py-2 font-medium">{order.id}</td>
                 <td className="px-3 py-2">{order.customer}</td>
-                <td className="px-3 py-2 text-right tabular-nums">
+                <td className="px-3 py-2 text-end tabular-nums">
                   {money.format(order.total)}
                 </td>
               </tr>

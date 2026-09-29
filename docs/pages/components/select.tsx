@@ -34,6 +34,35 @@ export default function SelectPage() {
         name="select/groups"
         title="Groups, disabled options and a description"
       />
+      <Example
+        description={
+          <p>
+            A native select has no <code>readonly</code> - <code>readOnly</code>{" "}
+            makes one: the list stays closed at a click or a touch, the keys
+            that open it or change the value (the arrows, Space, Enter, typed
+            letters) do nothing, and a change assistive technology makes is
+            taken back. Unlike a <code>disabled</code> select it keeps the focus
+            and is submitted with its form; like a read-only input it is not
+            checked by <code>required</code> - the user could not fix it. It is{" "}
+            <code>aria-readonly</code>, has <code>data-readonly</code> for your
+            styles and shows no arrow. The <code>label</code> takes content, as
+            that of <code>Input</code>.
+          </p>
+        }
+        name="select/read-only"
+        title="Read-only"
+      />
+      <Example
+        description={
+          <p>
+            The arrow, and the room the text leaves for it, are at the end of
+            the field - on the left in a right-to-left page. A multiple select
+            is a list box and shows no arrow.
+          </p>
+        }
+        name="select/rtl"
+        title="Right to left"
+      />
 
       <Section title="When to use Autocomplete instead">
         <Prose>

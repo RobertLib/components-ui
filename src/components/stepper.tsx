@@ -34,6 +34,12 @@ export interface StepperStep {
    */
   isCompleted?: boolean;
   /**
+   * The step can be skipped - the localized "Optional" under its title in
+   * the vertical layout, in its tooltip in the horizontal one; screen
+   * readers hear it with the step.
+   */
+  optional?: boolean;
+  /**
    * Name of the step - shown next to it in the vertical layout, as its
    * tooltip in the horizontal one.
    */
@@ -69,6 +75,7 @@ const getStepIds = (prefix: string, index: number) => ({
   buttonId: `${prefix}-${index}-button`,
   contentId: `${prefix}-${index}-content`,
   descriptionId: `${prefix}-${index}-description`,
+  optionalId: `${prefix}-${index}-optional`,
   stateId: `${prefix}-${index}-state`,
 });
 
@@ -101,7 +108,9 @@ interface StepState {
 /**
  * The circle of a step - its color tells the state. The number in it
  * stands out by at least 4.5:1: white on the shades 600, the gray of a step
- * to come on the surface.
+ * to come on the surface. Forced colors mode drops the fills - the current
+ * step is filled with the color of a selection then, the steps behind it
+ * with the color of the text.
  */
 const circleClassName = ({ hasError, isActive, isCompleted }: StepState) =>
   cn(
@@ -111,9 +120,13 @@ const circleClassName = ({ hasError, isActive, isCompleted }: StepState) =>
         isActive && !hasError,
       "scale-110 border-danger-600 bg-danger-600 text-white shadow-lg":
         isActive && hasError,
+      "forced-colors:border-[Highlight] forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]":
+        isActive,
       "border-primary-600 bg-primary-600 text-white":
         isCompleted && !isActive && !hasError,
       "border-danger-600 bg-danger-600 text-white": hasError && !isActive,
+      "forced-colors:bg-[CanvasText] forced-colors:text-[Canvas]":
+        (isCompleted || hasError) && !isActive,
       "border-neutral-300 bg-surface text-neutral-500 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-400":
         !isActive && !isCompleted && !hasError,
     },
@@ -179,7 +192,9 @@ function StepMarker({
  * Progress through a multi-step flow, e.g. a wizard form - a compact row, or
  * a column with the titles, descriptions and the content of the current
  * step. Besides its color, a step tells screen readers whether it is the
- * current one, completed or failed.
+ * current one, completed or failed. The root has `data-orientation` (the
+ * layout shown), the current step `data-current` and a step that cannot be
+ * clicked `data-disabled`.
  */
 export default function Stepper({
   className,
@@ -258,6 +273,7 @@ export default function Stepper({
     return {
       ...ids,
       describedBy: joinIds(
+        step.optional ? ids.optionalId : undefined,
         step.description ? ids.descriptionId : undefined,
         state ? ids.stateId : undefined,
       ),
@@ -307,6 +323,11 @@ export default function Stepper({
           const tooltip = (
             <span aria-hidden="true" className="block">
               {step.title}
+              {step.optional && (
+                <span className="block text-xs font-normal text-neutral-300">
+                  {messages.stepper.optional}
+                </span>
+              )}
               {step.description && (
                 <span className="block font-normal text-neutral-300">
                   {step.description}
@@ -315,7 +336,7 @@ export default function Stepper({
             </span>
           );
           const stepClassName = cn(circleClassName(info), {
-            "cursor-pointer hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500":
+            "cursor-pointer hover:scale-105 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500":
               info.isClickable,
             "cursor-not-allowed": isNavigable && !info.isClickable,
           });
@@ -345,12 +366,19 @@ export default function Stepper({
                       aria-describedby={info.describedBy}
                       aria-label={info.label}
                       className={stepClassName}
+                      data-current={info.isActive ? "" : undefined}
+                      data-disabled={info.isClickable ? undefined : ""}
                       disabled={!info.isClickable}
                       id={info.buttonId}
                       onClick={() => handleStepClick(step.id)}
                       type="button"
                     >
                       {stepContent}
+                      {step.optional && (
+                        <span className="sr-only" id={info.optionalId}>
+                          {messages.stepper.optional}
+                        </span>
+                      )}
                       {step.description && (
                         <span className="sr-only" id={info.descriptionId}>
                           {step.description}
@@ -366,9 +394,15 @@ export default function Stepper({
                     <div
                       aria-current={info.isActive ? "step" : undefined}
                       className={stepClassName}
+                      data-current={info.isActive ? "" : undefined}
                     >
                       {stepContent}
                       <span className="sr-only">{info.label}</span>
+                      {step.optional && (
+                        <span className="sr-only">
+                          , {messages.stepper.optional}
+                        </span>
+                      )}
                       {info.state && (
                         <span className="sr-only">, {info.state}</span>
                       )}
@@ -400,7 +434,7 @@ export default function Stepper({
       {/* A new step brings new content - nothing carried over from the last */}
       {currentStep && hasContent(currentStep.content) && (
         <Fragment key={currentStep.id}>
-          {renderContent(currentStep, currentStepIndex, "focus:outline-none")}
+          {renderContent(currentStep, currentStepIndex, "focus:outline-hidden")}
         </Fragment>
       )}
     </>
@@ -424,6 +458,17 @@ export default function Stepper({
               isActive={info.isActive}
               number={info.number}
             />
+          </span>
+        );
+
+        // Under the title - in the name of a step that is no button
+        const optional = step.optional && (
+          <span
+            className="mt-0.5 block text-xs text-neutral-500 dark:text-neutral-400"
+            id={isNavigable ? info.optionalId : undefined}
+          >
+            {!isNavigable && <span className="sr-only">, </span>}
+            {messages.stepper.optional}
           </span>
         );
 
@@ -457,9 +502,11 @@ export default function Stepper({
                 className={cn(
                   "group -m-1 flex items-start gap-3 rounded-lg p-1 pe-2 text-start",
                   info.isClickable
-                    ? "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                    ? "cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500"
                     : "cursor-not-allowed",
                 )}
+                data-current={info.isActive ? "" : undefined}
+                data-disabled={info.isClickable ? undefined : ""}
                 disabled={!info.isClickable}
                 id={info.buttonId}
                 onClick={() => handleStepClick(step.id)}
@@ -468,6 +515,7 @@ export default function Stepper({
                 {circle}
                 <span className="min-w-0 flex-1 pt-2">
                   <span className={titleClassName(info)}>{step.title}</span>
+                  {optional}
                   {description}
                 </span>
                 {info.state && (
@@ -480,6 +528,7 @@ export default function Stepper({
               <div
                 aria-current={info.isActive ? "step" : undefined}
                 className="flex items-start gap-3"
+                data-current={info.isActive ? "" : undefined}
               >
                 {circle}
                 <span className="min-w-0 flex-1 pt-2">
@@ -490,6 +539,7 @@ export default function Stepper({
                       <span className="sr-only">, {info.state}</span>
                     )}
                   </span>
+                  {optional}
                   {description}
                 </span>
               </div>
@@ -497,7 +547,7 @@ export default function Stepper({
 
             {hasContent(step.content) && (
               <CollapsibleContent isOpen={info.isActive}>
-                {renderContent(step, index, "ps-12 pt-3 focus:outline-none")}
+                {renderContent(step, index, "ps-12 pt-3 focus:outline-hidden")}
               </CollapsibleContent>
             )}
           </li>
@@ -510,6 +560,7 @@ export default function Stepper({
     <div
       {...props}
       className={cn("mb-6", className)}
+      data-orientation={isVertical ? "vertical" : "horizontal"}
       onBlur={handleBlur}
       onFocus={handleFocus}
     >

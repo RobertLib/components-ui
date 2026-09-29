@@ -1,6 +1,6 @@
-import { clickableTileProps } from "./utils";
 import cn from "../../utils/cn";
 import EventActions from "./event-actions";
+import { toISODate } from "../../utils/date";
 
 export interface EventTileProps extends Omit<
   React.ComponentProps<"div">,
@@ -16,10 +16,31 @@ export interface EventTileProps extends Omit<
   clickable: boolean;
   /** Classes of the element holding `children`. */
   contentClassName?: string;
+  /**
+   * The day the tile is on - with `eventId` it tells the tile of a moved
+   * event among the tiles of its days.
+   */
+  eventDay?: Date;
+  /** The id of the event - on the button, as `data-event-id`. */
+  eventId?: string;
   /** Resize handles - placed on the tile, over its button. */
   handles?: React.ReactNode;
+  /** `aria-keyshortcuts` of the button - the key that picks the event up. */
+  keyShortcuts?: string;
   /** The title and time of the event - the accessible name of the tile. */
   label: string;
+  /**
+   * The keys can pick the event up - the tile has a button (that takes the
+   * focus) also when it opens nothing.
+   */
+  movable?: boolean;
+  /** The focus left the button of the tile. */
+  onButtonBlur?: (event: React.FocusEvent<HTMLElement>) => void;
+  /**
+   * The keys of the button of the tile, before its own - Enter and Space
+   * open the event unless the handler prevents their default.
+   */
+  onButtonKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void;
   /** Opens the event - a click, or Enter or Space on the button. */
   onOpen: () => void;
 }
@@ -39,8 +60,14 @@ export default function EventTile({
   className,
   clickable,
   contentClassName,
+  eventDay,
+  eventId,
   handles,
+  keyShortcuts,
   label,
+  movable = false,
+  onButtonBlur,
+  onButtonKeyDown,
   onOpen,
   ...props
 }: EventTileProps) {
@@ -62,12 +89,31 @@ export default function EventTile({
         if (clickable) onOpen();
       }}
     >
-      {clickable ? (
+      {clickable || movable ? (
         <div
           aria-describedby={describedBy}
+          aria-keyshortcuts={keyShortcuts}
           aria-label={label}
-          className="absolute inset-0 rounded-[inherit] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-inset"
-          {...clickableTileProps(onOpen)}
+          className="absolute inset-0 rounded-[inherit] focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-inset"
+          data-event-day={eventDay && toISODate(eventDay)}
+          data-event-id={eventId}
+          onBlur={onButtonBlur}
+          // Enter or Space open it like a click
+          onKeyDown={(event) => {
+            onButtonKeyDown?.(event);
+            if (
+              event.defaultPrevented ||
+              !clickable ||
+              event.target !== event.currentTarget ||
+              (event.key !== "Enter" && event.key !== " ")
+            ) {
+              return;
+            }
+            event.preventDefault();
+            onOpen();
+          }}
+          role="button"
+          tabIndex={0}
         />
       ) : (
         <span className="sr-only">{label}</span>

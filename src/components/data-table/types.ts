@@ -1,11 +1,30 @@
-import type { DataTableQuery } from "./query";
+import type { DataTableFilterValue, DataTableQuery } from "./query";
 
 export type RowId = string | number;
 
+/**
+ * The filter field of a column: `input` (a text the cell contains),
+ * `select` (one of `filterSelectOptions`), `multiSelect` (any of the
+ * options picked), `date` / `time` / `datetime` (a day, a time, a moment),
+ * `numberRange` (a number from - to), `dateRange` (days from - to) or
+ * `custom` (`customFilter`). See `DataTableFilterValue` for the values.
+ */
 export type ColumnFilter =
-  "input" | "select" | "date" | "time" | "datetime" | "custom";
+  | "input"
+  | "select"
+  | "multiSelect"
+  | "date"
+  | "time"
+  | "datetime"
+  | "numberRange"
+  | "dateRange"
+  | "custom";
 
-/** The edge a column sticks to while the table scrolls sideways. */
+/**
+ * The edge a column sticks to while the table scrolls sideways - `left` is
+ * the start of a row, `right` its end: the other way round in a table laid
+ * out right to left.
+ */
 export type ColumnPin = "left" | "right";
 
 /**
@@ -58,11 +77,15 @@ export interface CellEditorProps<T> {
 export interface Column<T> {
   /**
    * Renders the filter of a `filter: "custom"` column - call
-   * `handleFilterChange(column.key, value)` with the new value.
+   * `handleFilterChange(column.key, value)` with the new value: a text, a
+   * list of texts or a range (see `DataTableFilterValue`). `filterValue` is
+   * the value as a text - `""` for none, a list or a range, which come as
+   * `value`.
    */
   customFilter?: (
-    handleFilterChange: (key: string, value: string) => void,
+    handleFilterChange: (key: string, value: DataTableFilterValue) => void,
     filterValue: string,
+    value: DataTableFilterValue | undefined,
   ) => React.ReactNode;
   /** Lets the content overflow `maxWidth` instead of clipping it. */
   disableOverflow?: boolean;
@@ -94,11 +117,16 @@ export interface Column<T> {
   /** Filter field shown under the header label. */
   filter?: ColumnFilter;
   /**
-   * `clientSide` only: decides whether a row matches the filter value -
-   * replaces the default matching of the filter type.
+   * `clientSide` only: decides whether a row matches the filter - replaces
+   * the default matching of the filter type. `filterValue` is the value as
+   * a text - `""` for a list or a range, which come as `value`.
    */
-  filterFn?: (row: T, filterValue: string) => boolean;
-  /** Options of a `filter: "select"` column. */
+  filterFn?: (
+    row: T,
+    filterValue: string,
+    value: DataTableFilterValue,
+  ) => boolean;
+  /** Options of a `filter: "select"` or `"multiSelect"` column. */
   filterSelectOptions?: { label: string; value: string | number }[];
   /**
    * The value of the cell for client-side sorting, filtering and searching -
@@ -127,6 +155,8 @@ export interface Column<T> {
   /**
    * Sticks the column to the left or right edge while the table scrolls
    * sideways - the user can pin and unpin columns in the column settings.
+   * Right to left, `left` sticks it to the start - the right edge - and
+   * `right` to the left one.
    */
   pinned?: ColumnPin;
   /** Content of the cell - defaults to the value as text. */
@@ -160,6 +190,49 @@ export interface Column<T> {
   width?: number;
 }
 
+/**
+ * Columns under a common header - an entry of `columns` with `children`
+ * adds a header row above theirs, the group spanning its columns. The
+ * columns are reordered within their group; a group split by pinning shows
+ * its header over each part.
+ */
+export interface ColumnGroup<T> {
+  /** The columns of the group - columns, not other groups. */
+  children: Column<T>[];
+  /** Unique key of the group - apart from the keys of the columns. */
+  key: string;
+  /** Header text of the group. */
+  label: string;
+  /** Full name of the group in the native tooltip of its header. */
+  labelTitle?: string;
+}
+
+/** An entry of the `columns` of a `DataTable` - a column or a group of them. */
+export type DataTableColumn<T> = Column<T> | ColumnGroup<T>;
+
+/**
+ * The column settings of the user - only what differs from the columns'
+ * definitions, so that a column added or changed later follows its
+ * definition. `onColumnStateChange` reports it, `columnState` or
+ * `defaultColumnState` take it back, e.g. from a server.
+ */
+export interface DataTableColumnState {
+  /** Keys of the columns in the order the user arranged them - `[]` for theirs. */
+  order?: string[];
+  /** Columns the user pinned (or unpinned - `false`) against their `pinned`. */
+  pinning?: Record<string, ColumnPin | false>;
+  /** Columns the user showed or hid against their `visible`. */
+  visibility?: Record<string, boolean>;
+  /** Widths in pixels of the columns the user resized. */
+  widths?: Record<string, number>;
+}
+
+/**
+ * How many rows can be selected - `none`, `single` (checking a row
+ * unchecks the other one) or `multiple`.
+ */
+export type DataTableSelectionMode = "none" | "single" | "multiple";
+
 export interface GroupActionSelection<T> {
   /**
    * Every row matching the current filters is selected, not just the loaded
@@ -177,6 +250,11 @@ export interface GroupActionSelection<T> {
    * are not selected. Empty otherwise.
    */
   excludedRows: T[];
+  /**
+   * Ids of the selected rows - also of rows not loaded (a `selectedIds` of
+   * other pages); with `allFiltered` those of the loaded selected rows.
+   */
+  ids: RowId[];
   /**
    * The query the rows were selected under - its `filters` and `search` let
    * a server find all the rows of an `allFiltered` selection.

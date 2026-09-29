@@ -1,7 +1,16 @@
 import { cn } from "../utils/cn";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { attachRef } from "../hooks/use-form-control";
 
-export interface CollapsibleContentProps {
+/**
+ * Props of `CollapsibleContent` - also the attributes of its animated
+ * wrapper (`style`, `data-*`, `aria-*`, event handlers), which gets the
+ * `ref` too.
+ */
+export interface CollapsibleContentProps extends Omit<
+  React.ComponentProps<"div">,
+  "children" | "hidden"
+> {
   /** Classes of the animated wrapper. */
   className?: string;
   /** Length of the height animation in milliseconds. */
@@ -12,6 +21,12 @@ export interface CollapsibleContentProps {
   id?: string;
   /** Whether the content is shown - a change animates it in or out. */
   isOpen: boolean;
+  /**
+   * Keeps closed content in the page, `hidden` - its state stays, e.g.
+   * what was typed into a form in it. By default closed content is
+   * unmounted.
+   */
+  keepMounted?: boolean;
 }
 
 // Users who asked the system for less motion see the content at once
@@ -21,9 +36,11 @@ const prefersReducedMotion = () =>
 
 /**
  * Animates its children in and out by height. Closed content is unmounted
- * once the animation ends; open content is clipped only while it animates,
- * so the focus rings and shadows at its edges show. Without animation for
- * users who prefer reduced motion.
+ * once the animation ends - or hidden, with `keepMounted`; open content is
+ * clipped only while it animates, so the focus rings and shadows at its
+ * edges show. Without animation for users who prefer reduced motion. The
+ * wrapper has `data-state="open"` or `"closed"` - closed already while it
+ * animates out.
  */
 export default function CollapsibleContent({
   className,
@@ -31,6 +48,10 @@ export default function CollapsibleContent({
   children,
   id,
   isOpen,
+  keepMounted = false,
+  ref,
+  style,
+  ...props
 }: CollapsibleContentProps) {
   const [isVisible, setIsVisible] = useState(isOpen);
 
@@ -112,19 +133,32 @@ export default function CollapsibleContent({
     return () => timers.forEach(clearTimeout);
   }, [duration, isOpen]);
 
-  if (!isVisible && !isOpen) {
+  const isHidden = !isVisible && !isOpen;
+
+  if (isHidden && !keepMounted) {
     return null;
   }
 
   return (
     <div
+      {...props}
       className={cn(
         "transition-all ease-in-out motion-reduce:transition-none",
         className,
       )}
+      data-state={isOpen ? "open" : "closed"}
+      hidden={isHidden}
       id={id}
-      ref={contentRef}
+      ref={(element) => {
+        contentRef.current = element;
+        const detachRef = attachRef(ref, element);
+        return () => {
+          contentRef.current = null;
+          detachRef();
+        };
+      }}
       style={{
+        ...style,
         transitionDuration: `${duration}ms`,
       }}
     >

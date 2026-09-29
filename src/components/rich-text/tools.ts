@@ -7,9 +7,11 @@ export type RichTextTool =
   | "bulletList"
   | "clearFormatting"
   | "code"
+  | "codeBlock"
   | "heading2"
   | "heading3"
   | "horizontalRule"
+  | "image"
   | "indent"
   | "italic"
   | "link"
@@ -27,7 +29,7 @@ export type RichTextToolbarItem = RichTextTool | "|";
 
 /**
  * The toolbar of `RichTextEditor` when `toolbar` is left out - everything
- * but inline code, horizontal rules and tables.
+ * but inline code, code blocks, horizontal rules, tables and images.
  */
 export const DEFAULT_RICH_TEXT_TOOLBAR: readonly RichTextToolbarItem[] = [
   "undo",
@@ -59,9 +61,11 @@ const FORMATS: readonly RichTextFormat[] = [
   "bold",
   "bulletList",
   "code",
+  "codeBlock",
   "heading2",
   "heading3",
   "horizontalRule",
+  "image",
   "italic",
   "link",
   "numberedList",

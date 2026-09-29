@@ -72,7 +72,7 @@ describe("Calendar with resources and recurring events on the server", () => {
     },
   ];
 
-  it.each(["week", "day", "agenda"] as const)(
+  it.each(["week", "day", "agenda", "timelineDay", "timelineWeek"] as const)(
     "renders the same markup the browser hydrates (%s view)",
     async (view) => {
       const calendar = (
@@ -202,4 +202,42 @@ describe("Calendar navigation bounds on the server", () => {
     act(() => root.unmount());
     container.remove();
   });
+});
+
+describe("Calendar now indicator on the server", () => {
+  it.each(["week", "day", "timelineDay"] as const)(
+    "draws the current time only once hydrated (%s view)",
+    async (view) => {
+      // Only the clock - the timers of React stay real
+      vi.useFakeTimers({ now: d(24, 10, 30), toFake: ["Date"] });
+      const calendar = (
+        <Calendar
+          businessHours
+          hiddenDays={[0, 6]}
+          initialDate={d(24)}
+          initialView={view}
+          slotDuration={15}
+        />
+      );
+
+      const html = renderToString(calendar);
+      // The clock and the time zone of the server may differ
+      expect(html).not.toContain("data-now-indicator");
+
+      const container = document.createElement("div");
+      container.innerHTML = html;
+      document.body.append(container);
+      const onRecoverableError = vi.fn();
+
+      const root = await act(async () =>
+        hydrateRoot(container, calendar, { onRecoverableError }),
+      );
+      expect(onRecoverableError).not.toHaveBeenCalled();
+      expect(container.querySelector("[data-now-indicator]")).not.toBeNull();
+
+      act(() => root.unmount());
+      container.remove();
+      vi.useRealTimers();
+    },
+  );
 });

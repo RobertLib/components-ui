@@ -6,15 +6,36 @@ import { useMessages } from "../providers/ui-context";
 
 export type AvatarSize = "sm" | "md" | "lg" | "xl";
 
-export interface AvatarProps extends React.ComponentProps<"div"> {
+export type AvatarColor =
+  "primary" | "secondary" | "success" | "danger" | "warning" | "info";
+
+export type AvatarShape = "circle" | "square";
+
+export interface AvatarProps extends Omit<
+  React.ComponentProps<"div">,
+  "color"
+> {
   /**
    * Alternative text of the image - and the name of the initials; defaults
    * to `name`. An empty one marks the avatar as decorative, e.g. next to the
    * name written out.
    */
   alt?: string;
+  /**
+   * Color of the initials - `auto` picks one of the palettes by the `name`,
+   * always the same one for a name, so that the people of a list are told
+   * apart.
+   * @default "primary"
+   */
+  color?: AvatarColor | "auto";
   /** Shown as initials when there is no image (or it fails to load). */
   name?: string;
+  /**
+   * `square` - rounded corners, e.g. for a company or a project rather
+   * than a person.
+   * @default "circle"
+   */
+  shape?: AvatarShape;
   /** Diameter: 24, 32, 48 or 64 px. */
   size?: AvatarSize;
   /** URL of a profile picture. */
@@ -36,6 +57,52 @@ const sizeClasses: Record<AvatarSize, string> = {
   xl: "h-16 w-16 text-xl",
 };
 
+// The corners of a square avatar grow with it
+const squareClasses: Record<AvatarSize, string> = {
+  sm: "rounded",
+  md: "rounded-md",
+  lg: "rounded-lg",
+  xl: "rounded-xl",
+};
+
+// The initials stand out from their background by at least 4.5:1, in the
+// light and the dark
+const colorClasses: Record<AvatarColor, string> = {
+  danger:
+    "bg-danger-100 text-danger-800 dark:bg-danger-900 dark:text-danger-100",
+  info: "bg-info-100 text-info-800 dark:bg-info-900 dark:text-info-100",
+  primary:
+    "bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-200",
+  secondary:
+    "bg-secondary-200 text-secondary-800 dark:bg-secondary-700 dark:text-secondary-100",
+  success:
+    "bg-success-100 text-success-800 dark:bg-success-900 dark:text-success-100",
+  warning:
+    "bg-warning-100 text-warning-800 dark:bg-warning-900 dark:text-warning-100",
+};
+
+// The order `auto` picks from - neighbors apart in hue
+const AUTO_COLORS: AvatarColor[] = [
+  "primary",
+  "success",
+  "warning",
+  "info",
+  "danger",
+  "secondary",
+];
+
+/**
+ * The color of `name` - the same on the server and in every browser, so
+ * that a person keeps it (a simple hash of the characters).
+ */
+function getAvatarColor(name: string): AvatarColor {
+  let hash = 0;
+  for (const character of name.normalize("NFC")) {
+    hash = (hash * 31 + (character.codePointAt(0) ?? 0)) >>> 0;
+  }
+  return AUTO_COLORS[hash % AUTO_COLORS.length];
+}
+
 const iconSizes: Record<AvatarSize, number> = {
   sm: 24,
   md: 32,
@@ -53,9 +120,9 @@ const statusSizeClasses: Record<AvatarSize, string> = {
 // A shape of each besides the color, which stands out from the surface
 // around the dot by at least 3:1 (WCAG 1.4.11)
 const statusClasses: Record<NonNullable<AvatarProps["status"]>, string> = {
-  // A crescent - the surface cuts a circle out of it
-  away: "overflow-hidden bg-warning-700 after:absolute after:-top-[15%] after:-left-[15%] after:size-[70%] after:rounded-full after:bg-surface dark:bg-warning-500 dark:after:bg-surface-dark",
-  busy: "bg-danger-500 after:absolute after:top-1/2 after:left-1/2 after:h-[20%] after:min-h-0.5 after:w-1/2 after:-translate-1/2 after:rounded-full after:bg-white",
+  // A crescent - the surface cuts a circle out of it (at the start)
+  away: "overflow-hidden bg-warning-700 after:absolute after:-start-[15%] after:-top-[15%] after:size-[70%] after:rounded-full after:bg-surface dark:bg-warning-500 dark:after:bg-surface-dark",
+  busy: "bg-danger-500 after:absolute after:inset-x-1/4 after:top-1/2 after:h-[20%] after:min-h-0.5 after:-translate-y-1/2 after:rounded-full after:bg-white",
   offline:
     "border-2 border-neutral-500 bg-surface dark:border-neutral-500 dark:bg-surface-dark",
   online: "bg-success-600 dark:bg-success-500",
@@ -99,7 +166,9 @@ function getInitials(name: string) {
 export default function Avatar({
   alt,
   className,
+  color = "primary",
   name,
+  shape = "circle",
   size = "sm",
   src,
   status,
@@ -123,6 +192,8 @@ export default function Avatar({
           status: statusText,
         })
       : label;
+  const isSquare = shape === "square";
+  const initialsColor = color === "auto" ? getAvatarColor(name ?? "") : color;
 
   return (
     <div
@@ -130,13 +201,13 @@ export default function Avatar({
       role={isNamedImage ? "img" : undefined}
       {...props}
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full",
+        "inline-flex shrink-0 items-center justify-center",
+        isSquare ? squareClasses[size] : "rounded-full",
         // The status dot sits on the edge of the circle - nothing may clip it
         status ? "relative" : "overflow-hidden",
         (showImage || initials) && sizeClasses[size],
         initials &&
-          !showImage &&
-          "bg-primary-100 font-semibold text-primary-700 dark:bg-primary-900 dark:text-primary-200",
+          !showImage && ["font-semibold", colorClasses[initialsColor]],
         className,
       )}
       // The tooltip says what the name says - a different text would be
@@ -147,7 +218,10 @@ export default function Avatar({
         <img
           // The name of the whole avatar says it
           alt={isNamedImage ? "" : (alt ?? name ?? "")}
-          className={cn("h-full w-full object-cover", status && "rounded-full")}
+          className={cn(
+            "h-full w-full object-cover",
+            status && "rounded-[inherit]",
+          )}
           onError={() => setFailedSrc(src)}
           src={src}
         />
@@ -161,7 +235,11 @@ export default function Avatar({
           // A decorative avatar still tells the status
           aria-label={isNamedImage ? undefined : statusText}
           className={cn(
-            "absolute end-0 bottom-0 rounded-full ring-2 ring-surface dark:ring-surface-dark",
+            // Its colors and shapes stay in forced colors mode, which would
+            // drop the fills
+            "absolute rounded-full ring-2 ring-surface forced-color-adjust-none dark:ring-surface-dark",
+            // On the edge of a circle - on the corner of a square
+            isSquare ? "-end-0.5 -bottom-0.5" : "end-0 bottom-0",
             statusSizeClasses[size],
             statusClasses[status],
           )}

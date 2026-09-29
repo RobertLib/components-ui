@@ -9,7 +9,7 @@ export interface HeaderProps extends Omit<
   React.ComponentProps<"div">,
   "title"
 > {
-  /** Buttons on the right side. */
+  /** Buttons at the end of the row (the right side). */
   actions?: React.ReactNode;
   /** Rendered right next to the title, outside the heading - e.g. a search field. */
   afterTitle?: React.ReactNode;
@@ -30,7 +30,10 @@ export interface HeaderProps extends Omit<
   title: React.ReactNode;
 }
 
-/** The heading row of a page: optional back arrow, title and actions. */
+/**
+ * The heading row of a page: optional back arrow, title and actions. `ref`
+ * and the other props go to the row.
+ */
 export default function Header({
   actions,
   afterTitle,
@@ -61,7 +64,8 @@ export default function Header({
             // and a router's may read one as where to go
             onClick={() => (onBack ? onBack() : router.back())}
           >
-            <ArrowLeft size={24} />
+            {/* Back is towards the start - to the right, right to left */}
+            <ArrowLeft className="rtl:-scale-x-100" size={24} />
           </IconButton>
         )}
         <Heading className="text-3xl font-medium">

@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
@@ -631,6 +631,211 @@ describe("CheckboxGroup", () => {
     expect(onBlur).toHaveBeenCalledTimes(1);
   });
 
+  describe("read-only", () => {
+    it("keeps the picks on a click and on Space, focusable", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <CheckboxGroup
+          defaultValue={["sms"]}
+          label="Channels"
+          onChange={onChange}
+          options={channels}
+          readOnly
+          selectAll
+        />,
+      );
+
+      await user.click(checkbox("Email"));
+      expect(checkbox("Email")).not.toBeChecked();
+      expect(checkbox("Email")).toHaveFocus();
+      await user.keyboard(" ");
+      expect(checkbox("Email")).not.toBeChecked();
+      await user.click(screen.getByText("SMS"));
+      expect(checkbox("SMS")).toBeChecked();
+
+      // "Select all" is read-only too - and stays partly checked
+      await user.click(checkbox("Select all"));
+      expect(checkbox("Select all")).toBePartiallyChecked();
+
+      expect(onChange).not.toHaveBeenCalled();
+      for (const input of screen.getAllByRole("checkbox")) {
+        expect(input).toHaveAttribute("aria-readonly", "true");
+        expect(input).toBeEnabled();
+      }
+    });
+
+    it("submits the picks without validating them", () => {
+      render(
+        <form aria-label="Settings">
+          <CheckboxGroup
+            defaultValue={["email", "push"]}
+            label="Channels"
+            max={1}
+            name="channels"
+            options={channels}
+            readOnly
+          />
+        </form>,
+      );
+
+      const formElement = getForm();
+      expect(new FormData(formElement).getAll("channels")).toEqual([
+        "email",
+        "push",
+      ]);
+      // More than max - but nothing could be changed about it
+      expect(formElement.checkValidity()).toBe(true);
+      // No option is disabled for the limit, and nothing is said about it
+      expect(checkbox("SMS")).toBeEnabled();
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    });
+  });
+
+  describe("cards", () => {
+    const plans = [
+      {
+        description: "For one person",
+        icon: <svg data-testid="icon" />,
+        label: "Personal",
+        value: "personal",
+      },
+      { label: <strong>Team</strong>, value: "team" },
+      { disabled: true, label: "Enterprise", value: "enterprise" },
+    ];
+
+    it("shows each option as a card named by its label, described by its description", () => {
+      render(<CheckboxGroup label="Plans" options={plans} variant="card" />);
+
+      const personal = checkbox("Personal");
+      expect(personal).toHaveAccessibleDescription("For one person");
+      expect(checkbox("Team")).toHaveAccessibleName("Team");
+      // The icon is decorative
+      expect(screen.getByTestId("icon").parentElement).toHaveAttribute(
+        "aria-hidden",
+        "true",
+      );
+      const card = personal.closest("label")!;
+      expect(card).toHaveClass(
+        "rounded-lg",
+        "border",
+        "has-checked:border-primary-500",
+      );
+      expect(card).toHaveClass("has-focus-visible:outline-2");
+      expect(card).toContainElement(screen.getByText("For one person"));
+    });
+
+    it("toggles a card by a click anywhere on it and by Space", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <CheckboxGroup
+          label="Plans"
+          onChange={onChange}
+          options={plans}
+          variant="card"
+        />,
+      );
+
+      await user.click(screen.getByText("For one person"));
+      expect(checkbox("Personal")).toBeChecked();
+      expect(onChange).toHaveBeenLastCalledWith(["personal"]);
+
+      await user.tab();
+      expect(checkbox("Team")).toHaveFocus();
+      await user.keyboard(" ");
+      expect(onChange).toHaveBeenLastCalledWith(["personal", "team"]);
+
+      expect(checkbox("Enterprise")).toBeDisabled();
+      expect(checkbox("Enterprise").closest("label")).toHaveClass(
+        "cursor-not-allowed",
+      );
+    });
+
+    it("lays the cards out in a grid - in columns, or in a row that wraps", () => {
+      render(
+        <>
+          <CheckboxGroup
+            aria-label="Columns"
+            columns={3}
+            options={channels}
+            variant="card"
+          />
+          <CheckboxGroup
+            aria-label="Row"
+            options={channels}
+            orientation="horizontal"
+            variant="card"
+          />
+        </>,
+      );
+
+      const listOf = (name: string) =>
+        within(screen.getByRole("group", { name }))
+          .getByRole("checkbox", { name: "Email" })
+          .closest("label")!.parentElement!;
+      expect(listOf("Columns")).toHaveClass(
+        "grid",
+        "sm:grid-cols-[repeat(var(--cui-columns),minmax(0,1fr))]",
+      );
+      expect(listOf("Columns").style.getPropertyValue("--cui-columns")).toBe(
+        "3",
+      );
+      expect(listOf("Row")).toHaveClass(
+        "grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))]",
+      );
+    });
+
+    it("marks the cards invalid with an error", () => {
+      render(
+        <CheckboxGroup
+          error="Pick one"
+          label="Plans"
+          options={plans}
+          variant="card"
+        />,
+      );
+
+      expect(checkbox("Personal").closest("label")).toHaveClass(
+        "border-danger-500",
+      );
+      expect(checkbox("Personal")).toHaveAttribute("aria-invalid", "true");
+    });
+  });
+
+  it("takes any content as the label of the group and of an option", () => {
+    render(
+      <CheckboxGroup
+        label={
+          <>
+            Channels <em>(any)</em>
+          </>
+        }
+        options={[{ label: <b>Email</b>, value: "email" }]}
+      />,
+    );
+
+    expect(screen.getByRole("group")).toHaveAccessibleName("Channels (any):");
+    expect(checkbox("Email")).toBeInTheDocument();
+  });
+
+  it("puts an icon before the label of a plain option", () => {
+    render(
+      <CheckboxGroup
+        aria-label="Channels"
+        options={[
+          { icon: <svg data-testid="icon" />, label: "Email", value: "email" },
+        ]}
+      />,
+    );
+
+    expect(checkbox("Email")).toHaveAccessibleName("Email");
+    expect(screen.getByTestId("icon").parentElement).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
+  });
+
   it("renders on the server and hydrates without a mismatch", async () => {
     const group = (
       <CheckboxGroup
@@ -654,6 +859,13 @@ describe("CheckboxGroup", () => {
       container.querySelector<HTMLInputElement>("input[value='sms']")
         ?.defaultChecked,
     ).toBe(true);
+    // The states for styling are in the page before it is hydrated
+    expect(
+      container.querySelector("input[value='sms']")?.getAttribute("data-state"),
+    ).toBe("checked");
+    expect(
+      container.querySelector("fieldset")?.getAttribute("data-orientation"),
+    ).toBe("vertical");
 
     const onRecoverableError = vi.fn();
     const root = await act(async () =>

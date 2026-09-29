@@ -1,6 +1,10 @@
 import { useCallback, useState, useSyncExternalStore } from "react";
 import logger from "../../utils/logger";
-import type { ColumnPin, DataTableDensity } from "./types";
+import type {
+  ColumnPin,
+  DataTableColumnState,
+  DataTableDensity,
+} from "./types";
 
 /**
  * The user's table settings - only what differs from the columns' and the
@@ -98,7 +102,37 @@ function parseState(saved: unknown): TableState {
   };
 }
 
-const isEmptyState = (state: TableState) =>
+/**
+ * The column settings of a `DataTableColumnState` - of `columnState`, which
+ * may come from a server: values it cannot use are left out.
+ */
+export function fromColumnState(
+  columnState: DataTableColumnState | null | undefined,
+): Omit<TableState, "density"> {
+  const state = parseState({
+    columnOrder: columnState?.order,
+    columnPinning: columnState?.pinning ?? {},
+    columnVisibility: columnState?.visibility,
+    columnWidths: columnState?.widths,
+  });
+
+  return {
+    columnOrder: state.columnOrder,
+    columnPinning: state.columnPinning,
+    columnVisibility: state.columnVisibility,
+    columnWidths: state.columnWidths,
+  };
+}
+
+/** The `DataTableColumnState` of the settings - what `onColumnStateChange` gets. */
+export const toColumnState = (state: TableState): DataTableColumnState => ({
+  order: state.columnOrder,
+  pinning: state.columnPinning,
+  visibility: state.columnVisibility,
+  widths: state.columnWidths,
+});
+
+export const isEmptyState = (state: TableState) =>
   state.columnOrder.length === 0 &&
   Object.keys(state.columnPinning).length === 0 &&
   Object.keys(state.columnVisibility).length === 0 &&
@@ -130,7 +164,7 @@ function readSaved(tableId: string) {
 // snapshot stays the same object as long as the text does
 const snapshots = new Map<
   string,
-  { saved: string | null; state: TableState }
+  { saved: string | null; state: TableState | null }
 >();
 
 // Settings that could not be saved (blocked or full storage) - they last
@@ -139,8 +173,11 @@ const unsaved = new Map<string, TableState>();
 
 const listeners = new Set<() => void>();
 
-/** The settings of a table - those saved, or those that could not be saved. */
-function getTableState(tableId: string): TableState {
+/**
+ * The settings saved for a table, or those that could not be saved - `null`
+ * when there are none.
+ */
+function getSavedState(tableId: string): TableState | null {
   const unsavedState = unsaved.get(tableId);
   if (unsavedState) return unsavedState;
 
@@ -148,20 +185,26 @@ function getTableState(tableId: string): TableState {
   const snapshot = snapshots.get(tableId);
   if (snapshot?.saved === saved) return snapshot.state;
 
-  let state = EMPTY_TABLE_STATE;
+  let state: TableState | null = null;
   try {
     if (saved) state = parseState(JSON.parse(saved));
   } catch (error) {
     logger.error("Failed to load table state from localStorage", error);
+    state = EMPTY_TABLE_STATE;
   }
 
   snapshots.set(tableId, { saved, state });
   return state;
 }
 
-function setTableState(tableId: string, state: TableState) {
+/**
+ * Saves the settings of a table. Settings without any change are removed -
+ * unless `keepEmpty`: the table has settings of its own to fall back to,
+ * which a reset must not bring back on the next visit.
+ */
+function setTableState(tableId: string, state: TableState, keepEmpty: boolean) {
   try {
-    if (isEmptyState(state)) {
+    if (isEmptyState(state) && !keepEmpty) {
       localStorage.removeItem(storageKey(tableId));
     } else {
       localStorage.setItem(storageKey(tableId), JSON.stringify(state));
@@ -188,24 +231,28 @@ function subscribe(listener: () => void) {
 
 // The server has no localStorage - it renders the default columns, which is
 // also what the page hydrates with before switching to the saved ones
-const getServerSnapshot = () => EMPTY_TABLE_STATE;
+const getServerSnapshot = () => null;
 
 /**
  * The settings of a table (column order, visibility, pinning and widths,
- * row density), remembered in `localStorage` under `tableId`. Include the
- * user in `tableId` when several people share a browser.
+ * row density), remembered in `localStorage` under `tableId` - or
+ * `initialState` while nothing is saved there. Include the user in
+ * `tableId` when several people share a browser.
  */
 export default function useTableState(
   tableId: string | undefined,
+  initialState: TableState = EMPTY_TABLE_STATE,
 ): [TableState, (state: Partial<TableState>) => void] {
   // Without an id the settings last as long as the table
-  const [localState, setLocalState] = useState(EMPTY_TABLE_STATE);
+  const [localState, setLocalState] = useState(initialState);
+  // The settings to fall back to - those of the first render
+  const [fallback] = useState(initialState);
 
   // Read while rendering in the browser, so a client-rendered table shows
   // the saved columns from its first render on
   const storedState = useSyncExternalStore(
     subscribe,
-    () => (tableId ? getTableState(tableId) : EMPTY_TABLE_STATE),
+    () => (tableId ? getSavedState(tableId) : null),
     getServerSnapshot,
   );
 
@@ -213,13 +260,17 @@ export default function useTableState(
     (changes: Partial<TableState>) => {
       if (tableId) {
         // On the latest settings - several changes may come in a row
-        setTableState(tableId, { ...getTableState(tableId), ...changes });
+        setTableState(
+          tableId,
+          { ...(getSavedState(tableId) ?? fallback), ...changes },
+          !isEmptyState(fallback),
+        );
       } else {
         setLocalState((previous) => ({ ...previous, ...changes }));
       }
     },
-    [tableId],
+    [fallback, tableId],
   );
 
-  return [tableId ? storedState : localState, updateState];
+  return [tableId ? (storedState ?? fallback) : localState, updateState];
 }

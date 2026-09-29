@@ -31,7 +31,7 @@ async function handleDelete() {
 export default function ConfirmDialogPage() {
   return (
     <DocPage
-      imports={["ConfirmDialog", "ConfirmProvider", "useConfirm"]}
+      imports={["ConfirmDialog", "ConfirmProvider", "useAlert", "useConfirm"]}
       title="ConfirmDialog"
     >
       <Example
@@ -57,6 +57,20 @@ export default function ConfirmDialogPage() {
         }
         name="confirm-dialog/from-menu"
         title="From a menu"
+      />
+      <Example
+        description={
+          <p>
+            For a destructive action that cannot be undone,{" "}
+            <code>confirmationText</code> asks the user to type a text - the
+            name of what is deleted - before the confirm button enables. The
+            field says so in the active locale (&quot;Type … to confirm&quot;),
+            is empty at every opening and takes the focus; the text must match
+            exactly, case too, and Enter in the field confirms once it does.
+          </p>
+        }
+        name="confirm-dialog/type-to-confirm"
+        title="Typing to confirm"
       />
 
       <Section title="Asking with useConfirm">
@@ -98,6 +112,22 @@ export default function ConfirmDialogPage() {
           name="confirm-dialog/async-confirm"
           title="Running the action in the dialog"
         />
+        <Example
+          description={
+            <p>
+              <code>useAlert()</code> returns <code>alert(options)</code>: a
+              message with an OK button only (<code>alert</code> of{" "}
+              <code>ConfirmDialog</code>, labelled in the active locale), which
+              resolves once the user has closed it - with OK, the close button
+              or Escape. It waits in line with the questions of{" "}
+              <code>useConfirm()</code>.{" "}
+              <code>confirm({"{ alert: true }"})</code> does the same and
+              resolves <code>true</code>.
+            </p>
+          }
+          name="confirm-dialog/alert"
+          title="An alert - OK only"
+        />
         <Prose>
           <ul>
             <li>
@@ -120,6 +150,14 @@ export default function ConfirmDialogPage() {
               <code>useConfirm()</code> throws outside a{" "}
               <code>ConfirmProvider</code> - the message says what is missing.
             </li>
+            <li>
+              <code>ConfirmDialog</code> passes <code>ref</code>, an{" "}
+              <code>id</code>, <code>data-*</code> and the other native props on
+              to the dialog window, as <code>Dialog</code> does (with{" "}
+              <code>data-state</code>); <code>confirm()</code> takes them too
+              but <code>ref</code> - e.g. a <code>data-testid</code> for the
+              tests of the app.
+            </li>
           </ul>
         </Prose>
       </Section>
@@ -127,6 +165,7 @@ export default function ConfirmDialogPage() {
       <Section title="Props">
         <PropsTable of="ConfirmDialog" />
         <PropsTable of="ConfirmOptions" title="confirm(options)" />
+        <PropsTable of="AlertOptions" title="alert(options)" />
         <PropsTable of="ConfirmProvider" />
       </Section>
     </DocPage>

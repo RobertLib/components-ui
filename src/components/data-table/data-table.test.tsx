@@ -267,6 +267,38 @@ describe("DataTable in client-side mode", () => {
     expect(screen.getByText("2–2 of 4")).toBeInTheDocument();
   });
 
+  it("marks the rows by their state for styling", async () => {
+    const user = userEvent.setup();
+    render(
+      <DataTable
+        columns={columns}
+        data={rows.slice(0, 2)}
+        groupActions={[{ label: "Archive", onClick: () => {} }]}
+        renderSubRow={(row) => `Detail of ${row.name}`}
+      />,
+    );
+    const row = (name: string) =>
+      screen
+        .getByRole("checkbox", { name: `Select row ${name}` })
+        .closest("tr");
+    const expand = (name: string) =>
+      within(row(name)!).getByRole("button", { name: `Expand row ${name}` });
+
+    expect(row("Adam")).not.toHaveAttribute("data-selected");
+    expect(row("Adam")).toHaveAttribute("data-state", "closed");
+    expect(expand("Adam")).toHaveAttribute("data-state", "closed");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select row Adam" }));
+    await user.click(expand("Adam"));
+
+    expect(row("Adam")).toHaveAttribute("data-selected", "");
+    expect(row("Adam")).toHaveAttribute("data-state", "open");
+    expect(
+      within(row("Adam")!).getByRole("button", { name: "Collapse row Adam" }),
+    ).toHaveAttribute("data-state", "open");
+    expect(row("Cecilie")).not.toHaveAttribute("data-selected");
+  });
+
   it("expands rows loaded after the first render", () => {
     const { rerender } = render(
       <DataTable
@@ -381,7 +413,7 @@ describe("DataTable in client-side mode", () => {
     const left = (key: string) =>
       document.querySelector<HTMLElement>(
         `th[data-column-key="${key}"], th[data-leading-column="${key}"]`,
-      )?.style.left;
+      )?.style.insetInlineStart;
 
     try {
       pin({});
@@ -425,6 +457,7 @@ describe("DataTable in client-side mode", () => {
       allFiltered: true,
       count: 2,
       excludedRows: [],
+      ids: [rows[1].id, rows[2].id],
       query: expect.objectContaining({
         filters: { team: "A" },
         page: 1,
@@ -2325,5 +2358,30 @@ describe("DataTable column settings storage", () => {
     } finally {
       storage.mockRestore();
     }
+  });
+});
+
+describe("DataTable without rows", () => {
+  it("shows any content as the empty message", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        data={[]}
+        emptyMessage={
+          <div>
+            <p>No people yet.</p>
+            <button onClick={onClick} type="button">
+              Invite someone
+            </button>
+          </div>
+        }
+      />,
+    );
+
+    expect(screen.getByText("No people yet.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Invite someone" }));
+    expect(onClick).toHaveBeenCalled();
   });
 });

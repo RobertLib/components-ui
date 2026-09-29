@@ -27,7 +27,7 @@ function ProjectActions() {
         try {
           await archiveProject(fail);
         } catch {
-          enqueueSnackbar("The project could not be archived", "error");
+          enqueueSnackbar("The project could not be archived", "danger");
           return false; // keeps the dialog open - try again or cancel
         }
       },

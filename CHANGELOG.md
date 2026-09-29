@@ -1,5 +1,555 @@
 # Changelog
 
+## 0.3.0
+
+A round of what business apps missed next to other libraries: new components
+(Badge, Card, Table, LoadingOverlay, Sparkline, Rating, ColorInput,
+DateCalendar, RangeCalendar, TreeSelect), range and multi-value filters,
+multi-sort and controlled selection in DataTable, masks, disabled dates, a
+resource timeline, moving tree items, images in the editor - and a pass over
+the whole library: refs reach their elements, focus shows in forced colors,
+states are exposed as `data-*` attributes, right-to-left layouts mirror,
+overlays render into `portalContainer`, and the field sizes line up.
+
+### Upgrading
+
+- **Input and the fields that match its size** - `dim="xs"` is 22 px high
+  and `dim="sm"` 26 px, the height of a `sm` Button; xs used to be the
+  taller of the two. This applies to Textarea, Select, NumberInput,
+  ColorInput, TagsInput, Autocomplete, TreeSelect, the pickers,
+  SegmentedControl and the `button` variant of FileUpload. The password
+  toggle of Input is now as high as its field.
+- **Autocomplete, TreeSelect** - `ref` points at the combobox (the element
+  that takes the focus), no longer at the wrapper; Autocomplete's `ref` is
+  `Ref<HTMLElement>`. The other attributes of a div still go to the wrapper.
+- **Fields** - the focus uses `outline-hidden` instead of `outline-none`,
+  including in the `form-control` utility. In forced colors (Windows High
+  Contrast) this shows an outline where the ring used to disappear.
+- **Dialog, Sheet, CommandPalette, Popover, Dropdown, Tooltip, Toast,
+  Drawer, ColorSchemeToggle** - a `ref` given to them reaches their element
+  (the window, the wrapper around the trigger, the toast, the `<nav>`, the
+  group); it used to be dropped.
+- **Drawer** - sits at the start edge: right to left it is on the right and
+  slides in from there, and the navbar and `<main>` make room on that side
+  (`margin-inline-start`). Collapsed, its tooltips and group popovers open
+  at the `end`. The panel icons of the **Navbar** toggle and the back arrow
+  of **Header** are mirrored right to left.
+- **ColorSchemeToggle** - right to left, ArrowLeft moves to the next scheme.
+- **ContextMenu** - its target gets `data-state`, and a single child element
+  always gets a ref callback (its own ref is still set).
+- **Tooltip** - one controlled `open` shows once a server-rendered page has
+  hydrated, instead of throwing on the server.
+- **Focus in forced colors mode** - the focus rings of the display
+  components, `.btn` and `.cui-link` use `outline-hidden` instead of
+  `outline-none`, so Windows High Contrast shows the focus. Selected tabs,
+  pages, chips, tree items, calendar dates, the current step, progress bars,
+  separators and splitter handles keep system colors there; filled buttons
+  are drawn inverted, pressed ones in `Highlight`. Event colors, badges and
+  avatar status dots keep their own colors (`forced-color-adjust: none`).
+- **DataTable** - pinned columns are logical: `pinned: "left"` sticks to the
+  start, which is the right edge in a right-to-left page. Cells use
+  `inset-inline-start/end` instead of `left`/`right`, and the shadows,
+  resize handles and pin button names follow the direction. `data-resizing`
+  and `data-off-hours` are empty attributes (were `"true"`).
+- **Calendar** - also takes the attributes of its root (`id`, `style`,
+  `data-*`, `aria-*`, handlers) and a `ref`. Auto-scroll while dragging and
+  scrolling a focused slot into view respect the time column on the right in
+  right-to-left pages.
+- **Progress** - the indeterminate bar runs from the right in a
+  right-to-left page.
+- **Alert**, **LoadingOverlay** - their `ref` reaches the root element.
+- **Select** - the arrow is the stylesheet class `cui-select-arrow` in place
+  of an inline `style` background: at the end of the field, on the left in a
+  right-to-left page, with room from `pe-8` instead of `pr-8`. A multiple
+  select, and one with `size` above 1, shows no arrow and no room for it.
+  `readOnly`, which a native select ignored, now makes the select read-only.
+- **Input**, **Textarea** - the floating label sits on the start side and is
+  moved in by a margin (`start-0`, `ms-2` / `ms-1`) instead of `left-0` and
+  `translate-x-*`.
+- **NumberInput** - a `readOnly` field has no step buttons (they showed as
+  disabled).
+- The `label` of **Input**, **Textarea**, **NumberInput**, **Select** and
+  **Field** is `React.ReactNode` - code that reads it as a `string` needs a
+  check.
+- The star of a required field has the class `cui-required-mark`.
+- **SegmentedControl** - `size` is now `dim` (`size` still works,
+  deprecated), with an `xs`. A horizontal bar is as high as an `Input` of
+  the same `dim` - 26, 22, 34 and 46 px - with text as big: the options of
+  the default `md` are `text-base` (were `text-sm`), those of `sm` `text-sm`
+  (were 13 px), of `lg` `text-lg`.
+- **Slider** - `size` is now `dim` (`size` still works, deprecated), with a
+  new `xs`.
+- **Checkbox** - the box is as big as those of `CheckboxGroup` and
+  `RadioGroup` of the same `dim` - 16 px by default, where it had the
+  browser's own size.
+- The `label` of **Checkbox**, **CheckboxGroup**, **RadioGroup**,
+  **Slider**, **SegmentedControl**, **PinInput** and of `CheckboxOption` /
+  `RadioOption` is a `React.ReactNode` - code reading `option.label` as a
+  string needs a check.
+- **Autocomplete** - options with a `group` (and items with a `group` field)
+  are listed under group headings. For a flat list, leave the field out or
+  pass `getOptionGroup={() => undefined}`.
+- **Autocomplete**, **TagsInput** - the field has the padding and text size
+  of an `Input` of its `dim` (explicitly `text-base` at the default `md`, no
+  longer inherited). At `md` the chips/values are 2px flatter, so a field
+  holding them is as tall as an Input. The input of a multiple Autocomplete
+  starts narrow and grows beside the chips instead of wrapping below them.
+  The clear button uses logical margins (RTL).
+- **DateTimePicker** - the date popup has a Today button under the days, and
+  Clear while the value may be cleared; tests counting the Tab stops of the
+  popup meet them. `popupActions={false}` leaves them out.
+- **DateTimePicker** and **DateRangePicker** - the field keeps the room for
+  its buttons with `pe-*` and puts them at its end (`end-*`), no longer
+  `pr-*` / `right-*`. A read-only field is `aria-readonly` and has
+  `data-readonly`.
+- **FileUpload** - with `multiple`, files upload side by side, `concurrency`
+  of them at once (3 by default; `concurrency={1}` uploads them one after
+  another as before). Each file has its own row with its progress and a
+  cancel button (named "Cancel uploading a.pdf", was "Cancel"). The upload
+  button stays while files upload, so more can be added meanwhile, and
+  cancelling one upload no longer drops the files waiting after it. Without
+  `multiple`, a file added while another uploads cancels that upload.
+- **FileUpload** - a failed upload stays in its row with "The upload
+  failed." and a Retry button, instead of the message under the field; the
+  field is not `aria-invalid` for it. A refusal under the field names the
+  file ("notes.txt: Files of this type cannot be uploaded here."), files
+  refused for one reason share a line, and all refusals of a pick show, not
+  only the last one. `error` shows together with them.
+- **FileUpload** - `onRemove` gets a plain `UploadedFile` (`id`, `filename`,
+  `thumbnailUrl`, `url`, `value`). The list scrolls from `max-h-60` (was
+  `max-h-44`), and the tooltip of the remove button is above it. The field
+  has a `role="status"` live region - a test looking up
+  `getByRole("status")` next to it finds two.
+- **sanitizeRichText** keeps code blocks by default: `<pre>` becomes
+  `<pre><code>` of plain text (lines separated by `<br>`), no longer a
+  paragraph of lines. Pass `formats` without `"codeBlock"` to keep the old
+  output. Images are kept only where `formats` lists `"image"`.
+- **RichTextEditor** - the empty editor is 8 lines high (`minRows`) in place
+  of the fixed 200 px (about 6 px taller at the default text size). Content
+  wider than the editor, such as a wide table, scrolls inside it.
+- **RichTextEditor** - Markdown shortcuts are on by default: "# " at the
+  start of a paragraph makes a heading, "- " a list, "> " a quote, and so
+  on. `autoformat={false}` turns them off.
+- **RichTextEditor** - lists, quotes and tables of `.rich-text` content use
+  logical sides (`ps-6`, `border-s-4`, `text-start`). Nothing changes left
+  to right; right to left they indent from the right, and the toolbar's
+  arrow keys follow the text direction.
+- **DataTable** - `DataTableQuery.filters` is
+  `Record<string, DataTableFilterValue>`: a text as before, a list
+  (`["active", "invited"]`) or a range (`{ from, to }`). Text filters and
+  their URLs are unchanged; code handing values on as texts
+  (`params.set(key, value)`) narrows them, or uses `toFilterParams`.
+- **DataTable** - `DataTableQuery` has `sort`, the sorted columns; `sortBy`
+  / `order` are its first. `createDataTableQuery`, `resetPagination` and
+  `toggleSort` keep them in step; a `sort` disagreeing with `sortBy` /
+  `order` gives way to them. A query literal of your own needs `sort: []`.
+  `toOffsetParams` and `toRelayVariables` add `sort`.
+- **DataTable** - a `clientSide` table sorts by several columns with Shift +
+  click (`multiSort`); while several sort, only the first header has
+  `aria-sort`. Hiding a sorted column drops it from the sorting only.
+- **DataTable** - `GroupActionSelection` has `ids`; tests matching it
+  exactly need it. `emptyMessage` renders in a `<div>`; the expand and
+  selection body cells are `data-leading-column`.
+- **Calendar** - with `onEventDrop` the tiles of the month view and of the
+  all-day row are dragged too - a finger on them drags instead of scrolling
+  (`touch-none`); every movable tile is a button, a Tab stop, also without
+  `onEventClick` (there Enter and Space pick it up).
+- **Calendar** - `nowIndicator` is on by default: a red line at the current
+  time over today in the week, day and timeline views.
+- **Calendar** - the day view without resources is laid out like the week
+  (its slots in a `.day-column`), and the views use logical properties:
+  tiles are placed by `inset-inline-start`, the time column is `start-0`, so
+  a right-to-left page mirrors them; the arrows across swap there.
+- **Calendar** - `CalendarView` has `"timelineDay"` and `"timelineWeek"` -
+  update exhaustive switches.
+- **Popover** - `align` is logical: `start` (the new default), `center`,
+  `end`. In a right-to-left page a panel now lines up with the trigger's
+  right edge. `left` / `right` still work but are deprecated. The default
+  `position` is `end`, the left side right to left. Panels hide while their
+  trigger is scrolled out of view.
+- **Tooltip** - the default `position` is `end` (left in RTL). Only one
+  tooltip shows at a time, and it hides while its trigger is scrolled out of
+  view.
+- **Dropdown** - the menu lines up with the trigger's end edge, which is the
+  left edge right to left; the gap is now an inline 10px.
+- **Toast** - `danger` is the variant of an error; `error` still works as an
+  alias. `message`, `title` and the `promise()` texts accept any React node.
+- **Sheet** - a `bottom` sheet can be swiped down on touch screens and shows
+  a handle there; opt out with `swipeToClose={false}`.
+- **Dialog**, **Sheet** - the header and `DialogFooter` add the safe-area
+  insets (`--cui-safe-top` / `--cui-safe-bottom`) to their padding where
+  they touch the screen edge.
+- **IconButton** - `variant` is now `color`. `variant` still works but is
+  deprecated. The colored icons get lighter shades in dark mode
+  (`primary-400`, `secondary-400`, `danger-400`).
+- **Progress** and **CircularProgress** - `variant` is now `color`;
+  `variant` still works but is deprecated.
+- **Tabs** - value tabs without `value` select themselves: a click selects
+  the tab, where it only called `onChange` before. Pass `value` to keep
+  control.
+- **Pagination** - `onChange` is optional. The numbered pages and the jump
+  to a page call only the new `onPageChange`.
+- A complete custom locale needs the new texts - locales made with
+  `createLocale` get them from their base locale: the new sections `alert`,
+  `badge`, `colorInput`, `confirmDialog`, `dateCalendar`, `rating`,
+  `sparkline`, `tabs` and `treeSelect`; `autocomplete.create`, `created`,
+  `createError`, `createHint`, `creating`, `moreSelected`, `selectAll`;
+  `breadcrumbs.showAll`; `calendar.moveCancelled`, `moved`, `moveStart`,
+  `resized`, `timelineDay`, `timelineWeek`; `dataTable.filterFrom`,
+  `filterTo`, `groupLabel`, `groupRowCount`, `multiSortHint`, `noValue`,
+  `selectColumn`, `sortOrder`, `sortPriority`;
+  `dateRangePicker.unavailableInRange`; `dateTimePicker.clearButton`,
+  `presetsLabel`, `today`, `unavailable`; `fileUpload.addedCount`,
+  `cancelUpload`, `failedCount`, `moreFiles`, `noFiles`, `queued`,
+  `refused`, `retry`, `retryUpload`, `uploadedCount`, `uploadingCount`,
+  `validationFailed`; `input.maskIncomplete`, `passwordStrength`,
+  `passwordStrengths`; `pagination.go`, `goTo`, `page`, `pageSize`;
+  `richTextEditor.codeBlock`, `image`, `imageAlt`, `imageUploadError`,
+  `imageUploading`, `imageUrl`, `removeImage`, `uploadImage`,
+  `waitForUpload`; `stepper.optional`; `treeView.beingMoved`, `cannotMove`,
+  `dropAfter`, `dropAfterIn`, `dropBefore`, `dropInside`, `itemCount`,
+  `moveCancelled`, `moved`, `movedMany`, `moveInstructions`, `moving`,
+  `movingMany`.
+
+### New features
+
+- **Fields** - state attributes for styling: `data-state`
+  (`checked`/`unchecked`/`indeterminate`, `open`/`closed`), `data-selected`,
+  `data-highlighted`, `data-disabled`, `data-invalid` and
+  `data-orientation`. Flags are present and empty, never `"false"`. A
+  Checkbox's `data-state` follows clicks, resets and React Hook Form.
+- **Fields** - states stay visible in forced colors: switches, segments,
+  cards, slider ranges, stars, selected days and options, invalid borders,
+  and color swatches.
+- **RadioGroup, CheckboxGroup, SegmentedControl, Slider, Rating, PinInput,
+  RichTextEditor, DateCalendar, RangeCalendar, FileUpload** - they accept
+  native attributes (`data-*`, `style`, event handlers). FileUpload also
+  takes `ref` and `id`.
+- **RichTextEditor** - "Insert column left/right" inserts on the side it
+  names in a right-to-left table.
+- Every field draws the star of a required field with `RequiredMark`, so
+  `data-required-mark="hidden"` hides them all.
+- **UIProvider** - `portalContainer` renders every overlay (dialogs, sheets,
+  popovers, menus, tooltips, toasts, `Overlay`) into an element of your own,
+  also in a shadow root: focus trap and return, hidden background, scroll
+  lock, Escape and outside presses keep working. `usePortalContainer()`
+  gives it to overlays of your own.
+- **Overlays and menus** - state attributes for styling: `data-state`,
+  `data-side` / `data-align` (resolved), `data-highlighted`,
+  `data-disabled`, `data-orientation`, and `data-variant` on toasts.
+- **Forced colors** - focus stays visible (`outline-hidden`), the
+  highlighted and chosen items use the system selection colors, tooltips are
+  outlined, and toast variants show an icon.
+- **ContextMenu, ConfirmDialog, ColorSchemeScript** - take the native
+  attributes of their element, and `ref`. `confirm()` takes them too, e.g. a
+  `data-testid`.
+- **ColorSchemeToggle** - `tooltipPosition` also takes `start` / `end`.
+- **Tooltip** - takes the writing direction of its trigger.
+- **Styling states** - `data-state="open" | "closed"` on Accordion (panel
+  and toggle), CollapsibleContent, expandable and grouped DataTable rows and
+  TreeView items with children. `data-selected` on selected tabs, chips,
+  table rows, tree items, the current page and the selected calendar day.
+  `data-current` next to `aria-current` (steps, pages, breadcrumbs, link
+  tabs, tree items, today in Calendar). `data-disabled` on tabs, steps,
+  chips, tree items and accordions. `data-orientation` on Tabs, Stepper,
+  Separator and Timeline.
+- **CollapsibleContent** - takes a `ref` and the attributes of its wrapper.
+- **TreeView** - the drag badge renders into `portalContainer` of
+  `UIProvider`.
+- **Input** - `mask` formats the text as it is typed: `#` a digit, `@` a
+  letter, `*` either (`"### ##"`, `"+420 ### ### ###"`,
+  `"CZ## #### #### #### #### ####"`). Typing moves past the literals,
+  Backspace and Delete next to one delete the character beyond it, a
+  selection is replaced, pasted text is read with or without the literals,
+  and an input method finishes composing first. Characters no placeholder
+  takes are refused. A mask of digits opens a numeric keyboard. The field
+  submits the formatted text, `unmask` the characters alone (from a hidden
+  input). `onMaskChange` gets `{ formatted, raw, complete }`, and
+  `maskTokens` adds placeholders of your own. A value filled in only in part
+  is invalid. `register()` of React Hook Form keeps working - `applyMask`
+  formats any text as the field does, e.g. for `setValueAs`.
+- **Input** - `passwordStrength` on a password field shows a meter and
+  "Password strength: weak" under it, describes the field with it and tells
+  screen readers once the typing pauses; `true` scores with the new
+  `getPasswordStrength`, a function is a scorer of your own (0 - 4).
+- **Select** - `readOnly`: the list stays closed, the keys and assistive
+  technology change nothing, it keeps the focus and is submitted;
+  `aria-readonly`, no arrow.
+- **NumberInput** - `clearable`: `onChange` gets `null`, the focus moves
+  into the field.
+- Read-only **Input**, **Textarea**, **NumberInput** and **Select** have
+  `data-readonly` for styles.
+- `RequiredMark` - the star of a required field for a label of your own;
+  `data-required-mark="hidden"` on an element around hides the stars inside
+  it.
+- **Checkbox** and **Switch** - `dim` (`xs` - `lg`) sizes the box, the track
+  and the label.
+- `readOnly` on **Checkbox**, **Switch**, **CheckboxGroup**, **RadioGroup**,
+  **SegmentedControl**, **Slider** and **PinInput**: the value is shown,
+  focusable and submitted, but a click, Space, a drag or typing changes
+  nothing (`onChange` is not called); the arrow keys of a radio group move
+  the focus without picking. Marked `aria-readonly` and `data-readonly`;
+  like a native read-only field it is not validated.
+- **RadioGroup** and **CheckboxGroup** - `variant="card"`: each option a
+  bordered card with its `icon` (new on the options), label and description,
+  the whole card clickable, outlined when picked and on keyboard focus.
+  `columns` lays the options out in a grid - one column on phones.
+- **Switch** - `labelPosition="start"` puts the label before the track.
+- **PinInput** - `groups` (`[3, 3]`) splits the cells with a `separator`
+  between them; the code stays one value.
+- **SegmentedControl** - `orientation="vertical"` stacks the options.
+- **Rating** - a rating of 1 to `max` in stars or any `icon`, `allowHalf`, a
+  hover preview, `clearable`, `readOnly` with fractional values, `dim`,
+  `color`, form participation (`name`, reset, `required`); a slider for
+  assistive technology, read as "3 of 5 stars".
+- **ColorInput** - a color field typed as hex, `rgb()` or `hsl()`
+  (`format`), with a picker opened by its swatch: a saturation / brightness
+  area (a 2D slider for the keyboard and screen readers), a hue slider, an
+  optional `alpha` slider, preset `swatches` and the EyeDropper where the
+  browser has it; `dim`, `readOnly`, `disabled`, forms.
+- **Autocomplete** - option groups: a `group` field or `getOptionGroup`,
+  rendered as `role="group"` named by its heading, static or async, single
+  or multiple.
+- **Autocomplete** - `onCreate` adds "Add “term”" when nothing matches
+  exactly. It may be async; the new option is selected and announced, and
+  errors are shown in the list.
+- **Autocomplete** - `allowCustomValue`: in a single typing field the typed
+  text becomes the value on blur or Enter; the form gets it while the user
+  types.
+- **Autocomplete** - `virtualized` renders only the options in view, for
+  thousands of options, with `aria-posinset`/`aria-setsize`. PageUp/PageDown
+  move the highlight by a page.
+- **Autocomplete** - `filterOptions` with an exported
+  `defaultFilterOptions`; `highlightMatches`; `renderOption` gets `search`.
+- **Autocomplete** - `readOnly`, `dim`, `maxVisibleChips` ("+N more"), and
+  `selectAll` for static multiple lists.
+- **Autocomplete**, **TagsInput** - `label` takes markup. **TagsInput** -
+  `dim`; `readOnly` adds `aria-readonly`/`data-readonly`.
+- **DateCalendar** and **RangeCalendar** - always visible calendars for
+  forms: controlled or uncontrolled, `min` / `max`, `isDateDisabled`,
+  keyboard grid, `name` / `form` hidden inputs with `required`, validity and
+  form reset, `label` / `description` / `error` or `aria-label`, `readOnly`
+  and `disabled`. `DateCalendar` picks several days with `multiple`;
+  `RangeCalendar` takes `months`, `presets`, `minDays` / `maxDays` and
+  `allowDisabledInRange`.
+- **DateTimePicker** and **DateRangePicker** - `isDateDisabled` tells the
+  days that cannot be picked: struck through, reached by the keys, announced
+  as unavailable, never picked. A month or a week without another day cannot
+  be picked. A value on such a day - typed too - makes the field invalid (in
+  `native` mode as well). A range stops before the nearest disabled day
+  unless `allowDisabledInRange`; presets lose the disabled days at their
+  ends.
+- **DateTimePicker** - `presets` offers days of your own beside the date
+  popup.
+- **DateTimePicker** and **DateRangePicker** - `dim="xs"`, the heights of
+  `Input`; `label` takes any content.
+- **DateTimePicker** and **DateRangePicker** - in a right-to-left page the
+  arrow keys of the day, month and week grids and the chevrons flip, the
+  band of a range is rounded at its logical ends, and the popup opens under
+  the start of the field.
+- **FileUpload** - `upload` is optional: without it the picked, dropped and
+  pasted files are submitted with the form in a file input named `name` -
+  `new FormData(form)` and React form actions get the `File`s.
+  `onFilesChange` reports them. Where the browser has no `DataTransfer`
+  constructor, the field submits what its native picker put in the input.
+- **FileUpload** - a failed upload can be retried from its row, and every
+  upload cancelled on its own. The uploads are announced together, as they
+  start and once all are over.
+- **FileUpload** - `validate(file)` refuses a file with a message, also
+  asynchronously (e.g. image dimensions); `onError` gets it as an `Error`.
+- **FileUpload** - files pasted while the focus is in the field
+  (screenshots, files copied in the file manager) are added.
+- **FileUpload** - `readOnly` shows and submits the files but takes none and
+  removes none. `disabled` hides the drop hint and marks the group
+  `aria-disabled`. `label` takes any content.
+- **FileUpload** - `variant="button"` is a compact button with the list
+  under it, as high as an `Input` of the same `dim`.
+- **FileUpload** - `directory` picks a folder with all its files.
+- **RichTextEditor** - `"image"` tool inserts images by URL with alternative
+  text, and edits or removes the selected image.
+  `uploadImage(file, { signal })` uploads picked, pasted and dropped image
+  files behind a placeholder; the form waits, and failures are shown.
+  `allowImageDataUrls` accepts raster `data:` URLs.
+- **RichTextEditor** - `"codeBlock"` tool (`pre > code` of plain text):
+  Enter breaks its line and leaves the block on the empty last line.
+- **RichTextEditor** - `readOnly`: shown, focusable and submitted, but not
+  editable.
+- **RichTextEditor** - `minRows`, `maxRows` with internal scrolling, and
+  `resize`.
+- **RichTextEditor** - `showCount` and `maxLength`, with the counter,
+  announcements and limit semantics of Textarea.
+- **RichTextEditor** - `label` takes any content; it also names the toolbar.
+- **sanitizeRichText** - `"image"` and `"codeBlock"` formats and
+  `allowImageDataUrls`. New exports: `isSafeImageSrc` and the type
+  `RichTextImageUpload`.
+- **DataTable** - filters `multiSelect` (options in a panel of checkboxes),
+  `numberRange` (from - to) and `dateRange`; URL sync, REST / Relay helpers
+  and `applyDataTableQuery` take lists and ranges. `customFilter` and
+  `filterFn` get the value as a third argument.
+  `toFilterParams(filters, { prefix })` writes `status=a&status=b`,
+  `salary[from]=1000`.
+- **DataTable** - sorting by several columns: Shift + click, Shift + Enter /
+  Space on a sort button; headers show their place; URL `sort=name,-age`;
+  `toggleSort(query, key, { multi })`.
+- **DataTable** - `selectionMode` (`single` / `multiple`, also without group
+  actions), controlled `selectedIds` / `defaultSelectedIds` /
+  `onSelectedIdsChange`, Shift + click or Shift + Space range selection;
+  "select all N" reports `allFiltered`.
+- **DataTable** - `getRowHref` (first cell a router link, the whole row
+  clickable) and `onRowClick(row, event)` (not on controls or text
+  selection; rows a Tab stop with the arrow keys and Enter).
+- **DataTable** - `columnState` / `defaultColumnState` /
+  `onColumnStateChange` for column order, visibility, pinning and widths
+  stored anywhere.
+- **DataTable** - column groups (an entry with `children`), `groupBy` row
+  grouping with counts, collapse and group summaries, `emptyMessage` as any
+  content, the arrow keys of editable cells follow right-to-left.
+- **Calendar** - events move in the month view by days, all-day events
+  across the all-day row (to another day or resource); an all-day event
+  stays one and every event keeps its length.
+- **Calendar** - the keys move events: Ctrl / ⌘ + X picks one up, the arrows
+  move it, Shift + the arrows along the time change its end, Enter puts it
+  down, Escape back - announced, the focus follows it.
+- **Calendar** - `slotDuration` (5 - 60 minutes) for the week, day and
+  timeline views, with the time column writing sensible steps.
+- **Calendar** - `hiddenDays` leaves weekdays out (a work week);
+  `businessHours` shades the time out of the working hours, the month the
+  days without any; `restrictToBusinessHours` picks only them.
+- **Calendar** - `nowIndicator`, the line of the current time, drawn after
+  hydration and moved every minute.
+- **Calendar** - `renderEvent(event, context)` renders the content of the
+  tiles; the tile keeps its name, icon and actions.
+- **Calendar** - resource timeline views `timelineDay` / `timelineWeek`:
+  resources in rows, events in lanes, click, slot selection, drag and resize
+  by both edges, and the keys.
+- **TreeView** - `onMove` lets the user move items: the pointer (a finger
+  after a long press) or Ctrl / ⌘ + X and the arrow keys, with drop
+  indicators, auto-expand, announcements, `canDrag` / `canDrop`; `items`
+  stay the app's.
+- **TreeView** - `checkMode="independent"`, and `virtualized` (with
+  `rowHeight`, `overscan`) for trees of thousands of expanded items.
+- **TreeSelect** - a new form field: a `TreeView` in a popup with search,
+  single or `multiple` with chips, `name`, `required`, reset, `dim`,
+  `readOnly`, `disabled`.
+- **Popover** - `start` / `end` positions, `center` alignment, `offset`,
+  `arrow`, and `anchor` (an element, a DOMRect, a point or a getter) for
+  things like a selection toolbar.
+- **Tooltip** - controlled `open` / `onOpenChange`; after one tooltip has
+  shown, the next shows without its `delay` (within 0.3 s).
+- **Dropdown** - `position`, `align`, `offset`, controlled `open`.
+- **SnackbarProvider** - `position` (top/bottom × start/center/end),
+  animated from that edge. `updateSnackbar(id, update)`, a `loading` option,
+  and swipe-to-dismiss on touch.
+- **Dialog** - `fullScreenOnMobile`, `closeOnBackdropClick`,
+  `closeOnEscape`. **Sheet** - `side="start" | "end"`, `closeOnEscape`,
+  safe-area insets.
+- **ConfirmDialog** - `alert` and `useAlert()`; `confirmationText` for
+  type-to-confirm.
+- **Badge** - a count (above `max` "99+") or a dot, on its own or on a
+  corner of an icon, avatar or button (`placement` by start and end,
+  `overlap="circular"`). It has `color`, `size` and `showZero`, and shrinks
+  away while `invisible` (fades with reduced motion). It is decorative;
+  `label` gives it visually hidden text.
+- **Card** - `title`, `description`, `actions`, `media`, content and
+  `footer` on a Panel, with `headingLevel` and `loading` placeholders. With
+  `href` or `onClick` the whole card is a link or a button through its
+  stretched title; the actions and the footer stay controls of their own.
+- **LoadingOverlay** - covers a region while `visible` with a translucent
+  layer, a spinner and a `label`. The content is `inert` and the region
+  `aria-busy`, a status announces the label, and the focus goes back to
+  where it was. It fades in and out (at once with reduced motion); `blur` is
+  optional.
+- **Table** - `Table`, `TableHead`, `TableBody`, `TableFoot`, `TableRow` and
+  `TableCell` for static data, with `striped`, `hover`, `bordered`,
+  `density`, `caption` and `stickyHeader` with `maxHeight`. It scrolls
+  sideways on narrow screens and is a named Tab stop while it scrolls.
+- **Sparkline** - a small line or area chart of `data` with gaps, `min` /
+  `max`, `color` and `highlightLast`. It is an image named by a summary of
+  its values in the page language. **Stat** has a `sparkline` prop.
+- **Alert** - `onClose` adds a localized close button; the focus moves on
+  once the alert is gone. `actions` puts buttons under the message, and
+  `variant` is `subtle`, `solid` or `outline`.
+- **Pagination** - `variant="pages"` shows numbered pages with gaps
+  (`siblingCount`, `boundaryCount`, `aria-current="page"`). New:
+  `onPageChange`, `pageCount`, a page size select (`pageSizeOptions`,
+  `onPageSizeChange`) and a jump to a page (`showJumpTo`).
+- **IconButton** - `size` (as high as a Button of the same size), a link
+  with `href`, and `tooltip` (with `tooltipPosition`), which shows the name.
+- **Tabs** - `defaultValue`. `content` on a value tab renders its tab panel,
+  wired with `aria-controls` / `aria-labelledby`; `keepMounted` keeps the
+  other panels hidden, and `panelClassName` styles them. `onClose` makes a
+  tab closable with a × and the Delete key.
+- **Accordion** - `disabled` sections, which the arrow keys of a group skip,
+  and `keepMounted`. **CollapsibleContent** has `keepMounted` too.
+- **DescriptionList** - `columns` (responsive), `bordered`, and `fullWidth`
+  on an item.
+- **Avatar** - `shape="square"`, and `color` with `"auto"`, which picks the
+  same palette for the same name. **AvatarGroup** has `shape`.
+- **Stepper** - `optional` steps, marked with a localized "Optional".
+- **Breadcrumbs** - `maxItems` collapses a long path behind a "…" button
+  that shows the rest (`itemsBeforeCollapse`, `itemsAfterCollapse`), and
+  `separator` replaces the ">".
+
+### Documentation
+
+- Input: masks for Czech forms, masks in a form (`unmask`, a `prefix` for
+  the country code, a licence plate), React Hook Form, and the limits of
+  fixed-length masks; password strength; label content and read-only fields.
+- Select: read-only, right to left. NumberInput: the clear button and
+  read-only. Textarea: label content and read-only. Field: label content,
+  required fields and hiding their stars.
+- New pages Rating and ColorInput.
+- Examples for the sizes and read-only states of Checkbox, Switch, Slider
+  and SegmentedControl, the cards of RadioGroup and CheckboxGroup, a
+  read-only RadioGroup, the label position of Switch, the groups of PinInput
+  and the vertical SegmentedControl.
+- The language switcher in the docs header uses `dim`.
+- Autocomplete: new "Groups, filtering and long lists", "Adding options and
+  free text" and "Sizes and read-only" sections, and a "Many selected
+  values" example.
+- TagsInput: a Sizes example and a note on read-only.
+- DateTimePicker: disabled dates, Today / Clear / presets, sizes and labels,
+  right to left. DateRangePicker: disabled dates and `allowDisabledInRange`,
+  the extra small size. New pages DateCalendar (form, controlled, several
+  days, states) and RangeCalendar (booking, presets over working days).
+- FileUpload: examples of uploads side by side with retry, a form without
+  `upload` (a React action gets the files), validation and pasting, the
+  compact variant with its sizes, read-only and disabled, and folders;
+  sections on the fallback without `DataTransfer`, keyboard and screen
+  readers.
+- RichTextEditor: new sections "Markdown shortcuts" (with a code block
+  example), "Images" (upload demo and a `fetch`-based `uploadImage`), "Size
+  and character count" and "Read-only". The full-toolbar example shows code
+  blocks and images, and the tools table and "Rendering the HTML" cover
+  images and code blocks.
+- DataTable: filters as lists and ranges, sorting by several columns,
+  controlled selection, row links, row clicks, column settings as a value,
+  column groups, grouped rows and an EmptyState as the empty message; the
+  query shape, `toFilterParams` and the keyboard notes.
+- REST & GraphQL: the REST table sorts by several columns and filters
+  departments and a salary range.
+- Calendar: examples "A work week of quarter hours", "Custom tiles" and
+  "Resource timeline"; keyboard moving in "Drag, resize and create" and the
+  keyboard callout; "Working hours" is "Hours shown".
+- TreeView: examples of moving, independent checkboxes and a virtualized
+  tree of 10 020 items, the keys of the move mode. TreeSelect: a new page
+  under Form fields.
+- Popover: placement and arrow, selection toolbar. Tooltip: toolbar
+  grouping, controlled. Dropdown: placement, controlled. Dialog: full
+  screen, closing. Sheet: start/end, bottom sheet. ConfirmDialog: alert,
+  type to confirm. Toast: position, updating.
+- New pages: Badge, Card, LoadingOverlay, Table and Sparkline.
+- New examples for Alert (variants, dismissible), Pagination (numbered
+  pages), IconButton (colors, sizes, links, tooltips), Tabs (panels,
+  closable), Accordion (disabled, kept mounted), Stat (sparkline),
+  DescriptionList (columns), Avatar (colors and shapes), Stepper (optional
+  steps) and Breadcrumbs (collapsed path, separators).
+- The Progress examples use `color`; the Panel page points to Card.
+- Theming: a section on styling the states through the `data-*` attributes,
+  and on `outline-hidden` for forced colors. Forms & validation: refs and
+  native attributes of the fields, their sizes and states. Installation:
+  `portalContainer`.
+
 ## 0.2.4
 
 The Drawer does more of what the side navigations of other libraries do -

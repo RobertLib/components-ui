@@ -8,18 +8,18 @@ export default function Circular() {
         <CircularProgress aria-label="Storage used" showPercentage value={73} />
         <CircularProgress
           aria-label="Monthly quota"
+          color="warning"
           showPercentage
           size="lg"
           value={92}
-          variant="warning"
         />
         <CircularProgress
           aria-label="Onboarding checklist"
+          color="success"
           max={5}
           size="xl"
           strokeWidth={6}
           value={3}
-          variant="success"
         >
           3/5
         </CircularProgress>

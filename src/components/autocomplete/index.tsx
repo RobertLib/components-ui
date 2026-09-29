@@ -12,6 +12,7 @@ import cn, { joinTokens } from "../../utils/cn";
 import debounce from "../../utils/debounce";
 import FormDescription from "../form-description";
 import FormError from "../form-error";
+import HighlightedText from "../data-table/highlight";
 import logger from "../../utils/logger";
 import Popover from "../popover";
 import { foldSearchText } from "../../utils/remove-diacritics";
@@ -20,6 +21,8 @@ import Spinner from "../spinner";
 import useDebouncedValue from "../../hooks/use-debounced-value";
 import { formatMessage, formatPlural } from "../../i18n/format";
 import {
+  attachRef,
+  isAriaInvalid,
   useFieldsetDisabled,
   useFormReset,
 } from "../../hooks/use-form-control";
@@ -29,6 +32,9 @@ import {
   type LoadOptionsResult,
 } from "./load-options";
 import { useLocale, useMessages } from "../../providers/ui-context";
+import { defaultFilterOptions } from "./filter-options";
+import useVirtualList, { type VirtualListRow } from "./use-virtual-list";
+import RequiredMark from "../required-mark";
 
 export type {
   LoadOptionsPage,
@@ -52,8 +58,16 @@ const NAVIGATION_KEYS = new Set([
   "Enter",
   "Escape",
   "Home",
+  "PageDown",
+  "PageUp",
   "Tab",
 ]);
+// Options PageUp / PageDown move by in a list without a height (jsdom)
+const DEFAULT_PAGE_STEP = 10;
+// The values of the rows the field adds itself - "Add “…”" and "Select
+// all". No value of the options: the control character keeps them apart.
+const ADD_VALUE = "\u0000add";
+const SELECT_ALL_VALUE = "\u0000all";
 
 export type AutocompleteValue = string | number;
 
@@ -69,14 +83,23 @@ export interface AutocompleteOption<T = AutocompleteValue> {
   data?: unknown;
   /** Shown in the list, but cannot be picked. */
   disabled?: boolean;
+  /**
+   * The heading the option is listed under - the options of a group are
+   * listed together, the groups in the order their first options come in.
+   * Options without one come first, under no heading.
+   */
+  group?: string;
 }
 
 /**
- * Fields the default label and value are read from, unless
- * `getOptionLabel` / `getOptionValue` are given: the label from `label`,
- * `name` or `title`, the value from `value` or `id`.
+ * Fields the default label, value and group are read from, unless
+ * `getOptionLabel` / `getOptionValue` / `getOptionGroup` are given: the
+ * label from `label`, `name` or `title`, the value from `value` or `id`,
+ * the group from `group`.
  */
 export interface AutocompleteItem {
+  /** The heading the item is listed under - see `AutocompleteOption`. */
+  group?: string;
   /** The value, unless the item has a `value`. */
   id?: AutocompleteValue;
   /** The label. */
@@ -93,7 +116,7 @@ interface BaseAutocompleteProps<
   TItem extends object = AutocompleteItem,
 > extends Omit<
   React.ComponentProps<"div">,
-  "defaultValue" | "onChange" | "children"
+  "defaultValue" | "onChange" | "children" | "ref"
 > {
   /**
    * Behaves like a select: no typing (a letter highlights the next option
@@ -110,6 +133,8 @@ interface BaseAutocompleteProps<
   closeOnSelect?: boolean;
   /** Help text under the field - it describes the field for screen readers. */
   description?: React.ReactNode;
+  /** Size of the field - the heights, paddings and text of `Input`. */
+  dim?: "xs" | "sm" | "md" | "lg";
   /**
    * Disables the field - like a disabled native one, it is then neither
    * submitted nor validated. A disabled `<fieldset>` around it disables it
@@ -119,11 +144,30 @@ interface BaseAutocompleteProps<
   /** Validation message - also marks the field as invalid. */
   error?: string;
   /**
+   * Picks the options the typed term shows - called with the options and
+   * the term (without the spaces around it, empty before anything is
+   * typed), returns the ones to list in the order to list them. Replaces
+   * the default match of static options: the label containing the term,
+   * ignoring case and diacritics (`defaultFilterOptions`). With
+   * `loadOptions` it filters the loaded options further - they are not
+   * filtered by default, the API has done it. Not called in a select.
+   */
+  filterOptions?: (
+    options: AutocompleteOption[],
+    search: string,
+  ) => AutocompleteOption[];
+  /**
    * Id of the `<form>` the hidden inputs (the value and `required`) belong
    * to, when the field is not inside it - like the `form` attribute of a
    * native field. A reset of that form resets the field too.
    */
   form?: string;
+  /**
+   * Group of an item - a loaded one, or a static one in `options` - which
+   * the option is listed under; nothing for none. See `AutocompleteItem`
+   * for the default.
+   */
+  getOptionGroup?: (item: TItem) => string | null | undefined;
   /**
    * Label of an item - a loaded one, or a static one in `options`. See
    * `AutocompleteItem` for the default.
@@ -136,8 +180,21 @@ interface BaseAutocompleteProps<
   getOptionValue?: (item: TItem) => AutocompleteValue;
   /** `asSelect` only: adds an empty first option that clears the selection. */
   hasEmpty?: boolean;
-  /** Text of the `<label>` above the field. */
-  label?: string;
+  /**
+   * Puts the part of each label that matches the typed term in bold -
+   * where the label contains the term, ignoring case and diacritics. A
+   * `renderOption` gets the term as `search` to do it itself.
+   */
+  highlightMatches?: boolean;
+  /** Content of the `<label>` above the field - text, or text with markup. */
+  label?: React.ReactNode;
+  /**
+   * The combobox - the input of a typing field, the element with the role
+   * in a select (`asSelect`) - e.g. for `focus()`; React Hook Form focuses
+   * it at an error. The other attributes of a `<div>` (`data-*`, `style`,
+   * event handlers) go to the wrapper, as `className` does.
+   */
+  ref?: React.Ref<HTMLElement>;
   /**
    * Static mode: called when the list is scrolled to its end - load more and
    * pass the longer `options`. Set `hasMore` to `false` once there is
@@ -150,6 +207,12 @@ interface BaseAutocompleteProps<
    */
   maxSelections?: number;
   /**
+   * Multiple mode: the most chips the field shows while the focus is
+   * elsewhere - the other values are summed up as "+N more". The focus in
+   * the field shows them all, to be removed.
+   */
+  maxVisibleChips?: number;
+  /**
    * Several values - `value`, `defaultValue` and `onChange` then work with
    * arrays.
    */
@@ -159,12 +222,37 @@ interface BaseAutocompleteProps<
    * in a plain `<form>` / `FormData`.
    */
   name?: string;
+  /**
+   * Lets the user add an option the list does not have: while the typed
+   * term matches no option exactly (ignoring case and diacritics), the list
+   * ends with "Add “term”". Picking it calls `onCreate` with the term, which
+   * returns the new item - read like the others, by `getOptionLabel` /
+   * `getOptionValue` - or `{ label, value }` for static options of that
+   * shape; it may return a promise. The new option is selected (added in
+   * multiple mode) and announced. An error thrown or rejected is shown in
+   * the list - its `message`, or a text of the locale.
+   */
+  onCreate?: (
+    search: string,
+  ) =>
+    | NoInfer<TItem>
+    | AutocompleteOption
+    | Promise<NoInfer<TItem> | AutocompleteOption>;
   /** Shown in the empty field. */
   placeholder?: string;
-  /** Custom rendering of an option in the list. */
+  /**
+   * The value is shown, focusable and submitted with the form, but cannot
+   * be changed: the list does not open, and there is no clear button, no ×
+   * on the chips. `aria-readonly` and `data-readonly` are on the combobox.
+   */
+  readOnly?: boolean;
+  /**
+   * Custom rendering of an option in the list. `search` is the typed term,
+   * e.g. to highlight it.
+   */
   renderOption?: (
     option: AutocompleteOption,
-    state: { active: boolean; selected: boolean },
+    state: { active: boolean; search: string; selected: boolean },
   ) => React.ReactNode;
   /** A value must be picked before the form can be submitted. */
   required?: boolean;
@@ -173,10 +261,28 @@ interface BaseAutocompleteProps<
    * first one (e.g. when the form is reset with new data).
    */
   syncWithDefaultValue?: boolean;
+  /**
+   * Renders only the options in view of the list (and a few around them),
+   * for lists of thousands of options. Options of any height are measured
+   * as they are rendered; the highlight, the keys and the scrolling work as
+   * with all of them rendered.
+   */
+  virtualized?: boolean;
 }
 
 /** The value of a field without `multiple` - one value. */
 interface SingleSelectionProps<TItem extends object> {
+  /**
+   * Single typing field: the typed text becomes the value when no option is
+   * picked - as the focus leaves the field or on Enter (which then submits
+   * the form, as in a text input). A text that is the label of an option
+   * (ignoring case and diacritics) picks that option. `onChange` gets the
+   * text (without the spaces around it) and the item `null`. The form gets
+   * that value already while it is typed - the text, or the value of the
+   * option it names. Escape closes the list and leaves the text; erasing it
+   * clears the value.
+   */
+  allowCustomValue?: boolean;
   /**
    * Initial value of an uncontrolled field - `null` for no selection; an
    * array with `multiple`.
@@ -200,6 +306,7 @@ interface SingleSelectionProps<TItem extends object> {
 
 /** The value of a field with `multiple` - an array of values. */
 interface MultipleSelectionProps<TItem extends object> {
+  allowCustomValue?: never;
   /** Initial values of an uncontrolled field. */
   defaultValue?: AutocompleteValue[] | null;
   multiple: true;
@@ -250,6 +357,7 @@ interface AsyncSourceProps<
   options?: never;
   /** Items per page requested from `loadOptions`. */
   pageSize?: number;
+  selectAll?: never;
 }
 
 interface StaticSourceProps<
@@ -266,11 +374,19 @@ interface StaticSourceProps<
   onLoadError?: never;
   /**
    * The options, filtered by the typed term (ignoring case and diacritics).
-   * With `getOptionLabel` / `getOptionValue` they can be items of any shape
-   * (each is then its own `data`).
+   * With `getOptionLabel` / `getOptionValue` / `getOptionGroup` they can be
+   * items of any shape (each is then its own `data`).
    */
   options: AutocompleteOption[] | NoInfer<TItem>[];
   pageSize?: never;
+  /**
+   * Multiple mode: the list starts with an option that selects all the
+   * options it shows - those the typed term found, not `disabled` - and
+   * deselects them once all are selected. `true` labels it "Select all" in
+   * the language of the locale, a text labels it with that text. Not shown
+   * when `maxSelections` would not let them all be selected.
+   */
+  selectAll?: boolean | string;
 }
 
 /** Loads the options from an API - `loadOptions`. */
@@ -303,10 +419,16 @@ function createOption<TItem extends object>(
   item: TItem,
   getOptionLabel?: (item: TItem) => string,
   getOptionValue?: (item: TItem) => AutocompleteValue,
+  getOptionGroup?: (item: TItem) => string | null | undefined,
 ): AutocompleteOption {
   const record = item as Record<string, unknown>;
   const fallbackValue = record.value ?? record.id;
   const fallbackLabel = record.label ?? record.name ?? record.title;
+  const group = getOptionGroup
+    ? getOptionGroup(item)
+    : typeof record.group === "string"
+      ? record.group
+      : undefined;
 
   return {
     label: getOptionLabel
@@ -318,8 +440,105 @@ function createOption<TItem extends object>(
         ? fallbackValue
         : String(fallbackValue ?? ""),
     data: item,
+    ...(group ? { group } : {}),
   };
 }
+
+/** A run of the listed options under one heading - or under none. */
+interface ListSection {
+  /** Index of the first option after the section. */
+  end: number;
+  /** The heading - none for the options before the groups and after them. */
+  label?: string;
+  /** Index of the first option of the section. */
+  start: number;
+}
+
+/**
+ * The options in the order they are listed, and the sections of that list:
+ * `leading` (the empty option, "Select all") and the options without a
+ * group first, then each group - in the order their first options come
+ * in, so that a page loaded later adds to the groups it has options of -
+ * and `trailing` ("Add “…”") last.
+ */
+function arrangeOptions(
+  leading: AutocompleteOption[],
+  options: AutocompleteOption[],
+  trailing: AutocompleteOption[],
+) {
+  const ungrouped: AutocompleteOption[] = [];
+  const groups = new Map<string, AutocompleteOption[]>();
+
+  for (const option of options) {
+    if (!option.group) {
+      ungrouped.push(option);
+      continue;
+    }
+    const members = groups.get(option.group);
+    if (members) members.push(option);
+    else groups.set(option.group, [option]);
+  }
+
+  if (groups.size === 0) {
+    const listed =
+      leading.length || trailing.length
+        ? [...leading, ...options, ...trailing]
+        : options;
+    return {
+      listed,
+      sections: [{ end: listed.length, start: 0 }] as ListSection[],
+    };
+  }
+
+  const listed = [...leading, ...ungrouped];
+  const sections: ListSection[] = [];
+  if (listed.length) sections.push({ end: listed.length, start: 0 });
+
+  for (const [label, members] of groups) {
+    const start = listed.length;
+    for (const member of members) listed.push(member);
+    sections.push({ end: listed.length, label, start });
+  }
+
+  if (trailing.length) {
+    const start = listed.length;
+    listed.push(...trailing);
+    sections.push({ end: listed.length, start });
+  }
+
+  return { listed, sections };
+}
+
+/** The message of a failed `onCreate` - an `Error`'s own, or `fallback`. */
+const getErrorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message
+    ? error.message
+    : typeof error === "string" && error
+      ? error
+      : fallback;
+
+/**
+ * The rows of a virtualized list - the heading of each group and the
+ * options - and the row of each option.
+ */
+function buildListRows(sections: ListSection[], rowKeys: string[]) {
+  const rows: VirtualListRow[] = [];
+  const rowOfOption: number[] = [];
+
+  for (const section of sections) {
+    if (section.label !== undefined) {
+      rows.push({ heading: true, key: `h\u0000${section.label}` });
+    }
+    for (let index = section.start; index < section.end; index++) {
+      rowOfOption[index] = rows.length;
+      rows.push({ heading: false, key: `o\u0000${rowKeys[index]}` });
+    }
+  }
+
+  return { rowOfOption, rows };
+}
+
+const NO_ROWS: VirtualListRow[] = [];
 
 // The option `hasEmpty` adds - blank, but not empty, so it has a height
 const EMPTY_OPTION: AutocompleteOption = { label: " ", value: "" };
@@ -332,18 +551,61 @@ const hiddenValidationStyle: React.CSSProperties = {
   height: 1,
 };
 
+// The field at each size - the paddings and the text of `Input`
+const dimStyles = {
+  xs: "px-1 py-0 text-sm",
+  sm: "px-1 py-0.5 text-sm",
+  md: "px-2 py-1 text-base",
+  lg: "px-3 py-2 text-lg",
+};
+
+// The text of the list - the options as big as the field
+const listDimStyles = {
+  xs: "text-sm",
+  sm: "text-sm",
+  md: undefined,
+  lg: "text-lg",
+};
+
+// Chips that fit the line of text of the field, so that a field with chips
+// is as tall as an `Input` - at `md` a chip a little flatter than its own
+const chipSizes = { xs: "sm", sm: "sm", md: "md", lg: "md" } as const;
+const chipDimStyles = {
+  xs: undefined,
+  sm: undefined,
+  md: "py-px",
+  lg: undefined,
+};
+const iconSizes = { xs: 14, sm: 14, md: 16, lg: 18 };
+
 interface OptionRowProps {
   active: boolean;
   /** Accessible name instead of the label (the blank empty option). */
   ariaLabel?: string;
+  /** Content instead of the label - the rows the field adds itself. */
+  content?: React.ReactNode;
   disabled: boolean;
+  /** Puts the typed term in the label in bold. */
+  highlight: boolean;
   id: string;
   index: number;
+  /** Measures the row (virtualization). */
+  measureRef?: (element: HTMLElement | null) => void;
   onHover: (event: React.MouseEvent, index: number) => void;
   onSelect: (option: AutocompleteOption) => void;
   option: AutocompleteOption;
+  /** `aria-posinset` of a virtualized list. */
+  posInSet?: number;
   renderOption?: BaseAutocompleteProps["renderOption"];
+  /** Key of the row among the measured ones (virtualization). */
+  rowKey?: string;
+  /** The typed term - for `renderOption` and the highlight. */
+  search: string;
   selected: boolean;
+  /** A line above the row - "Add “…”" after the options. */
+  separated?: boolean;
+  /** `aria-setsize` of a virtualized list - `-1` while more can load. */
+  setSize?: number;
 }
 
 /**
@@ -354,22 +616,38 @@ interface OptionRowProps {
 function OptionRow({
   active,
   ariaLabel,
+  content,
   disabled,
+  highlight,
   id,
   index,
+  measureRef,
   onHover,
   onSelect,
   option,
+  posInSet,
   renderOption,
+  rowKey,
+  search,
   selected,
+  separated = false,
+  setSize,
 }: OptionRowProps) {
   return (
     <li
       aria-disabled={disabled || undefined}
       aria-label={ariaLabel}
+      aria-posinset={posInSet}
       aria-selected={selected}
+      aria-setsize={setSize}
       className={cn(
         "px-2 py-1",
+        // Forced colors (Windows High Contrast) draw no background: the
+        // highlighted option takes the system's highlight colors, a
+        // selected one an outline inside it
+        active &&
+          "forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]",
+        selected && "forced-colors:outline-2 forced-colors:-outline-offset-2",
         disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
         !disabled &&
           !selected &&
@@ -381,14 +659,27 @@ function OptionRow({
           "hover:bg-neutral-300 dark:hover:bg-neutral-600",
         !selected && active && "bg-neutral-100 dark:bg-neutral-800",
         selected && active && "bg-neutral-300 dark:bg-neutral-600",
+        separated && "border-t border-neutral-200 dark:border-neutral-700",
       )}
+      data-disabled={disabled ? "" : undefined}
+      data-highlighted={active ? "" : undefined}
+      data-row-key={rowKey}
+      data-selected={selected ? "" : undefined}
       id={id}
       onClick={disabled ? undefined : () => onSelect(option)}
       // A move, not an enter - see `handleHover`
       onMouseMove={disabled ? undefined : (event) => onHover(event, index)}
+      ref={measureRef}
       role="option"
     >
-      {renderOption ? renderOption(option, { active, selected }) : option.label}
+      {content ??
+        (renderOption ? (
+          renderOption(option, { active, search, selected })
+        ) : highlight ? (
+          <HighlightedText term={search} text={option.label} />
+        ) : (
+          option.label
+        ))}
     </li>
   );
 }
@@ -401,8 +692,11 @@ function OptionRow({
  * Enter picks the highlighted option. Enter in a closed typing field is left
  * to the browser, as in a text input - it submits the form. A select
  * (`asSelect`) opens its list on Enter and Space (the select-only combobox).
+ * Options can be listed under group headings, added by the user
+ * (`onCreate`), or rendered only while in view (`virtualized`).
  */
 export default function Autocomplete<TItem extends object = AutocompleteItem>({
+  allowCustomValue: allowCustomValueProp = false,
   "aria-describedby": ariaDescribedBy,
   "aria-invalid": ariaInvalid,
   "aria-label": ariaLabel,
@@ -413,13 +707,17 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   closeOnSelect = false,
   defaultValue,
   description,
+  dim = "md",
   disabled: disabledProp = false,
   error,
+  filterOptions,
   form,
+  getOptionGroup,
   getOptionLabel,
   getOptionValue,
   hasEmpty = false,
   hasMore: hasMoreOptions = true,
+  highlightMatches = false,
   id,
   label,
   loadMore,
@@ -427,17 +725,23 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   loadOptionsDeps,
   loadSelectedOptions,
   maxSelections,
+  maxVisibleChips,
   multiple = false,
   name,
   onChange,
+  onCreate,
   onLoadError,
   options,
   pageSize = DEFAULT_PAGE_SIZE,
   placeholder,
+  readOnly = false,
+  ref,
   renderOption,
   required,
+  selectAll = false,
   syncWithDefaultValue = false,
   value,
+  virtualized = false,
   ...props
 }: AutocompleteProps<TItem>) {
   const locale = useLocale();
@@ -447,6 +751,11 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // the input - a disabled fieldset around them leaves them alone unless told
   const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();
   const disabled = disabledProp || fieldsetDisabled;
+  // What the value cannot be changed by - a read-only field is still
+  // focusable and submitted
+  const locked = disabled || readOnly;
+  // The typed text is a value of its own - in a single typing field
+  const allowCustomValue = allowCustomValueProp && !multiple && !asSelect;
 
   const [open, setOpen] = useState(false);
   // The typed text - `null` while not typing, when a single-mode field shows
@@ -492,6 +801,20 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   );
   const [interacted, setInteracted] = useState(false);
 
+  // `onCreate`: the term an option is being added for, the failure of the
+  // last one, and what is announced once one is added
+  const [creating, setCreating] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<{
+    message: string;
+    search: string;
+  } | null>(null);
+  const [createdMessage, setCreatedMessage] = useState("");
+  // The focus is in the field - it shows all its chips then
+  const [focused, setFocused] = useState(false);
+  // The listbox, once its panel is rendered - virtualization follows the
+  // panel's scrolling
+  const [listElement, setListElement] = useState<HTMLUListElement | null>(null);
+
   const popoverContentRef = useRef<HTMLDivElement>(null);
   // The combobox - the input of a typing field, the element of a select
   const inputRef = useRef<HTMLElement>(null);
@@ -510,14 +833,16 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       inputRef.current = element;
       const detachReset = formResetRef(element);
       const detachFieldset = fieldsetRef(element);
+      const detachRef = attachRef(ref, element);
 
       return () => {
         inputRef.current = null;
+        detachRef();
         detachReset?.();
         detachFieldset?.();
       };
     },
-    [fieldsetRef, formResetRef],
+    [fieldsetRef, formResetRef, ref],
   );
 
   // Callers pass the callbacks as inline arrow functions, so their identity
@@ -525,6 +850,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // fetching effects depend on a serialized snapshot of `loadOptionsDeps`
   // instead, so they react to the actual filter values and not to render churn.
   const callbacksRef = useRef({
+    getOptionGroup,
     getOptionLabel,
     getOptionValue,
     loadOptions,
@@ -534,6 +860,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
   useEffect(() => {
     callbacksRef.current = {
+      getOptionGroup,
       getOptionLabel,
       getOptionValue,
       loadOptions,
@@ -553,9 +880,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       ) => void)
     | undefined;
 
-  // Disabling the field closes its list - for good, not until it is enabled
-  // again
-  if (disabled && open) {
+  // Disabling the field - or making it read-only - closes its list, for
+  // good, not until it can be changed again
+  if (locked && open) {
     setOpen(false);
     setActiveKey(null);
     if (!multiple) setSearch(null);
@@ -578,12 +905,12 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // Static items of any shape are read like loaded ones
   const staticOptions = useMemo(
     () =>
-      options && (getOptionLabel || getOptionValue)
+      options && (getOptionLabel || getOptionValue || getOptionGroup)
         ? (options as TItem[]).map((item) =>
-            createOption(item, getOptionLabel, getOptionValue),
+            createOption(item, getOptionLabel, getOptionValue, getOptionGroup),
           )
         : (options as AutocompleteOption[] | undefined),
-    [getOptionLabel, getOptionValue, options],
+    [getOptionGroup, getOptionLabel, getOptionValue, options],
   );
 
   const knownOptions = useMemo(() => {
@@ -602,13 +929,14 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     return known;
   }, [loadedOptions, pickedOptions, preloadedOptions, staticOptions]);
 
+  // By a set - a long list asks for every option
+  const selectedKeys = new Set(selectedValues.map(valueKey));
   const isSelected = (option: AutocompleteOption) =>
-    selectedValues.some((selected) => sameValue(selected, option.value));
+    selectedKeys.has(valueKey(option.value));
 
   // A selected option only the loaded list knows is kept - otherwise a search
   // that drops it from the list would take its label (and chip) with it, or
   // start a preload of the label mid-typing
-  const selectedKeys = new Set(selectedValues.map(valueKey));
   const keptKeys = new Set(
     [...preloadedOptions, ...pickedOptions].map((option) =>
       valueKey(option.value),
@@ -678,10 +1006,11 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       .then((items) => {
         if (signal.aborted) return;
 
-        const { getOptionLabel, getOptionValue } = callbacksRef.current;
+        const { getOptionGroup, getOptionLabel, getOptionValue } =
+          callbacksRef.current;
         settle(
           items.map((item) =>
-            createOption(item, getOptionLabel, getOptionValue),
+            createOption(item, getOptionLabel, getOptionValue, getOptionGroup),
           ),
           false,
         );
@@ -791,10 +1120,18 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
           if (controller.signal.aborted) return;
 
           const normalized = normalizeLoadOptionsResult(result, offset);
-          const { getOptionLabel, getOptionValue } = callbacksRef.current;
+          const { getOptionGroup, getOptionLabel, getOptionValue } =
+            callbacksRef.current;
 
           const newOptions = normalized.items
-            .map((item) => createOption(item, getOptionLabel, getOptionValue))
+            .map((item) =>
+              createOption(
+                item,
+                getOptionLabel,
+                getOptionValue,
+                getOptionGroup,
+              ),
+            )
             .filter((option) => {
               const key = valueKey(option.value);
               if (loadedValues.current.has(key)) return false;
@@ -900,16 +1237,15 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // In async mode `loadOptions` already filtered the options; filtering them
   // again by their label would drop matches on fields the label does not show
   // (phone, notes, …). The static list is matched ignoring case and
-  // diacritics, so "cilovy" still finds "Cílový".
-  const filteredOptions =
-    asSelect || isAsync || !searchTerm
-      ? baseOptions
-      : baseOptions.filter((option) =>
-          normalizeText(option.label).includes(normalizeText(searchTerm)),
-        );
-
-  const displayedOptions =
-    asSelect && hasEmpty ? [EMPTY_OPTION, ...filteredOptions] : filteredOptions;
+  // diacritics, so "cilovy" still finds "Cílový" - unless `filterOptions`
+  // picks the options itself.
+  const filteredOptions = asSelect
+    ? baseOptions
+    : filterOptions
+      ? filterOptions(baseOptions, searchTerm)
+      : isAsync
+        ? baseOptions
+        : defaultFilterOptions(baseOptions, searchTerm);
 
   const isLoadingList = isStale || loadingFirstPage;
 
@@ -918,6 +1254,66 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   const selectionLimit = multiple && maxSelections ? maxSelections : undefined;
   const limitReached =
     selectionLimit !== undefined && selectedValues.length >= selectionLimit;
+
+  // "Add “…”" - while the list shows no option the term names exactly (nor
+  // is one selected), once it is known what the list has for the term
+  const foldedTerm = normalizeText(searchTerm);
+  const namesTerm = (option: AutocompleteOption) =>
+    normalizeText(option.label) === foldedTerm;
+  const addOption: AutocompleteOption | null =
+    onCreate &&
+    !asSelect &&
+    !locked &&
+    foldedTerm !== "" &&
+    !isLoadingList &&
+    !loadFailed &&
+    !filteredOptions.some(namesTerm) &&
+    !selectedOptions.some(namesTerm)
+      ? {
+          label: formatMessage(
+            creating === searchTerm
+              ? messages.autocomplete.creating
+              : messages.autocomplete.create,
+            { value: searchTerm },
+          ),
+          value: ADD_VALUE,
+        }
+      : null;
+
+  // "Select all" - of the options the list shows that can be picked, when
+  // `maxSelections` lets them all be selected
+  const hasSelectAll = selectAll !== false && multiple && !isAsync && !locked;
+  const pickableOptions = hasSelectAll
+    ? filteredOptions.filter((option) => !option.disabled)
+    : [];
+  const allSelected =
+    pickableOptions.length > 0 && pickableOptions.every(isSelected);
+  const selectAllOption: AutocompleteOption | null =
+    hasSelectAll &&
+    pickableOptions.length > 0 &&
+    (selectionLimit === undefined ||
+      new Set([
+        ...selectedValues.map(valueKey),
+        ...pickableOptions.map((option) => valueKey(option.value)),
+      ]).size <= selectionLimit)
+      ? {
+          label:
+            typeof selectAll === "string"
+              ? selectAll
+              : messages.autocomplete.selectAll,
+          value: SELECT_ALL_VALUE,
+        }
+      : null;
+
+  // The rows of the list in their order, and the groups they are listed in
+  const { listed: displayedOptions, sections } = arrangeOptions(
+    [
+      ...(asSelect && hasEmpty ? [EMPTY_OPTION] : []),
+      ...(selectAllOption ? [selectAllOption] : []),
+    ],
+    filteredOptions,
+    addOption ? [addOption] : [],
+  );
 
   const limitMessage = limitReached
     ? formatPlural(
@@ -929,30 +1325,51 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
   // What the live region beside the field tells screen readers about the
   // open list: that it loads, or how many options it found - also none -
-  // after the reached `maxSelections`, a sentence. A failure is an alert of
-  // its own.
+  // and that the term can be added, after the reached `maxSelections`, a
+  // sentence. A failure is an alert of its own.
+  const resultsText =
+    isLoadingList && filteredOptions.length === 0
+      ? messages.autocomplete.loading
+      : filteredOptions.length === 0
+        ? messages.autocomplete.noResults
+        : formatPlural(
+            locale.code,
+            messages.autocomplete.resultCount,
+            filteredOptions.length,
+          );
   const listStatus =
     open && !loadFailed
       ? [
           limitMessage,
-          isLoadingList && filteredOptions.length === 0
-            ? messages.autocomplete.loading
-            : filteredOptions.length === 0
-              ? messages.autocomplete.noResults
-              : formatPlural(
-                  locale.code,
-                  messages.autocomplete.resultCount,
-                  filteredOptions.length,
-                ),
+          addOption
+            ? formatMessage(messages.autocomplete.createHint, {
+                results: resultsText,
+                value: searchTerm,
+              })
+            : resultsText,
         ]
           .filter(Boolean)
           .join(" ")
       : "";
   const announcedStatus = useDebouncedValue(listStatus, ANNOUNCE_DELAY);
 
+  // The rows the field adds itself are no options of the list
+  const isOwnRow = (option: AutocompleteOption) =>
+    option === EMPTY_OPTION ||
+    option.value === ADD_VALUE ||
+    option.value === SELECT_ALL_VALUE;
+
   const isDisabled = (option: AutocompleteOption) =>
-    !!option.disabled ||
-    (limitReached && option !== EMPTY_OPTION && !isSelected(option));
+    option.value === ADD_VALUE
+      ? creating !== null || limitReached
+      : option.value === SELECT_ALL_VALUE
+        ? false
+        : !!option.disabled ||
+          (limitReached && option !== EMPTY_OPTION && !isSelected(option));
+
+  // "Select all" is selected while all it selects are
+  const isRowSelected = (option: AutocompleteOption) =>
+    option.value === SELECT_ALL_VALUE ? allSelected : isSelected(option);
 
   // A key per row - its value, and for the second option with the same value
   // (a mistake of the options, or a static "" next to the empty option) the
@@ -985,6 +1402,23 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     setActiveKey(rowKeys[index] ?? null);
   };
 
+  // Virtualization: the rows - the options and the heading of each group -
+  // of which those in view are rendered, and the highlighted one wherever it
+  // is (`aria-activedescendant` points to it)
+  const listRows = virtualized ? buildListRows(sections, rowKeys) : null;
+  const activeRow =
+    activeIndex < 0
+      ? -1
+      : listRows
+        ? listRows.rowOfOption[activeIndex]
+        : activeIndex;
+  const virtualList = useVirtualList({
+    enabled: virtualized && open,
+    keepRows: activeRow >= 0 ? [activeRow] : [],
+    listElement,
+    rows: listRows?.rows ?? NO_ROWS,
+  });
+
   const pointerMoved = usePointerMoved();
 
   // Only a real move of the pointer highlights the option under it, not the
@@ -1007,7 +1441,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   const revealActive = useRef(false);
 
   const openList = () => {
-    if (disabled || open) return;
+    if (locked || open) return;
 
     // A select opens on its selection, as a native one: the arrow keys go on
     // from there, and it is what assistive technology reads (the APG
@@ -1024,6 +1458,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     );
     revealActive.current = asSelect;
     setOpen(true);
+    setCreatedMessage("");
     if (isAsync) setListOutdated(true);
 
     // The labels whose loading failed are asked for again - once per opening
@@ -1039,8 +1474,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     setOpen(false);
     setActiveIndex(-1);
     revealActive.current = false;
-    // Back to showing the selection
-    if (!multiple) setSearch(null);
+    // Back to showing the selection - typed text of its own stays, to be
+    // taken as the focus leaves
+    if (!multiple && !allowCustomValue) setSearch(null);
   };
 
   const commit = (
@@ -1063,7 +1499,141 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     }
   };
 
+  // Adds the options "Select all" stands for - or, all of them selected,
+  // removes them
+  const toggleAll = () => {
+    const shownKeys = new Set(
+      pickableOptions.map((option) => valueKey(option.value)),
+    );
+
+    commit(
+      allSelected
+        ? selectedValues.filter(
+            (selected) => !shownKeys.has(valueKey(selected)),
+          )
+        : [
+            ...selectedValues,
+            ...pickableOptions
+              .filter((option) => !selectedKeys.has(valueKey(option.value)))
+              .map((option) => option.value),
+          ],
+    );
+
+    if (closeOnSelect) closeList();
+  };
+
+  // The latest selection and `commit` for an option added once a promise
+  // resolves - the selection may have changed meanwhile
+  const latestRef = useRef({ commit, knownOptions, selectedValues });
+
+  useEffect(() => {
+    latestRef.current = { commit, knownOptions, selectedValues };
+  });
+
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // "Add “…”": `onCreate` makes an option of the typed term, which is then
+  // selected (added in multiple mode) and announced - or fails, and the
+  // list says why
+  const addTypedOption = () => {
+    if (!onCreate || creating !== null) return;
+
+    const term = searchTerm;
+    setCreating(term);
+    setCreateError(null);
+    setCreatedMessage("");
+
+    // A promise chain - the React Compiler cannot compile try / finally.
+    // The executor turns an error `onCreate` throws into a rejection too.
+    new Promise<TItem | AutocompleteOption>((resolve) => {
+      resolve(onCreate(term));
+    })
+      .then((created) => {
+        if (!mountedRef.current) return;
+
+        // Read like the options of the field - static ones of the shape of
+        // `options`, others by the `getOption…` functions
+        const { getOptionGroup, getOptionLabel, getOptionValue } =
+          callbacksRef.current;
+        const option =
+          isAsync || getOptionLabel || getOptionValue || getOptionGroup
+            ? createOption(
+                created as TItem,
+                getOptionLabel,
+                getOptionValue,
+                getOptionGroup,
+              )
+            : (created as AutocompleteOption);
+        const latest = latestRef.current;
+        const lookup = new Map(latest.knownOptions).set(
+          valueKey(option.value),
+          option,
+        );
+
+        setPickedOptions((prev) =>
+          prev.some((picked) => sameValue(picked.value, option.value))
+            ? prev
+            : [...prev, option],
+        );
+
+        if (!multiple) {
+          latest.commit([option.value], lookup);
+        } else if (
+          !latest.selectedValues.some((selected) =>
+            sameValue(selected, option.value),
+          )
+        ) {
+          latest.commit([...latest.selectedValues, option.value], lookup);
+        }
+
+        // The term is now the option - unless the user typed on meanwhile
+        setSearch((current) =>
+          current !== null && current.trim() === term ? null : current,
+        );
+        if (!multiple || closeOnSelect) {
+          setOpen(false);
+          setActiveKey(null);
+          revealActive.current = false;
+        }
+        setCreatedMessage(
+          formatMessage(messages.autocomplete.created, { value: option.label }),
+        );
+      })
+      .catch((createFailure) => {
+        logger.error("Failed to add the option", createFailure);
+        if (!mountedRef.current) return;
+
+        setCreateError({
+          message: getErrorMessage(
+            createFailure,
+            formatMessage(messages.autocomplete.createError, { value: term }),
+          ),
+          search: term,
+        });
+      })
+      .finally(() => {
+        if (mountedRef.current) setCreating(null);
+      });
+  };
+
   const handleSelect = (option: AutocompleteOption) => {
+    if (option.value === ADD_VALUE) {
+      if (!isDisabled(option)) addTypedOption();
+      return;
+    }
+
+    if (option.value === SELECT_ALL_VALUE) {
+      toggleAll();
+      return;
+    }
+
     // Picking the selection again changes nothing - as in a native select,
     // which a select opens on
     if (option === EMPTY_OPTION) {
@@ -1110,6 +1680,38 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     );
   };
 
+  // `allowCustomValue`: the typed text (without the spaces around it) -
+  // `null` while the field shows its value - and the option it names, which
+  // it stands for then
+  const typedText = allowCustomValue && search !== null ? search.trim() : null;
+  const typedOption = typedText
+    ? filteredOptions.find((option) => !option.disabled && namesTerm(option))
+    : undefined;
+
+  // Takes the typed text as the value - the option it names, or the text
+  // itself - as the focus leaves the field, or on Enter
+  const commitTyped = () => {
+    if (typedText === null) return;
+    setSearch(null);
+
+    if (typedText === "") {
+      if (selectedValues.length > 0) commit([]);
+      return;
+    }
+
+    const option = typedOption ?? { label: typedText, value: typedText };
+    if (selectedValues.length === 1 && isSelected(option)) return;
+
+    setPickedOptions((prev) => [
+      ...prev.filter((picked) => !sameValue(picked.value, option.value)),
+      option,
+    ]);
+    commit(
+      [option.value],
+      new Map(knownOptions).set(valueKey(option.value), option),
+    );
+  };
+
   // Set while the field moves the focus into its input itself - that focus
   // does not open the list, only the one the user moves there does
   const focusingInput = useRef(false);
@@ -1127,8 +1729,14 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   const leftWindow = useRef<{ open: boolean } | null>(null);
 
   const handleComboboxBlur = (event: React.FocusEvent) => {
-    leftWindow.current =
-      document.activeElement === event.currentTarget ? { open } : null;
+    const windowLeft = document.activeElement === event.currentTarget;
+    leftWindow.current = windowLeft ? { open } : null;
+
+    // The focus left the field - not only the window
+    if (!windowLeft) {
+      commitTyped();
+      setCreatedMessage("");
+    }
   };
 
   const handleComboboxFocus = (event: React.FocusEvent) => {
@@ -1160,7 +1768,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // The button goes away with the value - the focus on it moves to the input
   const handleClear = (button: HTMLElement) => {
     if (button === document.activeElement) focusInput();
-    commit([]);
+    if (selectedValues.length > 0) commit([]);
     setSearch(null);
   };
 
@@ -1288,14 +1896,63 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     return () => cancelAnimationFrame(frame);
   });
 
+  // Brings the option at `index` into view - with the heading of its group
+  // when it is the first option there. A virtualized option that is not
+  // rendered yet is scrolled to by where it is estimated to be.
+  const revealOption = (index: number) => {
+    const headed = sections.some(
+      (section) => section.start === index && section.label !== undefined,
+    );
+    const option = document.getElementById(optionId(index));
+
+    if (option) {
+      if (headed) {
+        option.parentElement?.firstElementChild?.scrollIntoView({
+          block: "nearest",
+        });
+      }
+      option.scrollIntoView({ block: "nearest" });
+    } else if (listRows) {
+      const row = listRows.rowOfOption[index];
+      virtualList.scrollToRows(headed ? row - 1 : row, row);
+    }
+  };
+
   // Moves the highlight from the keyboard: keeps it in view, and reaching the
   // last option loads the next page as scrolling to it would
   const moveActive = (index: number) => {
     setActiveIndex(index);
-    document
-      .getElementById(optionId(index))
-      ?.scrollIntoView({ block: "nearest" });
+    revealOption(index);
     if (findEnabled(index + 1, 1) === -1) loadNextPage();
+  };
+
+  // How many options PageUp / PageDown move by - those a view of the list
+  // holds, but one
+  const pageStep = () => {
+    const viewHeight = popoverContentRef.current?.clientHeight ?? 0;
+    const optionHeight =
+      document
+        .getElementById(optionId(Math.max(activeIndex, 0)))
+        ?.getBoundingClientRect().height ?? 0;
+
+    return viewHeight > 0 && optionHeight > 0
+      ? Math.max(Math.floor(viewHeight / optionHeight) - 1, 1)
+      : DEFAULT_PAGE_STEP;
+  };
+
+  // PageUp / PageDown: the highlight moves by a view of the list, to the
+  // first or last option at most
+  const movePage = (step: 1 | -1) => {
+    const count = displayedOptions.length;
+    if (count === 0) return;
+
+    const target = Math.min(
+      Math.max(activeIndex + step * pageStep(), 0),
+      count - 1,
+    );
+    const next = findEnabled(target, step);
+    const index = next >= 0 ? next : findEnabled(target, step === 1 ? -1 : 1);
+    if (index >= 0) moveActive(index);
   };
 
   // Opens a select with the option at `index` highlighted (none for -1) -
@@ -1342,7 +1999,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       ).find((index) => {
         const option = displayedOptions[index];
         return (
-          !isDisabled(option) && normalizeText(option.label).startsWith(prefix)
+          !isDisabled(option) &&
+          !isOwnRow(option) &&
+          normalizeText(option.label).startsWith(prefix)
         );
       });
 
@@ -1368,6 +2027,10 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
+    // A read-only field takes no keys - Enter in its input submits the form,
+    // as in a read-only text input
+    if (readOnly) return;
+
     // The keys of a chip are its own - only Escape closes the list from it
     if (event.target !== inputRef.current && event.key !== "Escape") return;
 
@@ -1480,6 +2143,13 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
         }
         break;
       }
+      case "PageDown":
+      case "PageUp":
+        if (open) {
+          event.preventDefault();
+          movePage(event.key === "PageDown" ? 1 : -1);
+        }
+        break;
       case " ":
         // Opening is handled above - a typing field types the space
         if (asSelect) {
@@ -1494,6 +2164,11 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
         } else if (open && displayedOptions[activeIndex]) {
           event.preventDefault();
           handleSelect(displayedOptions[activeIndex]);
+        } else if (allowCustomValue) {
+          // The typed text is the value - and the form is submitted, as
+          // from a text input
+          commitTyped();
+          closeList();
         }
         break;
       case "Tab": {
@@ -1522,17 +2197,25 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   const handleInputChange = (text: string) => {
     setSearch(text);
     setActiveIndex(-1);
+    setCreatedMessage("");
     if (!open) setOpen(true);
 
     // Erasing the text of a single selection clears it
     if (!multiple && text === "" && selectedValues.length > 0) commit([]);
   };
 
+  // What the field holds - with `allowCustomValue`, the value the typed text
+  // stands for, before it is taken as the value: the form gets what the
+  // input shows
+  const typedValue = typedText ? (typedOption?.value ?? typedText) : null;
+  const currentValues =
+    typedValue !== null ? [typedValue] : typedText === "" ? [] : selectedValues;
+
   // A single field without a value submits an empty one, so that clearing it
   // reaches backends that keep fields missing from the request unchanged. A
   // multiple one submits no value at all rather than [""].
   const submittedValues =
-    multiple || selectedValues.length > 0 ? selectedValues : [""];
+    multiple || currentValues.length > 0 ? currentValues : [""];
 
   // Hidden inputs are the form value; the validation input lets the browser
   // enforce `required` although the visible input holds no value of its own.
@@ -1572,7 +2255,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
           style={hiddenValidationStyle}
           tabIndex={-1}
           type="text"
-          value={selectedValues.length > 0 ? "valid" : ""}
+          value={currentValues.length > 0 ? "valid" : ""}
         />
       )}
     </>
@@ -1580,7 +2263,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
   // The combobox - the typing input, or in a select an element without text
   // editing (the APG select-only combobox), which is neither read-only nor
-  // autocompleting for assistive technology
+  // autocompleting for assistive technology - unless `readOnly`
   const comboboxProps = {
     "aria-activedescendant":
       open && activeIndex >= 0 ? optionId(activeIndex) : undefined,
@@ -1594,7 +2277,12 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     // Only an input is named by the `<label>` pointing at it
     "aria-labelledby":
       ariaLabelledBy ?? (asSelect && label ? labelId : undefined),
+    "aria-readonly": readOnly ? ("true" as const) : undefined,
     "aria-required": required ? ("true" as const) : ariaRequired,
+    "data-disabled": disabled ? "" : undefined,
+    "data-invalid": error || isAriaInvalid(ariaInvalid) ? "" : undefined,
+    "data-readonly": readOnly ? "" : undefined,
+    "data-state": open ? ("open" as const) : ("closed" as const),
     id: inputId,
     onBlur: handleComboboxBlur,
     ref: inputCallbackRef,
@@ -1604,8 +2292,8 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   };
 
   const comboboxClassName = cn(
-    "min-w-16 grow focus:outline-none",
-    asSelect && !disabled && "cursor-pointer",
+    "min-w-16 grow focus:outline-hidden",
+    asSelect && !locked && "cursor-pointer",
     disabled && "cursor-not-allowed",
   );
 
@@ -1636,7 +2324,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     form,
     onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
       handleInputChange(event.target.value),
-    readOnly: isPreloading || disabled,
+    readOnly: isPreloading || locked,
     type: "text",
   };
 
@@ -1660,25 +2348,279 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   };
 
   const fieldClassName = cn(
-    "w-full items-center rounded-md border border-neutral-300 bg-surface px-2 py-1 focus-within:ring-2 focus-within:ring-primary-500 dark:border-neutral-700 dark:bg-surface-dark",
-    error && "border-danger-500! focus-within:ring-danger-500!",
-    asSelect && !disabled && "cursor-pointer",
+    "w-full items-center rounded-md border border-neutral-300 bg-surface focus-within:ring-2 focus-within:ring-primary-500 dark:border-neutral-700 dark:bg-surface-dark",
+    dimStyles[dim],
+    // Forced colors draw every border in one color - an outline makes the
+    // border of an invalid field thicker
+    error &&
+      "border-danger-500! focus-within:ring-danger-500! forced-colors:outline-1",
+    asSelect && !locked && "cursor-pointer",
     disabled && "cursor-not-allowed opacity-60",
   );
 
+  // No chevron in a read-only field - its list does not open
   const chevron = isPreloading ? (
     // The placeholder says it
     <Spinner aria-hidden="true" size="sm" />
-  ) : (
+  ) : readOnly ? null : (
     <ChevronDown
       aria-hidden="true"
       className={cn(
         "shrink-0 transition-transform duration-200 motion-reduce:transition-none",
         open && "rotate-180 transform",
       )}
-      size={16}
+      size={iconSizes[dim]}
     />
   );
+
+  // `maxVisibleChips`: the chips past it are summed up while the focus is
+  // elsewhere
+  const chipsCollapsed =
+    maxVisibleChips !== undefined &&
+    !focused &&
+    !open &&
+    selectedOptions.length > maxVisibleChips;
+  const visibleChips = chipsCollapsed
+    ? selectedOptions.slice(0, Math.max(maxVisibleChips, 0))
+    : selectedOptions;
+  const hiddenChips = selectedOptions.slice(visibleChips.length);
+
+  const chips = visibleChips.map((option) => (
+    <Chip
+      aria-label={
+        locked ? undefined : `${messages.autocomplete.clear} ${option.label}`
+      }
+      className={cn(chipDimStyles[dim], !locked && "cursor-pointer")}
+      key={valueKey(option.value)}
+      onClick={
+        locked
+          ? undefined
+          : (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              handleRemove(option.value);
+            }
+      }
+      onKeyDown={
+        locked
+          ? undefined
+          : (event) => {
+              if (
+                event.key === "Enter" ||
+                event.key === " " ||
+                event.key === "Backspace" ||
+                event.key === "Delete"
+              ) {
+                event.preventDefault();
+                event.stopPropagation();
+                removeChip(event.currentTarget, option.value);
+              }
+            }
+      }
+      onMouseDown={
+        locked
+          ? undefined
+          : (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+      }
+      role={locked ? undefined : "button"}
+      size={chipSizes[dim]}
+      tabIndex={locked ? undefined : 0}
+    >
+      {option.label}
+      {!locked && <>&nbsp;×</>}
+    </Chip>
+  ));
+
+  // The accessible name of the listbox - "Options for City" of a label of
+  // text, the label itself of one with markup
+  const labelText =
+    typeof label === "string" || typeof label === "number"
+      ? String(label)
+      : null;
+
+  // The rows of the listbox: the options of each group under its heading,
+  // and - virtualized - only the rendered rows, with spacers holding the
+  // room of the others. Without virtualization all rows are rendered.
+  const { measureRef, offsets, renderedRows } = virtualList;
+  // `aria-setsize` / `aria-posinset` of a virtualized list - by group, the
+  // options outside the groups make a set of their own; unknown while more
+  // can load
+  const ungroupedCount = sections.reduce(
+    (count, section) =>
+      section.label === undefined ? count + section.end - section.start : count,
+    0,
+  );
+
+  const spacer = (key: string, fromRow: number, toRow: number) =>
+    offsets && toRow > fromRow ? (
+      <li
+        aria-hidden="true"
+        key={key}
+        role="none"
+        style={{ height: offsets[toRow] - offsets[fromRow] }}
+      />
+    ) : null;
+
+  const renderOptionRow = (
+    index: number,
+    section: ListSection,
+    positionInSet: number,
+  ) => {
+    const option = displayedOptions[index];
+    const own = isOwnRow(option) && option !== EMPTY_OPTION;
+    const adding = option.value === ADD_VALUE && creating !== null;
+
+    return (
+      <OptionRow
+        active={index === activeIndex}
+        ariaLabel={
+          option === EMPTY_OPTION
+            ? messages.autocomplete.emptyOption
+            : undefined
+        }
+        content={
+          adding ? (
+            <span className="flex items-center gap-2">
+              {option.label}
+              <Spinner aria-hidden="true" size="sm" />
+            </span>
+          ) : own ? (
+            option.label
+          ) : undefined
+        }
+        disabled={isDisabled(option)}
+        highlight={highlightMatches && !own}
+        id={optionId(index)}
+        index={index}
+        key={rowKeys[index]}
+        measureRef={measureRef}
+        onHover={handleHover}
+        onSelect={handleSelect}
+        option={option}
+        posInSet={listRows ? positionInSet : undefined}
+        renderOption={renderOption}
+        rowKey={listRows ? `o\u0000${rowKeys[index]}` : undefined}
+        search={highlightMatches || renderOption ? searchTerm : ""}
+        selected={isRowSelected(option)}
+        separated={option.value === ADD_VALUE && index > 0}
+        setSize={
+          listRows
+            ? canLoadMore
+              ? -1
+              : section.label === undefined
+                ? ungroupedCount
+                : section.end - section.start
+            : undefined
+        }
+      />
+    );
+  };
+
+  const listContent: React.ReactNode[] = [];
+  // Rendered rows are gone through in their order, section by section
+  let renderedPointer = 0;
+  // The first row of a run of sections none of whose rows is rendered
+  let skippedFromRow = -1;
+  let ungroupedBefore = 0;
+  // A closed list renders no rows - its panel is not there
+  const sectionCount = open ? sections.length : 0;
+
+  for (let sectionIndex = 0; sectionIndex < sectionCount; sectionIndex++) {
+    const section = sections[sectionIndex];
+    if (section.end === section.start) continue;
+
+    const labeled = section.label !== undefined;
+    const firstOptionRow = listRows
+      ? listRows.rowOfOption[section.start]
+      : section.start;
+    const firstRow = labeled ? firstOptionRow - 1 : firstOptionRow;
+    const endRow = firstOptionRow + section.end - section.start;
+
+    // The options of the section to render
+    const indexes: number[] = [];
+    if (renderedRows) {
+      while (
+        renderedPointer < renderedRows.length &&
+        renderedRows[renderedPointer] < endRow
+      ) {
+        const row = renderedRows[renderedPointer];
+        renderedPointer += 1;
+        if (row >= firstOptionRow) {
+          indexes.push(section.start + row - firstOptionRow);
+        }
+      }
+    } else {
+      for (let index = section.start; index < section.end; index++) {
+        indexes.push(index);
+      }
+    }
+
+    const setStart = labeled ? 0 : ungroupedBefore;
+    if (!labeled) ungroupedBefore += section.end - section.start;
+
+    if (indexes.length === 0) {
+      if (skippedFromRow < 0) skippedFromRow = firstRow;
+      continue;
+    }
+
+    if (skippedFromRow >= 0) {
+      listContent.push(
+        spacer(`gap-${skippedFromRow}`, skippedFromRow, firstRow),
+      );
+      skippedFromRow = -1;
+    }
+
+    const rows: React.ReactNode[] = [];
+    let nextRow = firstOptionRow;
+    for (const index of indexes) {
+      const row = firstOptionRow + index - section.start;
+      if (row > nextRow) rows.push(spacer(`gap-${nextRow}`, nextRow, row));
+      rows.push(
+        renderOptionRow(index, section, setStart + index - section.start + 1),
+      );
+      nextRow = row + 1;
+    }
+    if (nextRow < endRow) rows.push(spacer(`gap-${nextRow}`, nextRow, endRow));
+
+    if (!labeled) {
+      listContent.push(...rows);
+      continue;
+    }
+
+    const headingId = `${generatedId}-group-${sectionIndex}`;
+    listContent.push(
+      <li key={`group\u0000${section.label}`} role="none">
+        <ul aria-labelledby={headingId} role="group">
+          <li
+            className="cursor-default px-2 pt-2 pb-1 text-xs font-semibold text-neutral-600 select-none dark:text-neutral-400"
+            data-row-key={listRows ? `h\u0000${section.label}` : undefined}
+            id={headingId}
+            ref={measureRef}
+            role="presentation"
+          >
+            {section.label}
+          </li>
+          {rows}
+        </ul>
+      </li>,
+    );
+  }
+
+  if (skippedFromRow >= 0 && listRows) {
+    listContent.push(
+      spacer(`gap-${skippedFromRow}`, skippedFromRow, listRows.rows.length),
+    );
+  }
+
+  // What the live region beside the field says: the option being added, the
+  // one just added, else the state of the open list
+  const liveText =
+    creating !== null
+      ? formatMessage(messages.autocomplete.creating, { value: creating })
+      : createdMessage || announcedStatus;
 
   return (
     <div {...props} className={cn("relative", className)}>
@@ -1693,14 +2635,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
           {label}
           {messages.form.labelSuffix}{" "}
           {/* The star is for the eye - `required` tells assistive technology */}
-          {required && (
-            <span
-              aria-hidden="true"
-              className="text-danger-700 dark:text-danger-400"
-            >
-              *
-            </span>
-          )}
+          {required && <RequiredMark />}
         </label>
       )}
 
@@ -1708,6 +2643,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
       <Popover
         className="w-full"
+        // The browser keeps no row in place while the rows around it are
+        // swapped for spacers - the list does it
+        contentClassName={virtualized ? "[overflow-anchor:none]" : undefined}
         contentRef={popoverContentRef}
         // The input is the combobox - the wrapper is no button around it
         interactiveTrigger
@@ -1729,61 +2667,44 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
                 fieldClassName,
                 "flex max-h-40 flex-wrap gap-1 overflow-y-auto",
               )}
+              // All chips show while the focus is in the field
+              onBlur={
+                maxVisibleChips === undefined
+                  ? undefined
+                  : (event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget)) {
+                        setFocused(false);
+                      }
+                    }
+              }
+              onFocus={
+                maxVisibleChips === undefined
+                  ? undefined
+                  : () => setFocused(true)
+              }
             >
               {isPreloading && selectedOptions.length === 0 ? (
-                <Chip className="opacity-50">
+                <Chip
+                  className={cn(chipDimStyles[dim], "opacity-50")}
+                  size={chipSizes[dim]}
+                >
                   {messages.autocomplete.loadingSelected}
                 </Chip>
               ) : (
-                selectedOptions.map((option) => (
-                  <Chip
-                    aria-label={
-                      disabled
-                        ? undefined
-                        : `${messages.autocomplete.clear} ${option.label}`
-                    }
-                    className={disabled ? undefined : "cursor-pointer"}
-                    key={valueKey(option.value)}
-                    onClick={
-                      disabled
-                        ? undefined
-                        : (event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            handleRemove(option.value);
-                          }
-                    }
-                    onKeyDown={
-                      disabled
-                        ? undefined
-                        : (event) => {
-                            if (
-                              event.key === "Enter" ||
-                              event.key === " " ||
-                              event.key === "Backspace" ||
-                              event.key === "Delete"
-                            ) {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              removeChip(event.currentTarget, option.value);
-                            }
-                          }
-                    }
-                    onMouseDown={
-                      disabled
-                        ? undefined
-                        : (event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }
-                    }
-                    role={disabled ? undefined : "button"}
-                    tabIndex={disabled ? undefined : 0}
-                  >
-                    {option.label}
-                    {!disabled && <>&nbsp;×</>}
-                  </Chip>
-                ))
+                chips
+              )}
+              {hiddenChips.length > 0 && (
+                <Chip
+                  className={chipDimStyles[dim]}
+                  size={chipSizes[dim]}
+                  title={hiddenChips.map((option) => option.label).join(", ")}
+                >
+                  {formatPlural(
+                    locale.code,
+                    messages.autocomplete.moreSelected,
+                    hiddenChips.length,
+                  )}
+                </Chip>
               )}
               {asSelect ? (
                 selectCombobox(
@@ -1793,7 +2714,8 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
               ) : (
                 <input
                   {...typingInputProps}
-                  className={comboboxClassName}
+                  // Grows from a narrow start - beside the chips, not below
+                  className={cn(comboboxClassName, "w-16")}
                   placeholder={selectedOptions.length ? undefined : placeholder}
                   value={search ?? ""}
                 />
@@ -1824,10 +2746,15 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
                   value={search ?? selectedOptions[0]?.label ?? ""}
                 />
               )}
-              {selectedValues.length > 0 && !asSelect && !disabled && (
+              {currentValues.length > 0 && !asSelect && !locked && (
                 <button
                   aria-label={messages.autocomplete.clear}
-                  className="ml-2 cursor-pointer rounded p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                  className={cn(
+                    "ms-2 cursor-pointer rounded p-1 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500",
+                    // Over the padding of the small fields, which it would
+                    // make taller
+                    (dim === "xs" || dim === "sm") && "-my-0.5",
+                  )}
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1846,7 +2773,11 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
                   }}
                   type="button"
                 >
-                  <X className="mr-0.5" size={16} />
+                  <X
+                    aria-hidden="true"
+                    className="me-0.5"
+                    size={iconSizes[dim]}
+                  />
                 </button>
               )}
               {chevron}
@@ -1858,51 +2789,51 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       >
         <ul
           aria-label={
-            label
-              ? formatMessage(messages.autocomplete.listLabel, { label })
-              : ariaLabel
+            labelText
+              ? formatMessage(messages.autocomplete.listLabel, {
+                  label: labelText,
+                })
+              : label
+                ? undefined
+                : ariaLabel
           }
-          aria-labelledby={label || ariaLabel ? undefined : ariaLabelledBy}
+          aria-labelledby={
+            label && !labelText
+              ? labelId
+              : label || ariaLabel
+                ? undefined
+                : ariaLabelledBy
+          }
           aria-multiselectable={multiple || undefined}
+          className={listDimStyles[dim]}
           id={listboxId}
           // A click on an option keeps the focus in the input
           onMouseDown={(event) => event.preventDefault()}
+          ref={virtualized ? setListElement : undefined}
           role="listbox"
         >
-          {displayedOptions.map((option, index) => (
-            <OptionRow
-              active={index === activeIndex}
-              ariaLabel={
-                option === EMPTY_OPTION
-                  ? messages.autocomplete.emptyOption
-                  : undefined
-              }
-              disabled={isDisabled(option)}
-              id={optionId(index)}
-              index={index}
-              key={rowKeys[index]}
-              onHover={handleHover}
-              onSelect={handleSelect}
-              option={option}
-              renderOption={renderOption}
-              selected={isSelected(option)}
-            />
-          ))}
+          {listContent}
         </ul>
         {/* The state of the list is no option - it shows beside the listbox,
             in view under a long list. The live region next to the field
             announces it: this one comes and goes with the list, and a live
             region added with its text already in it is not read out. */}
         <div
-          className="sticky bottom-0 bg-surface dark:bg-surface-dark"
+          className={cn(
+            "sticky bottom-0 bg-surface dark:bg-surface-dark",
+            listDimStyles[dim],
+          )}
           onMouseDown={(event) => event.preventDefault()}
         >
-          {/* The empty option of a select is no result */}
-          {filteredOptions.length === 0 && !isLoadingList && !loadFailed && (
-            <p className="px-2 py-1 text-sm text-neutral-500 dark:text-neutral-400">
-              {messages.autocomplete.noResults}
-            </p>
-          )}
+          {/* The empty option of a select is no result, nor is "Add “…”" */}
+          {filteredOptions.length === 0 &&
+            !isLoadingList &&
+            !loadFailed &&
+            !addOption && (
+              <p className="px-2 py-1 text-sm text-neutral-500 dark:text-neutral-400">
+                {messages.autocomplete.noResults}
+              </p>
+            )}
           {/* Loading shows while the list is empty, or under it when paginating */}
           {((isLoadingList && filteredOptions.length === 0) || loadingMore) && (
             <div className="flex items-center gap-2 p-2">
@@ -1913,6 +2844,14 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
           {limitReached && (
             <p className="border-t border-neutral-200 px-2 py-1 text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
               {limitMessage}
+            </p>
+          )}
+          {createError && createError.search === searchTerm && (
+            <p
+              className="border-t border-neutral-200 px-2 py-1 text-sm text-danger-700 dark:border-neutral-700 dark:text-danger-400"
+              role="alert"
+            >
+              {createError.message}
             </p>
           )}
         </div>
@@ -1929,10 +2868,11 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
       {/* There while the list is open - empty as it opens, the state comes
           after a pause, so it is read out (a region added with its text in
-          it would not be) - and not in a page of closed fields */}
-      {open && (
+          it would not be) - and not in a page of closed fields. It stays
+          while it tells of an option being added or just added. */}
+      {(open || creating !== null || createdMessage !== "") && (
         <div className="sr-only" role="status">
-          {announcedStatus}
+          {liveText}
         </div>
       )}
 

@@ -1,4 +1,8 @@
-import { attachRef, useFormControl } from "../hooks/use-form-control";
+import {
+  attachRef,
+  isAriaInvalid,
+  useFormControl,
+} from "../hooks/use-form-control";
 import { formatMessage, formatNumber, formatPlural } from "../i18n/format";
 import {
   useCallback,
@@ -12,13 +16,15 @@ import {
 import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
+import RequiredMark from "./required-mark";
 import { useLocale } from "../providers/ui-context";
 
 // All the padding lives here - base padding next to it would win over the
-// smaller sizes, as the CSS order decides between two utilities
+// smaller sizes, as the CSS order decides between two utilities. The
+// paddings and the text of `Input`.
 const dimStyles = {
-  xs: "px-1 py-0.5 text-sm min-h-[48px]",
-  sm: "px-1 py-0 text-sm min-h-[60px]",
+  xs: "px-1 py-0 text-sm min-h-[48px]",
+  sm: "px-1 py-0.5 text-sm min-h-[60px]",
   md: "px-2 py-1 text-base min-h-[80px]",
   lg: "px-3 py-2 text-lg min-h-[100px]",
 };
@@ -26,14 +32,14 @@ const dimStyles = {
 // The vertical padding of `dimStyles`, and with the `pt-6` of a floating
 // label - the rows of an autosizing field are lines plus these and the border
 const verticalPaddings = {
-  xs: "0.25rem",
-  sm: "0rem",
+  xs: "0rem",
+  sm: "0.25rem",
   md: "0.5rem",
   lg: "1rem",
 };
 const floatingPaddings = {
-  xs: "1.625rem",
-  sm: "1.5rem",
+  xs: "1.5rem",
+  sm: "1.625rem",
   md: "1.75rem",
   lg: "2rem",
 };
@@ -45,7 +51,7 @@ const ANNOUNCE_DELAY = 750;
 // copy with the same classes, out of sight
 const shadowStyle: React.CSSProperties = {
   height: 0,
-  left: 0,
+  insetInlineStart: 0,
   maxHeight: "none",
   minHeight: 0,
   overflow: "hidden",
@@ -56,6 +62,10 @@ const shadowStyle: React.CSSProperties = {
 };
 
 const noSubscription = () => () => {};
+
+/** Whether a slot renders anything - the `false` of a condition does not. */
+const hasContent = (node: React.ReactNode) =>
+  node !== undefined && node !== null && node !== false && node !== "";
 
 /** Whether the browser sizes a textarea to its content (`field-sizing`). */
 const supportsFieldSizing = () =>
@@ -96,8 +106,11 @@ export interface TextareaProps extends React.ComponentProps<"textarea"> {
    * also one the browser autofilled.
    */
   floating?: boolean;
-  /** Text of the `<label>` of the field. */
-  label?: string;
+  /**
+   * The `<label>` of the field - a text, or content like a text with an
+   * icon. Without a label give the field an `aria-label`.
+   */
+  label?: React.ReactNode;
   /**
    * With `autosize`: the most lines the field grows to - more text
    * scrolls. No limit by default.
@@ -223,6 +236,7 @@ export default function Textarea({
   const textareaId = id ?? generatedId;
   const errorId = error ? `${textareaId}-error` : undefined;
   const descriptionId = description ? `${textareaId}-description` : undefined;
+  const invalid = !!error || isAriaInvalid(props["aria-invalid"]);
 
   // The characters as `maxLength` counts them
   const count = text.length;
@@ -271,11 +285,8 @@ export default function Textarea({
   }, [isFocused, limitMessage, showCount]);
 
   // The star is for the eye - `required` tells assistive technology
-  const requiredMark = required && (
-    <span aria-hidden="true" className="text-danger-700 dark:text-danger-400">
-      *
-    </span>
-  );
+  const requiredMark = required && <RequiredMark />;
+  const hasLabel = hasContent(label);
 
   const textareaClassName = cn(
     "form-control",
@@ -283,7 +294,10 @@ export default function Textarea({
     dimStyles[dim],
     disabled && "cursor-not-allowed opacity-50",
     floating && "pt-6",
-    error && "border-danger-500! focus:ring-danger-500!",
+    // Forced colors (Windows High Contrast) draw every border in one color -
+    // an outline makes the border of an invalid field thicker
+    error &&
+      "border-danger-500! focus:ring-danger-500! forced-colors:outline-1",
     className,
   );
 
@@ -292,7 +306,7 @@ export default function Textarea({
 
   return (
     <div className="flex flex-col gap-1.5">
-      {label && !floating && (
+      {hasLabel && !floating && (
         <label
           className="block truncate text-sm font-medium"
           htmlFor={textareaId}
@@ -303,13 +317,15 @@ export default function Textarea({
       )}
 
       <span className="relative">
-        {label && floating && (
+        {hasLabel && floating && (
           <label
             className={cn(
+              // Moved in from the start side by a margin - the right side
+              // of a right-to-left page
               "pointer-events-none absolute z-10 transition-all duration-200 motion-reduce:transition-none",
               isLabelFloating
-                ? "translate-x-1 translate-y-[-0.7rem] bg-surface px-1 text-xs dark:bg-surface-dark"
-                : "translate-x-2 translate-y-[0.4rem] [&:has(~textarea:autofill)]:translate-x-1 [&:has(~textarea:autofill)]:translate-y-[-0.7rem] [&:has(~textarea:autofill)]:bg-surface [&:has(~textarea:autofill)]:px-1 [&:has(~textarea:autofill)]:text-xs dark:[&:has(~textarea:autofill)]:bg-surface-dark",
+                ? "ms-1 translate-y-[-0.7rem] bg-surface px-1 text-xs dark:bg-surface-dark"
+                : "ms-2 translate-y-[0.4rem] [&:has(~textarea:autofill)]:ms-1 [&:has(~textarea:autofill)]:translate-y-[-0.7rem] [&:has(~textarea:autofill)]:bg-surface [&:has(~textarea:autofill)]:px-1 [&:has(~textarea:autofill)]:text-xs dark:[&:has(~textarea:autofill)]:bg-surface-dark",
               // One color or the other - with both, the CSS order decides
               error
                 ? "text-danger-700 dark:text-danger-400"
@@ -330,6 +346,9 @@ export default function Textarea({
           )}
           aria-invalid={error ? "true" : props["aria-invalid"]}
           aria-required={required ? "true" : props["aria-required"]}
+          data-disabled={disabled ? "" : undefined}
+          data-invalid={invalid ? "" : undefined}
+          data-readonly={props.readOnly ? "" : undefined}
           disabled={disabled}
           id={textareaId}
           name={name}

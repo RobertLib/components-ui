@@ -45,6 +45,18 @@ export default function TextareaPage() {
         name="textarea/count"
         title="Character counter"
       />
+      <Example
+        description={
+          <p>
+            <code>label</code> takes content - a hint in another color, an icon.
+            A <code>readOnly</code> field can be focused, selected and copied,
+            is submitted with its form, and carries <code>data-readonly</code>{" "}
+            for your styles.
+          </p>
+        }
+        name="textarea/read-only"
+        title="Label content and read-only"
+      />
 
       <Section title="Props">
         <PropsTable of="Textarea" />

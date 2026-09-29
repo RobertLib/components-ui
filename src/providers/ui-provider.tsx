@@ -3,7 +3,7 @@ import { deepMerge, toIntlLocale } from "../i18n/format";
 import { en } from "../i18n/en";
 import type { DeepPartial, Locale, Messages } from "../i18n/types";
 import type { RouterAdapter } from "./router";
-import { UIContext } from "./ui-context";
+import { UIContext, type PortalContainer } from "./ui-context";
 
 export interface UIProviderProps {
   /** The part of the app the configuration applies to - usually all of it. */
@@ -16,6 +16,14 @@ export interface UIProviderProps {
   locale?: Locale;
   /** Overrides individual texts of `locale`. */
   messages?: DeepPartial<Messages>;
+  /**
+   * Where popovers, tooltips, menus, dialogs, sheets, toasts and backdrops
+   * are rendered - `document.body` by default. Give an element of the page
+   * (or a function returning one) for an app inside a shadow root or a
+   * fullscreen element. Inherited from a surrounding `UIProvider`; `null`
+   * goes back to `document.body`.
+   */
+  portalContainer?: PortalContainer;
   /**
    * Connects the components to the app's router. Leave it out to use plain
    * `<a>` links and the History API. Parts left out are taken from a
@@ -34,6 +42,7 @@ export default function UIProvider({
   children,
   locale,
   messages,
+  portalContainer,
   router,
 }: UIProviderProps) {
   const parent = use(UIContext);
@@ -57,12 +66,16 @@ export default function UIProvider({
   const navigate = router?.navigate ?? parent?.router?.navigate;
   const back = router?.back ?? parent?.router?.back;
 
+  const container =
+    portalContainer === undefined ? parent?.portalContainer : portalContainer;
+
   const value = useMemo(
     () => ({
       locale: resolvedLocale,
+      portalContainer: container,
       router: { Link, pathname, search, navigate, back },
     }),
-    [resolvedLocale, Link, pathname, search, navigate, back],
+    [resolvedLocale, container, Link, pathname, search, navigate, back],
   );
 
   return <UIContext value={value}>{children}</UIContext>;

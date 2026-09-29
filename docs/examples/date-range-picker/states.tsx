@@ -18,6 +18,7 @@ export default function States() {
         label="Small"
         presets
       />
+      <DateRangePicker defaultValue={september} dim="xs" label="Extra small" />
     </div>
   );
 }

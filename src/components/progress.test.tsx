@@ -119,6 +119,14 @@ describe("Progress", () => {
     expect(wrapper?.style.maxWidth).toBe("320px");
   });
 
+  it("keeps the bar and the track in forced colors mode, which drops fills", () => {
+    render(<Progress label="Upload" value={40} />);
+
+    const track = screen.getByRole("progressbar", { name: "Upload" });
+    expect(track).toHaveClass("forced-colors:outline");
+    expect(track.firstElementChild).toHaveClass("forced-colors:bg-[Highlight]");
+  });
+
   it("moves without a value, telling none", () => {
     const { container } = render(
       <>
@@ -135,7 +143,10 @@ describe("Progress", () => {
         "animate-[progress-indeterminate_1.5s_ease-in-out_infinite]",
         // Fading in place instead for reduced motion
         "motion-reduce:animate-[progress-fade_2s_ease-in-out_infinite]",
-        "motion-reduce:left-[30%]",
+        "motion-reduce:start-[30%]",
+        // From the start - mirrored, from the right, right to left
+        "start-0",
+        "rtl:-scale-x-100",
       );
     }
     // No percentage of an unknown progress
@@ -213,6 +224,10 @@ describe("CircularProgress", () => {
     expect(ring).not.toHaveAttribute("aria-valuenow");
     expect(ring).toHaveTextContent("");
     expect(container.querySelector("svg")).toHaveClass("animate-spin");
+    // System colors in forced colors mode
+    const [track, arc] = container.querySelectorAll("circle");
+    expect(track).toHaveClass("forced-colors:stroke-[GrayText]");
+    expect(arc).toHaveClass("forced-colors:stroke-[Highlight]");
   });
 
   it("takes sizes, a stroke width and native attributes", () => {
@@ -234,5 +249,49 @@ describe("CircularProgress", () => {
     expect(track).toHaveAttribute("stroke-width", "20");
     expect(track).toHaveAttribute("r", "40");
     expect(arc).toHaveClass("stroke-success-700");
+  });
+
+  it("colors the bar and the ring by color - and by the deprecated variant", () => {
+    const { container, rerender } = render(
+      <>
+        <Progress aria-label="Bar" color="danger" value={50} />
+        <CircularProgress aria-label="Ring" color="danger" value={50} />
+      </>,
+    );
+    const fill = () =>
+      screen.getByRole("progressbar", { name: "Bar" })
+        .firstElementChild as HTMLElement;
+    const arc = () => container.querySelectorAll("circle")[1];
+    expect(fill()).toHaveClass("bg-danger-600");
+    expect(arc()).toHaveClass("stroke-danger-600");
+
+    rerender(
+      <>
+        <Progress aria-label="Bar" variant="warning" value={50} />
+        <CircularProgress aria-label="Ring" variant="warning" value={50} />
+      </>,
+    );
+    expect(fill()).toHaveClass("bg-warning-700");
+    expect(arc()).toHaveClass("stroke-warning-700");
+
+    // The new name wins
+    rerender(
+      <>
+        <Progress
+          aria-label="Bar"
+          color="success"
+          variant="warning"
+          value={50}
+        />
+        <CircularProgress
+          aria-label="Ring"
+          color="success"
+          value={50}
+          variant="warning"
+        />
+      </>,
+    );
+    expect(fill()).toHaveClass("bg-success-700");
+    expect(arc()).toHaveClass("stroke-success-700");
   });
 });

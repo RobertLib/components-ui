@@ -739,3 +739,110 @@ describe("NumberInput", () => {
     container.remove();
   });
 });
+
+describe("NumberInput clearable", () => {
+  it("empties the field, reports null and moves the focus into it", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <form aria-label="Order">
+        <NumberInput
+          clearable
+          defaultValue={12}
+          label="Quantity"
+          name="quantity"
+          onChange={onChange}
+        />
+      </form>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(spinbutton()).toHaveValue("");
+    expect(spinbutton()).toHaveFocus();
+    expect(onChange).toHaveBeenLastCalledWith(null);
+    expect(
+      new FormData(screen.getByRole("form", { name: "Order" })).get("quantity"),
+    ).toBe("");
+    // Nothing left to clear
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+
+    await user.type(spinbutton(), "5");
+    expect(screen.getByRole("button", { name: "Clear" })).toBeVisible();
+  });
+
+  it("clears a controlled field the parent empties", async () => {
+    const user = userEvent.setup();
+
+    function Quantity() {
+      const [value, setValue] = useState<number | null>(3);
+      return (
+        <NumberInput
+          clearable
+          label="Quantity"
+          onChange={setValue}
+          value={value}
+        />
+      );
+    }
+    render(<Quantity />);
+
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(spinbutton()).toHaveValue("");
+    // The field goes on from no value
+    await user.keyboard("{ArrowUp}");
+    expect(spinbutton()).toHaveValue("0");
+  });
+
+  it("is not offered while disabled or read-only", () => {
+    render(
+      <>
+        <NumberInput clearable defaultValue={1} disabled label="Quantity" />
+        <NumberInput clearable defaultValue={1} label="Price" readOnly />
+      </>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+  });
+});
+
+describe("NumberInput readOnly", () => {
+  it("has no step buttons, keeps its value from the keys and is submitted", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Order">
+        <NumberInput defaultValue={4} label="Quantity" name="q" readOnly />
+      </form>,
+    );
+
+    const input = spinbutton();
+    expect(input).toHaveAttribute("data-readonly");
+    expect(input).toHaveAttribute("readonly");
+    expect(screen.queryByRole("button", { name: "Increase" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Decrease" })).toBeNull();
+
+    await user.click(input);
+    await user.keyboard("{ArrowUp}{PageUp}");
+    expect(input).toHaveValue("4");
+    expect(
+      new FormData(screen.getByRole("form", { name: "Order" })).get("q"),
+    ).toBe("4");
+  });
+});
+
+describe("NumberInput label", () => {
+  it("takes content", () => {
+    render(
+      <NumberInput
+        label={
+          <>
+            Quantity <small>(pcs)</small>
+          </>
+        }
+        required
+      />,
+    );
+
+    expect(spinbutton("Quantity (pcs):")).toBeRequired();
+    expect(screen.getByText("*")).toHaveClass("cui-required-mark");
+  });
+});

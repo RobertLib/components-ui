@@ -146,7 +146,8 @@ const lineClassName = (visible: boolean, dashed: boolean) =>
     visible &&
       (dashed
         ? "border-s-2 border-dashed border-neutral-300 dark:border-neutral-600"
-        : "bg-neutral-200 dark:bg-neutral-700"),
+        : // A system color in forced colors mode, which drops fills
+          "bg-neutral-200 dark:bg-neutral-700 forced-colors:bg-[GrayText]"),
   );
 
 // Predefined widths of the placeholder titles to ensure the classes exist
@@ -212,7 +213,11 @@ function TimelineMarker({
 
   return (
     <span
-      className={cn("shrink-0 rounded-full", dotColors[color], sizes.dot)}
+      className={cn(
+        "shrink-0 rounded-full forced-colors:bg-[CanvasText]",
+        dotColors[color],
+        sizes.dot,
+      )}
     />
   );
 }
@@ -255,7 +260,8 @@ function TimelineTime({
  * Events in order along a line - an activity or audit log of who changed
  * what and when. Each item has a title, a time, an optional description,
  * content, icon and color; a `pending` one is still to come. An ordered
- * list; `alternate` puts the items on both sides of the line.
+ * list (with `data-orientation="vertical"`); `alternate` puts the items on
+ * both sides of the line.
  */
 export default function Timeline({
   alternate = false,
@@ -278,6 +284,8 @@ export default function Timeline({
       role="list"
       {...props}
       className={cn("text-sm", className)}
+      // Its items go down the line
+      data-orientation="vertical"
     >
       {loading
         ? Array.from({ length: loadingItemsCount }, (_, index) => {

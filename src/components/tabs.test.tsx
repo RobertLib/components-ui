@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
@@ -65,6 +65,64 @@ describe("Tabs", () => {
     );
     expect(screen.getByRole("link", { name: "Overview" })).not.toHaveAttribute(
       "aria-current",
+    );
+  });
+
+  it("marks the state of the tabs for styling", () => {
+    const ref = createRef<HTMLUListElement>();
+    const { container, rerender } = render(
+      <Tabs
+        data-testid="tabs"
+        items={[
+          { label: "Day", value: "day" },
+          { label: "Week", value: "week" },
+          { disabled: true, label: "Month", value: "month" },
+        ]}
+        ref={ref}
+        value="week"
+      />,
+    );
+
+    const list = screen.getByRole("tablist");
+    expect(ref.current).toBe(list);
+    expect(screen.getByTestId("tabs")).toBe(list);
+    expect(list).toHaveAttribute("data-orientation", "horizontal");
+    expect(screen.getByRole("tab", { name: "Week" })).toHaveAttribute(
+      "data-selected",
+      "",
+    );
+    expect(screen.getByRole("tab", { name: "Day" })).not.toHaveAttribute(
+      "data-selected",
+    );
+    expect(screen.getByRole("tab", { name: "Month" })).toHaveAttribute(
+      "data-disabled",
+      "",
+    );
+    // The indicator keeps a system color in forced colors mode
+    expect(container.querySelector("[aria-hidden].rounded-full")).toHaveClass(
+      "forced-colors:bg-[Highlight]",
+    );
+
+    rerender(
+      <UIProvider router={{ pathname: "/orders", search: "" }}>
+        <Tabs
+          items={[
+            { href: "/orders", label: "Orders" },
+            { href: "/invoices", label: "Invoices" },
+          ]}
+          orientation="vertical"
+        />
+      </UIProvider>,
+    );
+    const current = screen.getByRole("link", { name: "Orders" });
+    expect(current).toHaveAttribute("data-current", "");
+    expect(current).toHaveAttribute("data-selected", "");
+    expect(screen.getByRole("link", { name: "Invoices" })).not.toHaveAttribute(
+      "data-current",
+    );
+    expect(container.querySelector("ul")).toHaveAttribute(
+      "data-orientation",
+      "vertical",
     );
   });
 
@@ -739,4 +797,267 @@ describe("Tabs on the server", () => {
       container.remove();
     },
   );
+});
+
+describe("Tabs with panels", () => {
+  const items = [
+    { content: <p>Today's orders</p>, label: "Day", value: "day" },
+    {
+      content: <input aria-label="Week note" />,
+      label: "Week",
+      value: "week",
+    },
+    { content: "Month view", disabled: true, label: "Month", value: "month" },
+  ];
+
+  it("show the panel of the selected tab, named by the tab", () => {
+    render(<Tabs items={items} />);
+
+    // Uncontrolled - the first enabled tab without a defaultValue
+    const day = screen.getByRole("tab", { name: "Day" });
+    expect(day).toHaveAttribute("aria-selected", "true");
+    const panel = screen.getByRole("tabpanel", { name: "Day" });
+    expect(panel).toHaveTextContent("Today's orders");
+    expect(day).toHaveAttribute("aria-controls", panel.id);
+    expect(panel).toHaveAttribute("aria-labelledby", day.id);
+    // A Tab stop, also without controls in it
+    expect(panel).toHaveAttribute("tabindex", "0");
+
+    // Only the panel shown is there - and pointed at
+    expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+    expect(screen.getByRole("tab", { name: "Week" })).not.toHaveAttribute(
+      "aria-controls",
+    );
+  });
+
+  it("start at defaultValue and select the tabs themselves", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Tabs defaultValue="week" items={items} onChange={onChange} />);
+
+    expect(screen.getByRole("tabpanel", { name: "Week" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Day" }));
+    expect(onChange).toHaveBeenCalledWith("day");
+    expect(screen.getByRole("tabpanel", { name: "Day" })).toBeInTheDocument();
+    expect(screen.queryByRole("tabpanel", { name: "Week" })).toBeNull();
+
+    // The arrow keys switch the panels - past the disabled tab
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tabpanel", { name: "Week" })).toBeInTheDocument();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "Day" })).toHaveFocus();
+  });
+
+  it("select by a value tab without panels when uncontrolled", async () => {
+    const user = userEvent.setup();
+    render(
+      <Tabs
+        items={[
+          { label: "Day", value: "day" },
+          { label: "Week", value: "week" },
+        ]}
+      />,
+    );
+
+    // No panels to show - nothing selected until a tab is picked
+    expect(screen.getByRole("tab", { name: "Day" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+    await user.click(screen.getByRole("tab", { name: "Week" }));
+    expect(screen.getByRole("tab", { name: "Week" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("follow a controlled value", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <Tabs items={items} onChange={onChange} value="day" />,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Week" }));
+    expect(onChange).toHaveBeenCalledWith("week");
+    // The parent decides
+    expect(screen.getByRole("tabpanel", { name: "Day" })).toBeInTheDocument();
+
+    rerender(<Tabs items={items} onChange={onChange} value="week" />);
+    expect(screen.getByRole("tabpanel", { name: "Week" })).toBeInTheDocument();
+  });
+
+  it("keep the other panels hidden with keepMounted - and their state", async () => {
+    const user = userEvent.setup();
+    render(<Tabs items={items} keepMounted />);
+
+    const panels = screen.getAllByRole("tabpanel", { hidden: true });
+    expect(panels).toHaveLength(3);
+    expect(panels.filter((panel) => !panel.hidden)).toHaveLength(1);
+    // Every tab points at its panel, shown or not
+    for (const tab of screen.getAllByRole("tab")) {
+      expect(tab).toHaveAttribute("aria-controls");
+    }
+
+    await user.click(screen.getByRole("tab", { name: "Week" }));
+    await user.type(screen.getByRole("textbox", { name: "Week note" }), "Hi");
+    await user.click(screen.getByRole("tab", { name: "Day" }));
+    expect(screen.queryByRole("textbox", { name: "Week note" })).toBeNull();
+    await user.click(screen.getByRole("tab", { name: "Week" }));
+    expect(screen.getByRole("textbox", { name: "Week note" })).toHaveValue(
+      "Hi",
+    );
+  });
+
+  it("keep their own ids and take panel classes", () => {
+    render(
+      <Tabs
+        items={[
+          {
+            content: "Profile form",
+            id: "tab-profile",
+            label: "Profile",
+            panelId: "panel-profile",
+            value: "profile",
+          },
+        ]}
+        orientation="vertical"
+        panelClassName="p-6"
+      />,
+    );
+
+    const panel = screen.getByRole("tabpanel", { name: "Profile" });
+    expect(panel).toHaveAttribute("id", "panel-profile");
+    expect(panel).toHaveAttribute("aria-labelledby", "tab-profile");
+    expect(panel).toHaveClass("p-6", "flex-1");
+    // Beside a vertical bar
+    expect(panel.parentElement).toHaveClass("flex");
+  });
+
+  it("render and hydrate with the same ids", async () => {
+    const tabs = <Tabs items={items} keepMounted />;
+
+    const html = renderToString(tabs);
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.append(container);
+    const onRecoverableError = vi.fn();
+
+    const root = await act(async () =>
+      hydrateRoot(container, tabs, { onRecoverableError }),
+    );
+    expect(onRecoverableError).not.toHaveBeenCalled();
+    expect(within(container).getByRole("tabpanel")).toHaveAccessibleName("Day");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+});
+
+describe("Closable tabs", () => {
+  function Editor({
+    initial = ["a.ts", "b.ts", "c.ts"],
+  }: {
+    initial?: string[];
+  }) {
+    const [files, setFiles] = useState(initial);
+    const [value, setValue] = useState(initial[0]);
+    return (
+      <>
+        <Tabs
+          items={files.map((file) => ({
+            content: `Source of ${file}`,
+            label: file,
+            onClose: () =>
+              setFiles((current) => current.filter((name) => name !== file)),
+            value: file,
+          }))}
+          onChange={setValue}
+          value={value}
+        />
+        <button type="button">After</button>
+      </>
+    );
+  }
+
+  it("close with Delete - the next tab takes the focus and the selection", async () => {
+    const user = userEvent.setup();
+    render(<Editor />);
+
+    const first = screen.getByRole("tab", { name: "a.ts" });
+    expect(first).toHaveAttribute("aria-keyshortcuts", "Delete");
+
+    await user.tab();
+    await user.keyboard("{Delete}");
+    expect(screen.queryByRole("tab", { name: "a.ts" })).toBeNull();
+    const next = screen.getByRole("tab", { name: "b.ts" });
+    expect(next).toHaveFocus();
+    expect(next).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel")).toHaveTextContent("Source of b.ts");
+  });
+
+  it("move to the previous tab after closing the last one", async () => {
+    const user = userEvent.setup();
+    render(<Editor />);
+
+    await user.tab();
+    await user.keyboard("{End}{Delete}");
+    const previous = screen.getByRole("tab", { name: "b.ts" });
+    expect(previous).toHaveFocus();
+    expect(previous).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("close by the × of the pointer without taking the focus", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<Editor />);
+
+    const closeButtons = container.querySelectorAll("[data-tab-close]");
+    expect(closeButtons).toHaveLength(3);
+    // For the pointer - the keyboard has Delete
+    expect(closeButtons[2]).toHaveAttribute("aria-hidden", "true");
+    expect(closeButtons[2]).toHaveAttribute("title", "Close tab");
+
+    await user.click(closeButtons[2]);
+    expect(screen.queryByRole("tab", { name: "c.ts" })).toBeNull();
+    // Another tab closed - the selection stays
+    expect(screen.getByRole("tab", { name: "a.ts" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(document.body).toHaveFocus();
+  });
+
+  it("keep the focus on the focused tab when another one closes", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<Editor />);
+
+    await user.tab();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "b.ts" })).toHaveFocus();
+
+    await user.click(container.querySelectorAll("[data-tab-close]")[0]);
+    expect(screen.queryByRole("tab", { name: "a.ts" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "b.ts" })).toHaveFocus();
+  });
+
+  it("are not closed with Delete without onClose, nor disabled", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const { container } = render(
+      <Tabs
+        items={[
+          { label: "Pinned", value: "pinned" },
+          { disabled: true, label: "Locked", onClose, value: "locked" },
+        ]}
+        value="pinned"
+      />,
+    );
+
+    await user.tab();
+    await user.keyboard("{Delete}");
+    expect(screen.getByRole("tab", { name: "Pinned" })).toHaveFocus();
+    expect(container.querySelector("[data-tab-close]")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

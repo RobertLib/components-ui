@@ -220,3 +220,60 @@ describe("Textarea autosize", () => {
     container.remove();
   });
 });
+
+describe("Textarea label and states", () => {
+  it("takes content as its label, also a floating one", () => {
+    render(
+      <>
+        <Textarea
+          label={
+            <>
+              Note <small>(internal)</small>
+            </>
+          }
+          required
+        />
+        <Textarea
+          floating
+          label={
+            <>
+              Address <em>(delivery)</em>
+            </>
+          }
+        />
+      </>,
+    );
+
+    expect(
+      screen.getByRole("textbox", { name: "Note (internal):" }),
+    ).toBeRequired();
+    expect(
+      screen.getByRole("textbox", { name: "Address (delivery)" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("*")).toHaveClass("cui-required-mark");
+  });
+
+  it("moves a floating label in by a margin, so that it stays at the start", () => {
+    render(<Textarea floating label="Note" />);
+
+    const label = screen.getByText("Note");
+    expect(label).toHaveClass("ms-2");
+    expect(label.className).not.toMatch(/translate-x/);
+  });
+
+  it("marks a read-only field for styles", () => {
+    render(
+      <>
+        <Textarea defaultValue="Sent" label="Note" readOnly />
+        <Textarea label="Other" />
+      </>,
+    );
+
+    expect(screen.getByRole("textbox", { name: /Note/ })).toHaveAttribute(
+      "data-readonly",
+    );
+    expect(screen.getByRole("textbox", { name: /Other/ })).not.toHaveAttribute(
+      "data-readonly",
+    );
+  });
+});

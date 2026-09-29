@@ -65,10 +65,10 @@ function runConfirmAction(
 }
 
 /**
- * Shows the questions asked with `useConfirm()` in a `ConfirmDialog`, one
- * at a time - a question asked while another is open waits for it, one
- * asked from its `onConfirm` is shown above it. Render it once, near the
- * root of the app.
+ * Shows the questions asked with `useConfirm()` - and the messages of
+ * `useAlert()` - in a `ConfirmDialog`, one at a time: a question asked while
+ * another is open waits for it, one asked from its `onConfirm` is shown
+ * above it. Render it once, near the root of the app.
  */
 export default function ConfirmProvider({
   children,
@@ -199,7 +199,12 @@ export default function ConfirmProvider({
           {...request.options}
           key={request.id}
           loading={running.has(request)}
-          onClose={() => handleCancel(request)}
+          // An alert is acknowledged however it is closed
+          onClose={() =>
+            request.options.alert
+              ? handleConfirm(request)
+              : handleCancel(request)
+          }
           onConfirm={() => handleConfirm(request)}
           open
         />

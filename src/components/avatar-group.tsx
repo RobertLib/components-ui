@@ -1,7 +1,7 @@
 import { Children, cloneElement, isValidElement } from "react";
 import cn from "../utils/cn";
 import Tooltip from "./tooltip";
-import type { AvatarProps, AvatarSize } from "./avatar";
+import type { AvatarProps, AvatarShape, AvatarSize } from "./avatar";
 import { formatNumber, formatPlural } from "../i18n/format";
 import { useLocale } from "../providers/ui-context";
 
@@ -14,6 +14,11 @@ export interface AvatarGroupProps extends React.ComponentProps<"div"> {
    * All are shown without it.
    */
   max?: number;
+  /**
+   * Shape of the avatars that set none of their own, and of the "+N".
+   * @default "circle"
+   */
+  shape?: AvatarShape;
   /** Size of the avatars that set none of their own, and of the "+N". */
   size?: AvatarSize;
   /**
@@ -32,12 +37,20 @@ const overlapClasses: Record<AvatarSize, string> = {
 };
 
 // A pill rather than a circle once the number gets long ("+128"). The last
-// avatar covers its left side - the number keeps clear of it.
+// avatar covers its start side - the number keeps clear of it.
 const restSizeClasses: Record<AvatarSize, string> = {
   sm: "h-6 min-w-6 ps-1.5 pe-1 text-[10px]",
   md: "h-8 min-w-8 ps-2.5 pe-1.5 text-xs",
   lg: "h-12 min-w-12 ps-3.5 pe-2 text-base",
   xl: "h-16 min-w-16 ps-4.5 pe-2.5 text-xl",
+};
+
+// The corners of square avatars - as those of `Avatar`
+const restSquareClasses: Record<AvatarSize, string> = {
+  sm: "rounded",
+  md: "rounded-md",
+  lg: "rounded-lg",
+  xl: "rounded-xl",
 };
 
 // Separates the overlapping circles - in the color of the surface under them
@@ -56,6 +69,7 @@ export default function AvatarGroup({
   children,
   className,
   max,
+  shape = "circle",
   size = "sm",
   total,
   ...props
@@ -88,8 +102,9 @@ export default function AvatarGroup({
     restCount,
   );
   const restClassName = cn(
-    "inline-flex shrink-0 items-center justify-center rounded-full bg-neutral-200 font-semibold whitespace-nowrap text-neutral-700 dark:bg-neutral-700 dark:text-neutral-100",
+    "inline-flex shrink-0 items-center justify-center bg-neutral-200 font-semibold whitespace-nowrap text-neutral-700 dark:bg-neutral-700 dark:text-neutral-100",
     restSizeClasses[size],
+    shape === "square" ? restSquareClasses[size] : "rounded-full",
     ringClasses,
   );
 
@@ -107,6 +122,7 @@ export default function AvatarGroup({
       {avatars.slice(0, shownCount).map((avatar, index) =>
         cloneElement(avatar, {
           className: cn(ringClasses, avatar.props.className),
+          shape: avatar.props.shape ?? shape,
           size: avatar.props.size ?? size,
           // The first on top - the status dot in the corner of each avatar
           // stays in sight over the next one
@@ -144,7 +160,7 @@ export default function AvatarGroup({
               className={cn(
                 restClassName,
                 // Focused, its ring is on top of the avatar before it
-                "cursor-pointer focus:outline-none focus-visible:z-[9999] focus-visible:ring-primary-500",
+                "cursor-pointer focus:outline-hidden focus-visible:z-[9999] focus-visible:ring-primary-500",
               )}
               type="button"
             >

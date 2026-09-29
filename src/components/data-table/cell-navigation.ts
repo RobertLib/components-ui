@@ -7,25 +7,39 @@ export interface CellPosition {
 }
 
 /**
- * Where a key moves the focus among the editable cells: to the next one
- * left, right, up or down, to the first or last one of the row (Home /
- * End) or of the table (Ctrl + Home / End).
+ * Where a key moves the focus among the editable cells: to the next one in
+ * the previous column (`left`), the next column (`right`), up or down, to
+ * the first or last one of the row (Home / End) or of the table (Ctrl +
+ * Home / End).
  */
 export type CellMove =
   "down" | "first" | "last" | "left" | "right" | "rowEnd" | "rowStart" | "up";
 
-/** The move of a key pressed in an editable cell - `null` for other keys. */
+/** Whether an element is laid out right to left - `dir="rtl"` around it. */
+const isRtl = (element: Element) =>
+  getComputedStyle(element).direction === "rtl";
+
+/**
+ * The move of a key pressed in an editable cell - `null` for other keys.
+ * `left` and `right` are the previous and the next column: in a table laid
+ * out right to left, ArrowLeft goes to the next one.
+ */
 export function getCellMove(event: React.KeyboardEvent): CellMove | null {
   if (event.altKey || event.shiftKey) return null;
   const toTable = event.ctrlKey || event.metaKey;
+  const isHorizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
+  const flip =
+    isHorizontal &&
+    event.currentTarget instanceof Element &&
+    isRtl(event.currentTarget);
 
   switch (event.key) {
     case "ArrowDown":
       return toTable ? null : "down";
     case "ArrowLeft":
-      return toTable ? null : "left";
+      return toTable ? null : flip ? "right" : "left";
     case "ArrowRight":
-      return toTable ? null : "right";
+      return toTable ? null : flip ? "left" : "right";
     case "ArrowUp":
       return toTable ? null : "up";
     case "End":

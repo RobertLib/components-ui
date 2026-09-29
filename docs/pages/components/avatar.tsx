@@ -30,6 +30,22 @@ export default function AvatarPage() {
         name="avatar/status"
         title="Status"
       />
+      <Example
+        description={
+          <p>
+            <code>color</code> sets the palette of the initials -{" "}
+            <code>primary</code> by default; <code>auto</code> picks one by the{" "}
+            <code>name</code>, always the same one for a name (on the server as
+            well), so that the people of a list are told apart. The initials
+            stand out from each by at least 4.5:1. <code>shape="square"</code>{" "}
+            rounds the corners of a square instead - for a company or a project;
+            the status dot sits on its corner. An <code>AvatarGroup</code> gives
+            its <code>shape</code> to the avatars without one, and to the "+N".
+          </p>
+        }
+        name="avatar/colors"
+        title="Colors and shapes"
+      />
 
       <Section title="AvatarGroup">
         <Prose>

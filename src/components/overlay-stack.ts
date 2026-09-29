@@ -39,6 +39,13 @@ interface OverlayEntry {
   /** Traps the focus (Dialog, slid-in Drawer). */
   modal: boolean;
   /**
+   * The first of `getElements` is a portal (a Dialog): what follows it in
+   * the element it is rendered into - the body, or the `portalContainer` of
+   * `UIProvider` - is opened from it. For an overlay in place (the Drawer),
+   * what follows it in the body is.
+   */
+  portaled: boolean;
+  /**
    * Handles Escape while it is the topmost overlay - all but a `useOverlay`
    * without `onEscape`, under which an Escape is nobody's.
    */
@@ -58,6 +65,63 @@ const stack: OverlayEntry[] = [];
  * the toasts of `SnackbarProvider`.
  */
 export const FOCUS_TRAP_EXEMPT_ATTRIBUTE = "data-focus-trap-exempt";
+
+/**
+ * The element that has the focus - also inside a shadow root, where the
+ * document sees only its host (overlays rendered into a `portalContainer`
+ * in a shadow root). The body, or `null`, when nothing has it.
+ */
+export function getActiveElement(
+  root: Document | ShadowRoot = document,
+): Element | null {
+  let active = root.activeElement;
+  while (active?.shadowRoot?.activeElement) {
+    active = active.shadowRoot.activeElement;
+  }
+  return active;
+}
+
+/**
+ * The element an event happened at - inside a shadow root too, where the
+ * target a listener on the document sees is the host.
+ */
+export const getEventTarget = (event: Event) =>
+  (event.composedPath?.()[0] ?? event.target) as Node | null;
+
+/**
+ * The element with the id `id` in the document or the shadow root `node`
+ * is in - e.g. the panel of an overlay in its `portalContainer`.
+ */
+export function getElementByIdAt(node: Node, id: string) {
+  const root = node.getRootNode();
+  return root instanceof Document || root instanceof ShadowRoot
+    ? root.getElementById(id)
+    : null;
+}
+
+/**
+ * The element `element` is in - the host of the shadow root it is at the
+ * top of.
+ */
+const getComposedParent = (element: Element): Element | null => {
+  const parent = element.parentNode;
+  return parent instanceof ShadowRoot ? parent.host : element.parentElement;
+};
+
+/**
+ * The regions marked with `FOCUS_TRAP_EXEMPT_ATTRIBUTE` in the page of
+ * `element` - also in the shadow root it is in.
+ */
+function getExemptRegions(element: Element) {
+  const selector = `[${FOCUS_TRAP_EXEMPT_ATTRIBUTE}]`;
+  const root = element.getRootNode();
+  return [
+    ...new Set([
+      ...element.ownerDocument.querySelectorAll(selector),
+      ...(root instanceof ShadowRoot ? root.querySelectorAll(selector) : []),
+    ]),
+  ];
+}
 
 /** The ids of the overlays around a component, outermost first. */
 export const OverlayContext = createContext<string[]>([]);
@@ -306,7 +370,7 @@ const rememberClick = (event: MouseEvent) => {
   const target = event.composedPath()[0];
   const control = target instanceof Element ? target.closest(CLICKABLE) : null;
   clickedTargets =
-    control instanceof HTMLElement && !control.contains(document.activeElement)
+    control instanceof HTMLElement && !control.contains(getActiveElement())
       ? getFocusReturnTargets(control)
       : null;
 };
@@ -363,7 +427,7 @@ function isLeftByClick(active: Element | null, control: HTMLElement) {
  * are gone by the time the overlay closes.
  */
 export function getActiveFocusReturnTargets() {
-  const active = document.activeElement;
+  const active = getActiveElement();
   const onBody = !active || active === document.body;
   if (onBody && lostFocusTargets) return withNeighborStops(lostFocusTargets);
 
@@ -401,7 +465,12 @@ export const returnFocus = (targets: HTMLElement[], leaving?: Element | null) =>
   targets.some((target) => {
     if (!target.isConnected || leaving?.contains(target)) return false;
     target.focus();
-    return target.ownerDocument.activeElement === target;
+    // In a shadow root, the document sees its host focused
+    const root = target.getRootNode();
+    return (
+      (root instanceof ShadowRoot ? root : target.ownerDocument)
+        .activeElement === target
+    );
   });
 
 // The modal overlays whose focus trap is on - the page behind the topmost
@@ -420,10 +489,12 @@ const isElement = (element: Element | null | undefined): element is Element =>
 /**
  * The elements the page behind the modal overlay `index` of the stack is
  * hidden with: the siblings of everything on the way from the overlay up to
- * the body - but not of the way up from the overlays above it (a popover
- * opened in a dialog) and the exempt regions (the toasts), which stay. Of
- * what follows the overlay in the body - the portals opened from it, of
- * this library or others - only the overlays under it are hidden.
+ * the body - through the host of a shadow root it is in - but not of the
+ * way up from the overlays above it (a popover opened in a dialog) and the
+ * exempt regions (the toasts), which stay. Of what follows the overlay in
+ * the element it is rendered into - the body, or a `portalContainer`: the
+ * portals opened from it, of this library or others - only the overlays
+ * under it are hidden.
  */
 function getBackground(index: number) {
   const modal = stack[index];
@@ -438,7 +509,7 @@ function getBackground(index: number) {
   const kept = [
     ...own,
     ...stack.slice(index + 1).flatMap((entry) => entry.getElements()),
-    ...body.querySelectorAll(`[${FOCUS_TRAP_EXEMPT_ATTRIBUTE}]`),
+    ...getExemptRegions(own[0]),
   ].filter(isElement);
 
   // The elements on the way up from a kept one - never hidden
@@ -447,24 +518,40 @@ function getBackground(index: number) {
     for (
       let current: Element | null = element;
       current && current !== body;
-      current = current.parentElement
+      current = getComposedParent(current)
     ) {
       onPath.add(current);
     }
   }
 
-  // The child of the body the overlay is in
-  let branch: Element = own[0];
-  while (branch.parentElement && branch.parentElement !== body) {
-    branch = branch.parentElement;
+  // What follows the overlay is opened from it - the portals of this
+  // library and others added after it - in the element a portaled overlay
+  // is rendered into, or in the body for one in place (the Drawer): the
+  // ancestor of the overlay there. In a `portalContainer`, the page may
+  // follow the container in the body - it is not opened from the overlay.
+  let branch = own[0];
+  if (!modal.portaled) {
+    for (
+      let parent = getComposedParent(branch);
+      parent && parent !== body;
+      parent = getComposedParent(branch)
+    ) {
+      branch = parent;
+    }
   }
 
   const background = new Set<Element>();
   for (const element of onPath) {
-    const parent = element.parentElement;
+    // The parent element, or the shadow root the element is at the top of
+    const parent = element.parentNode;
     // Inside the overlay, or inside one above it (a popover in a dialog),
     // nothing is background
-    if (!parent || kept.some((other) => other.contains(parent))) continue;
+    if (
+      !(parent instanceof Element || parent instanceof ShadowRoot) ||
+      kept.some((other) => other.contains(parent))
+    ) {
+      continue;
+    }
 
     for (const sibling of parent.children) {
       if (
@@ -476,7 +563,7 @@ function getBackground(index: number) {
         continue;
       }
       const isAfterOverlay =
-        sibling.parentElement === body &&
+        parent === branch.parentNode &&
         !!(
           branch.compareDocumentPosition(sibling) &
           Node.DOCUMENT_POSITION_FOLLOWING
@@ -538,11 +625,7 @@ const isAllowedOutside = (id: string, node: Node) => {
  */
 const getExemptTabbables = (container: Element) => [
   ...new Set(
-    Array.from(
-      container.ownerDocument.querySelectorAll(
-        `[${FOCUS_TRAP_EXEMPT_ATTRIBUTE}]`,
-      ),
-    )
+    getExemptRegions(container)
       .filter((region) => !container.contains(region))
       .flatMap((region) => getTabbableElements(region)),
   ),
@@ -584,6 +667,8 @@ interface OverlayLayerOptions {
   getFocusFallback?: () => HTMLElement | null | undefined;
   /** Traps the focus - the caller does that with `useFocusTrap`. */
   modal?: boolean;
+  /** See `OverlayEntry.portaled`. */
+  portaled?: boolean;
   /** See `OverlayEntry.tooltip`. */
   tooltip?: boolean;
 }
@@ -600,6 +685,7 @@ export function useOverlayLayer(
     getElements,
     getFocusFallback,
     modal = false,
+    portaled = false,
     tooltip = false,
   }: OverlayLayerOptions,
 ) {
@@ -616,9 +702,11 @@ export function useOverlayLayer(
   useInsertionEffect(() => {
     if (!open) return;
 
-    register(createEntry(id, ancestors, { modal, tooltip }, optionsRef));
+    register(
+      createEntry(id, ancestors, { modal, portaled, tooltip }, optionsRef),
+    );
     return () => unregister(id);
-  }, [ancestors, id, modal, open, tooltip]);
+  }, [ancestors, id, modal, open, portaled, tooltip]);
 
   // React keeps insertion effects when <Activity mode="hidden"> hides the
   // overlay, but runs the cleanup of layout effects - a hidden overlay
@@ -627,10 +715,12 @@ export function useOverlayLayer(
     if (!open) return;
 
     if (!stack.some((entry) => entry.id === id)) {
-      register(createEntry(id, ancestors, { modal, tooltip }, optionsRef));
+      register(
+        createEntry(id, ancestors, { modal, portaled, tooltip }, optionsRef),
+      );
     }
     return () => unregister(id);
-  }, [ancestors, id, modal, open, tooltip]);
+  }, [ancestors, id, modal, open, portaled, tooltip]);
 
   const childContext = useMemo(() => [...ancestors, id], [ancestors, id]);
 
@@ -640,7 +730,11 @@ export function useOverlayLayer(
 const createEntry = (
   id: string,
   ancestors: string[],
-  { modal, tooltip }: Pick<OverlayEntry, "modal" | "tooltip">,
+  {
+    modal,
+    portaled,
+    tooltip,
+  }: Pick<OverlayEntry, "modal" | "portaled" | "tooltip">,
   optionsRef: React.RefObject<
     Pick<OverlayLayerOptions, "escape" | "getElements" | "getFocusFallback">
   >,
@@ -650,6 +744,7 @@ const createEntry = (
   getFocusFallback: () => optionsRef.current.getFocusFallback?.(),
   id,
   modal,
+  portaled,
   takesEscape: () => optionsRef.current.escape !== false,
   tooltip,
 });
@@ -761,7 +856,7 @@ export function useFocusTrap(
         return;
       }
 
-      const current = document.activeElement as HTMLElement | null;
+      const current = getActiveElement() as HTMLElement | null;
       const exempt = getExemptTabbables(container);
       const exemptIndex = exempt.indexOf(current as HTMLElement);
       // Tab inside a popover panel moves on its own
@@ -842,12 +937,22 @@ export function useFocusTrap(
       }
     };
 
+    // Seen on the document and on the shadow root the container is in
+    const handledFocus = new WeakSet<Event>();
+
     const handleFocusIn = (event: FocusEvent) => {
       const container = containerRef.current;
-      const target = event.target as Node | null;
-      if (!container || !target || !isTopmostOverlay(id, { modal: true })) {
+      // In a shadow root, the target seen on the document is its host
+      const target = getEventTarget(event);
+      if (
+        handledFocus.has(event) ||
+        !container ||
+        !target ||
+        !isTopmostOverlay(id, { modal: true })
+      ) {
         return;
       }
+      handledFocus.add(event);
 
       if (container.contains(target)) {
         lastFocused = target as HTMLElement;
@@ -872,7 +977,7 @@ export function useFocusTrap(
     const rescueFocus = () => {
       rescueTimer = undefined;
       const container = containerRef.current;
-      const focused = document.activeElement;
+      const focused = getActiveElement();
       if (
         container?.isConnected &&
         (!focused || focused === document.body) &&
@@ -896,11 +1001,21 @@ export function useFocusTrap(
       });
     }
 
+    // The focus moving within a shadow root reaches no listener of the
+    // document - one that moves out of the container there too
+    const root = containerRef.current?.getRootNode();
+    const shadowRoot = root instanceof ShadowRoot ? root : null;
+
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("focusin", handleFocusIn);
+    shadowRoot?.addEventListener("focusin", handleFocusIn as EventListener);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("focusin", handleFocusIn);
+      shadowRoot?.removeEventListener(
+        "focusin",
+        handleFocusIn as EventListener,
+      );
       observer?.disconnect();
       clearTimeout(rescueTimer);
       activeTraps.delete(id);
@@ -1027,7 +1142,7 @@ export function useOverlay({
     const container = ref.current;
     if (!isModalOpen || !container) return;
 
-    if (!container.contains(document.activeElement)) {
+    if (!container.contains(getActiveElement())) {
       (getTabbableElements(container)[0] ?? container).focus();
     }
 

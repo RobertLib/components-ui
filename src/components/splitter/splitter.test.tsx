@@ -112,6 +112,23 @@ describe("Splitter", () => {
     expect(controlled).toHaveTextContent("Folders");
   });
 
+  it("keeps its handles in sight in forced colors mode", () => {
+    const { container } = renderSplitter();
+
+    const handle = screen.getByRole("separator");
+    // The outline shows the focus - forced colors drop the ring
+    expect(handle).toHaveClass("focus:outline-hidden");
+    const [line, grip] = handle.children;
+    expect(line).toHaveClass("forced-colors:bg-[CanvasText]!");
+    expect(grip).toHaveClass(
+      "forced-colors:group-focus-visible/handle:bg-[Highlight]",
+    );
+    expect(container.firstElementChild).toHaveAttribute(
+      "data-orientation",
+      "horizontal",
+    );
+  });
+
   it("is named after the pane before the handle", () => {
     renderSplitter();
     expect(handle("Orders")).toBeInTheDocument();

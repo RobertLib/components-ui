@@ -27,6 +27,7 @@ import {
 import { getCellMove, type CellMove } from "./cell-navigation";
 import { getColumnValue } from "./query";
 import { getMeasureKey } from "./use-virtual-rows";
+import { useRouter } from "../../providers/ui-context";
 import type { Column, DataTableDensity, RowId } from "./types";
 import type { Locale } from "../../i18n/types";
 
@@ -37,6 +38,57 @@ const NO_VALUE = { overridden: false, value: undefined };
 
 // Controls in a cell - a click on them is theirs, not the cell's
 const CELL_CONTROL = "a, button, input, select, textarea, [role=button]";
+
+// What a click activating the row must not be on: controls, focusable
+// elements (an editable cell, the trigger of a popover), the built-in
+// expand, selection and actions cells
+const ROW_CONTROL = [
+  "a[href]",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "label",
+  "summary",
+  '[contenteditable]:not([contenteditable="false"])',
+  "[role=button]",
+  "[role=checkbox]",
+  "[role=combobox]",
+  "[role=link]",
+  "[role=menuitem]",
+  "[role=option]",
+  "[role=switch]",
+  "[role=textbox]",
+  "[tabindex]",
+  "[data-leading-column]",
+].join(", ");
+
+/**
+ * Whether a click on a row activates it: not in a portal of the row (a
+ * popover), not on a control in it, not at the end of selecting its text.
+ */
+function isRowActivation(rowElement: HTMLElement, target: Element) {
+  if (!rowElement.contains(target)) return false;
+
+  // The row itself is focusable (a tab stop) - it is no control in itself
+  const control = target.closest(ROW_CONTROL);
+  if (control && control !== rowElement && rowElement.contains(control)) {
+    return false;
+  }
+
+  const selection = rowElement.ownerDocument.getSelection();
+  return !(
+    selection &&
+    !selection.isCollapsed &&
+    selection.toString().trim() !== "" &&
+    (rowElement.contains(selection.anchorNode) ||
+      rowElement.contains(selection.focusNode))
+  );
+}
+
+/** Whether a click or key came with Shift held. */
+const isShiftEvent = (event: Event) =>
+  "shiftKey" in event && event.shiftKey === true;
 
 /**
  * Scrolls a focused cell wholly into view of the table - the browser leaves
@@ -119,6 +171,8 @@ interface TableRowProps<T extends { id: RowId }> {
   hasSelection: boolean;
   /** Term to highlight by column key - its filter, or the global search. */
   highlightTerms: Record<string, string>;
+  /** The page the row opens - its first cell links there. */
+  href?: string;
   /** Prefix of the ids of the row's elements. */
   idPrefix: string;
   /** Whether a cell of the row can be edited. */
@@ -139,6 +193,15 @@ interface TableRowProps<T extends { id: RowId }> {
   onCellFocus: (rowId: RowId, columnKey: string) => void;
   /** Moves the focus from an editable cell to another one (arrow keys). */
   onCellMove: (row: T, column: Column<T>, move: CellMove) => void;
+  /** A click on the row, or Enter on it - see `DataTableProps.onRowClick`. */
+  onRowClick?: (
+    row: T,
+    event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>,
+  ) => void;
+  /** The focus came into the row itself - it is the tab stop now. */
+  onRowFocus?: (rowId: RowId) => void;
+  /** A key pressed on the row itself - the arrow keys move between rows. */
+  onRowKeyDown?: (event: React.KeyboardEvent<HTMLTableRowElement>) => void;
   /** Ends the editing - saves a changed value, see `CellEditor`. */
   onCommitEdit: (
     row: T,
@@ -155,14 +218,22 @@ interface TableRowProps<T extends { id: RowId }> {
   /** Position of the row in the rows of the table. */
   rowIndex: number;
   /**
+   * The `tabIndex` of a row that is a tab stop of its own (`onRowClick`
+   * without links) - `0` for the one the rows are reached by.
+   */
+  rowTabIndex?: 0 | -1;
+  /**
    * The column of the editable cell of the row that is the tab stop of the
    * editable cells - `null` for none of this row.
    */
   tabStopColumnKey: string | null;
   /** Expands or collapses the detail row. */
   toggleRowExpansion: (rowId: RowId) => void;
-  /** Selects or deselects the row. */
-  toggleRowSelection: (row: T) => void;
+  /**
+   * Selects or deselects the row - `extend` (Shift) also the rows from the
+   * one toggled before.
+   */
+  toggleRowSelection: (row: T, extend: boolean) => void;
 }
 
 /** A row of the table body, with its detail row when expanded. */
@@ -181,6 +252,7 @@ export function TableRow<T extends { id: RowId }>({
   getRowClassName,
   hasSelection,
   highlightTerms,
+  href,
   idPrefix,
   isEditable,
   isExpanded,
@@ -192,18 +264,48 @@ export function TableRow<T extends { id: RowId }>({
   onCellFocus,
   onCellMove,
   onCommitEdit,
+  onRowClick,
+  onRowFocus,
+  onRowKeyDown,
   onStartEdit,
   renderSubRow,
   row,
   rowIndex,
+  rowTabIndex,
   tabStopColumnKey,
   toggleRowExpansion,
   toggleRowSelection,
 }: TableRowProps<T>) {
   const { messages } = locale;
+  const { Link } = useRouter();
   // A tap on an editable cell that has the focus already starts editing -
   // touch screens have no double-click to speak of
   const tapRef = useRef<string | null>(null);
+  const isActivatable = href !== undefined || !!onRowClick;
+
+  // A click on the row - its link follows it, as a click on the link would,
+  // with the keys held (Ctrl + click opens a new tab)
+  const handleRowClick = (event: React.MouseEvent<HTMLTableRowElement>) => {
+    const rowElement = event.currentTarget;
+    if (!isRowActivation(rowElement, event.target as Element)) return;
+
+    if (href === undefined) {
+      onRowClick?.(row, event);
+      return;
+    }
+
+    rowElement.querySelector("[data-row-link]")?.dispatchEvent(
+      new MouseEvent("click", {
+        altKey: event.altKey,
+        bubbles: true,
+        button: event.button,
+        cancelable: true,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+      }),
+    );
+  };
 
   // "Select row" alone does not tell the rows apart - the controls of a row
   // add its first cell to their names
@@ -232,17 +334,46 @@ export function TableRow<T extends { id: RowId }>({
   return (
     <>
       {/* No `aria-selected` - it belongs to grid rows, not to the rows of a
-          table; the row's checkbox tells the selection */}
+          table; the row's checkbox tells the selection. `data-selected` and
+          `data-state` (of a row with a detail) are for styling. */}
       <tr
         aria-rowindex={ariaRowIndex}
         className={cn(
-          "group transition-colors duration-150 hover:bg-neutral-100/80 dark:hover:bg-neutral-800/80",
+          "group transition-colors duration-150 hover:bg-neutral-100/80 motion-reduce:transition-none dark:hover:bg-neutral-800/80",
+          isActivatable && "cursor-pointer",
+          rowTabIndex !== undefined &&
+            "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-400",
           getRowClassName?.(row),
         )}
         data-measure-key={measureRef ? getMeasureKey(row.id, false) : undefined}
         data-row-index={rowIndex}
+        data-selected={isSelected ? "" : undefined}
+        data-state={renderSubRow ? (isExpanded ? "open" : "closed") : undefined}
+        onClick={isActivatable ? handleRowClick : undefined}
+        onFocus={
+          rowTabIndex === undefined
+            ? undefined
+            : (event) => {
+                if (event.target === event.currentTarget) onRowFocus?.(row.id);
+              }
+        }
+        onKeyDown={
+          rowTabIndex === undefined
+            ? undefined
+            : (event) => {
+                // Keys of the row itself, not of a control in it
+                if (event.target !== event.currentTarget) return;
+                if (event.key === "Enter" && onRowClick) {
+                  event.preventDefault();
+                  onRowClick(row, event);
+                  return;
+                }
+                onRowKeyDown?.(event);
+              }
+        }
         ref={measureRef}
         style={rowStyle}
+        tabIndex={rowTabIndex}
       >
         {renderSubRow && (
           <td
@@ -250,6 +381,7 @@ export function TableRow<T extends { id: RowId }>({
               "sticky z-1 w-10 text-center transition-colors duration-150",
               stickyBackground,
             )}
+            data-leading-column="expand"
             style={{
               ...rowStyle,
               ...getCellStyle(null, leadingLayout(LEADING_KEYS.expand), false),
@@ -263,6 +395,7 @@ export function TableRow<T extends { id: RowId }>({
               aria-label={expandLabel}
               aria-labelledby={labelledBy(expandId)}
               className={density === "compact" ? undefined : "mt-0.75"}
+              data-state={isExpanded ? "open" : "closed"}
               id={expandId}
               onClick={() => toggleRowExpansion(row.id)}
               title={expandLabel}
@@ -270,7 +403,7 @@ export function TableRow<T extends { id: RowId }>({
               {isExpanded ? (
                 <ChevronDown size={16} />
               ) : (
-                <ChevronRight size={16} />
+                <ChevronRight className="rtl:rotate-180" size={16} />
               )}
             </IconButton>
           </td>
@@ -282,6 +415,7 @@ export function TableRow<T extends { id: RowId }>({
               densityClass,
               stickyBackground,
             )}
+            data-leading-column="selection"
             style={{
               ...rowStyle,
               ...getCellStyle(
@@ -298,7 +432,11 @@ export function TableRow<T extends { id: RowId }>({
               checked={isSelected}
               className="accent-primary-500"
               id={selectId}
-              onChange={() => toggleRowSelection(row)}
+              // The change of a checkbox comes with its click - Shift also
+              // when Space toggles it
+              onChange={(event) =>
+                toggleRowSelection(row, isShiftEvent(event.nativeEvent))
+              }
               type="checkbox"
             />
           </td>
@@ -316,7 +454,7 @@ export function TableRow<T extends { id: RowId }>({
               ...getCellStyle(null, leadingLayout(LEADING_KEYS.actions), false),
             }}
           >
-            <div className="absolute top-0 -right-px h-full border-r border-neutral-200 shadow dark:border-neutral-800" />
+            <div className="absolute -end-px top-0 h-full border-e border-neutral-200 shadow dark:border-neutral-800" />
             <EdgeShadow side={leadingLayout(LEADING_KEYS.actions).shadow} />
             {actions(row)}
           </td>
@@ -332,6 +470,8 @@ export function TableRow<T extends { id: RowId }>({
           const isEditableCell = isEditable(column, row);
           const canEdit = isEditableCell && !isPending;
           const isEditing = canEdit && editingColumnKey === column.key;
+          // The first cell holds the link of the row
+          const isLinkCell = href !== undefined && columnIndex === 0;
           // The value only where it is needed - a `render` shows the cell
           // itself, and `getValue` may be costly
           const shown =
@@ -375,9 +515,9 @@ export function TableRow<T extends { id: RowId }>({
 
               if (text.length <= MAX_CELL_TEXT_LENGTH) {
                 content = <HighlightedText term={highlightTerm} text={text} />;
-              } else if (isEditableCell) {
-                // An editable cell is a control itself - no popover in it;
-                // the field shows the whole text
+              } else if (isEditableCell || isLinkCell) {
+                // An editable cell is a control itself, a link cannot hold
+                // one - no popover in them; the field shows the whole text
                 content = (
                   <span title={text}>
                     <HighlightedText
@@ -415,6 +555,22 @@ export function TableRow<T extends { id: RowId }>({
                 (column.render && Array.isArray(cellContent))
                   ? cellContent
                   : null;
+            }
+
+            if (isLinkCell) {
+              content = (
+                <Link
+                  className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500"
+                  data-row-link=""
+                  href={href}
+                  // Before the link is followed - `preventDefault()` stays
+                  onClick={
+                    onRowClick ? (event) => onRowClick(row, event) : undefined
+                  }
+                >
+                  {content}
+                </Link>
+              );
             }
 
             if (isPending) {

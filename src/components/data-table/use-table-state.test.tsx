@@ -98,7 +98,7 @@ describe("DataTable saved settings", () => {
     render(<DataTable columns={columns} data={rows} tableId="people" />);
 
     const team = screen.getByRole("columnheader", { name: "Team" });
-    expect(team).toHaveStyle({ right: "0px" });
+    expect(team).toHaveStyle({ insetInlineEnd: "0px" });
     expect(team.style.width).toBe("");
     expect(screen.getByRole("columnheader", { name: "Name" })).not.toHaveClass(
       "sticky",

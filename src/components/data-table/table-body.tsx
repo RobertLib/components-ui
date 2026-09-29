@@ -1,9 +1,19 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import {
+  Fragment,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import cn from "../../utils/cn";
 import EdgeShadow from "./edge-shadow";
 import Spinner from "../spinner";
 import useIsMobile from "../../hooks/use-is-mobile";
 import useVirtualRows from "./use-virtual-rows";
+import { formatMessage, formatPlural } from "../../i18n/format";
+import { SummaryCells } from "./table-summary";
 import {
   DEFAULT_CELL_LAYOUT,
   DENSITY_CLASSES,
@@ -21,8 +31,21 @@ import {
 import { getTabbableElements } from "../../utils/tabbable";
 import { TableRow } from "./table-row";
 import { useLocale } from "../../providers/ui-context";
+import type { BodyRowGroup } from "./grouping";
 import type { CellChange, CellEditState } from "./editing";
-import type { Column, DataTableDensity, GroupAction, RowId } from "./types";
+import type { DataTableFilterValue } from "./query";
+import type {
+  Column,
+  DataTableDensity,
+  DataTableSelectionMode,
+  RowId,
+} from "./types";
+
+/** A body row to focus - a cell of it, or the row itself (`null`). */
+interface FocusTarget {
+  columnKey: string | null;
+  rowId: RowId;
+}
 
 // Fixed so the placeholder rows do not change width on every render
 const SKELETON_WIDTHS = [72, 45, 60, 38, 80, 52, 66, 30, 58, 47];
@@ -54,20 +77,27 @@ interface TableBodyProps<T extends { id: RowId }> {
   editHintId: string;
   /** The cell being edited. */
   editingCell: { columnKey: string; rowId: RowId } | null;
-  /** Text shown instead of the rows when there are none. */
-  emptyMessage?: string;
+  /** Content shown instead of the rows when there are none. */
+  emptyMessage?: React.ReactNode;
   /** Ids of the rows whose `renderSubRow` detail is shown. */
   expandedRows: Set<RowId>;
   /** Column filters by column key - their terms are highlighted. */
-  filters: Record<string, string>;
+  filters: Record<string, DataTableFilterValue>;
   /** Background of a row (any CSS color). */
   getRowBackgroundColor?: (row: T) => string | undefined;
   /** Extra classes of a row. */
   getRowClassName?: (row: T) => string | undefined;
+  /** The page a row opens - its first cell links there. */
+  getRowHref?: (row: T) => string | undefined;
   /** A value of a column from any row - it picks the field of an empty cell. */
   getColumnSample: (column: Column<T>) => unknown;
-  /** Group actions - each row gets a checkbox when there are some. */
-  groupActions?: GroupAction<T>[];
+  /** Name of the column the rows are grouped by. */
+  groupLabel?: string;
+  /**
+   * The groups of the rows (`groupBy`) in the order they are shown - each
+   * takes the next `size` rows of `data`. Not virtualized.
+   */
+  groups?: BodyRowGroup[] | null;
   /** Rows of the table header - virtualized rows count from them. */
   headerRowCount: number;
   /** Whether a cell can be edited. */
@@ -88,8 +118,15 @@ interface TableBodyProps<T extends { id: RowId }> {
     change: CellChange,
     move: -1 | 0 | 1,
   ) => boolean;
+  /** A click on a row, or Enter on it - see `DataTableProps.onRowClick`. */
+  onRowClick?: (
+    row: T,
+    event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>,
+  ) => void;
   /** Starts editing a cell. */
   onStartEdit: (rowId: RowId, columnKey: string) => void;
+  /** Collapses or expands a group of rows. */
+  onToggleGroup: (key: string) => void;
   /** Expandable detail of a row. */
   renderSubRow?: (row: T) => React.ReactNode;
   /** The element that scrolls the table - virtualization follows it. */
@@ -98,12 +135,14 @@ interface TableBodyProps<T extends { id: RowId }> {
   search: string;
   /** Ids of the rows whose checkbox is checked. */
   selectedIds: ReadonlySet<RowId>;
+  /** The checkbox column - each row gets a checkbox unless `none`. */
+  selectionMode: DataTableSelectionMode;
   /** The visible columns in the order they are shown. */
   sortedVisibleColumns: Column<T>[];
   /** Expands or collapses the detail of a row. */
   toggleRowExpansion: (rowId: RowId) => void;
-  /** Selects or deselects a row. */
-  toggleRowSelection: (row: T) => void;
+  /** Selects or deselects a row - `extend` from the row toggled before. */
+  toggleRowSelection: (row: T, extend: boolean) => void;
   /** Renders only the rows in view of `scrollRef`. */
   virtualized: boolean;
 }
@@ -122,18 +161,23 @@ export function TableBody<T extends { id: RowId }>({
   getColumnSample,
   getRowBackgroundColor,
   getRowClassName,
-  groupActions,
+  getRowHref,
+  groupLabel = "",
+  groups,
   headerRowCount,
   isEditable,
   layoutKey,
   loading,
   onCancelEdit,
   onCommitEdit,
+  onRowClick,
   onStartEdit,
+  onToggleGroup,
   renderSubRow,
   scrollRef,
   search,
   selectedIds,
+  selectionMode,
   sortedVisibleColumns,
   toggleRowExpansion,
   toggleRowSelection,
@@ -147,7 +191,7 @@ export function TableBody<T extends { id: RowId }>({
   // Touch devices have no hover - long texts open on tap there
   const isMobile = useIsMobile();
 
-  const hasSelection = !!groupActions && groupActions.length > 0;
+  const hasSelection = selectionMode !== "none";
   const columnCount =
     sortedVisibleColumns.length +
     (actions ? 1 : 0) +
@@ -155,17 +199,24 @@ export function TableBody<T extends { id: RowId }>({
     (renderSubRow ? 1 : 0);
   const densityClass = DENSITY_CLASSES[density];
 
-  // The column filter wins over the global search
+  // The column filter wins over the global search - a text filter; lists
+  // and ranges highlight nothing
   const highlightTerms = useMemo(
     () =>
       Object.fromEntries(
-        sortedVisibleColumns.map((column) => [
-          column.key,
-          filters[column.key] || search,
-        ]),
+        sortedVisibleColumns.map((column) => {
+          const filter = filters[column.key];
+          return [column.key, (typeof filter === "string" && filter) || search];
+        }),
       ),
     [filters, search, sortedVisibleColumns],
   );
+
+  // Rows activated by a click and Enter, without links, are one tab stop -
+  // the one focused last, or the first one rendered; the arrow keys move
+  // between them
+  const hasFocusableRows = !!onRowClick && !getRowHref;
+  const [activeRowId, setActiveRowId] = useState<RowId | null>(null);
 
   // The row with the focus stays rendered while it is scrolled out of view,
   // so that the focus - a checkbox, a cell being edited - is not lost; so
@@ -183,6 +234,7 @@ export function TableBody<T extends { id: RowId }>({
   // focus moves to the same place among the rows that are there, not to the
   // page.
   const focusRef = useRef<{
+    /** The cell with the focus - `-1` for the row itself. */
     cellIndex: number;
     element: Element;
     rowIndex: number;
@@ -210,7 +262,11 @@ export function TableBody<T extends { id: RowId }>({
       body.querySelector<HTMLElement>(
         `:scope > tr[data-row-index="${focus.rowIndex}"]`,
       ) ?? rows[rows.length - 1];
-    const cell = row?.children[focus.cellIndex];
+    if (focus.cellIndex === -1 && row?.hasAttribute("tabindex")) {
+      row.focus();
+      return;
+    }
+    const cell = row?.children[Math.max(0, focus.cellIndex)];
     // An editable cell takes the focus - also one that is not the tab stop
     const target =
       cell instanceof HTMLElement && cell.hasAttribute("tabindex")
@@ -222,7 +278,7 @@ export function TableBody<T extends { id: RowId }>({
   const { measureRef, segments, tableRowsBefore } = useVirtualRows({
     bodyRef,
     data,
-    enabled: virtualized,
+    enabled: virtualized && !groups,
     estimatedHeight: ESTIMATED_ROW_HEIGHTS[density],
     expandedRows,
     hasSubRows: !!renderSubRow,
@@ -271,21 +327,82 @@ export function TableBody<T extends { id: RowId }>({
     }
   }
 
-  // A cell the arrow keys moved to that is still to be rendered - a row of
-  // a virtualized table far from the view
-  const pendingFocusRef = useRef<CellPosition | null>(null);
+  // The row that is the tab stop of the rows - of those rendered
+  let rowTabStop: RowId | null = null;
 
-  /** The element of a body cell, when it is rendered. */
-  const findCellElement = ({ columnKey, rowId }: CellPosition) => {
+  if (hasFocusableRows) {
+    const activeIndex =
+      activeRowId === null
+        ? -1
+        : data.findIndex((row) => row.id === activeRowId);
+    rowTabStop = renderedIndexes.includes(activeIndex)
+      ? activeRowId
+      : renderedIndexes.length > 0
+        ? data[renderedIndexes[0]].id
+        : null;
+  }
+
+  // A cell or row the arrow keys moved to that is still to be rendered - a
+  // row of a virtualized table far from the view
+  const pendingFocusRef = useRef<FocusTarget | null>(null);
+
+  /** The element of a body cell - or row - when it is rendered. */
+  const findCellElement = ({ columnKey, rowId }: FocusTarget) => {
     const index = data.findIndex((row) => row.id === rowId);
     // A row of this body - not of a table nested in a detail
     const rowElement = bodyRef.current?.querySelector(
       `:scope > tr[data-row-index="${index}"]`,
     );
+    if (columnKey === null) {
+      return rowElement instanceof HTMLElement ? rowElement : undefined;
+    }
     return Array.from(rowElement?.children ?? []).find(
       (cell): cell is HTMLElement =>
         cell instanceof HTMLElement && cell.dataset.columnKey === columnKey,
     );
+  };
+
+  /** Moves the focus to a cell or row - once it is rendered. */
+  const focusTarget = (target: FocusTarget) => {
+    const element = findCellElement(target);
+    if (element) {
+      element.focus();
+    } else {
+      // Kept rendered as the row with the focus, then focused
+      pendingFocusRef.current = target;
+      setFocusedRowId(target.rowId);
+    }
+  };
+
+  // The arrow keys move between the rows, Home and End to the first and
+  // last one
+  const handleRowKeyDown = (
+    row: T,
+    event: React.KeyboardEvent<HTMLTableRowElement>,
+  ) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+      return;
+    }
+
+    const index = data.indexOf(row);
+    const targetIndex =
+      event.key === "ArrowDown"
+        ? index + 1
+        : event.key === "ArrowUp"
+          ? index - 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? data.length - 1
+              : null;
+    if (targetIndex === null) return;
+
+    event.preventDefault();
+    const target = data[targetIndex];
+    if (!target || target === row) return;
+
+    setActiveRowId(target.id);
+    focusTarget({ columnKey: null, rowId: target.id });
   };
 
   useLayoutEffect(() => {
@@ -322,14 +439,7 @@ export function TableBody<T extends { id: RowId }>({
     if (!target) return;
 
     setActiveCell(target);
-    const cell = findCellElement(target);
-    if (cell) {
-      cell.focus();
-    } else {
-      // Kept rendered as the row with the focus, then focused
-      pendingFocusRef.current = target;
-      setFocusedRowId(target.rowId);
-    }
+    focusTarget(target);
   };
 
   const handleCellFocus = (rowId: RowId, columnKey: string) => {
@@ -428,6 +538,135 @@ export function TableBody<T extends { id: RowId }>({
     </>
   );
 
+  const renderRow = (index: number) => {
+    const row = data[index];
+    const rowsBefore = tableRowsBefore(index);
+
+    return (
+      <TableRow
+        actions={actions}
+        ariaRowIndex={
+          rowsBefore === undefined ? undefined : headerRowCount + rowsBefore + 1
+        }
+        cellLayouts={cellLayouts}
+        cellStates={cellStates}
+        columnCount={columnCount}
+        columns={sortedVisibleColumns}
+        density={density}
+        editHintId={editHintId}
+        editingColumnKey={
+          editingCell?.rowId === row.id ? editingCell.columnKey : null
+        }
+        getColumnSample={getColumnSample}
+        getRowBackgroundColor={getRowBackgroundColor}
+        getRowClassName={getRowClassName}
+        hasSelection={hasSelection}
+        highlightTerms={highlightTerms}
+        href={getRowHref?.(row)}
+        idPrefix={idPrefix}
+        isEditable={isEditable}
+        isExpanded={expandedRows.has(row.id)}
+        isMobile={isMobile}
+        isSelected={selectedIds.has(row.id)}
+        key={row.id}
+        locale={locale}
+        measureRef={measureRef}
+        onCancelEdit={onCancelEdit}
+        onCellFocus={handleCellFocus}
+        onCellMove={moveCellFocus}
+        onCommitEdit={onCommitEdit}
+        onRowClick={onRowClick}
+        onRowFocus={setActiveRowId}
+        onRowKeyDown={(event) => handleRowKeyDown(row, event)}
+        onStartEdit={onStartEdit}
+        renderSubRow={renderSubRow}
+        row={row}
+        rowIndex={index}
+        rowTabIndex={
+          hasFocusableRows ? (rowTabStop === row.id ? 0 : -1) : undefined
+        }
+        tabStopColumnKey={tabStop?.rowId === row.id ? tabStop.columnKey : null}
+        toggleRowExpansion={toggleRowExpansion}
+        toggleRowSelection={toggleRowSelection}
+      />
+    );
+  };
+
+  // Each group: its header, which collapses and expands it, its rows and
+  // the summary of all its rows
+  const renderGroups = (bodyGroups: BodyRowGroup[]) => {
+    const rendered: React.ReactNode[] = [];
+    let start = 0;
+
+    for (const group of bodyGroups) {
+      const indexes: number[] = [];
+      for (let offset = 0; offset < group.size; offset++) {
+        indexes.push(start + offset);
+      }
+      start += group.size;
+      const Chevron = group.collapsed ? ChevronRight : ChevronDown;
+
+      rendered.push(
+        <Fragment key={group.key}>
+          <tr
+            className="bg-neutral-50 dark:bg-neutral-900"
+            data-group-key={group.key}
+            data-state={group.collapsed ? "closed" : "open"}
+          >
+            <td className="px-2 py-1" colSpan={columnCount}>
+              {/* Stays in view while the table scrolls sideways */}
+              <button
+                aria-expanded={!group.collapsed}
+                className="sticky start-2 inline-flex cursor-pointer items-center gap-1.5 rounded-sm text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500"
+                data-state={group.collapsed ? "closed" : "open"}
+                onClick={() => onToggleGroup(group.key)}
+                type="button"
+              >
+                <Chevron
+                  aria-hidden="true"
+                  className={cn(
+                    "shrink-0 text-neutral-500 dark:text-neutral-400",
+                    group.collapsed && "rtl:rotate-180",
+                  )}
+                  size={16}
+                />
+                {formatMessage(messages.dataTable.groupLabel, {
+                  label: groupLabel,
+                  value: group.label || messages.dataTable.noValue,
+                })}{" "}
+                <span className="font-normal text-neutral-600 dark:text-neutral-400">
+                  (
+                  {formatPlural(
+                    locale.code,
+                    messages.dataTable.groupRowCount,
+                    group.count,
+                  )}
+                  )
+                </span>
+              </button>
+            </td>
+          </tr>
+          {indexes.map((index) => renderRow(index))}
+          {group.summary && (
+            <tr className="bg-neutral-50/60 font-medium dark:bg-neutral-900/60">
+              <SummaryCells
+                cellLayouts={cellLayouts}
+                density={density}
+                hasActions={!!actions}
+                hasSelection={hasSelection}
+                hasSubRows={!!renderSubRow}
+                sortedVisibleColumns={sortedVisibleColumns}
+                values={group.summary}
+              />
+            </tr>
+          )}
+        </Fragment>,
+      );
+    }
+
+    return rendered;
+  };
+
   return (
     <tbody
       className={cn(
@@ -448,11 +687,17 @@ export function TableBody<T extends { id: RowId }>({
         const row = index ? data[Number(index)] : undefined;
         if (!row || !rowElement) return;
 
-        const cellIndex = Array.from(rowElement.children).findIndex((cell) =>
-          cell.contains(target),
-        );
+        const cellIndex =
+          target === rowElement
+            ? -1
+            : Math.max(
+                0,
+                Array.from(rowElement.children).findIndex((cell) =>
+                  cell.contains(target),
+                ),
+              );
         focusRef.current = {
-          cellIndex: Math.max(0, cellIndex),
+          cellIndex,
           element: target,
           rowIndex: Number(index),
         };
@@ -460,18 +705,21 @@ export function TableBody<T extends { id: RowId }>({
       }}
       ref={bodyRef}
     >
-      {data.length === 0 ? (
+      {data.length === 0 && !groups?.length ? (
         loading ? (
           renderSkeletonRows()
         ) : (
           <tr>
             <td className="px-2 py-1 text-sm" colSpan={columnCount}>
-              <p className="flex min-h-25 items-center justify-center p-1 font-medium text-neutral-500 dark:text-neutral-400">
+              {/* Any content - a block too */}
+              <div className="flex min-h-25 items-center justify-center p-1 font-medium text-neutral-500 dark:text-neutral-400">
                 {emptyMessage ?? messages.dataTable.noData}
-              </p>
+              </div>
             </td>
           </tr>
         )
+      ) : groups ? (
+        renderGroups(groups)
       ) : (
         segments.map((segment) => {
           if (segment.type === "spacer") {
@@ -488,55 +736,7 @@ export function TableBody<T extends { id: RowId }>({
             );
           }
 
-          const { index } = segment;
-          const row = data[index];
-          const rowsBefore = tableRowsBefore(index);
-
-          return (
-            <TableRow
-              actions={actions}
-              ariaRowIndex={
-                rowsBefore === undefined
-                  ? undefined
-                  : headerRowCount + rowsBefore + 1
-              }
-              cellLayouts={cellLayouts}
-              cellStates={cellStates}
-              columnCount={columnCount}
-              columns={sortedVisibleColumns}
-              density={density}
-              editHintId={editHintId}
-              editingColumnKey={
-                editingCell?.rowId === row.id ? editingCell.columnKey : null
-              }
-              getColumnSample={getColumnSample}
-              getRowBackgroundColor={getRowBackgroundColor}
-              getRowClassName={getRowClassName}
-              hasSelection={hasSelection}
-              highlightTerms={highlightTerms}
-              idPrefix={idPrefix}
-              isEditable={isEditable}
-              isExpanded={expandedRows.has(row.id)}
-              isMobile={isMobile}
-              isSelected={selectedIds.has(row.id)}
-              key={row.id}
-              locale={locale}
-              measureRef={measureRef}
-              onCancelEdit={onCancelEdit}
-              onCellFocus={handleCellFocus}
-              onCellMove={moveCellFocus}
-              onCommitEdit={onCommitEdit}
-              onStartEdit={onStartEdit}
-              renderSubRow={renderSubRow}
-              row={row}
-              rowIndex={index}
-              tabStopColumnKey={
-                tabStop?.rowId === row.id ? tabStop.columnKey : null
-              }
-              toggleRowExpansion={toggleRowExpansion}
-              toggleRowSelection={toggleRowSelection}
-            />
-          );
+          return renderRow(segment.index);
         })
       )}
     </tbody>

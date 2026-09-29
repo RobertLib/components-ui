@@ -247,7 +247,7 @@ export default function Button({
     );
 
   const commonClassNames = cn(
-    "inline-flex cursor-pointer items-center justify-center border transition-all transition-colors duration-200 focus:ring-2 focus:outline-none",
+    "inline-flex cursor-pointer items-center justify-center border transition-all transition-colors duration-200 focus:ring-2 focus:outline-hidden",
     groupStyles || "rounded-md",
     // The focus ring keeps a gap to the fill of a similar color
     variant === "solid" &&
@@ -256,6 +256,13 @@ export default function Button({
     hasSlots && gapStyles[size],
     fullWidth && "w-full",
     colorStyles[color][variant],
+    // Forced colors mode (Windows High Contrast) drops the fills and makes
+    // every border and text one color - a filled button is drawn in the
+    // inverted colors of a button there, a pressed toggle in the colors of
+    // a selection
+    variant === "solid" &&
+      "forced-colors:border-[ButtonText] forced-colors:bg-[ButtonText] forced-colors:text-[ButtonFace]",
+    "forced-colors:aria-pressed:border-[Highlight] forced-colors:aria-pressed:bg-[Highlight] forced-colors:aria-pressed:text-[HighlightText]",
     isDisabled && disabledStyles,
     className,
   );

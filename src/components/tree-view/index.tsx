@@ -7,12 +7,32 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import cn from "../../utils/cn";
 import logger from "../../utils/logger";
 import Spinner from "../spinner";
 import { attachRef, useFormReset } from "../../hooks/use-form-control";
+import useMediaQuery from "../../hooks/use-media-query";
 import type { LinkComponent } from "../../providers/router";
-import { useMessages, useRouter } from "../../providers/ui-context";
+import {
+  useMessages,
+  usePortalContainer,
+  useRouter,
+} from "../../providers/ui-context";
+import {
+  CHECKBOX_ATTRIBUTE,
+  encodeId,
+  indent,
+  isFromControl,
+  isRtl,
+  LINK_ATTRIBUTE,
+  TOGGLE_ATTRIBUTE,
+} from "./dom";
+import {
+  getPlaceRow,
+  type TreeDropPosition,
+  type TreeMove,
+} from "./drag-model";
 import {
   filterTree,
   findCurrentItem,
@@ -21,16 +41,21 @@ import {
   getAncestors,
   getCheckedIds,
   getCheckStates,
+  getIndependentCheckStates,
   getRangeIds,
   getVisibleRows,
   indexTree,
   toggleCheck,
+  toggleIndependentCheck,
   type CheckState,
   type TreeRow,
 } from "./tree-model";
 import useLazyChildren from "./use-lazy-children";
+import useTreeDrag from "./use-tree-drag";
+import useVirtualRange from "./use-virtual-range";
 import type { TreeItem, TreeItemId, TreeItemState } from "./types";
 
+export type { TreeDropPosition, TreeMove } from "./drag-model";
 export type { TreeItem, TreeItemId, TreeItemState } from "./types";
 
 export interface TreeViewProps<T extends TreeItem = TreeItem> extends Omit<
@@ -38,20 +63,45 @@ export interface TreeViewProps<T extends TreeItem = TreeItem> extends Omit<
   "children" | "defaultChecked" | "defaultValue" | "onChange"
 > {
   /**
-   * Gives every item a checkbox. Checking an item checks all its enabled
-   * descendants; an item is checked when all its children are, and partly
-   * checked ("mixed") when some are. A click on the checkbox or Space
-   * toggles it - in a tree that selects nothing a click anywhere on the row.
+   * Items that can be moved in a tree with `onMove` - dragged, or picked up
+   * with Ctrl / ⌘ + X. By default every enabled item; a disabled one never
+   * moves.
+   */
+  canDrag?: (item: T) => boolean;
+  /**
+   * Whether the moved `items` may land at `position` next to `target` -
+   * e.g. only folders take children (`position === "inside"`). By default
+   * everywhere but in or next to the moved items themselves, among their
+   * descendants and in a disabled item, which the tree never offers.
+   */
+  canDrop?: (move: {
+    items: T[];
+    position: TreeDropPosition;
+    target: T;
+  }) => boolean;
+  /**
+   * Gives every item a checkbox - see `checkMode` for how they depend on
+   * each other. A click on the checkbox or Space toggles it - in a tree that
+   * selects nothing a click anywhere on the row.
    */
   checkable?: boolean;
   /**
    * The checked items of a `checkable` tree - use with `onCheckedChange`.
-   * An item counts as checked when its id or the id of an ancestor is here,
-   * so the id of an item whose children are not loaded yet stands for all
-   * of them. Leave out for a tree that keeps its own state
-   * (`defaultChecked`).
+   * With `checkMode="cascade"` an item counts as checked when its id or the
+   * id of an ancestor is here, so the id of an item whose children are not
+   * loaded yet stands for all of them. Leave out for a tree that keeps its
+   * own state (`defaultChecked`).
    */
   checked?: T["id"][];
+  /**
+   * How the checkboxes of a `checkable` tree depend on each other:
+   * `cascade` - checking an item checks all its enabled descendants, an
+   * item is checked when all its children are and partly checked ("mixed")
+   * when some are; `independent` - each item is checked on its own (a
+   * parent does not check its children nor they it), the value is exactly
+   * the checked items and nothing is partly checked.
+   */
+  checkMode?: "cascade" | "independent";
   /** The items checked at first in an uncontrolled `checkable` tree. */
   defaultChecked?: T["id"][];
   /**
@@ -62,8 +112,8 @@ export interface TreeViewProps<T extends TreeItem = TreeItem> extends Omit<
   /** The items selected at first in an uncontrolled tree. */
   defaultSelected?: T["id"][];
   /**
-   * Nothing can be selected, checked or followed - the tree can still be
-   * browsed, and a form does not submit its value.
+   * Nothing can be selected, checked, followed or moved - the tree can
+   * still be browsed, and a form does not submit its value.
    */
   disabled?: boolean;
   /**
@@ -102,7 +152,8 @@ export interface TreeViewProps<T extends TreeItem = TreeItem> extends Omit<
   name?: string;
   /**
    * Called with all checked items when the user checks or unchecks one -
-   * parents whose children are all checked included, in tree order.
+   * with `checkMode="cascade"` parents whose children are all checked
+   * included, in tree order.
    */
   onCheckedChange?: (checked: T["id"][]) => void;
   /** Called with all expanded items when the user expands or collapses one. */
@@ -112,8 +163,21 @@ export interface TreeViewProps<T extends TreeItem = TreeItem> extends Omit<
    * on it - also Space in a tree that neither selects nor checks.
    */
   onItemClick?: (item: T) => void;
+  /**
+   * Lets the user move items - and is called with each move. The mouse or a
+   * pen drags an item, a finger after resting on it for a moment; Ctrl / ⌘ +
+   * X picks up the focused item, the arrow keys choose the place and Enter
+   * drops it. In a multiple selection a selected item moves with the other
+   * selected ones. The tree does not reorder `items` itself: move them in
+   * your data, keeping their ids, and the tree shows them at their new
+   * place. Children `loadChildren` brought are kept by the tree - to move
+   * them, put them into `items` as the `children` of their parent.
+   */
+  onMove?: (move: TreeMove<T["id"]>) => void;
   /** Called with all selected items when the selection changes. */
   onSelectedChange?: (selected: T["id"][]) => void;
+  /** `virtualized` only: the rows rendered above and below the view. */
+  overscan?: number;
   /**
    * Controls at the end of the row of the hovered or focused item, e.g.
    * buttons to edit or delete it. From the keyboard, Tab moves from the
@@ -127,6 +191,12 @@ export interface TreeViewProps<T extends TreeItem = TreeItem> extends Omit<
    * `renderActions`).
    */
   renderLabel?: (item: T, state: TreeItemState) => React.ReactNode;
+  /**
+   * `virtualized` only: the height of every row in pixels - by default 32,
+   * and 40 on a touch screen (a coarse pointer), as the rows of a tree that
+   * is not virtualized.
+   */
+  rowHeight?: number;
   /**
    * The selected items - use with `onSelectedChange`. Leave out for a tree
    * that keeps its own state (`defaultSelected`).
@@ -142,56 +212,29 @@ export interface TreeViewProps<T extends TreeItem = TreeItem> extends Omit<
    * brings later leave a tree of folders selecting.
    */
   selectionMode?: "none" | "single" | "multiple";
+  /**
+   * Renders only the rows in view (and `overscan` more) - for trees of
+   * thousands of expanded items. The tree scrolls itself, so give it a
+   * height - `className="h-96"` or `max-h-96`. Its rows are all
+   * `rowHeight` high, their labels on one line, and they are one flat list
+   * of tree items - each with its level and position - instead of nested
+   * groups.
+   */
+  virtualized?: boolean;
 }
 
 /** Letters typed within this time of each other are one typeahead search. */
 const TYPEAHEAD_TIMEOUT = 500;
 
+/** Rows rendered above and below the view of a virtualized tree. */
+const DEFAULT_OVERSCAN = 8;
+
 const EMPTY_IDS: ReadonlySet<TreeItemId> = new Set();
-
-// Clicks and keys on these inside a row are theirs - the controls of
-// `renderLabel` and `renderActions`
-const CONTROLS =
-  "a[href], button, input, select, textarea, label, [contenteditable]:not([contenteditable='false']), [role='button'], [role='checkbox'], [role='link'], [role='menuitem'], [role='switch']";
-
-// Parts of a row: the link of an item with `href`, the cell of the checkbox
-// of a `checkable` tree and the chevron of an expandable item
-const LINK_ATTRIBUTE = "data-tree-link";
-const CHECKBOX_ATTRIBUTE = "data-tree-checkbox";
-const TOGGLE_ATTRIBUTE = "data-tree-toggle";
-
-/** Part of an element id for an item id - which may be any string. */
-const encodeId = (id: TreeItemId) =>
-  typeof id === "number"
-    ? `n${id}`
-    : `s${id.replace(/[^a-zA-Z0-9-]/g, (char) => `_${char.charCodeAt(0).toString(16)}`)}`;
 
 /** Whether any of the items given - not those loaded later - is a link. */
 function hasLinks(items: readonly TreeItem[]): boolean {
   return items.some((item) => item.href || hasLinks(item.children ?? []));
 }
-
-/** Indentation of the rows of a level - the chevron column of each level. */
-const indent = (level: number) => `${(level - 1) * 1.25 + 0.25}rem`;
-
-/**
- * Whether a click came from a control of `renderLabel` / `renderActions`
- * inside the row - not from its own link or checkbox.
- */
-const isFromControl = (event: React.SyntheticEvent<HTMLElement>) => {
-  const control =
-    event.target instanceof Element ? event.target.closest(CONTROLS) : null;
-  return (
-    !!control &&
-    control !== event.currentTarget &&
-    event.currentTarget.contains(control) &&
-    !control.hasAttribute(LINK_ATTRIBUTE) &&
-    !control.closest(`[${CHECKBOX_ATTRIBUTE}]`)
-  );
-};
-
-const isRtl = (element: Element) =>
-  getComputedStyle(element).direction === "rtl";
 
 const isModifiedClick = (event: React.MouseEvent) =>
   event.ctrlKey ||
@@ -200,28 +243,78 @@ const isModifiedClick = (event: React.MouseEvent) =>
   event.altKey ||
   event.button !== 0;
 
+/** A row of a virtualized tree - an item, or the row of its children loading. */
+interface FlatRow {
+  kind: "error" | "item" | "loading";
+  rowIndex: number;
+}
+
+/**
+ * The rows of a virtualized tree, one flat list: the items, and after an
+ * item whose children are loading (or failed to) the row saying so - with
+ * the place of each item in it.
+ */
+function getFlatRows<T>(rows: readonly TreeRow<T>[]) {
+  const entries: FlatRow[] = [];
+  const entryOfRow: number[] = [];
+
+  rows.forEach((row, rowIndex) => {
+    entryOfRow.push(entries.length);
+    entries.push({ kind: "item", rowIndex });
+    if (row.loadStatus) entries.push({ kind: row.loadStatus, rowIndex });
+  });
+
+  return { entries, entryOfRow };
+}
+
+// The index of the row of each element id key - per list of rows, built
+// once the events of a drag look them up
+const rowKeyIndexes = new WeakMap<object, Map<string, number>>();
+
+function getRowKeyIndex<T>(rows: readonly TreeRow<T>[]) {
+  let keyIndex = rowKeyIndexes.get(rows);
+  if (!keyIndex) {
+    keyIndex = new Map(
+      rows.map((row, rowIndex) => [encodeId(row.id), rowIndex]),
+    );
+    rowKeyIndexes.set(rows, keyIndex);
+  }
+  return keyIndex;
+}
+
 /** The rows' handlers - stable, so that rows render only when they change. */
 interface RowHandlers {
   onClick: (event: React.MouseEvent<HTMLElement>, id: TreeItemId) => void;
   onDoubleClick: (event: React.MouseEvent<HTMLElement>, id: TreeItemId) => void;
   onFocus: (event: React.FocusEvent<HTMLElement>, id: TreeItemId) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLElement>, id: TreeItemId) => void;
+  onPointerDown: (
+    event: React.PointerEvent<HTMLElement>,
+    id: TreeItemId,
+  ) => void;
   onRetry: (id: TreeItemId) => void;
   onToggle: (event: React.MouseEvent<HTMLElement>, id: TreeItemId) => void;
 }
 
 /**
- * A tree of items to expand, select or check - categories, folders,
+ * A tree of items to expand, select, check or move - categories, folders,
  * permissions or a navigation. Follows the ARIA tree view pattern: the tree
  * is one tab stop, the arrow keys move between the items and expand them,
  * Home / End jump, `*` expands all siblings and typing a letter moves to
  * the next item starting with it. Children can be loaded as an item is
- * first expanded (`loadChildren`), and `filter` shows only the matching
- * items. Only the expanded items are rendered, so large trees stay fast.
+ * first expanded (`loadChildren`), `filter` shows only the matching items
+ * and `onMove` lets the user drag them elsewhere. Only the expanded items
+ * are rendered - with `virtualized` only those in view. The attributes and
+ * the `ref` go to the tree (`<ul>`). Its items have `data-selected`,
+ * `data-current` (the page of a link), `data-disabled` and, with children,
+ * `data-state="open"` or `"closed"` - for styling.
  */
 export default function TreeView<T extends TreeItem>({
+  canDrag,
+  canDrop,
   checkable = false,
   checked: checkedProp,
+  checkMode = "cascade",
   className,
   defaultChecked,
   defaultExpanded,
@@ -239,17 +332,23 @@ export default function TreeView<T extends TreeItem>({
   onExpandedChange,
   onFocus,
   onItemClick,
+  onMove,
   onSelectedChange,
+  overscan = DEFAULT_OVERSCAN,
   ref,
   renderActions,
   renderLabel,
+  rowHeight: rowHeightProp,
   selected: selectedProp,
   selectionMode: selectionModeProp,
+  style,
+  virtualized = false,
   ...props
 }: TreeViewProps<T>) {
   const messages = useMessages();
   const { Link, pathname, search } = useRouter();
   const baseId = useId();
+  const movingDescriptionId = `${baseId}-moving`;
 
   const { forgetError, forgetErrors, load, loads } =
     useLazyChildren(loadChildren);
@@ -314,6 +413,7 @@ export default function TreeView<T extends TreeItem>({
     selectionMode === "none" ? EMPTY_IDS : new Set(selectedIds);
 
   // Checked
+  const isIndependent = checkMode === "independent";
   const isCheckedControlled = checkedProp !== undefined;
   const [internalChecked, setInternalChecked] = useState<TreeItemId[]>(
     () => defaultChecked ?? [],
@@ -322,13 +422,17 @@ export default function TreeView<T extends TreeItem>({
     ? checkedProp
     : internalChecked;
   const checkedSet = new Set(checkedIds);
-  const checkStates = checkable
-    ? getCheckStates(items, loads, checkedSet)
-    : null;
-  // The value as the tree shows it - parents of checked children included
-  const checkedValue = checkStates
-    ? getCheckedIds(checkStates, checkedSet)
-    : checkedIds;
+  const checkStates = !checkable
+    ? null
+    : isIndependent
+      ? getIndependentCheckStates(items, loads, checkedSet)
+      : getCheckStates(items, loads, checkedSet);
+  // The value as the tree shows it - in a cascade the parents of checked
+  // children included, independently exactly the checked ids
+  const checkedValue =
+    checkStates && !isIndependent
+      ? getCheckedIds(checkStates, checkedSet)
+      : checkedIds;
 
   // Filter - the user may collapse parts of the filtered tree, until the
   // filter changes
@@ -349,6 +453,17 @@ export default function TreeView<T extends TreeItem>({
     shown: filterResult?.shown,
   });
   const rowIndexById = new Map(rows.map((row, rowIndex) => [row.id, rowIndex]));
+
+  // Virtualized: the rows in view of the tree, which scrolls itself
+  const isCoarsePointer = useMediaQuery("(pointer: coarse)");
+  const rowHeight = rowHeightProp ?? (isCoarsePointer ? 40 : 32);
+  const flatRows = virtualized ? getFlatRows(rows) : null;
+  const { containerRef, range, scrollToIndex } = useVirtualRange({
+    count: flatRows?.entries.length ?? 0,
+    enabled: virtualized,
+    overscan,
+    rowHeight,
+  });
 
   // The expanded items whose children are yet to load
   useEffect(() => {
@@ -396,11 +511,15 @@ export default function TreeView<T extends TreeItem>({
   const anchorRef = useRef<TreeItemId | null>(null);
   // The text typed for typeahead and when its last letter came
   const typeaheadRef = useRef({ text: "", time: 0 });
+  // A row the keys moved to that is not rendered yet (out of view of a
+  // virtualized tree) - it takes the focus once it is
+  const pendingFocusRef = useRef<TreeItemId | null>(null);
 
   const treeRefCallback = useCallback(
     (element: HTMLUListElement | null) => {
       treeRef.current = element;
       const detachRef = attachRef(ref, element);
+      const detachContainer = containerRef(element);
 
       // The pointer left the tree - a native listener: the leave events of
       // React are made of `pointerout`, which also comes when the pointer
@@ -410,11 +529,12 @@ export default function TreeView<T extends TreeItem>({
 
       return () => {
         element?.removeEventListener("pointerleave", handlePointerLeave);
+        detachContainer?.();
         treeRef.current = null;
         detachRef();
       };
     },
-    [ref],
+    [containerRef, ref],
   );
 
   // Development hints
@@ -442,6 +562,62 @@ export default function TreeView<T extends TreeItem>({
     }
   }, [lockedProps]);
 
+  // A virtualized tree without a height grows to all its rows
+  useEffect(() => {
+    const tree = treeRef.current;
+    if (virtualized && tree && tree.clientHeight > window.innerHeight) {
+      logger.warn(
+        'TreeView: a virtualized tree scrolls itself - give it a height (e.g. `className="h-96"`); without one it grows to the height of all its rows and renders every one of them.',
+      );
+    }
+  }, [virtualized]);
+
+  /** The element of the row of the item `id` - `null` while not rendered. */
+  const getRowElement = (id: TreeItemId) => {
+    const tree = treeRef.current;
+    const element = tree?.ownerDocument.getElementById(
+      `${baseId}-${encodeId(id)}`,
+    );
+    return element && tree?.contains(element) ? element : null;
+  };
+
+  /** The index of the row an element of the tree is the tree item of. */
+  const rowIndexOfElement = (element: Element) => {
+    const prefix = `${baseId}-`;
+    return element.id.startsWith(prefix)
+      ? getRowKeyIndex(rows).get(element.id.slice(prefix.length))
+      : undefined;
+  };
+
+  /** Scrolls the row at `rowIndex` into view - a virtualized one also renders it. */
+  const revealRow = (rowIndex: number) => {
+    const row = rows[rowIndex];
+    if (!row) return;
+    if (flatRows) scrollToIndex(flatRows.entryOfRow[rowIndex]);
+    else getRowElement(row.id)?.scrollIntoView({ block: "nearest" });
+  };
+
+  /**
+   * Focuses the row at `rowIndex` - a row of a virtualized tree out of view
+   * is scrolled to and focused once it is rendered.
+   */
+  const focusRow = (rowIndex: number | undefined) => {
+    if (rowIndex === undefined) return;
+    const row = rows[rowIndex];
+    if (!row) return;
+
+    if (virtualized) revealRow(rowIndex);
+    const element = getRowElement(row.id);
+    if (element) {
+      element.focus({ preventScroll: virtualized });
+      return;
+    }
+
+    // The tab stop is always rendered - the row is once it is the tab stop
+    pendingFocusRef.current = row.id;
+    setFocusedId(row.id);
+  };
+
   // The rows of the last commit - where a removed item was
   const committedRowsRef = useRef(rows);
 
@@ -467,24 +643,52 @@ export default function TreeView<T extends TreeItem>({
         tabStopIndex;
     }
 
-    // The focused item went away (collapsed or removed from outside) - the
-    // focus stays in the tree instead of dropping to the page
+    // The focused item went away (collapsed, moved or removed from
+    // outside) - the focus stays in the tree instead of dropping to the page
     const tree = treeRef.current;
     if (!hasFocus || !tree) return;
 
     const active = tree.ownerDocument.activeElement;
     if (active && active !== tree.ownerDocument.body) return;
-    tree
-      .querySelectorAll<HTMLElement>("[role='treeitem']")
-      [focusIndex]?.focus();
-  }, [focusedId, hasFocus, index, rows, tabStopIndex]);
 
-  const focusRow = (rowIndex: number | undefined) => {
-    if (rowIndex === undefined) return;
-    treeRef.current
-      ?.querySelectorAll<HTMLElement>("[role='treeitem']")
-      [rowIndex]?.focus();
-  };
+    const row = rows[focusIndex];
+    if (!row) return;
+    const element = tree.ownerDocument.getElementById(
+      `${baseId}-${encodeId(row.id)}`,
+    );
+    if (element && tree.contains(element)) {
+      element.focus({ preventScroll: virtualized });
+    } else {
+      // Not rendered in the view of a virtualized tree - once it is
+      pendingFocusRef.current = row.id;
+    }
+    if (virtualized && flatRows) scrollToIndex(flatRows.entryOfRow[focusIndex]);
+  }, [
+    baseId,
+    flatRows,
+    focusedId,
+    hasFocus,
+    index,
+    rows,
+    scrollToIndex,
+    tabStopIndex,
+    virtualized,
+  ]);
+
+  // A row the keys moved to, rendered now
+  useLayoutEffect(() => {
+    const pending = pendingFocusRef.current;
+    const tree = treeRef.current;
+    if (pending === null || !tree) return;
+
+    const element = tree.ownerDocument.getElementById(
+      `${baseId}-${encodeId(pending)}`,
+    );
+    if (element && tree.contains(element)) {
+      pendingFocusRef.current = null;
+      element.focus({ preventScroll: true });
+    }
+  });
 
   const changeExpanded = (next: TreeItemId[]) => {
     if (!isExpandedControlled) setInternalExpanded(next);
@@ -527,6 +731,44 @@ export default function TreeView<T extends TreeItem>({
     );
   };
 
+  /**
+   * Expands the item `id` - also one without children yet, which items are
+   * being moved into.
+   */
+  const revealChildren = (id: TreeItemId) => {
+    if (filterResult) {
+      if (!collapsedInFilter.has(id)) return;
+      const next = new Set(collapsedInFilter);
+      next.delete(id);
+      setFilterCollapsed({ ids: next, term });
+      return;
+    }
+    if (!expandedSet.has(id)) changeExpanded([...expandedIds, id]);
+  };
+
+  // Moving items - by the pointer, or chosen with the keys
+  const drag = useTreeDrag<T>({
+    canDrag,
+    canDrop,
+    canLoad: !!loadChildren,
+    enabled: !!onMove && !disabled,
+    expandRow: (row, expand) => setRowsExpanded([row], expand),
+    index,
+    items,
+    loads,
+    onMove,
+    revealChildren,
+    revealRow,
+    rowIndexById,
+    rowIndexOfElement,
+    rows,
+    selected: selectionMode === "multiple" ? selectedSet : null,
+    treeRef,
+  });
+  const dropIndicator = drag.place
+    ? getPlaceRow(drag.place, rows, rowIndexById)
+    : null;
+
   const selectOnly = (row: TreeRow<T>) => {
     anchorRef.current = row.id;
     if (selectedIds.length === 1 && selectedIds[0] === row.id) return;
@@ -563,13 +805,15 @@ export default function TreeView<T extends TreeItem>({
   const toggleChecked = (row: TreeRow<T>) => {
     if (!checkStates) return;
 
-    const next = toggleCheck(row.id, {
-      checked: checkedSet,
-      index,
-      items,
-      loads,
-      states: checkStates,
-    });
+    const next = isIndependent
+      ? toggleIndependentCheck(row.id, checkedIds, index)
+      : toggleCheck(row.id, {
+          checked: checkedSet,
+          index,
+          items,
+          loads,
+          states: checkStates,
+        });
     if (next) changeChecked(next);
   };
 
@@ -716,6 +960,10 @@ export default function TreeView<T extends TreeItem>({
     if (rowIndex === undefined) return;
 
     const row = rows[rowIndex];
+
+    // Ctrl / ⌘ + X, and the keys of a move being chosen
+    if (drag.onKeyDown(event, row)) return;
+
     const isDisabled = index.disabled.has(id);
     const multiple = selectionMode === "multiple";
     const mod = event.ctrlKey || event.metaKey;
@@ -842,10 +1090,8 @@ export default function TreeView<T extends TreeItem>({
       event.target instanceof Element
         ? event.target.closest("[role='treeitem']")
         : null;
-    const row = rows.find(
-      (candidate) => rowElement?.id === `${baseId}-${encodeId(candidate.id)}`,
-    );
-    setHoveredId(row ? row.id : null);
+    const rowIndex = rowElement ? rowIndexOfElement(rowElement) : undefined;
+    setHoveredId(rowIndex === undefined ? null : rows[rowIndex].id);
   };
 
   const handleRetry = (id: TreeItemId) => {
@@ -861,6 +1107,7 @@ export default function TreeView<T extends TreeItem>({
     onDoubleClick: handleRowDoubleClick,
     onFocus: handleRowFocus,
     onKeyDown: handleRowKeyDown,
+    onPointerDown: drag.onPointerDown,
     onRetry: handleRetry,
     onToggle: handleToggleClick,
   };
@@ -873,6 +1120,7 @@ export default function TreeView<T extends TreeItem>({
     onDoubleClick: (event, id) => handlersRef.current.onDoubleClick(event, id),
     onFocus: (event, id) => handlersRef.current.onFocus(event, id),
     onKeyDown: (event, id) => handlersRef.current.onKeyDown(event, id),
+    onPointerDown: (event, id) => handlersRef.current.onPointerDown(event, id),
     onRetry: (id) => handlersRef.current.onRetry(id),
     onToggle: (event, id) => handlersRef.current.onToggle(event, id),
   }));
@@ -913,6 +1161,7 @@ export default function TreeView<T extends TreeItem>({
           onFocus={onFocus}
           ref={treeRefCallback}
           role="status"
+          style={style}
         >
           <li role="none">
             {emptyMessage ??
@@ -930,6 +1179,7 @@ export default function TreeView<T extends TreeItem>({
     checkStates,
     currentId,
     disabledSet: index.disabled,
+    dropIndicator,
     handlers: rowHandlers,
     hasFocus,
     hoveredId,
@@ -937,9 +1187,13 @@ export default function TreeView<T extends TreeItem>({
     loadError: messages.treeView.loadError,
     loading: messages.common.loading,
     matches: filterResult?.matches,
+    movable: !!onMove && !disabled,
+    movedIds: drag.movedIds,
+    movingDescriptionId,
     renderActions,
     renderLabel,
     retry: messages.treeView.retry,
+    rowHeight: virtualized ? rowHeight : undefined,
     rows,
     selectedSet,
     selectionMode,
@@ -951,11 +1205,18 @@ export default function TreeView<T extends TreeItem>({
       <ul
         {...props}
         aria-multiselectable={selectionMode === "multiple" || undefined}
-        className={cn("text-sm", className)}
+        className={cn(
+          "text-sm",
+          virtualized && "overflow-y-auto",
+          // The grabbing hand over the whole tree while an item is dragged
+          drag.mode === "pointer" && "cursor-grabbing **:cursor-grabbing",
+          className,
+        )}
         onBlur={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget)) {
             setHasFocus(false);
           }
+          drag.onBlur(event);
           onBlur?.(event);
         }}
         onFocus={(event) => {
@@ -965,9 +1226,30 @@ export default function TreeView<T extends TreeItem>({
         onPointerOver={renderActions ? handlePointerOver : undefined}
         ref={treeRefCallback}
         role="tree"
+        // Rows swapped for spacers as a virtualized tree scrolls - the
+        // browser must not move the scroll to keep them in place
+        style={virtualized ? { overflowAnchor: "none", ...style } : style}
       >
-        {renderRows(context, 0, rows.length)}
+        {flatRows
+          ? renderFlatRows(context, flatRows, range)
+          : renderRows(context, 0, rows.length)}
       </ul>
+      {onMove && (
+        <>
+          {/* The moves chosen with the keys and the drops, told */}
+          <div className="sr-only" role="status">
+            {drag.announcement}
+          </div>
+          {drag.movedIds.size > 0 && (
+            <span hidden id={movingDescriptionId}>
+              {messages.treeView.beingMoved}
+            </span>
+          )}
+          {drag.mode === "pointer" && (
+            <DragBadge attach={drag.attachBadge} text={drag.badgeText} />
+          )}
+        </>
+      )}
       {hiddenInputs}
     </>
   );
@@ -980,6 +1262,8 @@ interface RenderContext<T extends TreeItem> {
   checkStates: ReadonlyMap<TreeItemId, CheckState> | null;
   currentId: TreeItemId | undefined;
   disabledSet: ReadonlySet<TreeItemId>;
+  /** Where the dragged items would land - the row that shows it. */
+  dropIndicator: ReturnType<typeof getPlaceRow>;
   handlers: RowHandlers;
   hasFocus: boolean;
   hoveredId: TreeItemId | null;
@@ -987,13 +1271,75 @@ interface RenderContext<T extends TreeItem> {
   loadError: string;
   loading: string;
   matches: ReadonlyMap<TreeItemId, [number, number][]> | undefined;
+  movable: boolean;
+  movedIds: ReadonlySet<TreeItemId>;
+  movingDescriptionId: string;
   renderActions: TreeViewProps<T>["renderActions"];
   renderLabel: TreeViewProps<T>["renderLabel"];
   retry: string;
+  /** The height of every row - of a virtualized tree. */
+  rowHeight: number | undefined;
   rows: TreeRow<T>[];
   selectedSet: ReadonlySet<TreeItemId>;
   selectionMode: "none" | "single" | "multiple";
   tabStopIndex: number;
+}
+
+/** The row of the item at `rowIndex`. */
+function renderRow<T extends TreeItem>(
+  context: RenderContext<T>,
+  rowIndex: number,
+  groupId: string | undefined,
+) {
+  const { dropIndicator, rows, selectionMode } = context;
+  const row = rows[rowIndex];
+  const domId = `${context.baseId}-${encodeId(row.id)}`;
+  const isDisabled = context.disabledSet.has(row.id);
+  const isSelected = context.selectedSet.has(row.id);
+  const isMoving = context.movedIds.has(row.id);
+  const hasIndicator = dropIndicator?.rowIndex === rowIndex;
+
+  return (
+    <TreeRowView
+      checkable={context.checkable}
+      checked={context.checkStates?.get(row.id)}
+      current={row.id === context.currentId}
+      disabled={isDisabled}
+      domId={domId}
+      dropEdge={hasIndicator ? dropIndicator.edge : undefined}
+      dropLevel={hasIndicator ? dropIndicator.level : undefined}
+      expandable={row.expandable}
+      expanded={row.expanded}
+      groupId={groupId}
+      handlers={context.handlers}
+      height={context.rowHeight}
+      item={row.item}
+      level={row.level}
+      Link={context.Link}
+      loading={row.loadStatus === "loading"}
+      matches={context.matches?.get(row.id)}
+      movable={context.movable}
+      movingDescriptionId={isMoving ? context.movingDescriptionId : undefined}
+      posinset={row.posinset}
+      renderActions={context.renderActions}
+      renderLabel={context.renderLabel}
+      // A single-select tree marks only the selected item; a multiple
+      // one every item that can be selected
+      selectable={
+        selectionMode === "multiple"
+          ? isSelected || !isDisabled
+          : selectionMode === "single" && isSelected
+      }
+      selected={isSelected}
+      setsize={row.setsize}
+      showActions={
+        !!context.renderActions &&
+        (context.hoveredId === row.id ||
+          (context.hasFocus && context.tabStopIndex === rowIndex))
+      }
+      tabStop={context.tabStopIndex === rowIndex}
+    />
+  );
 }
 
 /**
@@ -1006,7 +1352,7 @@ function renderRows<T extends TreeItem>(
   start: number,
   end: number,
 ): React.ReactNode[] {
-  const { rows, selectionMode } = context;
+  const { rows } = context;
   const nodes: React.ReactNode[] = [];
 
   for (let rowIndex = start; rowIndex < end; rowIndex = rows[rowIndex].end) {
@@ -1014,87 +1360,23 @@ function renderRows<T extends TreeItem>(
     const key = encodeId(row.id);
     const domId = `${context.baseId}-${key}`;
     const groupId = `${domId}-group`;
-    const isDisabled = context.disabledSet.has(row.id);
-    const isSelected = context.selectedSet.has(row.id);
 
     nodes.push(
       <li key={key} role="none">
-        <TreeRowView
-          checkable={context.checkable}
-          checked={context.checkStates?.get(row.id)}
-          current={row.id === context.currentId}
-          disabled={isDisabled}
-          domId={domId}
-          expandable={row.expandable}
-          expanded={row.expanded}
-          groupId={row.expanded ? groupId : undefined}
-          handlers={context.handlers}
-          item={row.item}
-          level={row.level}
-          Link={context.Link}
-          loading={row.loadStatus === "loading"}
-          matches={context.matches?.get(row.id)}
-          posinset={row.posinset}
-          renderActions={context.renderActions}
-          renderLabel={context.renderLabel}
-          // A single-select tree marks only the selected item; a multiple
-          // one every item that can be selected
-          selectable={
-            selectionMode === "multiple"
-              ? isSelected || !isDisabled
-              : selectionMode === "single" && isSelected
-          }
-          selected={isSelected}
-          setsize={row.setsize}
-          showActions={
-            !!context.renderActions &&
-            (context.hoveredId === row.id ||
-              (context.hasFocus && context.tabStopIndex === rowIndex))
-          }
-          tabStop={context.tabStopIndex === rowIndex}
-        />
+        {renderRow(context, rowIndex, row.expanded ? groupId : undefined)}
         {row.expanded && (
           <ul aria-labelledby={`${domId}-label`} id={groupId} role="group">
             {renderRows(context, rowIndex + 1, row.end)}
-            {row.loadStatus === "loading" && (
+            {row.loadStatus && (
               <li role="none">
-                <div
-                  className="flex min-h-8 items-center gap-1.5 py-1 pe-2 text-neutral-500 dark:text-neutral-400"
-                  role="status"
-                  style={{ paddingInlineStart: indent(row.level + 1) }}
-                >
-                  {/* A picture - the text beside it says the same */}
-                  <Spinner
-                    aria-hidden="true"
-                    className="size-5"
-                    label=""
-                    role="none"
-                    size="sm"
-                  />
-                  {context.loading}
-                </div>
-              </li>
-            )}
-            {row.loadStatus === "error" && (
-              <li role="none">
-                <div
-                  className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 py-1 pe-2"
-                  style={{ paddingInlineStart: indent(row.level + 1) }}
-                >
-                  <span
-                    className="text-danger-700 dark:text-danger-400"
-                    role="alert"
-                  >
-                    {context.loadError}
-                  </span>
-                  <button
-                    className="cui-link font-medium text-primary-600 hover:underline dark:text-primary-400"
-                    onClick={() => context.handlers.onRetry(row.id)}
-                    type="button"
-                  >
-                    {context.retry}
-                  </button>
-                </div>
+                <StatusRow
+                  kind={row.loadStatus}
+                  level={row.level + 1}
+                  loadError={context.loadError}
+                  loading={context.loading}
+                  onRetry={() => context.handlers.onRetry(row.id)}
+                  retry={context.retry}
+                />
               </li>
             )}
           </ul>
@@ -1106,6 +1388,171 @@ function renderRows<T extends TreeItem>(
   return nodes;
 }
 
+/**
+ * The rows of a virtualized tree in `range` as one flat list - with the
+ * tab stop out of it, and spacers holding the room of the rows left out.
+ */
+function renderFlatRows<T extends TreeItem>(
+  context: RenderContext<T>,
+  { entries, entryOfRow }: ReturnType<typeof getFlatRows>,
+  range: { end: number; start: number },
+): React.ReactNode[] {
+  const rowHeight = context.rowHeight ?? 32;
+  const kept =
+    context.tabStopIndex >= 0 ? entryOfRow[context.tabStopIndex] : -1;
+
+  const shown: number[] = [];
+  if (kept !== -1 && kept < range.start) shown.push(kept);
+  for (let entry = range.start; entry < range.end; entry++) shown.push(entry);
+  if (kept !== -1 && kept >= range.end) shown.push(kept);
+
+  const nodes: React.ReactNode[] = [];
+  const spacer = (from: number, to: number) => (
+    <li
+      aria-hidden="true"
+      key={`gap-${from}`}
+      role="none"
+      style={{ height: (to - from) * rowHeight }}
+    />
+  );
+
+  let next = 0;
+  for (const entryIndex of shown) {
+    if (entryIndex > next) nodes.push(spacer(next, entryIndex));
+
+    const { kind, rowIndex } = entries[entryIndex];
+    const row = context.rows[rowIndex];
+    const key = encodeId(row.id);
+
+    nodes.push(
+      kind === "item" ? (
+        <li key={key} role="none">
+          {renderRow(context, rowIndex, undefined)}
+        </li>
+      ) : (
+        <li key={`${key}-status`} role="none">
+          <StatusRow
+            height={rowHeight}
+            kind={kind}
+            level={row.level + 1}
+            loadError={context.loadError}
+            loading={context.loading}
+            onRetry={() => context.handlers.onRetry(row.id)}
+            retry={context.retry}
+          />
+        </li>
+      ),
+    );
+    next = entryIndex + 1;
+  }
+  if (next < entries.length) nodes.push(spacer(next, entries.length));
+
+  return nodes;
+}
+
+interface DragBadgeProps {
+  /** The ref callback that places it beside the pointer. */
+  attach: (element: HTMLElement | null) => void;
+  text: string;
+}
+
+/**
+ * What is being dragged, beside the pointer - in the page, by the
+ * coordinates of the pointer in the viewport (no container clips it). Only
+ * while the pointer drags, in the browser.
+ */
+function DragBadge({ attach, text }: DragBadgeProps) {
+  const getPortalContainer = usePortalContainer();
+
+  return createPortal(
+    <div
+      aria-hidden="true"
+      // At the top left of the viewport, moved to the pointer by its
+      // coordinates - physical ones in any writing direction
+      className="pointer-events-none fixed top-0 left-0 z-50 max-w-60 truncate rounded-md bg-primary-600 px-2 py-1 text-xs font-medium text-white shadow-lg dark:shadow-black/40"
+      ref={attach}
+    >
+      {text}
+    </div>,
+    getPortalContainer(),
+  );
+}
+
+interface StatusRowProps {
+  /** Fixed height, in pixels - in a virtualized tree. */
+  height?: number;
+  kind: "error" | "loading";
+  /** The level of the children it stands for. */
+  level: number;
+  loadError: string;
+  loading: string;
+  onRetry: () => void;
+  retry: string;
+}
+
+/** The row in place of children that are loading, or failed to load. */
+function StatusRow({
+  height,
+  kind,
+  level,
+  loadError,
+  loading,
+  onRetry,
+  retry,
+}: StatusRowProps) {
+  const style = { height, paddingInlineStart: indent(level) };
+
+  if (kind === "loading") {
+    return (
+      <div
+        className={cn(
+          "flex items-center gap-1.5 py-1 pe-2 text-neutral-500 dark:text-neutral-400",
+          height === undefined && "min-h-8",
+        )}
+        role="status"
+        style={style}
+      >
+        {/* A picture - the text beside it says the same */}
+        <Spinner
+          aria-hidden="true"
+          className="size-5"
+          label=""
+          role="none"
+          size="sm"
+        />
+        <span className="truncate">{loading}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-x-2 gap-y-1 py-1 pe-2",
+        height === undefined ? "min-h-8 flex-wrap" : "overflow-hidden",
+      )}
+      style={style}
+    >
+      <span
+        className={cn(
+          "text-danger-700 dark:text-danger-400",
+          height !== undefined && "truncate",
+        )}
+        role="alert"
+      >
+        {loadError}
+      </span>
+      <button
+        className="cui-link shrink-0 font-medium text-primary-600 hover:underline dark:text-primary-400"
+        onClick={onRetry}
+        type="button"
+      >
+        {retry}
+      </button>
+    </div>
+  );
+}
+
 interface TreeRowViewProps<T extends TreeItem> {
   checkable: boolean;
   checked?: CheckState;
@@ -1113,17 +1560,30 @@ interface TreeRowViewProps<T extends TreeItem> {
   current: boolean;
   disabled: boolean;
   domId: string;
+  /**
+   * Where dragged items would land, shown on this row: a line at its top
+   * or bottom edge, or the row itself (they go inside).
+   */
+  dropEdge?: "bottom" | "inside" | "top";
+  /** The level the line of `dropEdge` is indented to. */
+  dropLevel?: number;
   expandable: boolean;
   expanded: boolean;
   /** Id of the group of the children, while it is shown. */
   groupId?: string;
   handlers: RowHandlers;
+  /** Fixed height, in pixels - a row of a virtualized tree, on one line. */
+  height?: number;
   item: T;
   level: number;
   Link: LinkComponent;
   /** The children are loading. */
   loading: boolean;
   matches?: [number, number][];
+  /** A press may drag the item - the tree has `onMove`. */
+  movable: boolean;
+  /** Id of the text telling that the item is being moved - while it is. */
+  movingDescriptionId?: string;
   posinset: number;
   renderActions?: TreeViewProps<T>["renderActions"];
   renderLabel?: TreeViewProps<T>["renderLabel"];
@@ -1147,15 +1607,20 @@ function TreeRowView<T extends TreeItem>({
   current,
   disabled,
   domId,
+  dropEdge,
+  dropLevel,
   expandable,
   expanded,
   groupId,
   handlers,
+  height,
   item,
   level,
   Link,
   loading,
   matches,
+  movable,
+  movingDescriptionId,
   posinset,
   renderActions,
   renderLabel,
@@ -1175,6 +1640,7 @@ function TreeRowView<T extends TreeItem>({
     level,
     selected,
   };
+  const isFixed = height !== undefined;
 
   const content = (
     <>
@@ -1186,7 +1652,10 @@ function TreeRowView<T extends TreeItem>({
           {item.icon}
         </span>
       )}
-      <span className="min-w-0 break-words" id={labelId}>
+      <span
+        className={cn("min-w-0", isFixed ? "truncate" : "break-words")}
+        id={labelId}
+      >
         {renderLabel ? renderLabel(item, state) : label}
       </span>
     </>
@@ -1201,6 +1670,7 @@ function TreeRowView<T extends TreeItem>({
       aria-busy={loading || undefined}
       aria-checked={checked}
       aria-current={current ? "page" : undefined}
+      aria-describedby={movingDescriptionId}
       aria-disabled={disabled || undefined}
       aria-expanded={expandable ? expanded : undefined}
       aria-labelledby={labelId}
@@ -1210,23 +1680,61 @@ function TreeRowView<T extends TreeItem>({
       aria-selected={selectable ? selected : undefined}
       aria-setsize={setsize}
       className={cn(
-        "flex min-h-8 items-center gap-1.5 rounded-md py-1 pe-2 outline-none select-none pointer-coarse:min-h-10",
-        "focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-inset",
+        "relative flex items-center gap-1.5 rounded-md py-1 pe-2 select-none",
+        !isFixed && "min-h-8 pointer-coarse:min-h-10",
+        // Forced colors drop the ring - the outline shows the focus then
+        "focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-hidden focus-visible:ring-inset",
         disabled ? "cursor-default" : "cursor-pointer",
         selected || current
-          ? "bg-primary-50 text-primary-800 dark:bg-primary-950/60 dark:text-primary-200"
+          ? [
+              "bg-primary-50 text-primary-800 dark:bg-primary-950/60 dark:text-primary-200",
+              // A background of a system color is kept in forced colors -
+              // with its text color on everything in the row
+              "forced-colors:bg-[Highlight] forced-colors:text-[HighlightText] forced-colors:**:text-[HighlightText]",
+            ]
           : "hover:bg-neutral-100 dark:hover:bg-neutral-800",
         current && "font-medium",
+        // Resting a finger on it picks it up - not the menu of the browser
+        movable && "[-webkit-touch-callout:none]",
+        movingDescriptionId &&
+          "opacity-50 transition-opacity motion-reduce:transition-none",
+        dropEdge === "inside" &&
+          "bg-primary-50 ring-2 ring-primary-500 ring-inset dark:bg-primary-950/60 dark:ring-primary-400 forced-colors:outline-2 forced-colors:-outline-offset-2 forced-colors:outline-[Highlight]",
       )}
+      data-current={current ? "" : undefined}
+      data-disabled={disabled ? "" : undefined}
+      // Where dragged items would land, shown on this row - for styling
+      data-drop-edge={dropEdge}
+      data-selected={selectable && selected ? "" : undefined}
+      data-state={expandable ? (expanded ? "open" : "closed") : undefined}
       id={domId}
       onClick={(event) => handlers.onClick(event, item.id)}
       onDoubleClick={(event) => handlers.onDoubleClick(event, item.id)}
+      // The press drags the item, not its link or icon as the browser would
+      onDragStart={movable ? (event) => event.preventDefault() : undefined}
       onFocus={(event) => handlers.onFocus(event, item.id)}
       onKeyDown={(event) => handlers.onKeyDown(event, item.id)}
+      onPointerDown={
+        movable ? (event) => handlers.onPointerDown(event, item.id) : undefined
+      }
       role="treeitem"
-      style={{ paddingInlineStart: indent(level) }}
+      style={{ height, paddingInlineStart: indent(level) }}
       tabIndex={tabStop ? 0 : -1}
     >
+      {/* The line where dragged items would land - at the level they would
+          land at */}
+      {(dropEdge === "top" || dropEdge === "bottom") && (
+        <span
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute end-0 z-10 h-0.5 rounded-full bg-primary-500 dark:bg-primary-400 forced-colors:bg-[Highlight]",
+            "before:absolute before:-start-1 before:-top-0.75 before:size-2 before:rounded-full before:border-2 before:border-primary-500 before:bg-surface dark:before:border-primary-400 dark:before:bg-surface-dark forced-colors:before:border-[Highlight]",
+            dropEdge === "top" ? "-top-px" : "-bottom-px",
+          )}
+          style={{ insetInlineStart: indent(dropLevel ?? level) }}
+        />
+      )}
+
       {/* The pointer's toggle - the keyboard uses the arrow keys */}
       <span
         aria-hidden="true"

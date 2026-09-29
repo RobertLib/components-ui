@@ -63,6 +63,23 @@ describe("Chip", () => {
     render(<Chip disabled>Archived</Chip>);
 
     expect(screen.getByText("Archived")).toHaveClass("opacity-50");
+    expect(screen.getByText("Archived")).toHaveAttribute("data-disabled", "");
+  });
+
+  it("marks a selected removable chip and its toggle", () => {
+    const { container } = render(
+      <Chip defaultSelected onRemove={() => {}}>
+        Mine
+      </Chip>,
+    );
+
+    const chip = container.querySelector("[data-chip]");
+    expect(chip).toHaveAttribute("data-selected", "");
+    expect(chip).toHaveClass("forced-colors:bg-[Highlight]");
+    expect(
+      screen.getByRole("button", { name: "Mine", pressed: true }),
+    ).toHaveAttribute("data-selected", "");
+    expect(chip).not.toHaveAttribute("data-disabled");
   });
 });
 
@@ -239,6 +256,7 @@ describe("Chip as a toggle", () => {
 
     const chip = screen.getByRole("button", { name: "Overdue" });
     expect(chip).toHaveAttribute("aria-pressed", "false");
+    expect(chip).not.toHaveAttribute("data-selected");
     await user.click(chip);
     expect(onSelectedChange).toHaveBeenLastCalledWith(true);
     // Controlled - it shows what the parent says
@@ -250,8 +268,14 @@ describe("Chip as a toggle", () => {
       </Chip>,
     );
     expect(chip).toHaveAttribute("aria-pressed", "true");
-    // Filled, with a check mark besides the color
-    expect(chip).toHaveClass("bg-neutral-500");
+    expect(chip).toHaveAttribute("data-selected", "");
+    // Filled, with a check mark besides the color - in the colors of a
+    // selection in forced colors mode, which drops the fill
+    expect(chip).toHaveClass(
+      "bg-neutral-500",
+      "forced-colors:bg-[Highlight]",
+      "forced-colors:text-[HighlightText]",
+    );
     expect(chip.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
 
     chip.focus();

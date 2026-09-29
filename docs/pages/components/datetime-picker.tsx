@@ -98,9 +98,17 @@ export default function DateTimePickerPage() {
               picked, Page Up / Down by what the list shows at once.
             </li>
             <li>
-              All of them stop at <code>min</code> / <code>max</code>. The month
-              and year buttons page with Enter and Space; elsewhere in the date
-              popup Page Up / Down pages without moving the focus.
+              All of them stop at <code>min</code> / <code>max</code>. The days,
+              months and weeks of <code>isDateDisabled</code> take the focus -
+              they are announced as unavailable - but Enter and Space do not
+              pick them. The month and year buttons page with Enter and Space;
+              elsewhere in the date popup Page Up / Down pages without moving
+              the focus.
+            </li>
+            <li>
+              In a right-to-left page (<code>dir="rtl"</code>) the left arrow
+              moves forward and the right arrow back, and the chevrons of the
+              month and year buttons point the other way.
             </li>
           </ul>
         </Prose>
@@ -169,6 +177,69 @@ export default function DateTimePickerPage() {
       <Example
         description={
           <p>
+            <code>isDateDisabled</code> tells the days that cannot be picked -
+            weekends, public holidays, booked days - for the <code>date</code>,{" "}
+            <code>datetime-local</code>, <code>month</code> and{" "}
+            <code>week</code> types. It gets the local midnight of a day. The
+            popup strikes those days through; the keys move over them and they
+            are announced as unavailable, but they cannot be picked. A month or
+            a week without another day cannot be picked either. A value on such
+            a day - typed, a default one or one of the parent - is kept, but
+            makes the field invalid: the form cannot be submitted and the
+            browser says <code>messages.dateTimePicker.unavailable</code>{" "}
+            (“09/26/2026 cannot be selected.”). A date-time field without a day
+            sets the time of the nearest day that can be picked. In{" "}
+            <code>native</code> mode the browser's popup offers every day, but a
+            disabled one still makes the field invalid.
+          </p>
+        }
+        name="datetime-picker/disabled-dates"
+        title="Disabled dates"
+      />
+      <Example
+        description={
+          <p>
+            The date popup has a Today button under the days, and Clear while
+            the field has a value that may be cleared (not <code>required</code>
+            , or <code>clearable</code>). Today is disabled when today cannot be
+            picked - out of <code>min</code> / <code>max</code> or disabled.{" "}
+            <code>popupActions={"{false}"}</code> leaves both out.{" "}
+            <code>presets</code> offers days of your own beside the calendar
+            (above it on phones) - a click picks the day and closes the popup; a
+            preset that cannot be picked is disabled, the one of the value is
+            marked (<code>aria-pressed</code>).
+          </p>
+        }
+        name="datetime-picker/popup-actions"
+        title="Today, Clear and presets"
+      />
+      <Example
+        description={
+          <p>
+            <code>dim</code> sets the size - <code>xs</code>, <code>sm</code>,{" "}
+            <code>md</code> (default) and <code>lg</code>, the heights of{" "}
+            <code>Input</code>. The <code>label</code> takes any content - it
+            names the field.
+          </p>
+        }
+        name="datetime-picker/sizes"
+        title="Sizes and labels"
+      />
+      <Example
+        description={
+          <p>
+            In a right-to-left page the buttons of the field are at its start
+            (on the left), the popup opens under its start, the weeks run from
+            the right and the arrow keys follow them. So does{" "}
+            <code>DateRangePicker</code>.
+          </p>
+        }
+        name="datetime-picker/right-to-left"
+        title="Right to left"
+      />
+      <Example
+        description={
+          <p>
             <code>mode="native"</code> renders the browser's own input instead -
             handy on mobile devices. <code>minuteStep</code> becomes its{" "}
             <code>step</code>.
@@ -217,7 +288,9 @@ export default function DateTimePickerPage() {
               11 PM in English, 00 to 23 in Czech.
             </li>
             <li>
-              For a from - to range of days, use <code>DateRangePicker</code>.
+              For a from - to range of days, use <code>DateRangePicker</code>;
+              for a calendar that is always visible, <code>DateCalendar</code>{" "}
+              and <code>RangeCalendar</code>.
             </li>
           </ul>
         </Prose>
@@ -225,6 +298,7 @@ export default function DateTimePickerPage() {
 
       <Section title="Props">
         <PropsTable of="DateTimePicker" />
+        <PropsTable of="DateTimePickerPreset" />
       </Section>
     </DocPage>
   );

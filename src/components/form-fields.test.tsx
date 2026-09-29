@@ -297,7 +297,7 @@ describe("Field sizes", () => {
     // Only one padding per axis - with two, the CSS order would pick one
     for (const name of [/Small input/, /Small note/]) {
       const field = screen.getByRole("textbox", { name });
-      expect(field).toHaveClass("px-1", "py-0");
+      expect(field).toHaveClass("px-1", "py-0.5");
       expect(field).not.toHaveClass("px-2");
       expect(field).not.toHaveClass("py-1");
     }
@@ -1289,7 +1289,7 @@ describe("Extra small fields", () => {
       screen.getByRole("textbox", { name: /Note/ }),
       screen.getByRole("combobox", { name: /Size/ }),
     ]) {
-      expect(field).toHaveClass("px-1", "py-0.5", "text-sm");
+      expect(field).toHaveClass("px-1", "py-0", "text-sm");
     }
   });
 });
@@ -1598,7 +1598,8 @@ describe("Structural padding and className", () => {
     const select = render(
       <Select className="px-3" options={[{ label: "A", value: "a" }]} />,
     );
-    expect(screen.getByRole("combobox")).toHaveClass("px-3", "pr-8");
+    // At the end - the left side in a right-to-left page
+    expect(screen.getByRole("combobox")).toHaveClass("px-3", "pe-8");
     select.unmount();
 
     const input = render(<Input className="py-3" floating label="Name" />);
@@ -1606,6 +1607,6 @@ describe("Structural padding and className", () => {
     input.unmount();
 
     render(<DateTimePicker className="px-3" />);
-    expect(screen.getByRole("combobox")).toHaveClass("px-3", "pr-8");
+    expect(screen.getByRole("combobox")).toHaveClass("px-3", "pe-8");
   });
 });

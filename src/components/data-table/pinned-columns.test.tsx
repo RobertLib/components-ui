@@ -70,10 +70,29 @@ function scrollTable(
   fireEvent.scroll(scroller);
 }
 
+/** Lays the page out right to left - jsdom knows no `dir`. */
+function mockRightToLeft() {
+  const getComputedStyle = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+    const style = getComputedStyle(element, pseudo);
+    return new Proxy(style, {
+      get: (target, property) => {
+        if (property === "direction") return "rtl";
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  });
+}
+
 const hasShadow = (cell: HTMLElement, side: "left" | "right") =>
   !!cell.querySelector(
     side === "left" ? ":scope > .bg-linear-to-r" : ":scope > .bg-linear-to-l",
   );
+
+/** The shadow a pinned cell casts over the scrolled ones. */
+const shadowOf = (cell: HTMLElement) =>
+  cell.querySelector(":scope > .pointer-events-none");
 
 describe("DataTable pinned columns", () => {
   it("pins a column by its definition", () => {
@@ -93,9 +112,9 @@ describe("DataTable pinned columns", () => {
       screen.getAllByRole("columnheader").map((cell) => cell.textContent),
     ).toEqual(["Team", "Name", "Salary"]);
     expect(header("Team")).toHaveClass("sticky");
-    expect(header("Team")).toHaveStyle({ left: "0px" });
+    expect(header("Team")).toHaveStyle({ insetInlineStart: "0px" });
     expect(header("Salary")).toHaveClass("sticky");
-    expect(header("Salary")).toHaveStyle({ right: "0px" });
+    expect(header("Salary")).toHaveStyle({ insetInlineEnd: "0px" });
     expect(header("Name")).not.toHaveClass("sticky");
   });
 
@@ -142,7 +161,7 @@ describe("DataTable pinned columns", () => {
     expect(
       screen.getByRole("button", { name: "Pin Name to the left" }),
     ).toHaveAttribute("aria-pressed", "false");
-    expect(header("Name")).toHaveStyle({ right: "0px" });
+    expect(header("Name")).toHaveStyle({ insetInlineEnd: "0px" });
     expect(
       JSON.parse(localStorage.getItem("table-state-people") ?? "{}"),
     ).toMatchObject({ columnPinning: { name: "right" } });
@@ -155,8 +174,8 @@ describe("DataTable pinned columns", () => {
     );
     render(<DataTable columns={columns} data={rows} tableId="people" />);
 
-    expect(header("Team")).toHaveStyle({ left: "0px" });
-    expect(header("Name")).toHaveStyle({ right: "0px" });
+    expect(header("Team")).toHaveStyle({ insetInlineStart: "0px" });
+    expect(header("Name")).toHaveStyle({ insetInlineEnd: "0px" });
   });
 
   it("offsets pinned columns by the expand, selection and actions columns and by resized widths", () => {
@@ -190,11 +209,11 @@ describe("DataTable pinned columns", () => {
       const left = (key: string) =>
         document.querySelector<HTMLElement>(
           `th[data-column-key="${key}"], th[data-leading-column="${key}"]`,
-        )?.style.left;
+        )?.style.insetInlineStart;
       const right = (key: string) =>
         document.querySelector<HTMLElement>(
           `th[data-column-key="${key}"], th[data-leading-column="${key}"]`,
-        )?.style.right;
+        )?.style.insetInlineEnd;
 
       expect(left("expand")).toBe("0px");
       expect(left("selection")).toBe("40px");
@@ -247,13 +266,13 @@ describe("DataTable pinned columns", () => {
       // The columns scroll, as they are not pinned
       for (const name of ["Last actions", "Chosen", "Expansion"]) {
         expect(header(name)).not.toHaveClass("sticky");
-        expect(header(name).style.left).toBe("auto");
+        expect(header(name).style.insetInlineStart).toBe("auto");
       }
       // The pinned column comes after the leading ones as they measure
-      expect(header("Name")).toHaveStyle({ left: "150px" });
+      expect(header("Name")).toHaveStyle({ insetInlineStart: "150px" });
       const leading = (key: string) =>
         document.querySelector<HTMLElement>(`th[data-leading-column="${key}"]`)
-          ?.style.left;
+          ?.style.insetInlineStart;
       expect(leading("expand")).toBe("0px");
       expect(leading("selection")).toBe("40px");
       expect(leading("actions")).toBe("70px");
@@ -282,8 +301,8 @@ describe("DataTable pinned columns", () => {
         />,
       );
 
-      expect(header("Salary")).toHaveStyle({ right: "0px" });
-      expect(header("Team")).toHaveStyle({ right: "90px" });
+      expect(header("Salary")).toHaveStyle({ insetInlineEnd: "0px" });
+      expect(header("Team")).toHaveStyle({ insetInlineEnd: "90px" });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -314,6 +333,54 @@ describe("DataTable pinned columns", () => {
     act(() => scrollTable(container, 600));
     expect(hasShadow(header("Name"), "left")).toBe(true);
     expect(hasShadow(header("Salary"), "right")).toBe(false);
+  });
+
+  it("pins to the start and the end of a right-to-left table", async () => {
+    const user = userEvent.setup();
+    mockRightToLeft();
+    const { container } = render(
+      <div dir="rtl">
+        <DataTable
+          columns={[
+            { ...columns[0], pinned: "left" },
+            columns[1],
+            { ...columns[2], pinned: "right" },
+          ]}
+          data={rows}
+        />
+      </div>,
+    );
+
+    // The offsets are logical - the start is the right edge
+    expect(header("Name")).toHaveStyle({ insetInlineStart: "0px" });
+    expect(header("Name").style.left).toBe("");
+    expect(header("Salary")).toHaveStyle({ insetInlineEnd: "0px" });
+    expect(header("Salary").style.right).toBe("");
+
+    // Scrolled from the start - to the left, a negative `scrollLeft`
+    act(() => scrollTable(container, 0));
+    expect(shadowOf(header("Name"))).toBeNull();
+    expect(shadowOf(header("Salary"))).toHaveClass(
+      "-start-2",
+      "rtl:bg-linear-to-r",
+    );
+    act(() => scrollTable(container, -300));
+    expect(shadowOf(header("Name"))).toHaveClass(
+      "-end-2",
+      "rtl:bg-linear-to-l",
+    );
+    act(() => scrollTable(container, -600));
+    expect(shadowOf(header("Salary"))).toBeNull();
+
+    // The pin buttons are named by the side they pin to - the start is
+    // on the right
+    await user.click(screen.getByRole("button", { name: "Columns" }));
+    expect(
+      screen.getByRole("button", { name: "Pin Name to the right" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: "Pin Salary to the left" }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("casts the shadow from the selection column without pinned columns", () => {

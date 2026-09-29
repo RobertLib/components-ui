@@ -11,7 +11,7 @@ export default function Snackbar() {
       </Button>
       <Button
         color="danger"
-        onClick={() => enqueueSnackbar("Could not delete the file", "error")}
+        onClick={() => enqueueSnackbar("Could not delete the file", "danger")}
       >
         Error
       </Button>

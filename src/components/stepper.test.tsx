@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -45,6 +45,55 @@ describe("Stepper states", () => {
     const current = screen.getByRole("button", { name: "3. Review" });
     expect(current).toHaveAttribute("aria-current", "step");
     expect(current).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("tells its layout and the state of the steps to styles", () => {
+    const ref = createRef<HTMLDivElement>();
+    const { rerender } = render(
+      <Stepper
+        currentStepId={3}
+        data-testid="stepper"
+        onStepClick={vi.fn()}
+        ref={ref}
+        steps={[...steps, { id: 5, isClickable: false, title: "Archive" }]}
+      />,
+    );
+
+    const root = screen.getByTestId("stepper");
+    expect(ref.current).toBe(root);
+    expect(root).toHaveAttribute("data-orientation", "horizontal");
+    const current = screen.getByRole("button", { name: "3. Review" });
+    expect(current).toHaveAttribute("data-current", "");
+    expect(
+      screen.getByRole("button", { name: "1. Details" }),
+    ).not.toHaveAttribute("data-current");
+    expect(screen.getByRole("button", { name: "5. Archive" })).toHaveAttribute(
+      "data-disabled",
+      "",
+    );
+    expect(current).not.toHaveAttribute("data-disabled");
+    // Forced colors drop the fills - the steps keep system colors
+    expect(current).toHaveClass("forced-colors:bg-[Highlight]");
+    expect(screen.getByRole("button", { name: "1. Details" })).toHaveClass(
+      "forced-colors:bg-[CanvasText]",
+    );
+    expect(screen.getByRole("button", { name: "4. Done" })).not.toHaveClass(
+      "forced-colors:bg-[CanvasText]",
+    );
+
+    rerender(
+      <Stepper
+        currentStepId={3}
+        data-testid="stepper"
+        orientation="vertical"
+        steps={steps}
+      />,
+    );
+    expect(root).toHaveAttribute("data-orientation", "vertical");
+    expect(document.querySelector("[aria-current=step]")).toHaveAttribute(
+      "data-current",
+      "",
+    );
   });
 });
 
@@ -270,5 +319,67 @@ describe("Stepper on the server", () => {
 
     act(() => root.unmount());
     container.remove();
+  });
+});
+
+describe("Stepper with an optional step", () => {
+  const optionalSteps = [
+    { id: 1, title: "Account" },
+    {
+      description: "A photo and a bio",
+      id: 2,
+      optional: true,
+      title: "Profile",
+    },
+    { id: 3, title: "Done" },
+  ];
+
+  it("says Optional under the title of the step", () => {
+    render(
+      <Stepper
+        currentStepId={1}
+        orientation="vertical"
+        steps={optionalSteps}
+      />,
+    );
+
+    expect(screen.getByText("Optional")).toBeInTheDocument();
+    expect(screen.getAllByText("Optional")).toHaveLength(1);
+    // Heard with the step
+    expect(screen.getByText("Profile").closest("li")).toHaveTextContent(
+      "2. Profile, Optional",
+    );
+  });
+
+  it("describes a step button with it - also in the row of steps", () => {
+    for (const orientation of ["vertical", "horizontal"] as const) {
+      const { unmount } = render(
+        <Stepper
+          currentStepId={1}
+          onStepClick={() => {}}
+          orientation={orientation}
+          steps={optionalSteps}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: "2. Profile" }),
+      ).toHaveAccessibleDescription("Optional A photo and a bio");
+      unmount();
+    }
+  });
+
+  it("is written in the language of the page", () => {
+    render(
+      <UIProvider locale={cs}>
+        <Stepper
+          currentStepId={1}
+          orientation="vertical"
+          steps={optionalSteps}
+        />
+      </UIProvider>,
+    );
+
+    expect(screen.getByText("Volitelný")).toBeInTheDocument();
   });
 });

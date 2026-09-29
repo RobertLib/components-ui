@@ -53,7 +53,19 @@ export default function SliderPage() {
         name="slider/marks"
         title="Marks and vertical sliders"
       />
-      <Example name="slider/sizes" title="Sizes and states" />
+      <Example
+        description={
+          <p>
+            <code>dim</code> sizes the track and the thumbs, from{" "}
+            <code>xs</code> to <code>lg</code> (<code>size</code> is its old,
+            deprecated name). <code>readOnly</code> shows the value and keeps
+            the thumbs focusable, but neither a drag nor a key moves them - the
+            value is still submitted, unlike that of a disabled slider.
+          </p>
+        }
+        name="slider/sizes"
+        title="Sizes and states"
+      />
 
       <Section title="Keyboard and pointer">
         <Prose>
@@ -92,7 +104,9 @@ export default function SliderPage() {
             label. The thumbs of a range are named by the label and
             &quot;minimum&quot; / &quot;maximum&quot; in the language of the
             locale; <code>id</code> and <code>ref</code> belong to the first
-            thumb.
+            thumb, the other attributes (<code>data-*</code>, <code>style</code>
+            , event handlers) to the element around the thumbs, as{" "}
+            <code>className</code> does.
           </p>
         </Prose>
       </Section>

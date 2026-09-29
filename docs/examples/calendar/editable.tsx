@@ -56,7 +56,7 @@ export default function Editable() {
       )}
       renderEventIcon={(event) =>
         event.id === "standup" ? (
-          <Repeat className="mr-1 inline" size={12} />
+          <Repeat className="me-1 inline" size={12} />
         ) : null
       }
     />

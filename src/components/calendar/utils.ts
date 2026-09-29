@@ -1,7 +1,13 @@
 import type { CalendarEvent, CalendarResource } from "./types";
 import type { Locale } from "../../i18n/types";
 import { addCalendarDays, atHour, minutesIntoDay } from "./date-utils";
-import { dateOf, isSameDay, startOfDay, usesHour12 } from "../../utils/date";
+import {
+  capitalize,
+  dateOf,
+  isSameDay,
+  startOfDay,
+  usesHour12,
+} from "../../utils/date";
 import { formatMessage, toIntlLocale } from "../../i18n/format";
 
 // What `new Date("2026-09-24")` gives
@@ -73,21 +79,6 @@ export const sortEvents = (events: CalendarEvent[]) =>
       b.end.getTime() - a.end.getTime(),
   );
 
-/**
- * Makes the button of a tile operable from the keyboard - it takes the
- * focus, and Enter or Space open it like a click.
- */
-export const clickableTileProps = (onActivate: () => void) => ({
-  onKeyDown: (event: React.KeyboardEvent) => {
-    if (event.target !== event.currentTarget) return;
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    onActivate();
-  },
-  role: "button" as const,
-  tabIndex: 0,
-});
-
 /** Whether the focus came from the keyboard - not from a press or a click. */
 function isKeyboardFocus(element: Element) {
   try {
@@ -108,17 +99,17 @@ const overflowOf = (start: number, end: number, min: number, max: number) =>
 /**
  * Scrolls what the keyboard focused in a view - a day or a slot the arrow
  * keys moved to, a tile reached by Tab - into sight whole: below the sticky
- * header of the view (`topInset` pixels) and right of its sticky time
- * column (`leftInset`). The browser's own scroll of the focus knows of
- * neither, and leaves an element a few pixels in view as it is. A press is
- * left alone - the view scrolled under the pointer would take it for a
- * drag.
+ * header of the view (`topInset` pixels) and past its sticky time column
+ * at the start (`startInset` - on the right in a right-to-left page). The
+ * browser's own scroll of the focus knows of neither, and leaves an element
+ * a few pixels in view as it is. A press is left alone - the view scrolled
+ * under the pointer would take it for a drag.
  */
 export function revealFocus(
   target: EventTarget,
   scroller: HTMLElement | null,
   topInset: number,
-  leftInset = 0,
+  startInset = 0,
 ) {
   if (!scroller || !(target instanceof HTMLElement)) return;
   if (!isKeyboardFocus(target)) return;
@@ -127,6 +118,7 @@ export function revealFocus(
   const view = scroller.getBoundingClientRect();
   const top = view.top + scroller.clientTop;
   const left = view.left + scroller.clientLeft;
+  const rtl = isRtl(scroller);
 
   const y = overflowOf(
     box.top,
@@ -134,11 +126,13 @@ export function revealFocus(
     top + topInset,
     top + scroller.clientHeight,
   );
+  // `scrollLeft` is physical - negative in a right-to-left view, but still
+  // growing to the right
   const x = overflowOf(
     box.left,
     box.right,
-    left + leftInset,
-    left + scroller.clientWidth,
+    left + (rtl ? 0 : startInset),
+    left + scroller.clientWidth - (rtl ? startInset : 0),
   );
   if (y !== 0) scroller.scrollTop += y;
   if (x !== 0) scroller.scrollLeft += x;
@@ -149,6 +143,34 @@ export function revealFocus(
  * of text, and room to grab the tile between its resize handles.
  */
 export const MIN_TILE_HEIGHT = 24;
+
+/** The lengths of the slots the week, day and timeline views take. */
+export const SLOT_DURATIONS: readonly number[] = [5, 10, 15, 20, 30, 60];
+
+/**
+ * Height of a slot row of the week and day views in pixels - 128 an hour,
+ * as the half hours of the week and the hours of the day always were, and
+ * no lower than a line of text.
+ */
+export const getSlotHeight = (slotDuration: number) =>
+  Math.max(Math.round((128 * slotDuration) / 60), 24);
+
+/**
+ * Every how many minutes the time column writes the time: the slots
+ * themselves while they are tall enough, else the quarter, half or whole
+ * hours - on the slots that start them, a label under the one before
+ * leaving room for it.
+ */
+export function getLabelInterval(slotDuration: number, slotSize: number) {
+  return (
+    [slotDuration, 15, 30, 60].find(
+      (interval) =>
+        interval >= slotDuration &&
+        interval % slotDuration === 0 &&
+        (interval / slotDuration) * slotSize >= 48,
+    ) ?? 60
+  );
+}
 
 /**
  * All-day events the header of a day of the week and day views shows before
@@ -347,12 +369,12 @@ export const formatTimeRange = (start: Date, end: Date, locale: Locale) =>
   formatRange(createDateTimeFormat(locale), start, end);
 
 /**
- * Names event tiles for screen readers - by their title and when they take
- * place: the day and the times, or the days of an all-day event, with the
- * resource of the event among `resources`. Its formatters are made once, so
- * a calendar makes one labeler for all its tiles.
+ * Says when events take place, for screen readers: the day and the times,
+ * or the days of an all-day event, with the resource of the event among
+ * `resources`. Its formatters are made once, so a calendar makes one for all
+ * its tiles.
  */
-export function createEventLabeler(
+export function createTimeLabeler(
   locale: Locale,
   resources?: CalendarResource[],
 ) {
@@ -363,7 +385,12 @@ export function createEventLabeler(
   let dayFormat: Intl.DateTimeFormat | undefined;
   let timeFormat: Intl.DateTimeFormat | undefined;
 
-  return (event: CalendarEvent) => {
+  return (event: {
+    allDay?: boolean;
+    end: Date;
+    resourceId?: string;
+    start: Date;
+  }) => {
     let time: string;
 
     if (event.allDay) {
@@ -378,18 +405,53 @@ export function createEventLabeler(
       time = formatRange(timeFormat, event.start, event.end);
     }
 
-    return formatMessage(messages.calendar.eventLabel, {
-      time: withResource(
-        locale,
-        event.resourceId === undefined
-          ? undefined
-          : resourceTitles.get(event.resourceId),
-        time,
-      ),
-      title: event.title,
-    });
+    return withResource(
+      locale,
+      event.resourceId === undefined
+        ? undefined
+        : resourceTitles.get(event.resourceId),
+      time,
+    );
   };
 }
+
+/**
+ * Names event tiles for screen readers - by their title and when they take
+ * place (`createTimeLabeler`). Its formatters are made once, so a calendar
+ * makes one labeler for all its tiles.
+ */
+export function createEventLabeler(
+  locale: Locale,
+  resources?: CalendarResource[],
+) {
+  const timeOf = createTimeLabeler(locale, resources);
+
+  return (event: CalendarEvent) =>
+    formatMessage(locale.messages.calendar.eventLabel, {
+      time: timeOf(event),
+      title: event.title,
+    });
+}
+
+/**
+ * When an event takes place, as a tile would write it - "9:00 – 10:30 AM"
+ * on the clock of the locale, "All day" for an all-day event. For
+ * `renderEvent`.
+ */
+export function createTimeTextFormatter(locale: Locale) {
+  let timeFormat: Intl.DateTimeFormat | undefined;
+  const allDay = capitalize(locale.messages.calendar.allDay, locale.code);
+
+  return (event: { allDay?: boolean; end: Date; start: Date }) => {
+    if (event.allDay) return allDay;
+    timeFormat ??= createTimeFormat(locale);
+    return formatRange(timeFormat, event.start, event.end);
+  };
+}
+
+/** Whether `element` is laid out right to left - its arrow keys are flipped. */
+export const isRtl = (element: Element | null) =>
+  !!element && getComputedStyle(element).direction === "rtl";
 
 /** The accessible name of one event tile - see `createEventLabeler`. */
 export const formatEventLabel = (event: CalendarEvent, locale: Locale) =>
@@ -453,8 +515,19 @@ export function createEventColorResolver(resources?: CalendarResource[]) {
     (event.resourceId === undefined ? undefined : colors.get(event.resourceId));
 }
 
+/**
+ * The classes of an event's color: its background, text and border. The
+ * border - the mark of the color, also of a resource - keeps its color in
+ * forced colors mode (Windows High Contrast), and so does the whole tile
+ * with it: the colors tell the events apart, and their text has its
+ * contrast on them.
+ */
 export const getColorStyles = (color?: string) => {
   const colorKey = color && color in bgStyles ? color : "primary";
 
-  return [bgStyles[colorKey], textStyles[colorKey], borderStyles[colorKey]];
+  return [
+    bgStyles[colorKey],
+    textStyles[colorKey],
+    `${borderStyles[colorKey]} forced-color-adjust-none`,
+  ];
 };

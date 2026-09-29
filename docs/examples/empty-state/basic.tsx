@@ -17,7 +17,7 @@ export default function Basic() {
               onClick={() => enqueueSnackbar("Import")}
               variant="outline"
             >
-              <Upload className="mr-2" size={16} />
+              <Upload className="me-2" size={16} />
               Import
             </Button>
           </>

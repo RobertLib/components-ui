@@ -1,6 +1,6 @@
 import { isValidElement, useId, useRef, useState } from "react";
 import MenuList, { type MenuListHandle } from "./menu/menu-list";
-import Popover from "./popover";
+import Popover, { type PopoverPosition } from "./popover";
 import { getNextTabStop } from "./overlay-stack";
 import { getTabbableElements } from "../utils/tabbable";
 import type { DropdownEntry } from "./menu/types";
@@ -14,7 +14,18 @@ export type {
   DropdownSeparator,
 } from "./menu/types";
 
+// What the menu does once it opens - see `MenuList.initialFocus`
+type InitialFocus = "first" | "last" | "menu";
+
 export interface DropdownProps extends React.ComponentProps<"div"> {
+  /**
+   * How the menu lines up with its trigger: `end` - from the end edge of
+   * the trigger (its right edge, right to left its left one), `start` - from
+   * the other one, `center` - centered on it. Beside the trigger (`position`
+   * `start` / `end`), from its top, its middle or its bottom. `end` by
+   * default above or below the trigger, `start` beside it.
+   */
+  align?: "start" | "center" | "end";
   /**
    * `trigger` is a button itself - a `Button`, an `IconButton`: it becomes
    * the menu button (`aria-expanded`, the focus, the `aria-*` props given
@@ -30,8 +41,22 @@ export interface DropdownProps extends React.ComponentProps<"div"> {
    * skipped, so `cond && item` works.
    */
   items: DropdownEntry[];
+  /** Space between the trigger and the menu, in pixels. */
+  offset?: number;
   /** Called when the menu opens or closes. */
   onOpenChange?: (open: boolean) => void;
+  /**
+   * Opens the menu while `true` - leave it out to let the trigger open it.
+   * Opened by the parent, the menu takes the focus as when it is clicked
+   * open; a pick, Escape or a click outside call `onOpenChange(false)`.
+   */
+  open?: boolean;
+  /**
+   * The side of the trigger the menu opens on - `bottom` by default; `start`
+   * / `end` beside it, `end` being the right side (the left one right to
+   * left). It opens on the other side when it has no room there.
+   */
+  position?: PopoverPosition;
   /** The element that opens the menu on click. */
   trigger: React.ReactNode;
 }
@@ -41,25 +66,32 @@ export interface DropdownProps extends React.ComponentProps<"div"> {
  * Home / End and typed letters; Enter or Space picks an item. Opened from
  * the keyboard (ArrowDown, Enter, Space - ArrowUp for the last item), it
  * highlights its first item. Items can have icons, shortcuts and
- * descriptions, be checkboxes or radio options, and open submenus.
+ * descriptions, be checkboxes or radio options, and open submenus. `ref`
+ * and the other props go to the wrapper around the trigger, as in
+ * `Popover`; the menu and its items have the data attributes of the menus
+ * (`data-highlighted`, `data-state`, `data-disabled` - see the page).
  */
 export default function Dropdown({
+  align,
   buttonTrigger = false,
   id,
   items,
+  offset = 10,
   onKeyDown,
   onOpenChange,
+  open: controlledOpen,
+  position = "bottom",
   trigger,
   ...props
 }: DropdownProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
   // Opened from the keyboard, the menu highlights its first (or last) item
-  // once it is in the page - opened with the mouse (or by a screen reader
-  // clicking the trigger), it takes the focus with none highlighted, so the
-  // arrow keys and a screen reader go on in it
-  const [highlight, setHighlight] = useState<"first" | "last" | "menu" | null>(
-    null,
-  );
+  // once it is in the page - opened with the mouse, by a screen reader
+  // clicking the trigger, or by the parent, it takes the focus with none
+  // highlighted, so the arrow keys and a screen reader go on in it
+  const [highlight, setHighlight] = useState<InitialFocus>("menu");
   const menuRef = useRef<MenuListHandle>(null);
 
   const generatedId = useId();
@@ -73,12 +105,10 @@ export default function Dropdown({
       : undefined;
 
   // The popover gives the focus in the closing menu back to the trigger
-  const changeOpen = (
-    next: boolean,
-    highlightOnOpen: "first" | "last" | "menu" | null,
-  ) => {
-    setOpen(next);
-    setHighlight(highlightOnOpen);
+  const changeOpen = (next: boolean, highlightOnOpen: InitialFocus) => {
+    if (!isControlled) setInternalOpen(next);
+    // Closed, the next opening by the parent takes the focus as a click
+    setHighlight(next ? highlightOnOpen : "menu");
     if (next !== open) onOpenChange?.(next);
   };
 
@@ -114,7 +144,7 @@ export default function Dropdown({
       const triggerElement = buttonTrigger
         ? getTabbableElements(wrapper)[0]
         : wrapper;
-      changeOpen(false, null);
+      changeOpen(false, "menu");
 
       if (!event.shiftKey) {
         // Past the menu to what follows the trigger - handled here, so the
@@ -145,17 +175,21 @@ export default function Dropdown({
 
   return (
     <Popover
-      align="right"
+      // From the end edge below or above the trigger, from its top beside it
+      align={
+        align ?? (position === "top" || position === "bottom" ? "end" : "start")
+      }
       aria-controls={open ? menuId : undefined}
       buttonTrigger={buttonTrigger}
       // Up to 24rem before it scrolls - held to the room on its side
-      contentClassName="mt-2.5 max-h-96"
+      contentClassName="max-h-96"
       id={triggerId}
-      onOpenChange={(next) => changeOpen(next, next ? "menu" : null)}
+      offset={offset}
+      onOpenChange={(next) => changeOpen(next, "menu")}
       open={open}
       // The menu itself is the popup - no unnamed dialog around it
       popupRole="menu"
-      position="bottom"
+      position={position}
       trigger={
         buttonTrigger ? (
           trigger
@@ -175,7 +209,7 @@ export default function Dropdown({
         entries={items}
         id={menuId}
         initialFocus={highlight}
-        onClose={() => changeOpen(false, null)}
+        onClose={() => changeOpen(false, "menu")}
         ref={menuRef}
       />
     </Popover>

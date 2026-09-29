@@ -64,10 +64,20 @@ const wait = (ms: number, signal?: AbortSignal | null) =>
 
 const fold = (text: string) => removeDiacritics(text).toLowerCase();
 
+/** A text, any of a list, or a range - the values of `DataTableQuery.filters`. */
+type FilterValue = string | string[] | { from?: string; to?: string };
+
+interface SortColumn {
+  key: string;
+  order: string;
+}
+
 interface ListQuery {
-  filters?: Record<string, string>;
+  filters?: Record<string, FilterValue>;
   order?: string;
   search?: string;
+  /** Several sorted columns - wins over `sortBy` / `order`. */
+  sort?: SortColumn[];
   sortBy?: string;
 }
 
@@ -79,7 +89,21 @@ const FILTERABLE = [
   "status",
 ] as const;
 
-function queryPeople({ filters = {}, order, search, sortBy }: ListQuery) {
+/** Columns filtered by a range - salaries by number, days by their text. */
+const RANGES = ["createdAt", "salary"] as const;
+
+function matchesRange(
+  value: string | number,
+  { from, to }: { from?: string; to?: string },
+) {
+  if (typeof value === "number") {
+    return (!from || value >= Number(from)) && (!to || value <= Number(to));
+  }
+  // A `to` day includes the whole day
+  return (!from || value >= from) && (!to || value.slice(0, to.length) <= to);
+}
+
+function queryPeople({ filters = {}, order, search, sort, sortBy }: ListQuery) {
   let result = people;
 
   if (search) {
@@ -91,7 +115,20 @@ function queryPeople({ filters = {}, order, search, sortBy }: ListQuery) {
 
   for (const [key, value] of Object.entries(filters)) {
     if (!value) continue;
-    if (key === "name" || key === "email") {
+    if (Array.isArray(value)) {
+      // Any of the values
+      if (value.length && (FILTERABLE as readonly string[]).includes(key)) {
+        result = result.filter((person) =>
+          value.includes(String(person[key as keyof Person])),
+        );
+      }
+    } else if (typeof value === "object") {
+      if ((RANGES as readonly string[]).includes(key)) {
+        result = result.filter((person) =>
+          matchesRange(person[key as (typeof RANGES)[number]], value),
+        );
+      }
+    } else if (key === "name" || key === "email") {
       result = result.filter((person) =>
         fold(person[key]).includes(fold(value)),
       );
@@ -102,22 +139,41 @@ function queryPeople({ filters = {}, order, search, sortBy }: ListQuery) {
     }
   }
 
-  if (sortBy && sortBy in (people[0] ?? {})) {
-    const direction = order === "desc" ? -1 : 1;
-    const key = sortBy as keyof Person;
+  // The first column first - the next one orders the rows equal in it
+  const sortColumns = (
+    sort?.length ? sort : sortBy ? [{ key: sortBy, order: order ?? "asc" }] : []
+  ).filter(({ key }) => key in (people[0] ?? {}));
+
+  if (sortColumns.length > 0) {
     result = [...result].sort((a, b) => {
-      const left = a[key];
-      const right = b[key];
-      return (
-        (typeof left === "number" && typeof right === "number"
-          ? left - right
-          : String(left).localeCompare(String(right))) * direction
-      );
+      for (const { key, order: columnOrder } of sortColumns) {
+        const left = a[key as keyof Person];
+        const right = b[key as keyof Person];
+        const difference =
+          typeof left === "number" && typeof right === "number"
+            ? left - right
+            : String(left).localeCompare(String(right));
+        if (difference !== 0) {
+          return columnOrder === "desc" ? -difference : difference;
+        }
+      }
+      return 0;
     });
   }
 
   return result;
 }
+
+/** The sorted columns of a `sort` parameter - `name,-salary`. */
+const parseSort = (value: string | null): SortColumn[] | undefined =>
+  value
+    ?.split(",")
+    .filter(Boolean)
+    .map((item) =>
+      item.startsWith("-")
+        ? { key: item.slice(1), order: "desc" }
+        : { key: item, order: "asc" },
+    );
 
 /** The salaries of people added up. */
 const sumSalaries = (list: Person[]) =>
@@ -170,16 +226,24 @@ function handleRest(url: URL, method: string, body: string | undefined) {
     });
   }
 
-  const filters: Record<string, string> = {};
+  // A text, a list (`department=Sales&department=Support`) or a range
+  // (`salary[from]=50000&salary[to]=80000`)
+  const filters: Record<string, FilterValue> = {};
   for (const key of [...FILTERABLE, "name", "email"]) {
-    const value = params.get(key);
-    if (value) filters[key] = value;
+    const values = params.getAll(key).filter(Boolean);
+    if (values.length) filters[key] = values.length > 1 ? values : values[0];
+  }
+  for (const key of RANGES) {
+    const from = params.get(`${key}[from]`) ?? undefined;
+    const to = params.get(`${key}[to]`) ?? undefined;
+    if (from || to) filters[key] = { from, to };
   }
 
   const matching = queryPeople({
     filters,
     order: params.get("order") ?? undefined,
     search: params.get("q") ?? params.get("search") ?? undefined,
+    sort: parseSort(params.get("sort")),
     sortBy: params.get("sortBy") ?? undefined,
   });
 
@@ -243,9 +307,10 @@ function handleGraphQL(body: string | undefined) {
 
   if (/\bpeople\b/.test(query)) {
     const matching = queryPeople({
-      filters: variables.filters as Record<string, string> | undefined,
+      filters: variables.filters as Record<string, FilterValue> | undefined,
       order: variables.order as string | undefined,
       search: variables.search as string | undefined,
+      sort: variables.sort as SortColumn[] | undefined,
       sortBy: variables.sortBy as string | undefined,
     });
 

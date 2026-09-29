@@ -47,6 +47,18 @@ export default function TagsInputPage() {
         name="tags-input/suggestions"
         title="Suggestions"
       />
+      <Example
+        description={
+          <p>
+            <code>dim</code> - <code>xs</code>, <code>sm</code>, <code>md</code>{" "}
+            (default) or <code>lg</code> - gives the field the height, padding
+            and text of an <code>Input</code> of that size, with values to fit.
+            The <code>label</code> may hold markup, as that of the other fields.
+          </p>
+        }
+        name="tags-input/sizes"
+        title="Sizes"
+      />
 
       <Section title="Keyboard">
         <Prose>
@@ -83,6 +95,13 @@ export default function TagsInputPage() {
               without a value, with a message in the language of the locale. A
               reset brings back the <code>defaultValue</code> and clears the
               input.
+            </li>
+            <li>
+              <code>readOnly</code> shows and submits the values, but none can
+              be added or removed: no × buttons, typing, pasting or suggestions.
+              The input stays a tab stop, with <code>aria-readonly</code> and{" "}
+              <code>data-readonly</code> - as in a read-only{" "}
+              <code>Autocomplete</code>.
             </li>
             <li>
               The values are rendered like the chips of a multiple{" "}

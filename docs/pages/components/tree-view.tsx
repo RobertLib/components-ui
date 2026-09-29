@@ -44,7 +44,67 @@ const keys: [React.ReactNode, string][] = [
     <Kbd key="all" shortcut="mod+a" />,
     "Selects all shown items of a multiple selection",
   ],
+  [
+    <Kbd key="cut" shortcut="mod+x" />,
+    "With onMove: picks up the focused item to move it - with the other selected items when it is selected",
+  ],
 ];
+
+// The keys while an item picked up with Ctrl / ⌘ + X is being moved
+const moveKeys: [React.ReactNode, string][] = [
+  [
+    <span className="flex gap-1" key="up-down">
+      <Kbd>↑</Kbd>
+      <Kbd>↓</Kbd>
+    </span>,
+    "The previous / next place to drop at - each is announced",
+  ],
+  [
+    <span className="flex gap-1" key="home-end">
+      <Kbd>Home</Kbd>
+      <Kbd>End</Kbd>
+    </span>,
+    "The first / last place",
+  ],
+  [
+    <span className="flex gap-1" key="right-left">
+      <Kbd>→</Kbd>
+      <Kbd>←</Kbd>
+    </span>,
+    "Expands / collapses the item of the place - its children load",
+  ],
+  [
+    <span className="flex gap-1" key="drop">
+      <Kbd>Enter</Kbd>
+      <Kbd shortcut="mod+v" />
+    </span>,
+    "Drops the items at the place - onMove",
+  ],
+  [
+    <Kbd key="escape">Esc</Kbd>,
+    "Cancels - so does leaving the tree; the focus stays on the item",
+  ],
+];
+
+/** A table of keys and what they do. */
+function KeyTable({ rows }: { rows: [React.ReactNode, string][] }) {
+  return (
+    <div className="my-4 max-w-3xl overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
+      <table className="w-full text-start text-sm">
+        <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
+          {rows.map(([key, action], index) => (
+            <tr key={index}>
+              <td className="w-40 px-3 py-2 whitespace-nowrap">{key}</td>
+              <td className="px-3 py-2 text-neutral-700 dark:text-neutral-300">
+                {action}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export default function TreeViewPage() {
   return (
@@ -100,6 +160,22 @@ export default function TreeViewPage() {
       <Example
         description={
           <p>
+            <code>checkMode="independent"</code> checks every item on its own -
+            checking a parent checks none of its children, and a child checks no
+            parent - like the categories a product is listed in. Nothing is
+            partly checked, and the value (<code>checked</code>,{" "}
+            <code>onCheckedChange</code>, the submitted form) is exactly the
+            checked items: an id in <code>checked</code> no longer stands for
+            the items under it. Disabled items keep their state, and a reset
+            brings back <code>defaultChecked</code> as in a cascade.
+          </p>
+        }
+        name="tree-view/independent"
+        title="Independent checkboxes"
+      />
+      <Example
+        description={
+          <p>
             An item with <code>hasChildren</code> (and no <code>children</code>)
             gets its children from <code>loadChildren</code> when it is first
             expanded. A loading row shows meanwhile; a failed load (the archive
@@ -117,13 +193,35 @@ export default function TreeViewPage() {
             <code>filter</code> shows only the items whose label contains the
             text - ignoring case and diacritics - with their ancestors expanded
             and the match highlighted. Parts of the filtered tree can be
-            collapsed; clearing the filter brings back the tree as it was. Only
-            the expanded items are rendered, so a tree of a thousand items (this
-            one) stays fast - also with everything expanded.
+            collapsed; clearing the filter brings back the tree as it was. The
+            children of collapsed items are not rendered, so a tree of a
+            thousand items (this one) stays fast; one with thousands of items
+            expanded at once is rendered only in view with{" "}
+            <code>virtualized</code> (below).
           </p>
         }
         name="tree-view/filter"
         title="Filtering"
+      />
+      <Example
+        description={
+          <p>
+            <code>virtualized</code> renders only the rows in view, and{" "}
+            <code>overscan</code> (8) more above and below - here 10 020 people,
+            all expanded. The tree scrolls itself, so give it a height (
+            <code>h-80</code>, <code>max-h-96</code>, …); development builds
+            warn when it has none. Every row is <code>rowHeight</code> high (32
+            px, 40 on a touch screen) with its label on one line. The rows are
+            one flat list of tree items - each still with its level, position
+            and number of siblings - instead of nested groups. The keys, the
+            focus, typeahead, <code>filter</code>, checkboxes, loading children
+            and moving items work as in any tree: the focused item stays
+            rendered when it is scrolled away, and the keys scroll to the item
+            they move to.
+          </p>
+        }
+        name="tree-view/virtualized"
+        title="Many items"
       />
       <Example
         description={
@@ -140,6 +238,44 @@ export default function TreeViewPage() {
         }
         name="tree-view/custom"
         title="Labels and actions"
+      />
+      <Example
+        description={
+          <>
+            <p>
+              <code>onMove</code> lets the user move items: the mouse or a pen
+              drags an item after a few pixels, a finger after resting on it for
+              half a second (a finger that moves first scrolls the page). The
+              dragged rows are dimmed; a line shows where they land - in the
+              upper quarter of a row before it, in the lower quarter after it,
+              indented to their level (below the last row of a group, how far
+              left the pointer is chooses after which ancestor), and the middle
+              of a row takes them inside, as its last children. A collapsed item
+              hovered for a moment expands (loading its children), the tree or
+              the page scrolls near its edge, and Escape cancels. From the
+              keyboard, Ctrl / ⌘ + X picks up the focused item and the arrow
+              keys go through the places to drop at - each announced, e.g.
+              "After 2026, in Invoices" - and Enter drops it. In a multiple
+              selection a selected item moves with the other selected ones.
+            </p>
+            <p>
+              The tree reports the move -{" "}
+              <code>{"{ itemIds, position, targetId }"}</code> - and changes
+              nothing itself: apply it to your items (the <code>applyMove</code>{" "}
+              of the example), keeping the ids, and the moved items show at
+              their new place with the focus. It never offers places in or next
+              to the moved items, among their descendants or in a disabled item;{" "}
+              <code>canDrop</code> refuses more (here only folders take
+              children), <code>canDrag</code> keeps items in place. Items can be
+              dropped into a parent whose children are not loaded yet - add them
+              on the server, and <code>loadChildren</code> brings them. To move
+              items that <code>loadChildren</code> loaded, keep them in your
+              items (as the <code>children</code> of their parent).
+            </p>
+          </>
+        }
+        name="tree-view/move"
+        title="Moving items"
       />
       <Example
         description={
@@ -172,26 +308,25 @@ export default function TreeViewPage() {
             within it (in a right-to-left page → and ← swap):
           </p>
         </Prose>
-        <div className="my-4 max-w-3xl overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
-          <table className="w-full text-left text-sm">
-            <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
-              {keys.map(([key, action], index) => (
-                <tr key={index}>
-                  <td className="w-40 px-3 py-2 whitespace-nowrap">{key}</td>
-                  <td className="px-3 py-2 text-neutral-700 dark:text-neutral-300">
-                    {action}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <KeyTable rows={keys} />
+        <Prose>
+          <p>
+            While items picked up with <Kbd shortcut="mod+x" size="sm" /> are
+            being moved, the keys choose where they go - the focus stays on the
+            picked item:
+          </p>
+        </Prose>
+        <KeyTable rows={moveKeys} />
         <Callout title="Screen readers">
           <p>
             Items are announced with their level, position and state (expanded,
             selected, checked or partly checked). The children of an item are in
-            a group it owns, named after it. Name the tree with{" "}
-            <code>aria-label</code> or <code>aria-labelledby</code>.
+            a group it owns, named after it - in a virtualized tree the items
+            are one flat list, each with its level and position. Name the tree
+            with <code>aria-label</code> or <code>aria-labelledby</code>. A move
+            is told by a polite live region: what was picked up and the keys,
+            each place chosen, the drop and the cancel; the moved items are
+            described as being moved.
           </p>
         </Callout>
       </Section>
@@ -200,6 +335,7 @@ export default function TreeViewPage() {
         <PropsTable of="TreeView" />
         <PropsTable of="TreeItem" />
         <PropsTable of="TreeItemState" />
+        <PropsTable of="TreeMove" />
       </Section>
     </DocPage>
   );

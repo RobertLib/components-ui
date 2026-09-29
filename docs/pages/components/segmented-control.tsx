@@ -31,14 +31,35 @@ export default function SegmentedControlPage() {
       <Example
         description={
           <p>
-            <code>size</code> sets the height and text size of the options;{" "}
-            <code>fullWidth</code> stretches the bar and shares its width among
-            the options. Options can be <code>disabled</code> one by one or all
-            at once.
+            <code>dim</code> sets the height and text size - the bar is as high
+            as an <code>Input</code> of the same <code>dim</code>, with text as
+            big, so the two line up in a toolbar (<code>size</code> is its old,
+            deprecated name). <code>fullWidth</code> stretches the bar and
+            shares its width among the options. Options can be{" "}
+            <code>disabled</code> one by one or all at once.{" "}
+            <code>readOnly</code> shows the pick and keeps the focus - a click
+            changes nothing, the arrow keys move the focus without picking - and
+            the pick is still submitted. The picked option has{" "}
+            <code>data-selected</code> (its radio{" "}
+            <code>data-state=&quot;checked&quot;</code>), and the other
+            attributes of an element go to the group, as <code>id</code> and{" "}
+            <code>ref</code> do.
           </p>
         }
         name="segmented-control/sizes"
         title="Sizes and states"
+      />
+      <Example
+        description={
+          <p>
+            <code>orientation="vertical"</code> stacks the options, the
+            selection sliding up and down - e.g. a view switcher in a side
+            panel. With <code>fullWidth</code> the options fill the width of the
+            bar. The arrow keys move through them either way.
+          </p>
+        }
+        name="segmented-control/vertical"
+        title="Vertical"
       />
       <Example
         description={

@@ -52,25 +52,31 @@ export interface CellLayout {
   /** The column is being resized by dragging - its width follows the drag. */
   dragged?: boolean;
   /**
-   * The width of a dragged column in `left` or `right` - the offset follows
+   * The width of a dragged column in `start` or `end` - the offset follows
    * the drag.
    */
   dragOffset?: number;
-  /** Sticky `left` offset in pixels - the column is pinned to the left. */
-  left?: number;
+  /**
+   * Sticky offset from the end edge in pixels - the column is pinned to the
+   * end (`pinned: "right"`, the left edge in a right-to-left table).
+   */
+  end?: number;
   /**
    * The widest a pinned column may be resized to - the pinned columns must
    * leave half of the view to the others, or they would scroll along.
    */
   maxResizeWidth?: number;
-  /** Sticky `right` offset in pixels - the column is pinned to the right. */
-  right?: number;
   /**
-   * The last column pinned to the left (`"left"`) or the first one pinned
-   * to the right (`"right"`) while the table is scrolled away from that
-   * edge - its cells cast a shadow over the scrolled columns.
+   * The last column pinned to the start (`"start"`) or the first one pinned
+   * to the end (`"end"`) while the table is scrolled away from that edge -
+   * its cells cast a shadow over the scrolled columns.
    */
-  shadow?: "left" | "right";
+  shadow?: "end" | "start";
+  /**
+   * Sticky offset from the start edge in pixels - the column is pinned to
+   * the start (`pinned: "left"`, the right edge in a right-to-left table).
+   */
+  start?: number;
   /** Width in pixels - resized by the user, or the column's `width`. */
   width?: number;
 }
@@ -80,12 +86,13 @@ export const DEFAULT_CELL_LAYOUT: CellLayout = {};
 
 /** Whether a layout sticks the cells to an edge. */
 export const isSticky = (layout: CellLayout) =>
-  layout.left !== undefined || layout.right !== undefined;
+  layout.start !== undefined || layout.end !== undefined;
 
 /**
- * The inline style of a cell: its sticky offset, and its width - a header
- * cell takes the width of a sized column exactly, the other cells take it
- * as their maximum, so that their content cannot widen the column.
+ * The inline style of a cell: its sticky offset - from the start or the end
+ * edge, the right or the left one in a right-to-left table - and its width:
+ * a header cell takes the width of a sized column exactly, the other cells
+ * take it as their maximum, so that their content cannot widen the column.
  */
 export function getCellStyle<T>(
   column: Column<T> | null,
@@ -100,8 +107,8 @@ export function getCellStyle<T>(
         ? `${value}px`
         : `calc(${value - layout.dragOffset}px + var(${DRAG_WIDTH_VARIABLE}))`;
   const style: React.CSSProperties = {
-    left: offset(layout.left),
-    right: offset(layout.right),
+    insetInlineEnd: offset(layout.end),
+    insetInlineStart: offset(layout.start),
   };
 
   if (layout.width !== undefined) {

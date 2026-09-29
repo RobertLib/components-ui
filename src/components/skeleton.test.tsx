@@ -14,6 +14,8 @@ describe("Skeleton", () => {
       "h-4",
       "w-full",
       "mb-2",
+      // Still in sight in forced colors mode, which drops the fill
+      "forced-colors:bg-[GrayText]",
     );
   });
 

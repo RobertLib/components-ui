@@ -5,7 +5,17 @@ import PropsTable from "../../components/props-table";
 export default function ProgressPage() {
   return (
     <DocPage imports={["Progress", "CircularProgress"]} title="Progress">
-      <Example name="progress/basic" title="Basic" />
+      <Example
+        description={
+          <p>
+            <code>color</code> colors the bar - it was <code>variant</code>,
+            which still works for now. Each fill stands out from the track by at
+            least 3:1.
+          </p>
+        }
+        name="progress/basic"
+        title="Basic"
+      />
       <Example
         description={
           <p>

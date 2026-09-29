@@ -1,3 +1,4 @@
+import { Kbd } from "components-ui";
 import CodeBlock from "../../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../../components/doc-page";
 import Example from "../../components/example";
@@ -51,25 +52,40 @@ export default function CalendarPage() {
       <Example
         collapsed
         description={
-          <p>
-            In the week and day views, <code>onEventDrop</code> lets events be
-            dragged to another time or day, <code>onEventResize</code> resized
-            by their edges, and <code>onSlotDragEnd</code> reports a range
-            dragged over empty slots. <code>renderEventActions</code> adds
-            controls revealed on hover. Dragging works with the mouse, a pen and
-            a finger: a finger on a draggable event moves it instead of
-            scrolling the view, while a finger on the empty slots scrolls - a
-            tap there is a click, ranges are dragged with the mouse or a pen (up
-            or down from the pressed slot). A drag changes only what is dragged:
-            a move keeps the length of the event (also over a daylight saving
-            change), a resize moves one edge, both by whole slots, and a part of
-            the event out of the shown hours stays as it is. Dragging near the
-            edges scrolls the view - also sideways to the days (or resources) a
-            phone has no room for -, Escape cancels a drag, and the events of
-            days disabled by <code>minDate</code> / <code>maxDate</code> stay
-            where they are. Without <code>onDateClick</code>, a tap on a slot
-            creates a range of that slot.
-          </p>
+          <>
+            <p>
+              <code>onEventDrop</code> lets events be dragged to another time or
+              day - in the week and day views by whole slots, in the month view
+              and in the all-day row of the week and day views by whole days,
+              where an all-day event stays one and every event keeps its length.{" "}
+              <code>onEventResize</code> resizes them by their edges, and{" "}
+              <code>onSlotDragEnd</code> reports a range dragged over empty
+              slots. <code>renderEventActions</code> adds controls revealed on
+              hover. Dragging works with the mouse, a pen and a finger: a finger
+              on a draggable event moves it instead of scrolling the view, while
+              a finger on the empty slots scrolls - a tap there is a click,
+              ranges are dragged with the mouse or a pen (up or down from the
+              pressed slot). A drag changes only what is dragged: a move keeps
+              the length of the event (also over a daylight saving change), a
+              resize moves one edge, both by whole slots, and a part of the
+              event out of the shown hours stays as it is. Dragging near the
+              edges scrolls the view - also sideways to the days (or resources)
+              a phone has no room for -, Escape cancels a drag, and the events
+              of days disabled by <code>minDate</code> / <code>maxDate</code>{" "}
+              stay where they are. Without <code>onDateClick</code>, a tap on a
+              slot creates a range of that slot.
+            </p>
+            <p>
+              The keys move events too: <Kbd shortcut="mod+x" size="sm" /> on a
+              focused event picks it up (Enter or Space on one without{" "}
+              <code>onEventClick</code>), the arrow keys move it by a slot or a
+              day - in the month by a day or a week -,{" "}
+              <Kbd size="sm">Shift</Kbd> + ↑ / ↓ change its end (with{" "}
+              <code>onEventResize</code>), Enter puts it down and Escape back.
+              Screen readers hear where it would go, and the same{" "}
+              <code>onEventDrop</code> / <code>onEventResize</code> report it.
+            </p>
+          </>
         }
         name="calendar/editable"
         title="Drag, resize and create"
@@ -86,7 +102,67 @@ export default function CalendarPage() {
           </p>
         }
         name="calendar/hours"
-        title="Working hours"
+        title="Hours shown"
+      />
+
+      <Section title="Slots, working hours and the work week">
+        <Example
+          collapsed
+          description={
+            <>
+              <p>
+                <code>slotDuration</code> sets the slots of the week, day and
+                timeline views - 5, 10, 15, 20, 30 or 60 minutes (by default
+                half hours in the week, hours in the day). An hour stays 128
+                pixels high, a slot at least 24; ranges are picked and events
+                moved and resized by whole slots, and the time column writes
+                every slot where they are tall enough, else the quarter, half or
+                whole hours.
+              </p>
+              <p>
+                <code>businessHours</code> shades the time out of the working
+                hours - <code>true</code> for 9:00 - 17:00 on Monday to Friday,
+                or <code>{`{ days, start, end }`}</code> entries, several for a
+                break or other hours on other days; the month view shades the
+                days without any. With <code>restrictToBusinessHours</code> only
+                the working hours can be picked: a slot out of them is disabled,
+                and a range stops at their end (events can still be moved
+                there). <code>hiddenDays</code> leaves days of the week out - a
+                work week without the weekend: the week and month views have no
+                column for them, the day views and the arrow keys skip them.
+              </p>
+              <p>
+                The line of the current time (<code>nowIndicator</code>, on by
+                default) crosses today in the week, day and timeline views and
+                moves every minute - drawn once the page is hydrated, the server
+                does not know the time of the browser.
+              </p>
+            </>
+          }
+          name="calendar/work-week"
+          title="A work week of quarter hours"
+        />
+      </Section>
+
+      <Example
+        collapsed
+        description={
+          <p>
+            <code>renderEvent(event, context)</code> renders the content of the
+            tiles - after the icon of <code>renderEventIcon</code>, instead of
+            the title. The context gives the default <code>title</code> (with
+            its <code>htmlTitle</code>), <code>timeText</code> ("9:00 – 10:30
+            AM", or the times a moved event would get), <code>view</code>,{" "}
+            <code>compact</code> for the one-line tiles of the month, the
+            all-day row, the lists and the timeline, <code>allDay</code>,{" "}
+            <code>color</code> and <code>dragging</code>. The tile stays a
+            button named by the title and time of the event, with its actions -
+            what <code>renderEvent</code> renders is for the eye, so keep
+            controls out of it.
+          </p>
+        }
+        name="calendar/custom-tiles"
+        title="Custom tiles"
       />
 
       <Section title="Agenda">
@@ -154,6 +230,29 @@ export default function CalendarPage() {
           }
           name="calendar/resources"
           title="Meeting rooms"
+        />
+        <Example
+          collapsed
+          description={
+            <p>
+              The <code>"timelineDay"</code> and <code>"timelineWeek"</code>{" "}
+              views put the resources in rows and the time across them - the
+              hours shown of the day, or of each day of the week (without the{" "}
+              <code>hiddenDays</code>). Events are bars in the row of their
+              resource, stacked where they overlap; an all-day event takes its
+              whole days, and an event wholly out of the hours shown (at night)
+              is left out. They are clicked, dragged to another time or row (
+              <code>newResourceId</code>) and resized by their start and end
+              edges; a range dragged over the slots of a row comes with its{" "}
+              <code>resourceId</code>. From the keyboard the slots are one tab
+              stop: ← / → go across the time, ↑ / ↓ down the resources, Shift +
+              ← / → select a range; a picked-up event moves the same way, Shift
+              + ← / → change its end. The resource names stay on the left and
+              the days and hours on top while the timeline scrolls.
+            </p>
+          }
+          name="calendar/timeline"
+          title="Resource timeline"
         />
       </Section>
 
@@ -258,10 +357,22 @@ export default function CalendarPage() {
           day view, whose day the date field shows, to screen readers only.
         </p>
         <p>
-          Moving and resizing events takes a pointer: a drag has no keyboard
-          equivalent in the calendar itself. Offer another way to change the
-          times - WCAG 2.5.7 asks for one that works with a single click or tap
-          - e.g. open a dialog with the times of the event from{" "}
+          Events that can be moved are picked up by{" "}
+          <Kbd shortcut="mod+x" size="sm" /> (their{" "}
+          <code>aria-keyshortcuts</code>) - or Enter and Space on a tile that
+          opens nothing -, and the arrow keys move them: up and down by a slot
+          and across by a column in the week and day views, by a day and a week
+          in the month, across the time and down the resources in the timeline;
+          Shift + the arrows along the time change the end. Enter, Space or{" "}
+          <Kbd shortcut="mod+v" size="sm" /> put the event down, Escape or
+          leaving it puts it back. Each place is announced with its day, times
+          and resource, and so is the drop; the focus stays on the moved event.
+          In a right-to-left page the arrows across swap.
+        </p>
+        <p>
+          The keys are no help to everyone who uses a pointer without dragging -
+          WCAG 2.5.7 asks for a way that works with a single click or tap: e.g.
+          open a dialog with the times of the event from{" "}
           <code>onEventClick</code> (which Enter and Space call too) and save
           them like a drop.
         </p>
@@ -311,6 +422,8 @@ export default function CalendarPage() {
       <Section title="Props">
         <PropsTable of="Calendar" />
         <PropsTable of="CalendarEvent" />
+        <PropsTable of="CalendarEventRenderContext" />
+        <PropsTable of="CalendarBusinessHours" />
         <PropsTable of="CalendarRecurrence" />
         <PropsTable of="CalendarResource" />
         <PropsTable of="EventTimeChange" />

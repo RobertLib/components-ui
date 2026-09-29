@@ -1,16 +1,28 @@
-import { attachRef, useFormControl } from "../hooks/use-form-control";
+import {
+  attachRef,
+  checkedState,
+  useFormControl,
+} from "../hooks/use-form-control";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
+import {
+  ignoreChange,
+  keepRadioState,
+  moveReadOnlyRadioFocus,
+} from "./read-only-choice";
 import { useMessages } from "../providers/ui-context";
+import RequiredMark from "./required-mark";
+
+type Dim = "xs" | "sm" | "md" | "lg";
 
 export interface SegmentedControlOption<
   T extends string | number = string | number,
 > {
   /**
-   * Text of the option. Leave it out for an icon-only option - and name it
-   * with `aria-label`.
+   * Content of the option. Leave it out for an icon-only option - and name
+   * it with `aria-label`.
    */
   label?: React.ReactNode;
   /**
@@ -26,8 +38,21 @@ export interface SegmentedControlOption<
   icon?: React.ReactNode;
 }
 
+/**
+ * The attributes of an HTML element not listed here - `data-*`, `style`,
+ * `title`, event handlers - go to the group element, as `id` and `ref` do.
+ */
 export interface SegmentedControlProps<
   T extends string | number = string | number,
+> extends Omit<
+  React.HTMLAttributes<HTMLElement>,
+  | "children"
+  | "dangerouslySetInnerHTML"
+  | "defaultChecked"
+  | "defaultValue"
+  | "onBlur"
+  | "onChange"
+  | "onFocus"
 > {
   /**
    * Id of the element describing the control - the error message and the
@@ -44,6 +69,12 @@ export interface SegmentedControlProps<
   defaultValue?: T;
   /** Help text under the control - it describes it. */
   description?: React.ReactNode;
+  /**
+   * Size of the control - a horizontal bar is as high as an `Input` of the
+   * same `dim`, with text as big.
+   * @default "md"
+   */
+  dim?: Dim;
   /** Disables all options. */
   disabled?: boolean;
   /** Validation message - also marks the control as invalid. */
@@ -53,7 +84,10 @@ export interface SegmentedControlProps<
    * like the `form` attribute of a native field.
    */
   form?: string;
-  /** Stretches the bar over the full width, the options sharing it equally. */
+  /**
+   * Stretches the bar over the full width - the options share it equally
+   * in a horizontal bar, and fill it in a vertical one.
+   */
   fullWidth?: boolean;
   /**
    * Id of the group element - the `<fieldset>` with `label`, otherwise the
@@ -61,7 +95,7 @@ export interface SegmentedControlProps<
    */
   id?: string;
   /** Rendered as the `<legend>` of a fieldset above the bar. */
-  label?: string;
+  label?: React.ReactNode;
   /**
    * `name` of the radios underneath - the form submits the picked value
    * under it. Without a `name` the control is not submitted.
@@ -75,41 +109,69 @@ export interface SegmentedControlProps<
   onFocus?: React.FocusEventHandler<HTMLInputElement>;
   /** The choices - a few short ones. */
   options: SegmentedControlOption<T>[];
+  /**
+   * `vertical` stacks the options - e.g. a view switcher in a side panel.
+   * The arrow keys move through them either way.
+   */
+  orientation?: "horizontal" | "vertical";
+  /**
+   * The control shows the pick and takes the focus, but a click, Space or
+   * an arrow key does not change it (`onChange` is not called) - the arrow
+   * keys move the focus through the options. Unlike a disabled control,
+   * the pick is submitted with the form. As a native read-only field, it is
+   * not validated: `required` only marks it.
+   */
+  readOnly?: boolean;
   /** Ref to the group element (see `id`). */
   ref?: React.Ref<HTMLElement>;
   /** An option must be picked before the form can be submitted. */
   required?: boolean;
-  /** Height and text size of the options. */
+  /**
+   * Deprecated - use `dim`.
+   * @deprecated Use `dim`.
+   */
   size?: "sm" | "md" | "lg";
   /** Picked value of a controlled control. */
   value?: T;
 }
 
-const barSizeStyles = {
+// The bar is as high as an Input: its padding and the options fill it -
+// 22, 26, 34 and 46 px
+const barSizeStyles: Record<Dim, string> = {
+  xs: "p-0.5",
   sm: "p-0.5",
   md: "p-1",
   lg: "p-1.5",
 };
 
-const optionSizeStyles = {
-  sm: "px-2.5 py-0.5 text-[13px]",
-  md: "px-3 py-0.5 text-sm",
-  lg: "px-4 py-1 text-base",
+const optionHeights: Record<Dim, string> = {
+  xs: "h-4.5",
+  sm: "h-5.5",
+  md: "h-6.5",
+  lg: "h-8.5",
+};
+
+const optionSizeStyles: Record<Dim, string> = {
+  xs: "px-2 text-sm",
+  sm: "px-2 text-sm",
+  md: "px-3 text-base",
+  lg: "px-4 text-lg",
 };
 
 // An icon alone - about as wide as the option is high
-const iconOptionSizeStyles = {
-  sm: "px-1.5 py-0.5 text-[13px]",
-  md: "px-2 py-0.5 text-sm",
-  lg: "px-2.5 py-1 text-base",
+const iconOptionSizeStyles: Record<Dim, string> = {
+  xs: "px-1 text-sm",
+  sm: "px-1 text-sm",
+  md: "px-1.5 text-base",
+  lg: "px-2 text-lg",
 };
 
-// The indicator keeps the padding of the bar around it
-const indicatorInset = {
-  sm: "2px",
-  md: "4px",
-  lg: "6px",
-};
+interface IndicatorBox {
+  height: number;
+  left: number;
+  top: number;
+  width: number;
+}
 
 /**
  * A compact choice of one of a few options - a view switcher, a period.
@@ -126,6 +188,7 @@ export default function SegmentedControl<
   className,
   defaultValue,
   description,
+  dim: dimProp,
   disabled = false,
   error,
   form,
@@ -137,11 +200,16 @@ export default function SegmentedControl<
   onChange,
   onFocus,
   options,
+  orientation = "horizontal",
+  readOnly = false,
   ref,
   required,
-  size = "md",
+  size,
   value: controlledValue,
+  ...props
 }: SegmentedControlProps<T>) {
+  const dim = dimProp ?? size ?? "md";
+  const vertical = orientation === "vertical";
   const messages = useMessages();
   const { fieldRef, handleChange, value } = useFormControl<HTMLInputElement>({
     defaultValue,
@@ -169,10 +237,7 @@ export default function SegmentedControl<
 
   // Where the indicator is - measured in the browser. Until then (on the
   // server, before hydration) the picked option has a background of its own.
-  const [indicator, setIndicator] = useState<{
-    left: number;
-    width: number;
-  } | null>(null);
+  const [indicator, setIndicator] = useState<IndicatorBox | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -191,14 +256,20 @@ export default function SegmentedControl<
       const barRect = bar.getBoundingClientRect();
       const optionRect = option.getBoundingClientRect();
       // Also when the bar scrolls sideways on a narrow screen
-      const left =
-        optionRect.left - barRect.left - bar.clientLeft + bar.scrollLeft;
-      const width = optionRect.width;
+      const next = {
+        height: optionRect.height,
+        left: optionRect.left - barRect.left - bar.clientLeft + bar.scrollLeft,
+        top: optionRect.top - barRect.top - bar.clientTop + bar.scrollTop,
+        width: optionRect.width,
+      };
 
       setIndicator((previous) =>
-        previous?.left === left && previous.width === width
+        previous?.left === next.left &&
+        previous.top === next.top &&
+        previous.width === next.width &&
+        previous.height === next.height
           ? previous
-          : { left, width },
+          : next,
       );
     };
 
@@ -212,10 +283,19 @@ export default function SegmentedControl<
     observer.observe(bar);
     observer.observe(option);
     return () => observer.disconnect();
-  }, [options, selectedIndex, size]);
+  }, [dim, options, orientation, selectedIndex]);
 
+  const groupElement = useRef<HTMLElement | null>(null);
   const groupElementRef = useCallback(
-    (element: HTMLElement | null) => attachRef(ref, element),
+    (element: HTMLElement | null) => {
+      groupElement.current = element;
+      const detachRef = attachRef(ref, element);
+
+      return () => {
+        groupElement.current = null;
+        detachRef();
+      };
+    },
     [ref],
   );
 
@@ -245,57 +325,69 @@ export default function SegmentedControl<
   const bar = (
     <div
       className={cn(
-        "relative max-w-full overflow-x-auto rounded-lg bg-neutral-100 dark:bg-neutral-800",
+        "relative max-w-full rounded-lg bg-neutral-100 dark:bg-neutral-800",
+        vertical ? "flex-col" : "overflow-x-auto",
         fullWidth ? "flex w-full" : "inline-flex",
-        barSizeStyles[size],
-        // A ring marks the error - a border would change the size
-        error && "ring-1 ring-danger-500",
+        barSizeStyles[dim],
+        // A ring marks the error - a border would change the size. Forced
+        // colors (Windows High Contrast) draw no ring - an outline then.
+        error && "ring-1 ring-danger-500 forced-colors:outline-1",
         disabled && "opacity-60",
         // Also in a disabled fieldset around, which no prop tells
         "[fieldset:disabled_&]:opacity-60",
         className,
       )}
+      data-readonly={readOnly ? "" : undefined}
       ref={barRef}
     >
       {indicator && (
         <div
           aria-hidden="true"
-          className="absolute rounded-md bg-surface shadow-sm transition-all duration-200 ease-out motion-reduce:transition-none dark:bg-neutral-600"
-          style={{
-            bottom: indicatorInset[size],
-            left: indicator.left,
-            top: indicatorInset[size],
-            width: indicator.width,
-          }}
+          // Forced colors draw no background of their own and no shadow -
+          // the system's highlight color marks the picked option then
+          className="absolute rounded-md bg-surface shadow-sm transition-all duration-200 ease-out motion-reduce:transition-none dark:bg-neutral-600 forced-colors:bg-[Highlight]"
+          style={indicator}
         />
       )}
       {options.map((option, index) => {
         const checked = index === selectedIndex;
         const optionDisabled = disabled || !!option.disabled;
         const iconOnly = option.label === undefined || option.label === null;
+        const interactive = !optionDisabled && !readOnly;
 
         return (
           <label
             className={cn(
-              "relative z-10 inline-flex items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap transition-colors select-none has-focus-visible:ring-2 has-focus-visible:ring-primary-500 motion-reduce:transition-none",
-              iconOnly ? iconOptionSizeStyles[size] : optionSizeStyles[size],
-              fullWidth && "flex-1",
+              // The ring of the keyboard focus is a shadow - forced colors
+              // show the outline of `outline-hidden` instead
+              "relative z-10 inline-flex items-center gap-1.5 rounded-md leading-none font-medium whitespace-nowrap transition-colors select-none has-focus-visible:ring-2 has-focus-visible:ring-primary-500 has-focus-visible:outline-hidden motion-reduce:transition-none",
+              optionHeights[dim],
+              iconOnly ? iconOptionSizeStyles[dim] : optionSizeStyles[dim],
+              // A vertical bar lines the texts up at the start
+              vertical ? "justify-start" : "justify-center",
+              fullWidth && !vertical && "flex-1",
               checked
-                ? "text-neutral-900 dark:text-white"
+                ? "text-neutral-900 dark:text-white forced-colors:text-[HighlightText]"
                 : "text-neutral-600 dark:text-neutral-300",
               !checked &&
-                !optionDisabled &&
+                interactive &&
                 "hover:text-neutral-900 has-disabled:hover:text-neutral-600 dark:hover:text-white dark:has-disabled:hover:text-neutral-300",
               // Until the indicator is measured
               checked &&
                 !indicator &&
-                "bg-surface shadow-sm dark:bg-neutral-600",
-              optionDisabled ? "cursor-not-allowed" : "cursor-pointer",
+                "bg-surface shadow-sm dark:bg-neutral-600 forced-colors:bg-[Highlight]",
+              optionDisabled
+                ? "cursor-not-allowed"
+                : readOnly
+                  ? "cursor-default"
+                  : "cursor-pointer",
               "has-disabled:cursor-not-allowed",
               // A disabled control is dimmed as a whole
               option.disabled && !disabled && "opacity-50",
             )}
+            data-disabled={optionDisabled ? "" : undefined}
             data-option=""
+            data-selected={checked ? "" : undefined}
             key={option.value}
             title={iconOnly ? option["aria-label"] : undefined}
           >
@@ -303,14 +395,25 @@ export default function SegmentedControl<
               aria-label={option["aria-label"]}
               checked={checked}
               className="sr-only"
+              data-disabled={optionDisabled ? "" : undefined}
+              data-readonly={readOnly ? "" : undefined}
+              data-state={checkedState(checked)}
               disabled={optionDisabled}
               form={form}
               name={groupName}
               onBlur={onBlur}
-              onChange={handleChange}
+              onChange={readOnly ? ignoreChange : handleChange}
+              onClick={readOnly ? keepRadioState : undefined}
               onFocus={onFocus}
+              onKeyDown={
+                readOnly
+                  ? (event) =>
+                      moveReadOnlyRadioFocus(event, groupElement.current)
+                  : undefined
+              }
               ref={fieldRef}
-              required={required}
+              // A read-only field is not validated - it could not be fixed
+              required={required && !readOnly}
               type="radio"
               value={String(option.value)}
             />
@@ -329,9 +432,16 @@ export default function SegmentedControl<
   // The group carries the error and `required` - the radios keep `required`
   // for the browser's validation
   const groupProps = {
+    ...props,
     "aria-describedby": joinTokens(errorId, descriptionId, ariaDescribedBy),
     "aria-invalid": error ? ("true" as const) : undefined,
+    "aria-orientation": orientation,
+    "aria-readonly": readOnly ? ("true" as const) : undefined,
     "aria-required": required ? ("true" as const) : undefined,
+    "data-disabled": disabled ? "" : undefined,
+    "data-invalid": error ? "" : undefined,
+    "data-orientation": orientation,
+    "data-readonly": readOnly ? "" : undefined,
     id,
     ref: groupElementRef,
     role: "radiogroup",
@@ -346,14 +456,7 @@ export default function SegmentedControl<
             {label}
             {messages.form.labelSuffix}{" "}
             {/* The star is for the eye - `required` tells assistive technology */}
-            {required && (
-              <span
-                aria-hidden="true"
-                className="text-danger-700 dark:text-danger-400"
-              >
-                *
-              </span>
-            )}
+            {required && <RequiredMark />}
           </legend>
           {bar}
         </fieldset>

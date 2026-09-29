@@ -1,4 +1,11 @@
-import { DataTable, DescriptionList, Input, type Column } from "components-ui";
+import { SearchX } from "lucide-react";
+import {
+  DataTable,
+  DescriptionList,
+  EmptyState,
+  Input,
+  type Column,
+} from "components-ui";
 import { people, type Person } from "../../mocks/data";
 import { Salary } from "./salary";
 
@@ -34,7 +41,16 @@ export default function Expandable() {
       columns={columns}
       data={people}
       defaultQuery={{ pageSize: 5 }}
-      emptyMessage="Nobody earns that much."
+      // Any content - a text, or an EmptyState
+      emptyMessage={
+        <EmptyState
+          description="Try a lower minimum salary."
+          headingLevel={3}
+          icon={<SearchX />}
+          size="sm"
+          title="Nobody earns that much"
+        />
+      }
       getRowBackgroundColor={(person) =>
         person.status === "suspended" ? "rgb(239 68 68 / 0.08)" : undefined
       }

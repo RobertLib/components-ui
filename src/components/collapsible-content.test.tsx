@@ -1,5 +1,5 @@
-import { act, render } from "@testing-library/react";
-import { useEffect } from "react";
+import { act, render, screen } from "@testing-library/react";
+import { createRef, useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CollapsibleContent from "./collapsible-content";
 
@@ -115,5 +115,95 @@ describe("CollapsibleContent", () => {
     expect(container).toHaveTextContent("Details");
     act(() => vi.advanceTimersByTime(100));
     expect(container).toHaveTextContent("");
+  });
+});
+
+describe("CollapsibleContent with keepMounted", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("hides closed content instead of unmounting it", () => {
+    vi.useFakeTimers();
+    const { container, rerender } = render(
+      <CollapsibleContent duration={100} id="content" isOpen keepMounted>
+        Details
+      </CollapsibleContent>,
+    );
+    const content = container.querySelector("#content")!;
+
+    rerender(
+      <CollapsibleContent
+        duration={100}
+        id="content"
+        isOpen={false}
+        keepMounted
+      >
+        Details
+      </CollapsibleContent>,
+    );
+    act(() => vi.advanceTimersByTime(100));
+    expect(container.querySelector("#content")).toBe(content);
+    expect(content).toHaveAttribute("hidden");
+    expect(content).toHaveTextContent("Details");
+
+    rerender(
+      <CollapsibleContent duration={100} id="content" isOpen keepMounted>
+        Details
+      </CollapsibleContent>,
+    );
+    expect(content).not.toHaveAttribute("hidden");
+  });
+
+  it("renders closed content hidden from the start", () => {
+    const { container } = render(
+      <CollapsibleContent id="content" isOpen={false} keepMounted>
+        Details
+      </CollapsibleContent>,
+    );
+
+    expect(container.querySelector("#content")).toHaveAttribute("hidden");
+  });
+
+  it("passes its ref and attributes on and tells its state", () => {
+    vi.useFakeTimers();
+    const ref = createRef<HTMLDivElement>();
+    const { rerender } = render(
+      <CollapsibleContent
+        aria-label="Details"
+        data-testid="content"
+        duration={100}
+        isOpen
+        ref={ref}
+        style={{ color: "red" }}
+      >
+        Details
+      </CollapsibleContent>,
+    );
+
+    const content = screen.getByTestId("content");
+    expect(ref.current).toBe(content);
+    expect(content).toHaveAttribute("aria-label", "Details");
+    expect(content).toHaveStyle({
+      color: "rgb(255, 0, 0)",
+      transitionDuration: "100ms",
+    });
+    expect(content).toHaveAttribute("data-state", "open");
+
+    rerender(
+      <CollapsibleContent
+        data-testid="content"
+        duration={100}
+        isOpen={false}
+        keepMounted
+        ref={ref}
+      >
+        Details
+      </CollapsibleContent>,
+    );
+    // Closed already while it animates out
+    expect(content).toHaveAttribute("data-state", "closed");
+    act(() => vi.advanceTimersByTime(100));
+    expect(ref.current).toBe(content);
   });
 });

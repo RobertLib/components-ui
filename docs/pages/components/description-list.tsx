@@ -26,6 +26,20 @@ export default function DescriptionListPage() {
         name="description-list/loading"
         title="Loading and a fixed term width"
       />
+      <Example
+        description={
+          <p>
+            <code>columns</code> puts several pairs side by side, each term
+            above its value - two columns from the <code>sm</code> breakpoint,
+            all of them from <code>lg</code>, one on phones. An item with{" "}
+            <code>fullWidth</code> takes a whole row, e.g. a long note.{" "}
+            <code>bordered</code> draws lines between the rows - also of the
+            single column, where the terms keep their column.
+          </p>
+        }
+        name="description-list/columns"
+        title="Columns and lines"
+      />
       <Section title="Props">
         <PropsTable of="DescriptionList" />
         <PropsTable of="DescriptionListItem" />

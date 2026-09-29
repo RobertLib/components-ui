@@ -9,10 +9,12 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { createPortal } from "react-dom";
 import cn, { joinTokens } from "../utils/cn";
 import {
+  getDirection,
   isBelowModalOverlay,
   isEscapeKey,
   isTopmostOverlay,
@@ -21,15 +23,55 @@ import {
   useOverlayLayer,
 } from "./overlay-stack";
 import { ButtonGroupContext } from "./button-group-context";
+import { attachRef } from "../hooks/use-form-control";
+import { usePortalContainer } from "../providers/ui-context";
+import {
+  getClippingAncestors,
+  isOutOfView,
+  resolveSide,
+  type FloatingSide,
+  type PhysicalSide,
+} from "./menu/position";
 
-type Side = "top" | "bottom" | "left" | "right";
+type Side = PhysicalSide;
 
 interface Placement {
   /** Offset of the arrow along the edge it is on, in pixels. */
   arrow: number;
+  /** The trigger is scrolled out of view - the tooltip hides meanwhile. */
+  hidden?: boolean;
   left: number;
   side: Side;
   top: number;
+}
+
+/**
+ * The tooltips on screen, but the controlled ones - one at a time: a tooltip
+ * that shows hides the others. `byPointer` - shown by hovering its trigger.
+ */
+const shownTooltips = new Map<
+  string,
+  { byPointer: boolean; hide: () => void }
+>();
+
+// Once the pointer has left a tooltip, the next trigger it rests on within
+// this time shows its tooltip without the `delay` - one label after another
+// along a toolbar, as native tooltips do
+const SKIP_DELAY_DURATION = 300;
+let skipDelayUntil = 0;
+
+/**
+ * Whether a tooltip shows at once on hover: another one is shown by the
+ * pointer, or one was hidden a moment ago as the pointer left it.
+ */
+function isDelaySkipped() {
+  const now = Date.now();
+  // A clock set back meanwhile (fake timers) ends the window too
+  const inWindow =
+    skipDelayUntil > now && skipDelayUntil - now <= SKIP_DELAY_DURATION;
+  return (
+    inWindow || [...shownTooltips.values()].some((tooltip) => tooltip.byPointer)
+  );
 }
 
 const OPPOSITE: Record<Side, Side> = {
@@ -45,11 +87,18 @@ const VIEWPORT_MARGIN = 4;
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), Math.max(min, max));
 
+const subscribeToNothing = () => () => {};
+
 export interface TooltipProps extends Omit<
   React.ComponentProps<"div">,
   "title"
 > {
-  /** Hover time in milliseconds before the tooltip appears. */
+  /**
+   * Hover time in milliseconds before the tooltip appears. Within a moment
+   * after the pointer left another tooltip - or while one is shown on hover
+   * - it appears at once, so moving along a toolbar reads one label after
+   * another.
+   */
   delay?: number;
   /**
    * The content of the tooltip is used, not only read: a click in it (text
@@ -60,10 +109,25 @@ export interface TooltipProps extends Omit<
   interactive?: boolean;
   /** Keeps the text on one line. */
   nowrap?: boolean;
+  /**
+   * Called when the tooltip wants to show or hide - on hover, focus,
+   * Escape, a click (with `openOnClick`) or another tooltip showing.
+   */
+  onOpenChange?: (open: boolean) => void;
+  /**
+   * Shows the tooltip while `true` - leave it out to let hover and focus
+   * show it. A controlled tooltip is left out of the grouping: another one
+   * showing does not hide it, and it does not shorten their `delay`.
+   */
+  open?: boolean;
   /** Toggle the tooltip on click/tap as well, so it works without a pointer. */
   openOnClick?: boolean;
-  /** Side of the trigger the tooltip appears on. */
-  position?: "top" | "bottom" | "left" | "right";
+  /**
+   * Side of the trigger the tooltip appears on - `start` / `end` are the
+   * left and the right side, the other way round right to left; `end` by
+   * default.
+   */
+  position?: FloatingSide;
   /** Content of the tooltip. */
   title?: React.ReactNode;
 }
@@ -155,9 +219,13 @@ function place(
 
 /**
  * A short text shown next to its children on hover and keyboard focus (and
- * on click with `openOnClick`), rendered in a portal. Keyboard focus shows
- * it without the `delay`, and a single child element - the button or link it
- * explains - is described by it, so screen readers read it on focus.
+ * on click with `openOnClick`), rendered in a portal (into the
+ * `portalContainer` of `UIProvider`). Keyboard focus shows it without the
+ * `delay`, and a single child element - the button or link it explains - is
+ * described by it, so screen readers read it on focus. One tooltip shows at
+ * a time. `ref` and the other props go to the wrapper around the children,
+ * which has `data-state="open"` or `"closed"`; the tooltip has
+ * `data-state="open"` and the `data-side` it is shown on.
  */
 export default function Tooltip({
   className,
@@ -169,21 +237,58 @@ export default function Tooltip({
   onClick,
   onFocus,
   onKeyDown,
+  onOpenChange,
+  open,
   openOnClick = false,
-  position = "right",
+  position = "end",
+  ref,
   title,
   ...props
 }: TooltipProps) {
-  const [isVisible, setIsVisible] = useState(false);
+  const [internalVisible, setInternalVisible] = useState(false);
   const [placement, setPlacement] = useState<Placement | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  // The ancestors of the trigger that clip it, and its writing direction -
+  // read as the tooltip shows
+  const clipsRef = useRef<Element[]>([]);
+  const rtlRef = useRef(false);
+  // The writing direction of the trigger, for the tooltip - a portal - when
+  // it differs from the one of the element it is rendered into
+  const [direction, setDirection] = useState<"ltr" | "rtl">();
   const tooltipId = useId();
   const ancestors = use(OverlayContext);
+  const getPortalContainer = usePortalContainer();
+  // False on the server and while a server-rendered page hydrates - its HTML
+  // has no portal: a tooltip controlled open shows right after
+  const isHydrated = useSyncExternalStore(
+    subscribeToNothing,
+    () => true,
+    () => false,
+  );
+  const isControlled = open !== undefined;
+  const isVisible = isControlled ? open : internalVisible;
   const hasTitle = title != null && title !== "";
   const isShown = isVisible && hasTitle;
+  // Whether it is shown as of the last render, and whether by the pointer -
+  // for the timers, and for the other tooltips (see `shownTooltips`)
+  const visibleRef = useRef(isVisible);
+  const byPointerRef = useRef(false);
+  // Where the tooltip is rendered, as of the last render - read as it shows
+  const portalContainerRef = useRef(getPortalContainer);
+
+  useLayoutEffect(() => {
+    visibleRef.current = isVisible;
+    portalContainerRef.current = getPortalContainer;
+  });
+
+  const setVisible = (next: boolean) => {
+    if (visibleRef.current === next) return;
+    if (!isControlled) setInternalVisible(next);
+    onOpenChange?.(next);
+  };
 
   // In the overlay stack shared with dialogs and popovers - the shown
   // tooltip takes the first Escape, not the Dialog around it. A press on
@@ -216,8 +321,10 @@ export default function Tooltip({
   // Not over a modal dialog opened meanwhile (by a shortcut, while the
   // pointer rested on the trigger) that the tooltip is not in - it would
   // paint above the backdrop and take the Escape of the dialog
-  const show = () => {
-    if (!isBelowModalOverlay(ancestors)) setIsVisible(true);
+  const show = (byPointer: boolean) => {
+    if (isBelowModalOverlay(ancestors)) return;
+    byPointerRef.current = byPointer;
+    setVisible(true);
   };
 
   // The events of a popover or menu opened from the trigger reach here
@@ -236,14 +343,27 @@ export default function Tooltip({
     // shown without waiting for the `delay` again
     if (isVisible) return;
 
-    timer.current = setTimeout(show, delay);
+    // Right after another one - no waiting between the labels of a toolbar
+    if (isDelaySkipped()) {
+      show(true);
+      return;
+    }
+
+    timer.current = setTimeout(() => show(true), delay);
   };
 
   const hideNow = () => {
     clearTimers();
 
-    setIsVisible(false);
+    setVisible(false);
   };
+
+  // Other tooltips hide this one as they show - with the latest state
+  const hideRef = useRef(hideNow);
+
+  useLayoutEffect(() => {
+    hideRef.current = hideNow;
+  });
 
   // Leaving the trigger or the tooltip: hidden after the grace period, unless
   // the pointer gets onto the other one (WCAG 1.4.13 hoverable)
@@ -262,7 +382,12 @@ export default function Tooltip({
     }
 
     hideTimer.current = setTimeout(() => {
-      setIsVisible(false);
+      // Left by the pointer - the next trigger it rests on shows its tooltip
+      // at once
+      if (visibleRef.current && byPointerRef.current) {
+        skipDelayUntil = Date.now() + SKIP_DELAY_DURATION;
+      }
+      setVisible(false);
     }, HIDE_DELAY);
   };
 
@@ -281,7 +406,8 @@ export default function Tooltip({
     if (openOnClick) {
       clearTimers();
 
-      setIsVisible((visible) => !visible);
+      if (visibleRef.current) setVisible(false);
+      else show(false);
     } else {
       hideNow();
     }
@@ -303,7 +429,7 @@ export default function Tooltip({
     // a popover or menu the trigger opened
     if (isOwnEvent(event) && event.target.matches(":focus-visible")) {
       clearTimers();
-      show();
+      show(false);
     }
     onFocus?.(event);
   };
@@ -339,7 +465,7 @@ export default function Tooltip({
         return;
       }
       event.preventDefault();
-      hideNow();
+      hideRef.current();
     };
 
     // Bubble phase, like the popovers and dialogs: after the key handlers of
@@ -355,23 +481,44 @@ export default function Tooltip({
     if (!isShown) return;
 
     return subscribeToOverlayStack(() => {
-      if (isBelowModalOverlay(ancestors)) hideNow();
+      if (isBelowModalOverlay(ancestors)) hideRef.current();
     });
   }, [ancestors, isShown]);
 
+  // One tooltip at a time - the others hide as this one shows, before it is
+  // painted. A controlled one is left alone, and leaves the others alone.
+  useLayoutEffect(() => {
+    if (!isShown || isControlled) return;
+
+    for (const [id, other] of shownTooltips) {
+      if (id !== tooltipId) other.hide();
+    }
+    shownTooltips.set(tooltipId, {
+      byPointer: byPointerRef.current,
+      hide: () => hideRef.current(),
+    });
+    return () => {
+      shownTooltips.delete(tooltipId);
+    };
+  }, [isControlled, isShown, tooltipId]);
+
+  // Hidden while the trigger is scrolled out of view - out of the viewport
+  // or out of a scrolling container around it
   const updatePlacement = useCallback(() => {
     const trigger = triggerRef.current;
     if (!trigger) return;
 
     const tooltip = tooltipRef.current;
-    setPlacement(
-      place(
-        trigger.getBoundingClientRect(),
+    const rect = trigger.getBoundingClientRect();
+    setPlacement({
+      ...place(
+        rect,
         tooltip?.offsetWidth ?? 0,
         tooltip?.offsetHeight ?? 0,
-        position,
+        resolveSide(position, rtlRef.current),
       ),
-    );
+      hidden: isOutOfView(rect, clipsRef.current),
+    });
   }, [position]);
 
   // Rendered in a portal (below) so the floating panel escapes any
@@ -381,6 +528,13 @@ export default function Tooltip({
   useLayoutEffect(() => {
     if (!isShown) return;
 
+    const trigger = triggerRef.current;
+    clipsRef.current = trigger ? getClippingAncestors(trigger) : [];
+    const own = trigger ? getDirection(trigger) : "ltr";
+    rtlRef.current = own === "rtl";
+    setDirection(
+      own === getDirection(portalContainerRef.current()) ? undefined : own,
+    );
     updatePlacement();
 
     window.addEventListener("resize", updatePlacement);
@@ -395,28 +549,42 @@ export default function Tooltip({
     <div
       {...props}
       className={cn("relative inline-flex", className)}
+      data-state={isShown ? "open" : "closed"}
       onBlur={handleBlur}
       onClick={handleClick}
       onFocus={handleFocus}
       onKeyDown={onKeyDown}
       onMouseEnter={showTooltip}
       onMouseLeave={hideTooltip}
-      ref={triggerRef}
+      // The tooltip's own ref, and the one given to it
+      ref={(element) => {
+        triggerRef.current = element;
+        const detachRef = attachRef(ref, element);
+        return () => {
+          triggerRef.current = null;
+          detachRef();
+        };
+      }}
     >
       {/* As wide as the wrapper when a class gives it a width - a child
           with `w-full` then fills it and a long text can be truncated */}
       <span className="flex min-w-0 grow">{describedChildren}</span>
 
       {isShown &&
+        isHydrated &&
         createPortal(
           <ButtonGroupContext value={null}>
             <div
               className={cn(
                 // Over the dialogs (50), popovers (50) and toasts (60) - a
-                // tooltip can be inside any of them
-                "fixed z-70 max-w-[calc(100vw-0.5rem)] animate-fade-in rounded bg-neutral-900 px-2 py-1 text-sm font-medium text-white shadow-sm",
+                // tooltip can be inside any of them. Forced colors take its
+                // background - an outline keeps it apart from the page.
+                "fixed z-70 max-w-[calc(100vw-0.5rem)] animate-fade-in rounded bg-neutral-900 px-2 py-1 text-sm font-medium text-white shadow-sm forced-colors:outline",
                 nowrap && "whitespace-nowrap",
               )}
+              data-side={placement?.side}
+              data-state="open"
+              dir={direction}
               id={tooltipId}
               onClick={interactive ? undefined : handleTooltipClick}
               // The pointer may move onto the tooltip (WCAG 1.4.13) - it stays
@@ -428,7 +596,11 @@ export default function Tooltip({
               role="tooltip"
               style={
                 placement
-                  ? { left: placement.left, top: placement.top }
+                  ? {
+                      left: placement.left,
+                      top: placement.top,
+                      visibility: placement.hidden ? "hidden" : undefined,
+                    }
                   : // Measured before it is placed - hidden meanwhile
                     { left: 0, top: 0, visibility: "hidden" }
               }
@@ -452,7 +624,7 @@ export default function Tooltip({
               )}
             </div>
           </ButtonGroupContext>,
-          document.body,
+          getPortalContainer(),
         )}
     </div>
   );

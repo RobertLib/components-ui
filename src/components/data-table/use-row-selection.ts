@@ -1,7 +1,15 @@
 import { useCallback, useMemo, useState, type SetStateAction } from "react";
 import type { RowId } from "./types";
 
-interface RowSelectionOptions {
+interface RowSelectionOptions<T> {
+  /** Ids of the rows selected at first - of an uncontrolled selection. */
+  defaultSelectedIds?: RowId[];
+  /**
+   * The rows the selected ones are found among - `data` by default; all
+   * rows of a client-side table, whose controlled selection may keep rows
+   * of other pages.
+   */
+  lookupRows?: T[];
   /**
    * The rows are loading - they may be a placeholder (none, or the previous
    * page), so the selection is not narrowed down to them meanwhile.
@@ -9,85 +17,91 @@ interface RowSelectionOptions {
   loading?: boolean;
   /** The selection is dropped whenever it changes (other filters). */
   resetKey?: string;
+  /** Controlled ids - the selection is what they are, nothing is dropped. */
+  selectedIds?: RowId[];
 }
 
 /**
- * The selected rows among `data`. A row that leaves `data` (another page, a
- * refetch without it) leaves the selection for good - the others stay
- * selected. Everything is dropped when `resetKey` changes.
+ * The selected rows among `data`. Uncontrolled, a row that leaves `data`
+ * (another page, a refetch without it) leaves the selection for good - the
+ * others stay selected - and everything is dropped when `resetKey`
+ * changes. A controlled `selectedIds` is kept as it is.
  */
 export default function useRowSelection<T extends { id: RowId }>(
   data: T[],
-  { loading = false, resetKey = "default" }: RowSelectionOptions = {},
+  {
+    defaultSelectedIds,
+    lookupRows = data,
+    loading = false,
+    resetKey = "default",
+    selectedIds: controlledIds,
+  }: RowSelectionOptions<T> = {},
 ) {
   const rowIds = useMemo(() => data.map((row) => row.id), [data]);
   // The ids of the rows by value - a refetch of the same rows keeps it
   const idsKey = useMemo(() => JSON.stringify(rowIds), [rowIds]);
 
   const [selection, setSelection] = useState<{
+    ids: RowId[];
     idsKey: string;
     key: string;
-    rows: T[];
-  }>({ idsKey, key: resetKey, rows: [] });
+  }>(() => {
+    // Only rows that are there - unless they are still on their way
+    const present = new Set(rowIds);
+    const ids = defaultSelectedIds ?? [];
 
-  if (selection.key !== resetKey) {
+    return {
+      ids:
+        loading || rowIds.length === 0
+          ? ids
+          : ids.filter((id) => present.has(id)),
+      idsKey,
+      key: resetKey,
+    };
+  });
+
+  const isControlled = controlledIds !== undefined;
+
+  if (!isControlled && selection.key !== resetKey) {
     // Dropped for good - coming back to the same filters starts unselected
-    setSelection({ idsKey, key: resetKey, rows: [] });
-  } else if (!loading && selection.idsKey !== idsKey) {
+    setSelection({ ids: [], idsKey, key: resetKey });
+  } else if (!isControlled && !loading && selection.idsKey !== idsKey) {
     // Other rows came - a selected row that is gone stays unselected when
     // it comes back (a return to its page)
     const present = new Set(rowIds);
     setSelection({
+      ids: selection.ids.filter((id) => present.has(id)),
       idsKey,
       key: resetKey,
-      rows: selection.rows.filter((row) => present.has(row.id)),
     });
   }
 
-  const selectedIds = useMemo(
-    () =>
-      new Set(
-        selection.key === resetKey ? selection.rows.map((row) => row.id) : [],
-      ),
-    [resetKey, selection],
-  );
+  const uncontrolledIds = selection.key === resetKey ? selection.ids : [];
+  const ids = controlledIds ?? uncontrolledIds;
+
+  const selectedIds = useMemo(() => new Set(ids), [ids]);
 
   // The rows as they are now - a refetch with the same ids brings new
   // objects, which a group action must get instead of the stale ones
   const selectedRows = useMemo(() => {
-    if (selection.key !== resetKey) return [];
+    const currentRows = new Map(lookupRows.map((row) => [row.id, row]));
+    return ids.flatMap((id) => currentRows.get(id) ?? []);
+  }, [ids, lookupRows]);
 
-    const currentRows = new Map(data.map((row) => [row.id, row]));
-    return selection.rows.flatMap((row) => {
-      const current = currentRows.get(row.id);
-      return current ? [current] : [];
-    });
-  }, [data, resetKey, selection]);
-
-  const setSelectedRows = useCallback(
-    (value: SetStateAction<T[]>) => {
+  /** Changes an uncontrolled selection - that of the current `resetKey`. */
+  const setSelectedIds = useCallback(
+    (value: SetStateAction<RowId[]>) => {
       setSelection((previous) => {
         // Meant for the selection of other filters - it is gone already
         if (previous.key !== resetKey) return previous;
 
         return {
           ...previous,
-          rows: typeof value === "function" ? value(previous.rows) : value,
+          ids: typeof value === "function" ? value(previous.ids) : value,
         };
       });
     },
     [resetKey],
-  );
-
-  const toggleRowSelection = useCallback(
-    (row: T) => {
-      setSelectedRows((prev) =>
-        prev.some((r) => r.id === row.id)
-          ? prev.filter((r) => r.id !== row.id)
-          : [...prev, row],
-      );
-    },
-    [setSelectedRows],
   );
 
   // Ids in a set - comparing every row with every selected one grew with
@@ -95,24 +109,5 @@ export default function useRowSelection<T extends { id: RowId }>(
   const isAllSelected =
     rowIds.length > 0 && rowIds.every((id) => selectedIds.has(id));
 
-  const toggleSelectAll = useCallback(() => {
-    setSelectedRows((prev) => {
-      const selected = new Set(prev.map((row) => row.id));
-      return rowIds.every((id) => selected.has(id)) ? [] : [...data];
-    });
-  }, [data, rowIds, setSelectedRows]);
-
-  const resetSelection = useCallback(() => {
-    setSelectedRows([]);
-  }, [setSelectedRows]);
-
-  return {
-    isAllSelected,
-    resetSelection,
-    selectedIds,
-    selectedRows,
-    setSelectedRows,
-    toggleRowSelection,
-    toggleSelectAll,
-  };
+  return { ids, isAllSelected, selectedIds, selectedRows, setSelectedIds };
 }

@@ -122,7 +122,8 @@ export interface CommandPaletteProps extends Omit<
 const SEARCH_DEBOUNCE = 300;
 
 // Near the top of the screen, so the dialog does not jump as the results
-// change - full screen on phones
+// change - full screen on phones (`left-0` undoes the physical centering of
+// the Dialog, the same in both writing directions)
 const paletteClassName =
   "sm:top-[12vh] sm:max-h-[76vh] sm:translate-y-0 max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-none max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:border-0";
 
@@ -257,9 +258,16 @@ function OptionRow({
       className={cn(
         // Scrolled into view below the search field and above the footer
         "flex scroll-mt-24 scroll-mb-16 items-center gap-3 rounded-md px-3 py-2",
-        item.disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-        active && "bg-neutral-200/70 dark:bg-neutral-800",
+        item.disabled
+          ? "cursor-not-allowed opacity-50 forced-colors:text-[GrayText]"
+          : "cursor-pointer",
+        // Forced colors drop the background - the system colors of a
+        // selection keep the highlight seen
+        active &&
+          "bg-neutral-200/70 dark:bg-neutral-800 forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]",
       )}
+      data-disabled={item.disabled ? "" : undefined}
+      data-highlighted={active ? "" : undefined}
       id={id}
       onClick={item.disabled ? undefined : () => onRun(item)}
       onMouseMove={
@@ -578,7 +586,7 @@ function PaletteContent({
             // Takes the focus as the palette opens - a key typed right after
             // the shortcut is not lost
             autoFocus
-            className="h-10 w-full min-w-0 bg-transparent placeholder:text-neutral-500 focus:outline-none dark:placeholder:text-neutral-400"
+            className="h-10 w-full min-w-0 bg-transparent placeholder:text-neutral-500 focus:outline-hidden dark:placeholder:text-neutral-400"
             enterKeyHint="go"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleKeyDown}
@@ -675,7 +683,9 @@ function PaletteContent({
  * the ARIA combobox pattern - the arrow keys, Home and End move the
  * highlight, Enter runs the highlighted command, Escape closes. Items with
  * `href` navigate through the router of `UIProvider`; `loadItems` adds
- * results from an API. On phones it fills the screen.
+ * results from an API. On phones it fills the screen. `ref` and the other
+ * props go to the dialog window, as in `Dialog`; the highlighted command has
+ * `data-highlighted`, a disabled one `data-disabled`.
  */
 export default function CommandPalette({
   className,

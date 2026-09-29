@@ -159,7 +159,7 @@ export default function Recurring() {
         onEventResize={move}
         renderEventIcon={(event) =>
           event.recurringEventId ? (
-            <Repeat aria-hidden className="mr-1 inline" size={12} />
+            <Repeat aria-hidden className="me-1 inline" size={12} />
           ) : null
         }
         viewOptions={["week", "month", "agenda"]}

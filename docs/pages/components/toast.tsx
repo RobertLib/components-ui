@@ -21,7 +21,7 @@ const invoice = await promise(saveInvoice(values), {
 export default function ToastPage() {
   return (
     <DocPage
-      description="Short notifications at the top of the screen. Queue them from anywhere with useSnackbar()."
+      description="Short notifications at an edge of the screen. Queue them from anywhere with useSnackbar()."
       imports={["SnackbarProvider", "useSnackbar", "Toast"]}
       title="Toast & Snackbar"
     >
@@ -32,11 +32,36 @@ export default function ToastPage() {
             the queued toasts above everything else - at most{" "}
             <code>maxToasts</code> (3) at once: further ones wait and show in
             their order as the shown ones go, so a burst of messages does not
-            cover the page.
+            cover the page. They are rendered into the body, or the{" "}
+            <code>portalContainer</code> of a <code>UIProvider</code> around it.
+          </p>
+          <p>
+            A toast has <code>data-state=&quot;open&quot;</code> (
+            <code>&quot;closed&quot;</code> while it slides out) and its{" "}
+            <code>data-variant</code>; <code>ref</code> and the other props of a{" "}
+            <code>Toast</code> go to it. The variants differ in their colors,
+            which forced colors (Windows High Contrast) replace - there an icon
+            tells them apart.
           </p>
         </Prose>
         <CodeBlock code={setup} />
       </Section>
+
+      <Example
+        description={
+          <p>
+            <code>position</code> of <code>SnackbarProvider</code> puts the
+            toasts at the top or the bottom of the screen, at its{" "}
+            <code>start</code>, <code>center</code> (the default is{" "}
+            <code>top-center</code>) or <code>end</code> - the start is the
+            right side in a right-to-left page. They slide in from that edge and
+            back out to it; on phones they are centered there and get the whole
+            width of the screen.
+          </p>
+        }
+        name="toast/position"
+        title="Position"
+      />
 
       <Example
         description={
@@ -46,11 +71,13 @@ export default function ToastPage() {
             <code>persist</code> is set - the time does not run while it is
             hovered or focused, nor while the page is hidden behind another tab.
             The same message with the same variant is not stacked twice while
-            visible. Screen readers announce the toasts, errors right away -
-            also one enqueued while a server-rendered page hydrates, which shows
-            a moment after the live regions are in the page. Escape or the close
-            button dismisses the focused toast, and the focus goes back to where
-            it was before.
+            visible. <code>danger</code> is the variant of an error (
+            <code>error</code>, its older name, still works). Screen readers
+            announce the toasts, errors right away - also one enqueued while a
+            server-rendered page hydrates, which shows a moment after the live
+            regions are in the page. Escape or the close button dismisses the
+            focused toast, and the focus goes back to where it was before; on a
+            touch screen a toast is swiped away sideways.
           </p>
         }
         name="toast/snackbar"
@@ -83,6 +110,23 @@ export default function ToastPage() {
         }
         name="toast/close"
         title="Closing a toast, with a title"
+      />
+      <Example
+        description={
+          <p>
+            <code>updateSnackbar(id, update)</code> changes a toast in place: a
+            new message, or the fields to change -{" "}
+            <code>{"{ message, variant, loading, title, action, … }"}</code>.
+            Screen readers announce the new text and its <code>duration</code>{" "}
+            starts over. <code>loading</code> shows a spinner and keeps the
+            toast on screen until it is updated with <code>loading: false</code>
+            . A message is a text or any React node, e.g. with a link; a node is
+            deduplicated only when the very same element is enqueued again - JSX
+            written in the call is new each time.
+          </p>
+        }
+        name="toast/update"
+        title="Updating a toast, a message with a link"
       />
 
       <Section title="A toast for a promise">
@@ -122,6 +166,7 @@ export default function ToastPage() {
         <PropsTable of="SnackbarProvider" />
         <PropsTable of="SnackbarApi" title="useSnackbar()" />
         <PropsTable of="SnackbarOptions" title="enqueueSnackbar options" />
+        <PropsTable of="SnackbarUpdate" title="updateSnackbar(id, update)" />
         <PropsTable
           of="SnackbarPromiseMessages"
           title="promise(promise, messages)"

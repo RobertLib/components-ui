@@ -103,19 +103,51 @@ export default function DropdownPage() {
         name="dropdown/custom-items"
         title="Links, custom content and conditional items"
       />
+      <Example
+        description={
+          <p>
+            <code>position</code> is the side of the trigger the menu opens on -{" "}
+            <code>bottom</code> by default, <code>top</code>, or{" "}
+            <code>start</code> / <code>end</code> beside it, which follow the
+            writing direction. <code>align</code> lines it up with the{" "}
+            <code>start</code>, <code>center</code> or <code>end</code> of the
+            trigger - <code>end</code> by default below or above it,{" "}
+            <code>start</code> (its top) beside it. <code>offset</code> is the
+            gap in pixels (10).
+          </p>
+        }
+        name="dropdown/placement"
+        title="Position and alignment"
+      />
+      <Example
+        description={
+          <p>
+            <code>open</code> + <code>onOpenChange</code> control the menu, e.g.
+            to open it by a shortcut. Opened by the parent, it takes the focus
+            as when it is clicked open, so the arrow keys go on in it; a pick,
+            Escape, Tab or a click outside call <code>onOpenChange(false)</code>
+            .
+          </p>
+        }
+        name="dropdown/controlled"
+        title="Controlled"
+      />
 
       <Section title="Notes">
         <Prose>
           <ul>
             <li>
               The menu is a <code>Popover</code> rendered into{" "}
-              <code>document.body</code>, so it is never clipped by a table or a
-              scrolling container. It aligns to the right edge of the trigger,
-              flips upwards when there is no room below and scrolls when it is
-              taller than 24rem or the room. Closed with the focus in it - also
-              after a pick in a submenu - it gives the focus back to the
-              trigger, or to the Tab stop next to it when the pick removed the
-              trigger with its row.
+              <code>document.body</code> (or the <code>portalContainer</code> of{" "}
+              <code>UIProvider</code>), so it is never clipped by a table or a
+              scrolling container. By default it opens below the trigger from
+              its end edge (its right edge, the left one right to left), flips
+              to the other side when there is no room and scrolls when it is
+              taller than 24rem or the room; it hides while the trigger is
+              scrolled out of view. Closed with the focus in it - also after a
+              pick in a submenu - it gives the focus back to the trigger, or to
+              the Tab stop next to it when the pick removed the trigger with its
+              row.
             </li>
             <li>
               The menu takes the focus when it opens - opened with the mouse (or
@@ -125,6 +157,23 @@ export default function DropdownPage() {
               <code>aria-activedescendant</code>); the pointer and the keys move
               the same highlight. Submenus are overlays of their own: Escape
               closes the innermost one first.
+            </li>
+            <li>
+              For styling, the trigger has{" "}
+              <code>data-state=&quot;open&quot;</code> or{" "}
+              <code>&quot;closed&quot;</code> and the panel the resolved{" "}
+              <code>data-side</code> / <code>data-align</code>, as in a{" "}
+              <code>Popover</code> (<code>ref</code> is its wrapper too). The
+              menu has <code>data-orientation=&quot;vertical&quot;</code>, and
+              an item <code>data-highlighted</code> while it is highlighted,{" "}
+              <code>data-disabled</code>,{" "}
+              <code>data-state=&quot;checked&quot;</code> /{" "}
+              <code>&quot;unchecked&quot;</code> as a checkbox or radio option
+              and <code>data-state=&quot;open&quot;</code> /{" "}
+              <code>&quot;closed&quot;</code> with a submenu - e.g.{" "}
+              <code>[&amp;_[data-highlighted]]:bg-primary-50</code>. In forced
+              colors (Windows High Contrast) the highlighted item takes the
+              system colors of a selection.
             </li>
             <li>
               The same items build a <code>ContextMenu</code> and the menu of a{" "}

@@ -92,6 +92,13 @@ export default function CommandPalettePage() {
               On phones the palette fills the screen, and the keyboard hints at
               its bottom are left out.
             </li>
+            <li>
+              <code>ref</code> and the other props go to the dialog window, as
+              in <code>Dialog</code>. The highlighted command has{" "}
+              <code>data-highlighted</code> - in forced colors (Windows High
+              Contrast) the system colors of a selection - and a disabled one{" "}
+              <code>data-disabled</code>.
+            </li>
           </ul>
         </Prose>
       </Section>

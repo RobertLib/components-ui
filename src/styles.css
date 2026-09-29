@@ -110,6 +110,9 @@
   --animate-fade-out: fade-out 0.25s ease-out;
   --animate-slide-up: slide-up 0.25s ease-out;
   --animate-slide-down: slide-down 0.25s ease-out;
+  /* The same from and to below - the toasts at the bottom of the screen */
+  --animate-slide-in-up: slide-in-up 0.25s ease-out;
+  --animate-slide-out-down: slide-out-down 0.25s ease-out;
   --animate-flash: flash 1.5s ease-in-out;
 
   @keyframes fade-in {
@@ -154,6 +157,28 @@
     }
   }
 
+  @keyframes slide-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slide-out-down {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+
   @keyframes flash {
     0% {
       background-color: transparent;
@@ -181,6 +206,8 @@
     --animate-slide-down: fade-in 0.25s ease-out;
     /* Tailwind emits only the keyframes of used animations - `fade-in` is */
     --animate-slide-up: fade-in 0.25s ease-out reverse;
+    --animate-slide-in-up: fade-in 0.25s ease-out;
+    --animate-slide-out-down: fade-in 0.25s ease-out reverse;
     --animate-spin: spin 2s linear infinite;
   }
 
@@ -192,9 +219,11 @@
 }
 
 @layer components {
-  /* A link styled as the primary button, for markup outside React */
+  /* A link styled as the primary button, for markup outside React - in
+     forced colors mode, which drops its fill and ring, in the inverted
+     colors of a button with the outline of the focus */
   .btn {
-    @apply inline-flex items-center justify-center gap-1 rounded-md border border-primary-700/30 bg-linear-to-r from-primary-600 to-primary-700 px-3 py-1 text-sm text-white shadow-lg ring-offset-surface transition-all duration-200 hover:from-primary-700 hover:to-primary-800 hover:shadow-xl focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:outline-none dark:ring-offset-surface-dark;
+    @apply inline-flex items-center justify-center gap-1 rounded-md border border-primary-700/30 bg-linear-to-r from-primary-600 to-primary-700 px-3 py-1 text-sm text-white shadow-lg ring-offset-surface transition-all duration-200 hover:from-primary-700 hover:to-primary-800 hover:shadow-xl focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:outline-hidden dark:ring-offset-surface-dark forced-colors:border-[ButtonText] forced-colors:bg-[ButtonText] forced-colors:text-[ButtonFace];
   }
 
   /* Joins adjacent buttons / fields into one group */
@@ -210,11 +239,12 @@
     }
   }
 
-  /* The focus ring of the links of the components. The classes the
-     components alone use are prefixed - they do not meet the classes of
-     the page (`.link`, `.drawer`, `.navbar` of other libraries). */
+  /* The focus ring of the links of the components - an outline in forced
+     colors mode, which drops the ring. The classes the components alone
+     use are prefixed - they do not meet the classes of the page (`.link`,
+     `.drawer`, `.navbar` of other libraries). */
   .cui-link {
-    @apply cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500;
+    @apply cursor-pointer rounded focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500;
   }
 
   /* Renders the HTML produced by RichTextEditor, which preflight would otherwise strip of all formatting */
@@ -249,7 +279,18 @@
     content: attr(data-placeholder) / "";
   }
 
-  /* App layout - the navbar and main content make room for the Drawer */
+  /* An image of RichTextEditor while it uploads - the preview of its file
+     faded (pulsing, unless motion is reduced), or an empty box */
+  .rich-text-editor img[data-upload] {
+    @apply animate-pulse opacity-60 motion-reduce:animate-none;
+  }
+
+  .rich-text-editor img[data-upload]:not([src]) {
+    @apply inline-block size-16 rounded bg-neutral-200 dark:bg-neutral-700;
+  }
+
+  /* App layout - the navbar and main content make room for the Drawer, at
+     the start edge of the page: the left one, right to left the right one */
   .cui-drawer {
     width: var(--drawer-width, 240px);
   }
@@ -261,40 +302,42 @@
   .cui-drawer ~ .cui-navbar,
   .cui-drawer ~ main {
     transition:
-      margin-left 0.3s ease,
+      margin-inline-start 0.3s ease,
       width 0.3s ease;
   }
 
   .cui-drawer.cui-drawer-open ~ .cui-navbar,
   .cui-drawer.cui-drawer-open ~ main {
-    margin-left: var(--drawer-width, 240px);
+    margin-inline-start: var(--drawer-width, 240px);
     width: calc(100% - var(--drawer-width, 240px));
   }
 
   .cui-drawer.cui-drawer-collapsed ~ .cui-navbar,
   .cui-drawer.cui-drawer-collapsed ~ main {
-    margin-left: var(--drawer-collapsed-width, 64px);
+    margin-inline-start: var(--drawer-collapsed-width, 64px);
     width: calc(100% - var(--drawer-collapsed-width, 64px));
   }
 
   .cui-drawer.cui-drawer-closed ~ .cui-navbar,
   .cui-drawer.cui-drawer-closed ~ main {
-    margin-left: 0;
+    margin-inline-start: 0;
     width: 100%;
   }
 
   @media (max-width: 767.98px) {
     .cui-drawer ~ .cui-navbar,
     .cui-drawer ~ main {
-      margin-left: 0 !important;
+      margin-inline-start: 0 !important;
       width: 100% !important;
     }
   }
 }
 
-/* The shared look of text fields, selects and pickers */
+/* The shared look of text fields, selects and pickers. The focus ring is a
+   shadow, which forced colors (Windows High Contrast) leave out - there
+   `outline-hidden` draws an outline instead. */
 @utility form-control {
-  @apply w-full rounded-md border border-neutral-300 bg-surface transition-colors focus:ring-2 focus:ring-primary-500 focus:outline-none dark:border-neutral-700 dark:bg-surface-dark;
+  @apply w-full rounded-md border border-neutral-300 bg-surface transition-colors focus:ring-2 focus:ring-primary-500 focus:outline-hidden dark:border-neutral-700 dark:bg-surface-dark;
 
   /* Placeholders at 4.5:1 (the default half of the text color is 3:1) - also
      those of a field inside the frame (Input with a prefix, TagsInput) */
@@ -318,10 +361,33 @@
   }
 }
 
+@layer components {
+  /* The arrow of a Select - at the end of the field, on the left in a
+     right-to-left page (background positions have no logical sides) */
+  .cui-select-arrow {
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m6 9 6 6 6-6'/%3e%3c/svg%3e");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 0.99rem 0.99rem;
+
+    &:where(:dir(rtl), [dir="rtl"], [dir="rtl"] *) {
+      background-position: left 0.5rem center;
+    }
+  }
+
+  /* The star after the label of a required field (RequiredMark) - hidden
+     in an element with `data-required-mark="hidden"`, e.g. a form that
+     marks its optional fields instead */
+  [data-required-mark="hidden"] .cui-required-mark {
+    display: none;
+  }
+}
+
 /* display */
 
 /* The bar of an indeterminate Progress: it runs across the track and out
-   of it (it is two fifths of the track wide) */
+   of it (it is two fifths of the track wide) - mirrored in a right-to-left
+   page, where the bar sits at the right and flips its moves (`scale`) */
 @keyframes progress-indeterminate {
   from {
     transform: translateX(-100%);
@@ -345,8 +411,9 @@
 
 /* editor */
 @layer components {
-  /* The blocks of RichTextEditor - headings, lists, quotes, code, rules and
-     tables. Sizes in em follow the text around. */
+  /* The blocks of RichTextEditor - headings, lists, quotes, code, rules,
+     tables and images. Sizes in em follow the text around; the sides are
+     logical, so right-to-left text indents from the right. */
   .rich-text {
     & h2 {
       @apply mt-4 mb-2 text-[1.3em] leading-snug font-semibold first:mt-0;
@@ -358,7 +425,7 @@
 
     & ul,
     & ol {
-      @apply mb-2 pl-6 last:mb-0;
+      @apply mb-2 ps-6 last:mb-0;
     }
 
     & ul {
@@ -391,11 +458,25 @@
     }
 
     & blockquote {
-      @apply mb-2 border-l-4 border-neutral-300 pl-3 text-neutral-600 last:mb-0 dark:border-neutral-600 dark:text-neutral-400;
+      @apply mb-2 border-s-4 border-neutral-300 ps-3 text-neutral-600 last:mb-0 dark:border-neutral-600 dark:text-neutral-400;
     }
 
     & code {
       @apply rounded bg-neutral-100 box-decoration-clone px-1 py-0.5 font-mono text-[0.9em] dark:bg-neutral-800;
+    }
+
+    /* A code block scrolls its long lines */
+    & pre {
+      @apply mb-2 overflow-x-auto rounded-md bg-neutral-100 px-3 py-2 font-mono text-[0.9em] leading-normal last:mb-0 dark:bg-neutral-800;
+    }
+
+    & pre code {
+      @apply rounded-none bg-transparent p-0 text-[1em] dark:bg-transparent;
+    }
+
+    /* Images fit the width of the text, in their proportions */
+    & img {
+      @apply inline-block h-auto max-w-full align-bottom;
     }
 
     & u {
@@ -411,7 +492,7 @@
     }
 
     & table {
-      @apply mb-2 w-full border-collapse text-left last:mb-0;
+      @apply mb-2 w-full border-collapse text-start last:mb-0;
     }
 
     & th,

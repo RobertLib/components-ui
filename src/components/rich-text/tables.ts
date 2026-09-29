@@ -247,11 +247,12 @@ export function addRow(cell: HTMLTableCellElement, below: boolean) {
 }
 
 /**
- * Adds a column left or right of the column of `cell` - returns its cell in
- * the row of `cell` (`cell` itself when the table has no room for another
- * column).
+ * Adds a column before or after the column of `cell` in the order of the
+ * cells - after is on the right, or on the left in a right-to-left table.
+ * Returns its cell in the row of `cell` (`cell` itself when the table has
+ * no room for another column).
  */
-export function addColumn(cell: HTMLTableCellElement, right: boolean) {
+export function addColumn(cell: HTMLTableCellElement, after: boolean) {
   const table = tableOf(cell);
   const doc = table.ownerDocument;
   const index = cell.cellIndex;
@@ -264,7 +265,7 @@ export function addColumn(cell: HTMLTableCellElement, right: boolean) {
     const reference = row.cells[Math.min(index, row.cells.length - 1)];
 
     if (!reference) row.append(added);
-    else if (right) reference.after(added);
+    else if (after) reference.after(added);
     else reference.before(added);
 
     if (row === cell.parentElement) result = added as HTMLTableCellElement;

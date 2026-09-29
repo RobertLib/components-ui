@@ -1,9 +1,10 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { attachRef } from "../hooks/use-form-control";
 import cn from "../utils/cn";
 import Skeleton from "./skeleton";
 import { createLinkMatcher } from "../providers/active-path";
-import { useRouter } from "../providers/ui-context";
+import { useMessages, useRouter } from "../providers/ui-context";
 
 /** A tab that navigates to a page. */
 export interface LinkTabItem {
@@ -24,17 +25,38 @@ export interface LinkTabItem {
   label: React.ReactNode;
 }
 
-/** A tab that switches local state - use with `value` and `onChange`. */
+/**
+ * A tab that switches local state - with `content` it shows its tab panel,
+ * otherwise use `value` and `onChange` to show what it stands for.
+ */
 export interface ValueTabItem {
+  /**
+   * The tab panel of the tab - rendered under the bar (beside a vertical
+   * one) while the tab is selected, named by the tab. See `keepMounted`.
+   */
+  content?: React.ReactNode;
   /** Shows the tab dimmed - it cannot be selected, the arrow keys skip it. */
   disabled?: boolean;
   /** Shown before the label, e.g. a lucide-react icon. */
   icon?: React.ReactNode;
-  /** Id of the tab - point `aria-labelledby` of its tab panel at it. */
+  /**
+   * Id of the tab - point `aria-labelledby` of its tab panel at it. A
+   * generated one for a tab with `content`.
+   */
   id?: string;
   /** Content of the tab. */
   label: React.ReactNode;
-  /** Id of the tab panel the tab shows - becomes its `aria-controls`. */
+  /**
+   * Makes the tab closable: a × after the label, and the Delete key on the
+   * focused tab, call this - remove the tab from `items` then. Closing the
+   * selected tab selects the next one (the previous one after the last),
+   * which takes the focus.
+   */
+  onClose?: () => void;
+  /**
+   * Id of the tab panel the tab shows - becomes its `aria-controls`. A
+   * generated one for a tab with `content`.
+   */
   panelId?: string;
   /** Passed to `onChange` - the tab is selected while it equals `value`. */
   value: string;
@@ -44,8 +66,14 @@ export type TabItem = LinkTabItem | ValueTabItem;
 
 export interface TabsProps extends Omit<
   React.ComponentProps<"ul">,
-  "onChange"
+  "defaultValue" | "onChange"
 > {
+  /**
+   * Value tabs only: the tab selected at first in an uncontrolled bar - one
+   * without `value`, which then selects the tabs itself. Tabs with
+   * `content` select the first enabled one without it.
+   */
+  defaultValue?: string;
   /**
    * Link tabs only: compare the query string too, so `?tab=a` and `?tab=b`
    * are different tabs of one page. Of the tabs of the current page, the one
@@ -56,6 +84,12 @@ export interface TabsProps extends Omit<
   includeQueryParams?: boolean;
   /** The tabs - links (`href`) or buttons (`value`), not mixed. */
   items: TabItem[];
+  /**
+   * Keeps the tab panels (`content`) of the tabs not selected in the page,
+   * hidden - their state (a form, a scroll position) stays. By default only
+   * the panel of the selected tab is rendered.
+   */
+  keepMounted?: boolean;
   /** Shows placeholder tabs. */
   loading?: boolean;
   /** Number of placeholder tabs while `loading`. */
@@ -68,9 +102,15 @@ export interface TabsProps extends Omit<
    * arrows. A horizontal bar too wide for its container scrolls sideways.
    */
   orientation?: "horizontal" | "vertical";
+  /** Classes of each tab panel (`content`) - `pt-4` under a horizontal bar. */
+  panelClassName?: string;
   /** Padding and text size of the tabs. */
   size?: "sm" | "md" | "lg";
-  /** Value tabs only: the selected tab. */
+  /**
+   * Value tabs only: the selected tab of a controlled bar - use with
+   * `onChange`. Leave out for one that selects its tabs itself (see
+   * `defaultValue`).
+   */
   value?: string;
 }
 
@@ -100,6 +140,27 @@ const NO_OVERFLOW: Overflow = { end: false, rtl: false, start: false };
 const FADE_WIDTH = 24;
 
 const isLinkTab = (item: TabItem): item is LinkTabItem => "href" in item;
+
+/** Whether a node renders anything - `false` and `null` are no content. */
+const hasContent = (node: React.ReactNode) =>
+  node !== undefined && node !== null && typeof node !== "boolean";
+
+/** Whether a value tab shows a tab panel of its own. */
+const hasPanel = (item: TabItem): item is ValueTabItem =>
+  !isLinkTab(item) && hasContent(item.content);
+
+/**
+ * The tab that takes the place of the closed one at `index` - the next
+ * enabled value tab, or the previous one after the last.
+ */
+function getNeighborValue(items: TabItem[], index: number) {
+  const isCandidate = (item: TabItem | undefined) =>
+    !!item && !isLinkTab(item) && !item.disabled;
+  const next = items.slice(index + 1).find(isCandidate);
+  const previous = items.slice(0, index).findLast(isCandidate);
+  const neighbor = (next ?? previous) as ValueTabItem | undefined;
+  return neighbor?.value ?? null;
+}
 
 const isRtl = (element: Element) =>
   getComputedStyle(element).direction === "rtl";
@@ -286,26 +347,61 @@ const sizeVariants = {
 /**
  * A tab bar on a line, the active tab underlined by an animated indicator -
  * marked on the start side in a vertical one. Tabs are either links
- * (`href`, active by the current URL) or buttons (`value` + `onChange`);
- * button tabs are one tab stop, the arrow keys (and Home / End) select the
- * next one. Horizontal, or `vertical` in a column.
+ * (`href`, active by the current URL) or buttons (`value`), which show
+ * their tab panel (`content`) or tell `onChange`; button tabs are one tab
+ * stop, the arrow keys (and Home / End) select the next one, Delete closes
+ * a closable one (`onClose`). Horizontal, or `vertical` in a column.
+ *
+ * The attributes and the `ref` go to the list of the tabs (the `<ul>`,
+ * with `data-orientation`). The active tab has `data-selected` - a link
+ * tab `data-current` too - a disabled one `data-disabled`.
  */
 export default function Tabs({
   className,
+  defaultValue,
   includeQueryParams = false,
   items,
+  keepMounted = false,
   loading = false,
   loadingTabsCount = 3,
   onChange,
   orientation = "horizontal",
+  panelClassName,
   ref,
   size = "md",
   value,
   ...props
 }: TabsProps) {
   const { Link, pathname, search } = useRouter();
+  const messages = useMessages();
+  const baseId = useId();
   const isVertical = orientation === "vertical";
   const isLinkList = isLinkTab(items[0] ?? { href: "" });
+  const hasPanels = !isLinkList && items.some(hasPanel);
+
+  // Uncontrolled without `value` - the tabs with panels select the first
+  // enabled one until another is picked, also once the picked one is gone
+  const [internalValue, setInternalValue] = useState(defaultValue);
+  const isControlled = value !== undefined;
+  const valueTabs = items.filter(
+    (item): item is ValueTabItem => !isLinkTab(item),
+  );
+  const selectedValue = isControlled
+    ? value
+    : valueTabs.some((item) => item.value === internalValue)
+      ? internalValue
+      : hasPanels
+        ? valueTabs.find((item) => !item.disabled)?.value
+        : undefined;
+
+  const select = (next: string) => {
+    if (!isControlled) setInternalValue(next);
+    onChange?.(next);
+  };
+
+  // The tab that takes the focus once the tab closed from the keyboard, or
+  // with the focus in the bar, is gone
+  const focusAfterCloseRef = useRef<string | null>(null);
 
   const sizeClasses = sizeVariants[size];
 
@@ -339,7 +435,7 @@ export default function Tabs({
   const tabMatches = items.map((item) =>
     isLinkTab(item)
       ? (matchLink(item.href)?.path ?? -1)
-      : item.value === value
+      : item.value === selectedValue
         ? 0
         : -1,
   );
@@ -457,6 +553,48 @@ export default function Tabs({
     };
   }, [isVertical]);
 
+  // The tab after a closed one takes the focus - once the closed one is
+  // gone, the list of tabs is another
+  useLayoutEffect(() => {
+    const pending = focusAfterCloseRef.current;
+    if (pending === null) return;
+
+    focusAfterCloseRef.current = null;
+    const index = items.findIndex(
+      (item) => !isLinkTab(item) && item.value === pending,
+    );
+    if (index === -1) return;
+    tabsRef.current
+      ?.querySelectorAll<HTMLElement>("[role='tab']")
+      [index]?.focus();
+  });
+
+  /** Closes the tab at `index` - its `onClose` and the tab after it. */
+  const closeTab = (index: number) => {
+    const item = items[index];
+    if (!item || isLinkTab(item) || !item.onClose || item.disabled) return;
+
+    const neighbor = getNeighborValue(items, index);
+    const tabs = Array.from(
+      tabsRef.current?.querySelectorAll<HTMLElement>("[role='tab']") ?? [],
+    );
+    const focusedIndex = tabs.findIndex(
+      (tab) => tab === document.activeElement,
+    );
+
+    if (focusedIndex === index) {
+      focusAfterCloseRef.current = neighbor;
+    } else if (focusedIndex !== -1) {
+      // Another tab keeps the focus - wherever it moves in the list
+      const focusedItem = items[focusedIndex];
+      focusAfterCloseRef.current =
+        focusedItem && !isLinkTab(focusedItem) ? focusedItem.value : null;
+    }
+
+    item.onClose();
+    if (item.value === selectedValue && neighbor !== null) select(neighbor);
+  };
+
   // Value tabs are one tab stop - the arrow keys move between them and
   // select the one they move to, past the disabled ones
   const handleTabKeyDown = (
@@ -465,6 +603,16 @@ export default function Tabs({
   ) => {
     // Alt + ArrowLeft goes back in the browser history
     if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+    const current = items[index];
+    if (event.key === "Delete" && current && !isLinkTab(current)) {
+      // Holding the key would go on to close the tab that takes the focus
+      if (current.onClose && !event.repeat) {
+        event.preventDefault();
+        closeTab(index);
+      }
+      return;
+    }
 
     const keys =
       MOVE_KEYS[
@@ -479,7 +627,7 @@ export default function Tabs({
     if (next === null || !item || isLinkTab(item)) return;
 
     event.preventDefault();
-    onChange?.(item.value);
+    select(item.value);
     tabsRef.current
       ?.querySelectorAll<HTMLElement>("[role='tab']")
       [next]?.focus();
@@ -500,7 +648,7 @@ export default function Tabs({
   );
   // Inset - the scrolling bar would cut off a ring around the tab
   const focusClassName =
-    "focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500";
+    "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500";
 
   const fadeMask = getFadeMask(overflow);
 
@@ -515,10 +663,14 @@ export default function Tabs({
     }
   };
 
-  return (
+  const bar = (
     <div
       className={
-        isVertical ? undefined : "[scrollbar-width:thin] overflow-x-auto"
+        isVertical
+          ? hasPanels
+            ? "shrink-0"
+            : undefined
+          : "[scrollbar-width:thin] overflow-x-auto"
       }
       onFocus={handleFocus}
       ref={scrollerRef}
@@ -543,14 +695,18 @@ export default function Tabs({
           sizeClasses.container,
           className,
         )}
+        data-orientation={orientation}
         ref={listRef}
       >
-        {/* Animated indicator - over the line, under or beside the tab */}
+        {/* Animated indicator - over the line, under or beside the tab. At
+            the measured place of the tab, which is physical - `left` also
+            right to left. A system color in forced colors mode, which
+            would drop its fill. */}
         {!loading && activeTabBounds && (
           <div
             aria-hidden="true"
             className={cn(
-              "absolute rounded-full bg-primary-600 transition-all duration-300 ease-in-out motion-reduce:transition-none dark:bg-primary-400",
+              "absolute rounded-full bg-primary-600 transition-all duration-300 ease-in-out motion-reduce:transition-none dark:bg-primary-400 forced-colors:bg-[Highlight]",
               isVertical ? "-start-px w-0.5" : "-bottom-px h-0.5",
             )}
             style={
@@ -584,6 +740,8 @@ export default function Tabs({
           : // Normal tabs
             items.map((item, index) => {
               const isActive = index === activeIndex;
+              const isClosable =
+                !isLinkTab(item) && !!item.onClose && !item.disabled;
               const content = (
                 <>
                   {item.icon && (
@@ -592,6 +750,25 @@ export default function Tabs({
                     </span>
                   )}
                   {item.label}
+                  {isClosable && (
+                    // For the pointer - the keyboard closes the tab with
+                    // Delete (`aria-keyshortcuts`), and a button in a tab
+                    // would be a control in a control
+                    <span
+                      aria-hidden="true"
+                      className="-me-1.5 flex size-5 shrink-0 items-center justify-center rounded text-neutral-500 hover:bg-neutral-200 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                      data-tab-close=""
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        closeTab(index);
+                      }}
+                      // The click leaves the focus where it is
+                      onMouseDown={(event) => event.preventDefault()}
+                      title={messages.tabs.close}
+                    >
+                      <X size={14} />
+                    </span>
+                  )}
                 </>
               );
 
@@ -617,6 +794,9 @@ export default function Tabs({
                         aria-current={isActive ? "page" : undefined}
                         aria-disabled="true"
                         className={cn(tabClassName, "cursor-not-allowed")}
+                        data-current={isActive ? "" : undefined}
+                        data-disabled=""
+                        data-selected={isActive ? "" : undefined}
                         role="link"
                       >
                         {content}
@@ -625,6 +805,8 @@ export default function Tabs({
                       <Link
                         aria-current={isActive ? "page" : undefined}
                         className={cn(tabClassName, focusClassName)}
+                        data-current={isActive ? "" : undefined}
+                        data-selected={isActive ? "" : undefined}
                         href={item.href}
                       >
                         {content}
@@ -632,16 +814,27 @@ export default function Tabs({
                     )
                   ) : (
                     <button
-                      aria-controls={item.panelId}
+                      aria-controls={
+                        item.panelId ??
+                        (hasPanel(item) && (isActive || keepMounted)
+                          ? `${baseId}-panel-${index}`
+                          : undefined)
+                      }
+                      aria-keyshortcuts={isClosable ? "Delete" : undefined}
                       aria-selected={isActive}
                       className={cn(
                         tabClassName,
                         focusClassName,
                         "cursor-pointer disabled:cursor-not-allowed",
                       )}
+                      data-disabled={item.disabled ? "" : undefined}
+                      data-selected={isActive ? "" : undefined}
                       disabled={item.disabled}
-                      id={item.id}
-                      onClick={() => onChange?.(item.value)}
+                      id={
+                        item.id ??
+                        (hasPanel(item) ? `${baseId}-tab-${index}` : undefined)
+                      }
+                      onClick={() => select(item.value)}
                       onKeyDown={(event) => handleTabKeyDown(event, index)}
                       role="tab"
                       tabIndex={index === tabStopIndex ? 0 : -1}
@@ -654,6 +847,41 @@ export default function Tabs({
               );
             })}
       </ul>
+    </div>
+  );
+
+  if (!hasPanels || loading) return bar;
+
+  return (
+    <div className={isVertical ? "flex items-start gap-6" : undefined}>
+      {bar}
+      {items.map((item, index) => {
+        if (!hasPanel(item)) return null;
+
+        const isActive = index === activeIndex;
+        if (!isActive && !keepMounted) return null;
+
+        return (
+          <div
+            aria-labelledby={item.id ?? `${baseId}-tab-${index}`}
+            className={cn(
+              "rounded-md focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500",
+              isVertical ? "min-w-0 flex-1" : "pt-4",
+              panelClassName,
+            )}
+            hidden={!isActive}
+            id={item.panelId ?? `${baseId}-panel-${index}`}
+            // The state of a kept panel stays with its tab - also when a
+            // tab before it is closed
+            key={`panel-${item.value}`}
+            role="tabpanel"
+            // Reached by Tab from the tab - also a panel without controls
+            tabIndex={0}
+          >
+            {item.content}
+          </div>
+        );
+      })}
     </div>
   );
 }

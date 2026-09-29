@@ -1,4 +1,4 @@
-import type { CalendarViewProps } from "./types";
+import type { CalendarEvent, CalendarViewProps } from "./types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import cn from "../../utils/cn";
 import DateCell from "./date-cell";
@@ -8,8 +8,18 @@ import {
   daysIntoWeek,
   getCalendarDay,
   getVisibleRange,
+  skipHiddenDays,
 } from "./date-utils";
-import { createDayFormat, isOnDay, revealFocus } from "./utils";
+import { createDayGeometry, type DayCell } from "./move-geometry";
+import { hasBusinessHours } from "./business-hours";
+import {
+  createDayFormat,
+  createTimeLabeler,
+  createTimeTextFormatter,
+  isOnDay,
+  isRtl,
+  revealFocus,
+} from "./utils";
 import {
   addMonths,
   dateOf,
@@ -21,9 +31,13 @@ import {
   startOfDay,
   toISODate,
 } from "../../utils/date";
+import useEventMove from "./use-event-move";
+import useIsApplePlatform from "../../hooks/use-is-apple-platform";
 import useIsHydrated from "../../hooks/use-is-hydrated";
+import { toAriaKeyShortcuts } from "../../utils/shortcut";
 import { useLocale } from "../../providers/ui-context";
 
+/** Days the arrow keys go by - left and right swap in a right-to-left page. */
 const DAY_KEYS: Record<string, number> = {
   ArrowDown: 7,
   ArrowLeft: -1,
@@ -35,32 +49,90 @@ const DAY_KEYS: Record<string, number> = {
 const dayOf = (target: EventTarget | null) =>
   target instanceof HTMLElement ? parseISODate(target.dataset.day) : null;
 
+/** A day of the grid of the month. */
+interface MonthDay {
+  date: Date;
+  /** Out of `minDate` - `maxDate`. */
+  disabled: boolean;
+  /** The events of the day - a moved one on the days it is moved to. */
+  events: CalendarEvent[];
+  isCurrentMonth: boolean;
+  isSelected: boolean;
+}
+
 export default function MonthView({
+  announce,
+  businessHours,
   currentDate,
   events,
   getEventColor,
   getEventLabel,
+  hiddenDays,
   isEventClickable,
   loading,
   maxDate,
   minDate,
   onDateClick,
   onEventClick,
+  onEventDrop,
   onNavigate,
+  renderEvent,
   renderEventActions,
   renderEventIcon,
+  resources,
+  restrictToBusinessHours,
   stickyHeader = true,
+  view,
 }: CalendarViewProps) {
   const locale = useLocale();
+  // The columns - the days of the week in its order, without the hidden
+  // ones
+  const shownColumns = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, index) => index).filter(
+        (index) => !hiddenDays.has((locale.weekStartsOn + index) % 7),
+      ),
+    [hiddenDays, locale.weekStartsOn],
+  );
   const weekdayNames = getWeekdayNames(locale.code, locale.weekStartsOn);
   const longWeekdayNames = getWeekdayNames(
     locale.code,
     locale.weekStartsOn,
     "long",
   );
+  const columnCount = shownColumns.length;
+  // Seven columns by the class, fewer by their style
+  const columnsStyle =
+    columnCount === 7
+      ? undefined
+      : { gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` };
+
+  const gridRef = useRef<HTMLDivElement>(null);
+  // The weekdays stay on top of the scrolling month - the focus below them
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+
+  const timeLabel = useMemo(
+    () => createTimeLabeler(locale, resources),
+    [locale, resources],
+  );
+  const timeText = useMemo(() => createTimeTextFormatter(locale), [locale]);
+
+  const move = useEventMove({
+    announce,
+    describe: (event, display) =>
+      timeLabel({ allDay: event.allDay, ...display }),
+    onEventDrop,
+    scrollRef,
+  });
+  const { dragState, getEventDisplayTimes } = move;
+
+  // The key that picks an event up - for `aria-keyshortcuts`
+  const isApple = useIsApplePlatform();
+  const moveShortcut = toAriaKeyShortcuts("mod+x", isApple);
 
   const weeks = useMemo(() => {
-    const result = [];
+    const result: (MonthDay | null)[][] = [];
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
 
@@ -69,9 +141,15 @@ export default function MonthView({
     const firstOfMonth = dateOf(year, month, 1);
     const leading = daysIntoWeek(firstOfMonth, locale.weekStartsOn);
 
+    // Where the events are shown - a moved one where it would go
+    const displayOf = (event: CalendarEvent) =>
+      dragState?.event.id === event.id
+        ? { allDay: event.allDay, end: dragState.end, start: dragState.start }
+        : event;
+
     for (let i = 0; i < 6; i++) {
-      const week = [];
-      for (let j = 0; j < 7; j++) {
+      const week: (MonthDay | null)[] = [];
+      for (const j of shownColumns) {
         // Each day at its own start - also after one a daylight saving
         // change starts at 1:00 (Santiago, Havana). A day the time zone
         // skips as a whole is an empty cell.
@@ -92,7 +170,7 @@ export default function MonthView({
         // end is exclusive: an event ending at midnight is over before that
         // day starts.
         const dayEvents = (events || []).filter((event) =>
-          isOnDay(event, date),
+          isOnDay(displayOf(event), date),
         );
 
         week.push({
@@ -107,7 +185,24 @@ export default function MonthView({
     }
 
     return result;
-  }, [currentDate, events, locale.weekStartsOn, maxDate, minDate]);
+  }, [
+    currentDate,
+    dragState,
+    events,
+    locale.weekStartsOn,
+    maxDate,
+    minDate,
+    shownColumns,
+  ]);
+
+  // The days an event can be moved to, row by row
+  const cells = useMemo<(DayCell | null)[]>(
+    () =>
+      weeks
+        .flat()
+        .map((day) => (day ? { day: day.date, disabled: day.disabled } : null)),
+    [weeks],
+  );
 
   // The six weeks of the grid - the keys do not leave them
   const { end: gridEnd, start: gridStart } = getVisibleRange(
@@ -121,10 +216,6 @@ export default function MonthView({
   const [focusedDate, setFocusedDate] = useState(() => startOfDay(currentDate));
   const [focusedMonth, setFocusedMonth] = useState(currentDate);
   const moveFocusRef = useRef(false);
-  const gridRef = useRef<HTMLDivElement>(null);
-  // The weekdays stay on top of the scrolling month - the focus below them
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
 
   if (
     focusedMonth.getMonth() !== currentDate.getMonth() ||
@@ -133,6 +224,9 @@ export default function MonthView({
     setFocusedMonth(currentDate);
     setFocusedDate(startOfDay(currentDate));
   }
+
+  // A hidden day has no button - the next day shown has the tab stop
+  const tabStopDate = skipHiddenDays(focusedDate, hiddenDays);
 
   useEffect(() => {
     if (!moveFocusRef.current) return;
@@ -188,15 +282,27 @@ export default function MonthView({
       return;
     }
 
-    // Over a day the time zone skips - in the week, towards `day`
+    // Left and right swap in a right-to-left page
+    const step =
+      event.key in DAY_KEYS
+        ? DAY_KEYS[event.key] *
+          ((event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+          isRtl(event.currentTarget)
+            ? -1
+            : 1)
+        : 0;
+    const direction = step < 0 ? -1 : 1;
+
+    // Over a day the time zone skips - in the week, towards `day` - and
+    // over the hidden days, to the next one shown
     const offset = daysIntoWeek(day, locale.weekStartsOn);
     const next =
-      event.key in DAY_KEYS
-        ? shiftDay(day, DAY_KEYS[event.key])
+      step !== 0
+        ? skipHiddenDays(shiftDay(day, step), hiddenDays, direction)
         : event.key === "Home"
-          ? shiftDay(day, -offset, 1)
+          ? skipHiddenDays(shiftDay(day, -offset, 1), hiddenDays)
           : event.key === "End"
-            ? shiftDay(day, 6 - offset, -1)
+            ? skipHiddenDays(shiftDay(day, 6 - offset, -1), hiddenDays, -1)
             : null;
 
     if (!next) return;
@@ -217,6 +323,20 @@ export default function MonthView({
   // A grid the arrow keys move in with the day buttons - a table of the
   // days without them
   const isGrid = !!onDateClick;
+  const canMove = !!onEventDrop;
+
+  // How an event moves over the days of the month - from its tile in the
+  // cell `index`
+  const dayGeometry = (event: CalendarEvent, index: number) =>
+    createDayGeometry({
+      cells,
+      columns: columnCount,
+      event,
+      grid: gridRef.current,
+      hasResources: false,
+      index,
+      rtl: isRtl(scrollRef.current),
+    });
 
   return (
     <div
@@ -245,15 +365,16 @@ export default function MonthView({
           )}
           ref={headerRef}
           role="row"
+          style={columnsStyle}
         >
-          {weekdayNames.map((day, index) => (
+          {shownColumns.map((index) => (
             <div
               aria-label={longWeekdayNames[index]}
               className="p-2 text-center font-medium text-neutral-500 dark:text-neutral-400"
               key={index}
               role="columnheader"
             >
-              {day}
+              {weekdayNames[index]}
             </div>
           ))}
         </div>
@@ -271,36 +392,79 @@ export default function MonthView({
               className="grid grid-cols-7 border-b border-neutral-200 dark:border-neutral-800"
               key={i}
               role="row"
+              style={columnsStyle}
             >
-              {week.map((day, j) =>
-                day === null ? (
-                  <div
-                    className="border-r border-neutral-200 dark:border-neutral-800"
-                    key={`${i}-${j}`}
-                    role={isGrid ? "gridcell" : "cell"}
-                  />
-                ) : (
+              {week.map((day, j) => {
+                if (day === null) {
+                  return (
+                    <div
+                      className="border-e border-neutral-200 dark:border-neutral-800"
+                      key={`${i}-${j}`}
+                      role={isGrid ? "gridcell" : "cell"}
+                    />
+                  );
+                }
+
+                const index = i * columnCount + j;
+                const offHours =
+                  !!businessHours && !hasBusinessHours(businessHours, day.date);
+
+                return (
                   <DateCell
+                    canMove={canMove}
                     date={day.date}
                     disabled={day.disabled}
+                    draggingId={dragState?.event.id ?? null}
                     events={day.events}
                     getEventColor={getEventColor}
                     getEventLabel={getEventLabel}
                     isCurrentMonth={day.isCurrentMonth}
                     isEventClickable={isEventClickable}
-                    isFocusTarget={isSameDay(day.date, focusedDate)}
+                    isFocusTarget={isSameDay(day.date, tabStopDate)}
+                    isPointerDragging={move.isPointerDragging}
                     isSelected={day.isSelected}
                     isToday={today !== null && isSameDay(day.date, today)}
                     key={`${i}-${j}`}
                     label={dayLabelFormat.format(day.date)}
+                    moveShortcut={moveShortcut}
+                    offHours={offHours}
                     onDateClick={onDateClick}
                     onEventClick={onEventClick}
+                    onTileBlur={move.handleBlur}
+                    onTileKeyDown={(e, event) =>
+                      move.handleKeyDown(e, event, {
+                        clickable:
+                          !!onEventClick && (isEventClickable?.(event) ?? true),
+                        day: day.date,
+                        getGeometry: (type) =>
+                          type === "move" ? dayGeometry(event, index) : null,
+                      })
+                    }
+                    onTilePointerDown={(e, event) =>
+                      move.handleDragStart(
+                        e,
+                        event,
+                        "move",
+                        dayGeometry(event, index),
+                      )
+                    }
+                    pickable={
+                      !day.disabled && !(restrictToBusinessHours && offHours)
+                    }
+                    renderEvent={renderEvent}
                     renderEventActions={renderEventActions}
                     renderEventIcon={renderEventIcon}
                     role={isGrid ? "gridcell" : "cell"}
+                    timeText={(event) =>
+                      timeText({
+                        allDay: event.allDay,
+                        ...getEventDisplayTimes(event),
+                      })
+                    }
+                    view={view}
                   />
-                ),
-              )}
+                );
+              })}
             </div>
           ))}
         </div>

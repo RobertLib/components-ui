@@ -20,6 +20,21 @@ export default function BreadcrumbsPage() {
         name="breadcrumbs/basic"
         title="Basic"
       />
+      <Example
+        description={
+          <p>
+            <code>maxItems</code> collapses a longer path to its ends: the first{" "}
+            <code>itemsBeforeCollapse</code> crumbs (1 - the home crumb counts),
+            a "…" button and the last <code>itemsAfterCollapse</code> ones (1).
+            The button - "Show the whole path" for screen readers - shows the
+            rest in place and moves the focus to the first crumb it brings.{" "}
+            <code>separator</code> replaces the "&gt;" between the crumbs, e.g.
+            with an icon - mirrored in a right-to-left page.
+          </p>
+        }
+        name="breadcrumbs/collapsed"
+        title="A long path and separators"
+      />
 
       <Section title="Props">
         <PropsTable of="Breadcrumbs" />

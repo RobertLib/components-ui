@@ -1,10 +1,64 @@
+import type { BusinessSchedule } from "./business-hours";
 import type { WeekDay } from "../../i18n/types";
 
 /**
  * `month`, `week` and `day` - the grids; `agenda` - a list of the events of
- * a period, grouped by day (see `agendaPeriod`).
+ * a period, grouped by day (see `agendaPeriod`); `timelineDay` and
+ * `timelineWeek` - the resources in rows, the time of the day or the week
+ * running across them.
  */
-export type CalendarView = "month" | "week" | "day" | "agenda";
+export type CalendarView =
+  "month" | "week" | "day" | "agenda" | "timelineDay" | "timelineWeek";
+
+/**
+ * Length of the time slots of the week, day and timeline views in minutes -
+ * a range dragged or picked is made of them, and events move and resize by
+ * them.
+ */
+export type CalendarSlotDuration = 5 | 10 | 15 | 20 | 30 | 60;
+
+/**
+ * Working hours of some days of the week - the week, day and timeline views
+ * shade the time out of them, the month view the days without any.
+ */
+export interface CalendarBusinessHours {
+  /** Days of the week the hours are for - Monday to Friday by default. */
+  days?: WeekDay[];
+  /** End of the hours, `"HH:mm"` - `"17:00"`; `"24:00"` is the midnight. */
+  end: string;
+  /** Start of the hours, `"HH:mm"` - `"09:00"`. */
+  start: string;
+}
+
+/** What `renderEvent` gets besides the event - how its tile is shown. */
+export interface CalendarEventRenderContext {
+  /** The tile is of an all-day event. */
+  allDay: boolean;
+  /**
+   * The color of the tile - the event's own, or that of its resource;
+   * `undefined` for the default `primary`.
+   */
+  color: string | undefined;
+  /**
+   * A tile of one line - in a day of the month, the all-day row, a list of
+   * "+N more" or the timeline; the week and day views have room for more.
+   */
+  compact: boolean;
+  /** The event is being moved or resized - by the pointer or the keys. */
+  dragging: boolean;
+  /**
+   * When the event takes place, as the calendar would write it - "9:00 –
+   * 10:30 AM", or "All day". A moved event gives the times it would get.
+   */
+  timeText: string;
+  /**
+   * The title the tile shows by default - the sanitized `htmlTitle`, or the
+   * `title`.
+   */
+  title: React.ReactNode;
+  /** The view of the tile. */
+  view: CalendarView;
+}
 
 /**
  * What the agenda view lists: the `month`, the `week` (of the locale) or the
@@ -138,8 +192,8 @@ export interface CalendarEvent {
   recurringEventId?: string;
   /**
    * The `id` of the resource the event belongs to - its column in the day
-   * and week views with `resources`. Events of no resource are left out of
-   * those columns.
+   * and week views with `resources`, its row in the timeline. Events of no
+   * resource are left out of those columns and rows.
    */
   resourceId?: string;
   /** Start of the event. */
@@ -173,7 +227,8 @@ export interface CalendarEvent {
 
 /**
  * Something events are planned for - a room, a person, a vehicle. With
- * `resources` the day and week views show a column for each.
+ * `resources` the day and week views show a column for each, the timeline
+ * views a row.
  */
 export interface CalendarResource {
   /**
@@ -197,8 +252,9 @@ export interface EventTimeChange {
   /** The new end of the event. */
   newEnd: Date;
   /**
-   * The resource of the column the event was dropped in - the one it was in
-   * for a resize. Only with `resources`.
+   * The resource of the column (or the timeline row) the event was dropped
+   * in - the one it was in for a resize. Only with `resources`, and not in
+   * the month view, which shows the events of all of them.
    */
   newResourceId?: string;
 }
@@ -208,13 +264,20 @@ export interface NewEventTimeRange {
   start: Date;
   /** End of the range - the end of its last slot. */
   end: Date;
-  /** The resource of the column the range was picked in - only with `resources`. */
+  /**
+   * The resource of the column (or the timeline row) the range was picked
+   * in - only with `resources`.
+   */
   resourceId?: string;
 }
 
 export interface CalendarViewProps {
   /** What the agenda view lists. */
   agendaPeriod: CalendarAgendaPeriod;
+  /** Tells screen readers - the live region of the calendar. */
+  announce: (message: string) => void;
+  /** The working hours by weekday - `null` without `businessHours`. */
+  businessHours: BusinessSchedule | null;
   /** The day the view shows (week and month views: the period around it). */
   currentDate: Date;
   /** Hour the week and day views end with (1 - 24). */
@@ -230,6 +293,8 @@ export interface CalendarViewProps {
   getEventColor: (event: CalendarEvent) => string | undefined;
   /** The accessible name of an event tile (`createEventLabeler`). */
   getEventLabel: (event: CalendarEvent) => string;
+  /** Weekdays the views leave out - `Date#getDay()` numbers. */
+  hiddenDays: ReadonlySet<number>;
   /**
    * Return false to render an event as non-interactive - no pointer cursor and
    * `onEventClick` is not called. Defaults to clickable.
@@ -241,6 +306,8 @@ export interface CalendarViewProps {
   maxDate?: Date;
   /** Days before it are disabled. */
   minDate?: Date;
+  /** Draws the line of the current time in the time grids. */
+  nowIndicator: boolean;
   /**
    * A day (month and agenda views) or a time slot (week and day views) was
    * picked - with the resource of its column.
@@ -253,7 +320,7 @@ export interface CalendarViewProps {
    * not to a period out of `minDate` - `maxDate`. Returns whether it moved.
    */
   onNavigate?: (date: Date) => boolean;
-  /** An event was dragged to another time or day. */
+  /** An event was moved to another time or day - by the pointer or the keys. */
   onEventDrop?: (change: EventTimeChange) => void;
   /** An event was resized by its top or bottom edge. */
   onEventResize?: (change: EventTimeChange) => void;
@@ -265,12 +332,26 @@ export interface CalendarViewProps {
    * here neither starts a drag nor triggers `onEventClick`.
    */
   renderEventActions?: (event: CalendarEvent) => React.ReactNode;
+  /** Content of a tile after its icon - instead of the title. */
+  renderEvent?: (
+    event: CalendarEvent,
+    context: CalendarEventRenderContext,
+  ) => React.ReactNode;
   /** Icon rendered before the title of a tile. */
   renderEventIcon?: (event: CalendarEvent) => React.ReactNode;
-  /** The columns of the day and week views - none when empty. */
+  /**
+   * The columns of the day and week views, the rows of the timeline - none
+   * when empty.
+   */
   resources?: CalendarResource[];
+  /** Slots and days out of `businessHours` cannot be picked. */
+  restrictToBusinessHours: boolean;
+  /** Length of the slots - the default of the view when left out. */
+  slotDuration?: CalendarSlotDuration;
   /** Keeps the weekday header visible while the view scrolls. */
   stickyHeader?: boolean;
+  /** The view shown. */
+  view: CalendarView;
   /** The days the view paints - `getVisibleRange`. */
   visibleRange: { end: Date; start: Date };
 }

@@ -10,7 +10,9 @@ import cn from "../../utils/cn";
 import Kbd from "../kbd";
 import MenuPopup from "./menu-popup";
 import {
+  getActiveElement,
   getDirection,
+  getElementByIdAt,
   isEscapeKey,
   isTopmostOverlay,
   OverlayContext,
@@ -21,7 +23,7 @@ import { getTabbableElements } from "../../utils/tabbable";
 import { toAriaKeyShortcuts } from "../../utils/shortcut";
 import useIsApplePlatform from "../../hooks/use-is-apple-platform";
 import { foldSearchText } from "../../utils/remove-diacritics";
-import { useRouter } from "../../providers/ui-context";
+import { usePortalContainer, useRouter } from "../../providers/ui-context";
 import {
   buildMenuModel,
   isRowDisabled,
@@ -89,7 +91,10 @@ const normalizeText = foldSearchText;
  * ArrowLeft into and out of submenus (the other way round right to left).
  * The focus stays on the list, which announces its highlighted item
  * (`aria-activedescendant`); custom content with a control takes the focus
- * itself.
+ * itself. For styling, the list has `data-orientation="vertical"`, and an
+ * item `data-highlighted` while it is highlighted, `data-disabled`,
+ * `data-state="checked"` / `"unchecked"` as a checkbox or radio option and
+ * `data-state="open"` / `"closed"` with a submenu.
  */
 export default function MenuList({
   "aria-label": ariaLabel,
@@ -167,7 +172,7 @@ export default function MenuList({
   // The menu the focus is in, when it is one of this menu's submenus - the
   // trigger of a Dropdown, or content outside the menu, does not count
   const focusedLevel = () => {
-    const menu = document.activeElement?.closest("[data-menu-tree]");
+    const menu = getActiveElement()?.closest("[data-menu-tree]");
     if (!menu || menu.getAttribute("data-menu-tree") !== tree) return null;
     return Number(menu.getAttribute("data-menu-level"));
   };
@@ -431,7 +436,7 @@ export default function MenuList({
   const focusFollowsPointer = () => {
     const focused = focusedLevel();
     const list = listRef.current;
-    if (focused !== null && list && !list.contains(document.activeElement)) {
+    if (focused !== null && list && !list.contains(getActiveElement())) {
       list.focus({ preventScroll: true });
     }
   };
@@ -566,20 +571,37 @@ export default function MenuList({
         ? toAriaKeyShortcuts(fields.shortcut, isApple)
         : undefined,
       className: cn(
-        "flex w-full items-center gap-2.5 rounded px-3 py-1.5 text-start text-sm transition-colors focus:outline-none motion-reduce:transition-none pointer-coarse:py-2",
-        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+        "flex w-full items-center gap-2.5 rounded px-3 py-1.5 text-start text-sm transition-colors focus:outline-hidden motion-reduce:transition-none pointer-coarse:py-2",
+        disabled
+          ? "cursor-not-allowed opacity-50 forced-colors:text-[GrayText]"
+          : "cursor-pointer",
         danger && "text-danger-700 dark:text-danger-400",
         // The highlight follows the pointer and the keys alike - a tap only
-        // flashes it
+        // flashes it. Forced colors drop the background: the system colors
+        // of a selection keep it seen.
         isActive
-          ? danger
-            ? "bg-danger-50 dark:bg-danger-950/60"
-            : "bg-neutral-100 dark:bg-neutral-800"
+          ? cn(
+              danger
+                ? "bg-danger-50 dark:bg-danger-950/60"
+                : "bg-neutral-100 dark:bg-neutral-800",
+              "forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]",
+            )
           : !disabled &&
               (danger
                 ? "active:bg-danger-50 dark:active:bg-danger-950/60"
                 : "active:bg-neutral-100 dark:active:bg-neutral-800"),
       ),
+      "data-disabled": disabled ? "" : undefined,
+      "data-highlighted": isActive ? "" : undefined,
+      "data-state": isCheckable
+        ? checked
+          ? "checked"
+          : "unchecked"
+        : isParent
+          ? isSubmenuOpen
+            ? "open"
+            : "closed"
+          : undefined,
       id: itemId(index),
       onClick: (event: React.MouseEvent) => handleItemClick(event, index),
       onMouseDown: keepFocus,
@@ -602,7 +624,11 @@ export default function MenuList({
             {isCheckable &&
               checked &&
               (row.kind === "option" ? (
-                <span className="size-1.5 rounded-full bg-current" />
+                // Drawn in the color of the text - also the one forced
+                // colors give it, which drop the background of an element
+                <svg className="size-1.5" viewBox="0 0 6 6">
+                  <circle cx="3" cy="3" fill="currentColor" r="3" />
+                </svg>
               ) : (
                 <Check size={16} />
               ))}
@@ -684,9 +710,10 @@ export default function MenuList({
         aria-label={ariaLabel}
         aria-labelledby={ariaLabelledBy}
         aria-orientation="vertical"
-        className="min-w-48 focus:outline-none"
+        className="min-w-48 focus:outline-hidden"
         data-menu-level={level}
         data-menu-tree={tree}
+        data-orientation="vertical"
         id={id}
         onKeyDown={(event) => {
           // Not the keys of a portal in custom content (the list of an
@@ -799,6 +826,7 @@ function Submenu({
   });
 
   const panelId = `${id}-panel`;
+  const getPortalContainer = usePortalContainer();
 
   // A Dialog opened from the submenu gives the focus back to the menu - or,
   // once that is gone too, to the trigger - when it closes
@@ -806,7 +834,7 @@ function Submenu({
     getElements: () => [
       // Opening from the keyboard, the list takes the focus before the ref
       // of the panel is set
-      panelRef.current ?? document.getElementById(panelId),
+      panelRef.current ?? getElementByIdAt(getPortalContainer(), panelId),
     ],
     getFocusFallback: () => parentRef.current,
   });
