@@ -179,7 +179,12 @@ export {
   default as Drawer,
   type DrawerEntry,
   type DrawerItem,
+  type DrawerMenuEntry,
   type DrawerProps,
+  type DrawerSection,
+  type DrawerSeparator,
+  type DrawerSlot,
+  type DrawerSlotState,
 } from "./components/drawer";
 export {
   default as Dropdown,

@@ -5,6 +5,11 @@ export interface AppShellProps extends React.ComponentProps<"main"> {
   /** Usually a `Drawer`. */
   drawer?: React.ReactNode;
   /**
+   * A keyboard shortcut that toggles the drawer, e.g. `"mod+b"` - see
+   * `DrawerProvider`.
+   */
+  drawerShortcut?: string;
+  /**
    * `localStorage` key of the collapsed state of the drawer, `null` to not
    * remember it. Default `"drawer-collapsed"`.
    */
@@ -22,12 +27,13 @@ export default function AppShell({
   children,
   className,
   drawer,
+  drawerShortcut,
   drawerStorageKey,
   navbar,
   ...props
 }: AppShellProps) {
   return (
-    <DrawerProvider storageKey={drawerStorageKey}>
+    <DrawerProvider shortcut={drawerShortcut} storageKey={drawerStorageKey}>
       {/* The layout CSS positions the navbar and main as siblings of the drawer */}
       {drawer}
       {navbar}

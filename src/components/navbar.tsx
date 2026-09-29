@@ -3,9 +3,13 @@ import Avatar from "./avatar";
 import cn from "../utils/cn";
 import Dropdown, { type DropdownEntry } from "./dropdown";
 import IconButton from "./icon-button";
+import Kbd from "./kbd";
+import Tooltip from "./tooltip";
+import useIsApplePlatform from "../hooks/use-is-apple-platform";
 import useIsMobile from "../hooks/use-is-mobile";
 import { useDrawer } from "../providers/drawer-context";
 import { useMessages } from "../providers/ui-context";
+import { toAriaKeyShortcuts } from "../utils/shortcut";
 
 export interface NavbarUser {
   /** Picture URL for the avatar; the initials of `name` are shown without it. */
@@ -48,9 +52,35 @@ export default function Navbar({
   user,
   ...props
 }: NavbarProps) {
-  const { isCollapsed, isOpen, toggleCollapsed, toggleOpen } = useDrawer();
+  const { isCollapsed, isOpen, shortcut, toggleCollapsed, toggleOpen } =
+    useDrawer();
+  const isApple = useIsApplePlatform();
   const isMobile = useIsMobile();
   const messages = useMessages();
+
+  const toggleLabel = isMobile
+    ? messages.navbar.toggleMenu
+    : messages.navbar.toggleSidebar;
+
+  const toggle = (
+    <IconButton
+      // Slid in on phones, not collapsed to icons on desktop
+      aria-expanded={isMobile ? isOpen : !isCollapsed}
+      aria-keyshortcuts={
+        shortcut ? toAriaKeyShortcuts(shortcut, isApple) : undefined
+      }
+      aria-label={toggleLabel}
+      onClick={isMobile ? toggleOpen : toggleCollapsed}
+    >
+      {isMobile ? (
+        <Menu size={20} />
+      ) : isCollapsed ? (
+        <PanelLeft size={20} />
+      ) : (
+        <PanelLeftClose size={20} />
+      )}
+    </IconButton>
+  );
 
   // The name is written out next to the avatar - the avatar (its picture's
   // alt text, its title) would name the user a second time
@@ -88,26 +118,26 @@ export default function Navbar({
         ref={ref as React.Ref<HTMLDivElement>}
       >
         <div className="flex min-w-0 items-center gap-4">
-          {!noDrawerToggle && (
-            <IconButton
-              // Slid in on phones, not collapsed to icons on desktop
-              aria-expanded={isMobile ? isOpen : !isCollapsed}
-              aria-label={
-                isMobile
-                  ? messages.navbar.toggleMenu
-                  : messages.navbar.toggleSidebar
-              }
-              onClick={isMobile ? toggleOpen : toggleCollapsed}
-            >
-              {isMobile ? (
-                <Menu size={20} />
-              ) : isCollapsed ? (
-                <PanelLeft size={20} />
-              ) : (
-                <PanelLeftClose size={20} />
-              )}
-            </IconButton>
-          )}
+          {!noDrawerToggle &&
+            (shortcut ? (
+              <Tooltip
+                delay={500}
+                position="bottom"
+                title={
+                  <span className="flex items-center gap-2">
+                    {toggleLabel}
+                    <Kbd shortcut={shortcut} size="sm" />
+                  </span>
+                }
+              >
+                {/* In a fragment: the button has its name and the shortcut
+                    (`aria-keyshortcuts`) already - the tooltip shows them,
+                    it does not describe the button with them once more */}
+                <>{toggle}</>
+              </Tooltip>
+            ) : (
+              toggle
+            ))}
           {children}
         </div>
         {loading ? (

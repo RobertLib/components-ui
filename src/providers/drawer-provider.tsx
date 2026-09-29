@@ -1,5 +1,6 @@
 import { useState, useSyncExternalStore } from "react";
 import { DrawerContext } from "./drawer-context";
+import useHotkeys from "../hooks/use-hotkeys";
 import useIsMobile from "../hooks/use-is-mobile";
 
 const readCollapsed = (storageKey: string | null) => {
@@ -29,6 +30,12 @@ export interface DrawerProviderProps {
   /** The `Drawer`, the `Navbar` and the page - `useDrawer()` works inside. */
   children: React.ReactNode;
   /**
+   * A keyboard shortcut that toggles the drawer - collapses it on desktop,
+   * slides it in on phones - e.g. `"mod+b"` (see the shortcut syntax on the
+   * Kbd page). Off by default. The toggle of the `Navbar` shows it.
+   */
+  shortcut?: string;
+  /**
    * `localStorage` key the collapsed state is remembered under - give each
    * drawer of a page its own. `null` turns remembering off.
    */
@@ -41,6 +48,7 @@ export interface DrawerProviderProps {
  */
 export default function DrawerProvider({
   children,
+  shortcut,
   storageKey = "drawer-collapsed",
 }: Readonly<DrawerProviderProps>) {
   const isMobile = useIsMobile();
@@ -84,8 +92,16 @@ export default function DrawerProvider({
 
   const toggleOpen = () => setIsOpen((prev) => !prev);
 
+  // Not while typing, nor under a modal dialog - see `useHotkeys`
+  useHotkeys(
+    shortcut ? [[shortcut, isMobile ? toggleOpen : toggleCollapsed]] : [],
+    { enabled: !!shortcut },
+  );
+
   return (
-    <DrawerContext value={{ isCollapsed, isOpen, toggleCollapsed, toggleOpen }}>
+    <DrawerContext
+      value={{ isCollapsed, isOpen, shortcut, toggleCollapsed, toggleOpen }}
+    >
       {children}
     </DrawerContext>
   );

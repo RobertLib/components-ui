@@ -49,6 +49,27 @@ describe("Navbar", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("names the shortcut of the drawer on its toggle - and shows it", async () => {
+    const user = userEvent.setup();
+    render(
+      <DrawerProvider shortcut="ctrl+b" storageKey={null}>
+        <Navbar />
+      </DrawerProvider>,
+    );
+
+    const toggle = screen.getByRole("button", { name: "Toggle sidebar" });
+    expect(toggle).toHaveAttribute("aria-keyshortcuts", "Control+B");
+
+    // Keyboard focus shows the tooltip at once
+    await user.tab();
+    expect(toggle).toHaveFocus();
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "Toggle sidebarCtrl+B",
+    );
+    // Named and given its shortcut already - not described once more
+    expect(toggle).not.toHaveAttribute("aria-describedby");
+  });
+
   it("hides the drawer toggle with noDrawerToggle", () => {
     render(
       <DrawerProvider storageKey={null}>

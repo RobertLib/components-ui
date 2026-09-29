@@ -4,11 +4,14 @@ import { describe, expect, it } from "vitest";
 import Avatar from "./avatar";
 import Button, { type ButtonProps } from "./button";
 import Chip, { type ChipColor, type ChipVariant } from "./chip";
+import Drawer from "./drawer";
 import Link from "./link";
 import Progress, { CircularProgress, type ProgressProps } from "./progress";
 import Stepper from "./stepper";
 import Timeline, { type TimelineColor } from "./timeline";
 import { colorOf, contrast, pageBackgrounds } from "../test/contrast";
+import DrawerProvider from "../providers/drawer-provider";
+import UIProvider from "../providers/ui-provider";
 
 // WCAG 1.4.3 for text, 1.4.11 for focus rings and the parts of graphics
 const TEXT = 4.5;
@@ -385,6 +388,106 @@ describe("Stepper", () => {
             }
           });
         }
+      }
+    }
+
+    expect(lowContrast(pairs, TEXT)).toEqual([]);
+  });
+});
+
+describe("Drawer", () => {
+  /**
+   * What `className` fills its element with in a state: a color, a
+   * translucent one as the range from the surface below it to the full
+   * color - or nothing, the surface of the drawer.
+   */
+  function fillsOf(className: string, dark: boolean, hover: boolean) {
+    const prefixes = [
+      ...(dark && hover ? ["dark:hover:"] : []),
+      ...(dark ? ["dark:"] : []),
+      ...(hover ? ["hover:"] : []),
+      "",
+    ];
+    for (const prefix of prefixes) {
+      const fill = className
+        .split(/\s+/)
+        .findLast((name) =>
+          new RegExp(`^${prefix}bg-[a-z]+-\\d+(/\\d+)?$`).test(name),
+        );
+      if (!fill) continue;
+
+      const [token, alpha] = fill
+        .slice(prefix.length + "bg-".length)
+        .split("/");
+      return alpha ? [token, ...pageBackgrounds(dark)] : [token];
+    }
+    return pageBackgrounds(dark);
+  }
+
+  const classNameAt = (pathname: string, find: () => HTMLElement) => {
+    const { unmount } = render(
+      <UIProvider router={{ pathname, search: "" }}>
+        <DrawerProvider storageKey={null}>
+          <Drawer
+            items={[
+              { badge: 3, href: "/inbox", label: "Inbox" },
+              {
+                children: [{ href: "/reports/sales", label: "Sales" }],
+                defaultExpanded: false,
+                label: "Reports",
+              },
+              {
+                items: [{ href: "/settings", label: "Settings" }],
+                label: "Workspace",
+                type: "section",
+              },
+            ]}
+          />
+        </DrawerProvider>
+      </UIProvider>,
+    );
+    const { className } = find();
+    unmount();
+    return className;
+  };
+
+  it("writes the current page, a closed group with it, badges and headings at 4.5:1 - also hovered", () => {
+    const rows = {
+      "closed group": classNameAt("/reports/sales", () =>
+        screen.getByRole("button", { name: "Reports" }),
+      ),
+      "current page": classNameAt("/inbox", () =>
+        screen.getByRole("link", { name: "Inbox 3" }),
+      ),
+    };
+    const badge = classNameAt("/", () => screen.getByText("3"));
+    const heading = classNameAt("/", () => screen.getByText("Workspace"));
+
+    const pairs: [string, string, string][] = [];
+    for (const dark of MODES) {
+      const mode = dark ? " dark" : "";
+      for (const hover of [false, true]) {
+        for (const [name, className] of Object.entries(rows)) {
+          for (const fill of fillsOf(className, dark, hover)) {
+            pairs.push([
+              `${name}${mode}${hover ? " hover" : ""}`,
+              colorOf(className, "text", { dark, hover })!,
+              fill,
+            ]);
+          }
+        }
+      }
+      pairs.push([
+        `badge${mode}`,
+        colorOf(badge, "text", { dark })!,
+        colorOf(badge, "bg", { dark })!,
+      ]);
+      for (const background of pageBackgrounds(dark)) {
+        pairs.push([
+          `heading${mode}`,
+          colorOf(heading, "text", { dark })!,
+          background,
+        ]);
       }
     }
 

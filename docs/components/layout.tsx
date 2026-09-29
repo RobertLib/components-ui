@@ -63,13 +63,20 @@ const themes: { icon: typeof Sun; label: string; value: ColorScheme }[] = [
   { icon: Monitor, label: "System", value: "system" },
 ];
 
-function Logo() {
+// The name is left out while the drawer is collapsed - the mark stays
+function Logo({ isCollapsed }: { isCollapsed: boolean }) {
   return (
-    <Link className="flex items-center gap-2" to="/">
+    <Link
+      aria-label={isCollapsed ? "components-ui" : undefined}
+      className="flex items-center gap-2"
+      to="/"
+    >
       <img alt="" className="h-7 w-7" src="./favicon.svg" />
-      <span className="text-lg font-semibold tracking-tight">
-        components-ui
-      </span>
+      {!isCollapsed && (
+        <span className="text-lg font-semibold tracking-tight">
+          components-ui
+        </span>
+      )}
     </Link>
   );
 }
@@ -168,7 +175,13 @@ export default function Layout() {
 
   return (
     <AppShell
-      drawer={<Drawer header={<Logo />} items={drawerItems} />}
+      drawer={
+        <Drawer
+          header={({ isCollapsed }) => <Logo isCollapsed={isCollapsed} />}
+          items={drawerItems}
+        />
+      }
+      drawerShortcut="mod+b"
       navbar={
         <Navbar actions={<Settings />}>
           <PageSearch />

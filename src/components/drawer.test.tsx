@@ -257,10 +257,300 @@ describe("Drawer collapsed to icons", () => {
 
     const link = await screen.findByRole("link", { name: "orders" });
     expect(link).toHaveTextContent("O");
-    expect(link).toHaveAttribute("title", "orders");
     expect(screen.getByRole("button", { name: "Settings" })).toHaveTextContent(
       "S",
     );
+  });
+
+  it("shows the name of an item in a tooltip - without describing the item with it", async () => {
+    renderCollapsed();
+
+    const link = await screen.findByRole("link", { name: "Reports" });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.mouseEnter(link);
+    await act(() => sleep(250));
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Reports");
+    // Named by the label already - a screen reader would read it twice
+    expect(link).not.toHaveAttribute("aria-describedby");
+
+    fireEvent.mouseLeave(link);
+    await act(() => sleep(200));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("marks a group holding the current page by its icon", async () => {
+    localStorage.setItem("drawer-collapsed", "true");
+    render(
+      <UIProvider router={{ pathname: "/users/new", search: "" }}>
+        <DrawerProvider>
+          <Drawer
+            items={[
+              {
+                children: [{ href: "/users/new", label: "New user" }],
+                icon: "U",
+                label: "Users",
+              },
+              {
+                children: [{ href: "/reports/sales", label: "Sales" }],
+                icon: "R",
+                label: "Reports",
+              },
+            ]}
+          />
+        </DrawerProvider>
+      </UIProvider>,
+    );
+
+    const users = await screen.findByRole("button", { name: "Users" });
+    const reports = screen.getByRole("button", { name: "Reports" });
+    expect(users).toHaveClass("bg-primary-50");
+    expect(reports).not.toHaveClass("bg-primary-50");
+  });
+
+  it("shows a dot for a badge - and reads the badge in the name", async () => {
+    localStorage.setItem("drawer-collapsed", "true");
+    render(
+      <UIProvider router={{ pathname: "/", search: "" }}>
+        <DrawerProvider>
+          <Drawer
+            items={[{ badge: 12, href: "/inbox", icon: "I", label: "Inbox" }]}
+          />
+        </DrawerProvider>
+      </UIProvider>,
+    );
+
+    const link = await screen.findByRole("link", { name: "Inbox 12" });
+    fireEvent.mouseEnter(link);
+    await act(() => sleep(250));
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Inbox12");
+  });
+
+  it("renders a header or footer function while collapsed - hides the others", async () => {
+    localStorage.setItem("drawer-collapsed", "true");
+    render(
+      <DrawerProvider>
+        <Drawer
+          footer={<span>Version 2</span>}
+          header={({ isCollapsed }) => (isCollapsed ? "Mark" : "Acme")}
+          items={[{ href: "/", label: "Home" }]}
+        />
+      </DrawerProvider>,
+    );
+
+    expect(await screen.findByText("Mark")).toBeInTheDocument();
+    expect(screen.queryByText("Acme")).toBeNull();
+    expect(screen.queryByText("Version 2")).toBeNull();
+  });
+});
+
+describe("Drawer sections, separators, badges and actions", () => {
+  it("names the list of a section by its heading - and hides empty ones", () => {
+    render(
+      <DrawerProvider storageKey={null}>
+        <Drawer
+          items={[
+            { href: "/", label: "Home" },
+            {
+              items: [
+                { href: "/users", label: "Users" },
+                { href: "/roles", label: "Roles" },
+              ],
+              label: "Administration",
+              type: "section",
+            },
+            // Nothing the user may see
+            { items: [false, null], label: "Billing", type: "section" },
+          ]}
+        />
+      </DrawerProvider>,
+    );
+
+    const section = screen.getByRole("list", { name: "Administration" });
+    expect(section).toContainElement(
+      screen.getByRole("link", { name: "Users" }),
+    );
+    expect(section).toContainElement(
+      screen.getByRole("link", { name: "Roles" }),
+    );
+    expect(screen.queryByText("Billing")).toBeNull();
+  });
+
+  it("keeps the heading of a section for screen readers while collapsed", async () => {
+    localStorage.setItem("drawer-collapsed", "true");
+    render(
+      <DrawerProvider>
+        <Drawer
+          items={[
+            {
+              items: [{ href: "/users", icon: "U", label: "Users" }],
+              label: "Administration",
+              type: "section",
+            },
+          ]}
+        />
+      </DrawerProvider>,
+    );
+
+    expect(
+      await screen.findByRole("list", { name: "Administration" }),
+    ).toContainElement(screen.getByRole("link", { name: "Users" }));
+    expect(screen.getByText("Administration")).toHaveClass("sr-only");
+  });
+
+  it("shows no separator at an end or next to another", () => {
+    const { container } = render(
+      <DrawerProvider storageKey={null}>
+        <Drawer
+          items={[
+            { type: "separator" },
+            { href: "/", label: "Home" },
+            { type: "separator" },
+            // Hidden - the separators around it would meet
+            false,
+            { type: "separator" },
+            { href: "/help", label: "Help" },
+            { type: "separator" },
+          ]}
+        />
+      </DrawerProvider>,
+    );
+
+    const entries = Array.from(container.querySelectorAll("nav ul > li"));
+    expect(entries.map((entry) => entry.textContent)).toEqual([
+      "Home",
+      "",
+      "Help",
+    ]);
+    // A line for the eye only
+    expect(entries[1]).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("reads a badge after the label", () => {
+    render(
+      <DrawerProvider storageKey={null}>
+        <Drawer
+          items={[
+            { badge: 12, href: "/inbox", label: "Inbox" },
+            {
+              badge: "New",
+              children: [{ href: "/reports/sales", label: "Sales" }],
+              label: "Reports",
+            },
+          ]}
+        />
+      </DrawerProvider>,
+    );
+
+    expect(screen.getByRole("link", { name: "Inbox 12" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Reports New" }),
+    ).toBeInTheDocument();
+  });
+
+  it("makes an item with onClick and no href an action button", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    const onLinkClick = vi.fn();
+    render(
+      <DrawerProvider storageKey={null}>
+        <Drawer
+          items={[
+            { label: "Search", onClick },
+            { href: "#reports", label: "Reports", onClick: onLinkClick },
+          ]}
+        />
+      </DrawerProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    expect(onClick).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("link", { name: "Reports" }));
+    expect(onLinkClick).toHaveBeenCalledOnce();
+  });
+
+  it("renders the footer below the menu", () => {
+    render(
+      <DrawerProvider storageKey={null}>
+        <Drawer
+          footer={<button type="button">Account</button>}
+          items={[{ href: "/", label: "Home" }]}
+        />
+      </DrawerProvider>,
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    const account = screen.getByRole("button", { name: "Account" });
+    expect(nav).toContainElement(account);
+    expect(
+      screen
+        .getByRole("link", { name: "Home" })
+        .compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("scrolls the menu - not the page - to the current page out of sight", () => {
+    const scrolled: number[] = [];
+    const rects = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: Element) {
+        // The link of the current page far below the visible part of the menu
+        const top = this.matches("[aria-current=page]") ? 500 : 0;
+        return DOMRect.fromRect({ height: 36, width: 200, y: top });
+      });
+    const setScrollTop = vi
+      .spyOn(HTMLElement.prototype, "scrollTop", "set")
+      .mockImplementation((value) => scrolled.push(value));
+    const scrollPage = vi.spyOn(window, "scrollTo");
+
+    try {
+      render(
+        <UIProvider router={{ pathname: "/reports", search: "" }}>
+          <DrawerProvider storageKey={null}>
+            <Drawer
+              items={[
+                { href: "/", label: "Home" },
+                { href: "/reports", label: "Reports" },
+              ]}
+            />
+          </DrawerProvider>
+        </UIProvider>,
+      );
+
+      expect(scrolled).toHaveLength(1);
+      expect(scrolled[0]).toBeGreaterThan(0);
+      expect(scrollPage).not.toHaveBeenCalled();
+    } finally {
+      rects.mockRestore();
+      setScrollTop.mockRestore();
+      scrollPage.mockRestore();
+    }
+  });
+});
+
+describe("DrawerProvider shortcut", () => {
+  it("toggles the drawer - not while typing", async () => {
+    const user = userEvent.setup();
+    render(
+      <DrawerProvider shortcut="ctrl+b" storageKey={null}>
+        <input aria-label="Name" />
+        <Drawer items={[{ href: "/", label: "Home" }]} />
+      </DrawerProvider>,
+    );
+
+    const drawer = screen.getByRole("navigation", { name: "Main navigation" });
+    await user.keyboard("{Control>}b{/Control}");
+    expect(drawer).toHaveClass("cui-drawer-collapsed");
+
+    await user.click(screen.getByRole("textbox", { name: "Name" }));
+    await user.keyboard("{Control>}b{/Control}");
+    expect(drawer).toHaveClass("cui-drawer-collapsed");
+
+    await user.click(document.body);
+    await user.keyboard("{Control>}b{/Control}");
+    expect(drawer).not.toHaveClass("cui-drawer-collapsed");
   });
 });
 
@@ -494,6 +784,57 @@ describe("Drawer slid in on a phone", () => {
     expect(screen.getByRole("navigation", { hidden: true })).toHaveAttribute(
       "inert",
     );
+  });
+
+  it("slides out before an action opens a dialog - the focus returns to the toggle", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        addEventListener: () => {},
+        matches: true,
+        media: query,
+        removeEventListener: () => {},
+      })),
+    );
+
+    function WithAction() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <Toggle />
+          <Drawer
+            items={[
+              { href: "/users", label: "Users" },
+              { label: "Feedback", onClick: () => setOpen(true) },
+            ]}
+          />
+          <Dialog onClose={() => setOpen(false)} open={open} title="Feedback">
+            <input aria-label="Message" />
+          </Dialog>
+        </>
+      );
+    }
+
+    render(
+      <UIProvider router={{ pathname: "/", search: "" }}>
+        <DrawerProvider storageKey={null}>
+          <WithAction />
+        </DrawerProvider>
+      </UIProvider>,
+    );
+
+    const toggle = screen.getByRole("button", { name: "Menu" });
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: "Feedback" }));
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
+    expect(screen.getByRole("navigation", { hidden: true })).toHaveAttribute(
+      "inert",
+    );
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(toggle).toHaveFocus();
   });
 
   it("stays open on the Escape that ends an IME composition", async () => {

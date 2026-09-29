@@ -4,9 +4,9 @@ import DocPage, { Prose, Section } from "../../components/doc-page";
 import Example from "../../components/example";
 import PropsTable from "../../components/props-table";
 
-const layout = `import { AppShell, Drawer, Navbar, type DrawerItem } from "components-ui";
+const layout = `import { AppShell, Drawer, Navbar, type DrawerMenuEntry } from "components-ui";
 
-const menuItems: DrawerItem[] = [
+const menuItems: DrawerMenuEntry[] = [
   { href: "/orders", label: "Orders" },
   { href: "/customers", label: "Customers" },
 ];
@@ -36,8 +36,32 @@ export function Layout({ children, onLogout, user }: LayoutProps) {
   );
 }`;
 
+const entries = `const items: DrawerMenuEntry[] = [
+  { href: "/inbox", icon: <Inbox size={18} />, label: "Inbox", badge: unread || undefined },
+  {
+    type: "section",
+    label: "Administration",
+    // Hidden with all its items when the user may see none of them
+    items: [
+      canManageUsers && { href: "/admin/users", label: "Users" },
+      canManageRoles && { href: "/admin/roles", label: "Roles" },
+    ],
+  },
+  { type: "separator" },
+  // No href - a button that only calls onClick
+  { icon: <Search size={18} />, label: "Search", onClick: openSearch },
+];`;
+
+const slots = `<Drawer
+  items={items}
+  // A function renders while the drawer is collapsed too
+  header={({ isCollapsed }) => (isCollapsed ? <LogoMark /> : <Logo />)}
+  // A plain node is hidden while collapsed
+  footer={<StorageUsage />}
+/>`;
+
 const custom = `// The pieces on their own - the navbar and main must follow the drawer as siblings
-<DrawerProvider>
+<DrawerProvider shortcut="mod+b">
   <Drawer items={items} />
   <Navbar />
   <main>{children}</main>
@@ -58,11 +82,16 @@ export default function AppShellPage() {
             collapsed state. Of items that link to the same path with different
             queries (<code>/tasks?filter=mine</code>,{" "}
             <code>/tasks?filter=all</code>) it marks the one whose query the
-            page has. Collapsed to icons, a group shows its items in a popover
-            on hover or keyboard focus, and Enter moves the focus into it; an
-            item without an icon shows the first letter of its label. On phones
-            the drawer slides in as a modal dialog. Try the toggle in the navbar
-            and the user menu. (These docs use the same components.)
+            page has; a closed group with the current page is marked in its
+            place. Items can have a badge, sit in sections under a heading and
+            be separated by lines, and a footer stays below the scrolling menu.
+            Collapsed to icons, an item shows its name in a tooltip and a group
+            its items in a popover beside the drawer, on hover or keyboard focus
+            - Enter moves the focus into it; an item without an icon shows the
+            first letter of its label, a badge is a dot. On phones the drawer
+            slides in as a modal dialog. Try the toggle in the navbar and the
+            user menu. (These docs use the same components - their drawer
+            collapses with ⌘B / Ctrl+B.)
           </p>
         }
         name="app-shell/demo"
@@ -71,6 +100,29 @@ export default function AppShellPage() {
 
       <Section title="Usage">
         <CodeBlock code={layout} />
+        <Prose>
+          <p>
+            Besides items and their groups, the menu takes{" "}
+            <code>{`{ type: "section" }`}</code> items under a heading - the
+            heading names their list for screen readers, and becomes a line
+            while the drawer is collapsed - and{" "}
+            <code>{`{ type: "separator" }`}</code> lines, of which none is shown
+            at an end or twice in a row. A <code>badge</code> is read after the
+            label ("Inbox 12"). An item with <code>onClick</code> and no{" "}
+            <code>href</code> is a button, e.g. to open a search or a dialog -
+            on phones the drawer slides out first, and the dialog gives the
+            focus back to the toggle of the navbar.
+          </p>
+        </Prose>
+        <CodeBlock code={entries} />
+        <Prose>
+          <p>
+            <code>header</code> and <code>footer</code> are hidden while the
+            drawer is collapsed; given as a function, they render in both
+            states:
+          </p>
+        </Prose>
+        <CodeBlock code={slots} />
         <Prose>
           <p>
             <code>AppShell</code> provides the drawer state itself. To place the
@@ -82,12 +134,18 @@ export default function AppShellPage() {
         <CodeBlock code={custom} />
         <Prose>
           <p>
-            <code>useDrawer()</code> reads and toggles the state from anywhere
-            inside. The widths come from the CSS variables{" "}
-            <code>--drawer-width</code> (240px) and{" "}
+            <code>drawerShortcut</code> of <code>AppShell</code> (
+            <code>shortcut</code> of <code>DrawerProvider</code>) toggles the
+            drawer with a key, e.g. <code>"mod+b"</code> - not while the user
+            types in a field, nor under a modal dialog; the toggle of the navbar
+            shows it in its tooltip. <code>useDrawer()</code> reads and toggles
+            the state from anywhere inside. The widths come from the CSS
+            variables <code>--drawer-width</code> (240px) and{" "}
             <code>--drawer-collapsed-width</code> (64px). Rendered on the
             server, the drawer stays out of sight on phones until the page has
             hydrated, and the remembered collapsed state is applied right after.
+            A page opened by its address scrolls the menu - not the page - to
+            its item when that is out of sight.
           </p>
           <p>
             For screen readers the drawer is the navigation landmark of the app,
@@ -129,6 +187,7 @@ export default function AppShellPage() {
         <PropsTable of="AppShell" />
         <PropsTable of="Drawer" />
         <PropsTable of="DrawerItem" />
+        <PropsTable of="DrawerSection" />
         <PropsTable of="Navbar" />
         <PropsTable of="NavbarUser" />
         <PropsTable of="DrawerState" title="useDrawer()" />

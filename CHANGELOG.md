@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.2.4
+
+The Drawer does more of what the side navigations of other libraries do -
+sections, badges, a footer, actions, a shortcut - and looks the part.
+
+### Upgrading
+
+- **Drawer** - collapsed to icons, an item shows its name in a tooltip
+  beside it (at once on keyboard focus) in place of the `title` of the
+  browser, and the popover of a group opens beside the drawer, no longer
+  below the group over the items after it. The collapsed menu has less
+  padding, so the items reach the edge of the drawer.
+- **Drawer** - the current page is `primary-50` with `primary-700` text
+  (a translucent `primary-900` with `primary-300` in the dark), so that it
+  no longer looks like a hovered item; a closed group with the current page
+  is written in the primary color, the icon of a collapsed one is marked
+  like the page. The focus ring shows on keyboard focus only.
+- **Drawer** - nested items stand beside a guide line under the icon of
+  their group, each level indented further (the second level and deeper had
+  the indent of the first); the current page marks its part of the line.
+  Groups slide open and closed by height. Their chevron is gray.
+
+### New features
+
+- **Drawer** - `{ type: "section", label, items }` puts items under a
+  heading, which names their list and becomes a line while collapsed; a
+  section without visible items is hidden. `{ type: "separator" }` draws a
+  line - none at an end of the menu or twice in a row. The entries of the
+  top level are `DrawerMenuEntry`.
+- **Drawer** - `badge` on an item shows a count or a status at its end
+  ("Inbox 12", read after the label), a dot on the icon while collapsed.
+- **Drawer** - `onClick` on an item; without `href` the item is a button,
+  e.g. to open a search or a dialog. On phones the drawer slides out first,
+  and a dialog it opens gives the focus back to the toggle of the navbar.
+- **Drawer** - `footer` stays below the scrolling menu. `header` and
+  `footer` given as a function render while collapsed too:
+  `({ isCollapsed }) => (isCollapsed ? <LogoMark /> : <Logo />)`.
+- **Drawer** - the menu scrolls to the current page when it is out of sight
+  (a page opened by its address, reached from a search) - the page itself
+  does not scroll.
+- **DrawerProvider** - `shortcut` (`drawerShortcut` of `AppShell`) toggles
+  the drawer with a key, e.g. `"mod+b"`, as `useHotkeys` does. The toggle
+  of the **Navbar** shows it in a tooltip and has `aria-keyshortcuts`;
+  `useDrawer()` gives it as `shortcut`.
+
+### Documentation
+
+- AppShell: the demo shows sections, badges, an action, a footer and a
+  logo mark while collapsed; the docs drawer collapses with ⌘B / Ctrl+B and
+  keeps its logo mark.
+
 ## 0.2.3
 
 Tabs look like tabs - the active one underlined on a line under the bar -
