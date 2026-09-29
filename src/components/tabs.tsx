@@ -264,27 +264,28 @@ const skeletonWidths = ["w-16", "w-20", "w-24", "w-28", "w-32"];
 // Size variants
 const sizeVariants = {
   sm: {
-    container: "gap-0.5 p-0.5",
-    tab: "gap-1.5 px-3 py-0.5 text-[13.5px]",
+    container: "gap-0.5",
+    tab: "gap-1.5 px-3 py-1 text-[13.5px]",
     verticalTab: "gap-1.5 px-3 py-1 text-[13.5px]",
-    skeleton: "px-2 py-1",
+    skeleton: "px-3 py-2.5",
   },
   md: {
-    container: "gap-1 p-1",
-    tab: "gap-2 px-4 py-0.5 text-sm",
+    container: "gap-1",
+    tab: "gap-2 px-4 py-1.5 text-sm",
     verticalTab: "gap-2 px-3 py-1.5 text-sm",
-    skeleton: "px-4 py-2",
+    skeleton: "px-4 py-3",
   },
   lg: {
-    container: "gap-1.5 p-1.5",
-    tab: "gap-2 px-5 py-0.5 text-base",
+    container: "gap-1.5",
+    tab: "gap-2 px-5 py-2 text-base",
     verticalTab: "gap-2.5 px-4 py-2 text-base",
-    skeleton: "px-6 py-3",
+    skeleton: "px-5 py-4",
   },
 };
 
 /**
- * A segmented tab bar with an animated indicator. Tabs are either links
+ * A tab bar on a line, the active tab underlined by an animated indicator -
+ * marked on the start side in a vertical one. Tabs are either links
  * (`href`, active by the current URL) or buttons (`value` + `onChange`);
  * button tabs are one tab stop, the arrow keys (and Home / End) select the
  * next one. Horizontal, or `vertical` in a column.
@@ -361,7 +362,7 @@ export default function Tabs({
       return;
     }
 
-    // Skip the first child if it's the animated background indicator
+    // Skip the first child if it's the animated indicator
     const tabElements = Array.from(list.children).filter(
       (child) => child.tagName === "LI",
     ) as HTMLElement[];
@@ -497,8 +498,9 @@ export default function Tabs({
       ? ["w-full text-start", sizeClasses.verticalTab]
       : sizeClasses.tab,
   );
+  // Inset - the scrolling bar would cut off a ring around the tab
   const focusClassName =
-    "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500";
+    "focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500";
 
   const fadeMask = getFadeMask(overflow);
 
@@ -533,24 +535,35 @@ export default function Tabs({
         role={isLinkList || loading ? undefined : "tablist"}
         {...props}
         className={cn(
-          "relative rounded-md bg-background dark:bg-background-dark",
-          isVertical ? "flex flex-col" : "inline-flex whitespace-nowrap",
+          "relative border-neutral-200 dark:border-neutral-800",
+          // The line runs under the whole bar - past the last tab too
+          isVertical
+            ? "flex flex-col border-s"
+            : "flex w-max min-w-full border-b whitespace-nowrap",
           sizeClasses.container,
           className,
         )}
         ref={listRef}
       >
-        {/* Animated background indicator */}
+        {/* Animated indicator - over the line, under or beside the tab */}
         {!loading && activeTabBounds && (
           <div
             aria-hidden="true"
-            className="absolute rounded-md bg-surface shadow transition-all duration-300 ease-in-out motion-reduce:transition-none dark:bg-surface-dark"
-            style={{
-              height: `${activeTabBounds.height}px`,
-              left: `${activeTabBounds.left}px`,
-              top: `${activeTabBounds.top}px`,
-              width: `${activeTabBounds.width}px`,
-            }}
+            className={cn(
+              "absolute rounded-full bg-primary-600 transition-all duration-300 ease-in-out motion-reduce:transition-none dark:bg-primary-400",
+              isVertical ? "-start-px w-0.5" : "-bottom-px h-0.5",
+            )}
+            style={
+              isVertical
+                ? {
+                    height: `${activeTabBounds.height}px`,
+                    top: `${activeTabBounds.top}px`,
+                  }
+                : {
+                    left: `${activeTabBounds.left}px`,
+                    width: `${activeTabBounds.width}px`,
+                  }
+            }
           />
         )}
 
@@ -559,7 +572,7 @@ export default function Tabs({
             Array.from({ length: loadingTabsCount }).map((_, index) => (
               <li
                 aria-hidden="true"
-                className={cn("rounded-md", sizeClasses.skeleton)}
+                className={sizeClasses.skeleton}
                 key={`skeleton-${index}`}
               >
                 <Skeleton
@@ -585,8 +598,9 @@ export default function Tabs({
               return (
                 <li
                   className={cn(
-                    "relative z-10 rounded-md transition-colors duration-200",
+                    "relative z-10 transition-colors duration-200",
                     item.disabled && "opacity-50",
+                    isActive && "text-primary-600 dark:text-primary-400",
                     !isActive && "text-neutral-500 dark:text-neutral-400",
                     !isActive &&
                       !item.disabled &&

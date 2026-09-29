@@ -31,7 +31,7 @@ export default function SegmentedControlPage() {
       <Example
         description={
           <p>
-            <code>size</code> matches the sizes of <code>Tabs</code>;{" "}
+            <code>size</code> sets the height and text size of the options;{" "}
             <code>fullWidth</code> stretches the bar and shares its width among
             the options. Options can be <code>disabled</code> one by one or all
             at once.

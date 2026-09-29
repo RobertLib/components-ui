@@ -1,9 +1,10 @@
 import {
+  Activity,
   CreditCard,
   FileText,
   History,
-  LayoutGrid,
-  List,
+  Info,
+  MessageSquare,
   Paperclip,
 } from "lucide-react";
 import { useState } from "react";
@@ -12,7 +13,7 @@ import DemoRouter from "../../lib/demo-router";
 
 export default function IconTabs() {
   const [tab, setTab] = useState("overview");
-  const [view, setView] = useState("list");
+  const [panel, setPanel] = useState("comments");
 
   return (
     <div className="space-y-4">
@@ -43,22 +44,27 @@ export default function IconTabs() {
 
       {/* Icons alone - the names stay for screen readers */}
       <Tabs
-        aria-label="View"
+        aria-label="Side panel"
         items={[
           {
-            icon: <List size={16} />,
-            label: <span className="sr-only">List</span>,
-            value: "list",
+            icon: <MessageSquare size={16} />,
+            label: <span className="sr-only">Comments</span>,
+            value: "comments",
           },
           {
-            icon: <LayoutGrid size={16} />,
-            label: <span className="sr-only">Grid</span>,
-            value: "grid",
+            icon: <Activity size={16} />,
+            label: <span className="sr-only">Activity</span>,
+            value: "activity",
+          },
+          {
+            icon: <Info size={16} />,
+            label: <span className="sr-only">Details</span>,
+            value: "details",
           },
         ]}
-        onChange={setView}
+        onChange={setPanel}
         size="sm"
-        value={view}
+        value={panel}
       />
 
       {/* A disabled link tab has no href - nothing opens it */}

@@ -446,7 +446,7 @@ export const groups: DocsGroup[] = [
         "tabs",
         "Tabs",
         () => import("./pages/components/tabs"),
-        "tablist vertical segmented",
+        "tablist vertical",
       ),
       component(
         "breadcrumbs",

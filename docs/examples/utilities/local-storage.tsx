@@ -1,4 +1,4 @@
-import { Button, Tabs, useLocalStorage } from "components-ui";
+import { Button, SegmentedControl, useLocalStorage } from "components-ui";
 
 type OrdersView = "table" | "cards" | "calendar";
 
@@ -11,14 +11,14 @@ export default function LocalStorage() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
-        <Tabs
+        <SegmentedControl
           aria-label="View of the orders"
-          items={[
+          onChange={setView}
+          options={[
             { label: "Table", value: "table" },
             { label: "Cards", value: "cards" },
             { label: "Calendar", value: "calendar" },
           ]}
-          onChange={(value) => setView(value as OrdersView)}
           value={view}
         />
         <Button onClick={resetView} size="sm" variant="ghost">

@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import DocPage, { Prose, Section } from "../../components/doc-page";
 import Example from "../../components/example";
 import PropsTable from "../../components/props-table";
@@ -48,8 +49,8 @@ export default function TabsPage() {
           <p>
             <code>icon</code> is shown before the label - any icon, e.g. from
             lucide-react. A tab with the icon alone keeps its name for screen
-            readers in a visually hidden label, like the view switcher here:{" "}
-            <code>{'label: <span className="sr-only">Grid</span>'}</code>. A{" "}
+            readers in a visually hidden label, like the side panel here:{" "}
+            <code>{'label: <span className="sr-only">Details</span>'}</code>. A{" "}
             <code>disabled</code> tab is dimmed: it cannot be selected and the
             arrow keys skip it. A disabled link tab has no <code>href</code> -
             nothing opens it, and Tab skips it too.
@@ -87,6 +88,12 @@ export default function TabsPage() {
 
       <Section title="Notes">
         <Prose>
+          <p>
+            Tabs switch between sections of content - the pages of a record, the
+            panels of a settings page. To pick one of a few values that only
+            change what the content shows - a view, a period, a language - use a{" "}
+            <Link to="/components/segmented-control">SegmentedControl</Link>.
+          </p>
           <p>
             Do not mix link and value items in one bar. Value tabs have{" "}
             <code>role="tab"</code> in a <code>tablist</code> and are one tab

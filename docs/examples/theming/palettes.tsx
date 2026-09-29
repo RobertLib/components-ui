@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { Alert, Button, Chip, Progress, Switch, Tabs } from "components-ui";
+import {
+  Alert,
+  Button,
+  Chip,
+  Progress,
+  SegmentedControl,
+  Switch,
+} from "components-ui";
 
 // Overriding the tokens on an element re-colors everything inside it.
 // In an app do it once in CSS: @theme { --color-primary-500: …; }
@@ -41,12 +48,13 @@ export default function Palettes() {
 
   return (
     <div className="space-y-5">
-      <Tabs
-        items={Object.keys(palettes).map((name) => ({
+      <SegmentedControl
+        aria-label="Palette"
+        onChange={(value) => setPalette(value as Palette)}
+        options={Object.keys(palettes).map((name) => ({
           label: name,
           value: name,
         }))}
-        onChange={(value) => setPalette(value as Palette)}
         value={palette}
       />
       <div

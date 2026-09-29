@@ -5,8 +5,8 @@ import {
   getBaseError,
   getFieldError,
   Input,
+  SegmentedControl,
   Select,
-  Tabs,
   useSnackbar,
 } from "components-ui";
 import { people } from "../../mocks/data";
@@ -52,15 +52,16 @@ export default function ServerErrors() {
 
   return (
     <div className="max-w-md space-y-4">
-      <Tabs
-        items={[
+      <SegmentedControl
+        aria-label="Backend"
+        onChange={(value) => {
+          setBackend(value);
+          setError(null);
+        }}
+        options={[
           { label: "REST", value: "rest" },
           { label: "GraphQL", value: "graphql" },
         ]}
-        onChange={(value) => {
-          setBackend(value as Backend);
-          setError(null);
-        }}
         size="sm"
         value={backend}
       />

@@ -6,7 +6,7 @@ import {
   DateTimePicker,
   en,
   Pagination,
-  Tabs,
+  SegmentedControl,
   UIProvider,
 } from "components-ui";
 
@@ -36,13 +36,14 @@ export default function Switcher() {
 
   return (
     <div className="space-y-5">
-      <Tabs
-        items={[
+      <SegmentedControl
+        aria-label="Locale"
+        onChange={setName}
+        options={[
           { label: "English", value: "en" },
           { label: "Čeština", value: "cs" },
           { label: "Deutsch (custom)", value: "de" },
         ]}
-        onChange={(value) => setName(value as keyof typeof locales)}
         value={name}
       />
       <UIProvider locale={locales[name]}>

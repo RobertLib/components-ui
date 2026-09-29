@@ -10,8 +10,8 @@ import {
   IconButton,
   Navbar,
   removeDiacritics,
+  SegmentedControl,
   Spinner,
-  Tabs,
   Tooltip,
   useColorScheme,
   type ColorScheme,
@@ -89,13 +89,13 @@ function Settings() {
         position="bottom"
         title="Language of the components in the examples"
       >
-        <Tabs
+        <SegmentedControl
           aria-label="Component language"
-          items={[
+          onChange={setLocaleName}
+          options={[
             { label: "EN", value: "en" },
             { label: "CS", value: "cs" },
           ]}
-          onChange={(value) => setLocaleName(value as "en" | "cs")}
           size="sm"
           value={localeName}
         />

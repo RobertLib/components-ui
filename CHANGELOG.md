@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.3
+
+Tabs look like tabs - the active one underlined on a line under the bar -
+and no longer like the segments of `SegmentedControl`.
+
+### Upgrading
+
+- **Tabs** - a line runs under the whole bar (beside a vertical one, on its
+  start side) and the active tab has the primary color and an underline
+  that slides to the next one - a line on the start side in a vertical bar -
+  in place of the white segment on a gray background. A horizontal bar
+  fills the width of its container, so that the line runs past the last
+  tab; it is no longer `inline-flex`. The tabs keep their height, the bar is
+  one pixel taller for the line. The focus ring is inset - the scrolling
+  bar would cut off one around the tab. A bar that picks one of a few
+  values - a view, a period, a language - belongs in a `SegmentedControl`.
+
+### Documentation
+
+- The switchers of the docs that pick a value are `SegmentedControl`s: the
+  language of the examples in the header, the palette on Theming, the
+  locale on Localization, REST / GraphQL on Forms & validation and the view
+  of the orders on Hooks & utilities.
+- Tabs: when to use a `SegmentedControl` instead; the icon-only example is
+  a side panel, the sizes example shows sections. The search no longer
+  finds Tabs by "segmented", and SegmentedControl no longer says its sizes
+  match those of Tabs.
+
 ## 0.2.2
 
 A third review of the whole library, area by area - what it found is fixed
