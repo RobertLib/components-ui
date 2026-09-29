@@ -39,6 +39,14 @@ describe("Slider", () => {
     expect(slider).toHaveAttribute("tabindex", "0");
   });
 
+  it("is named by aria-label alone, without a reference to a missing element", () => {
+    render(<Slider aria-label="Volume" defaultValue={50} />);
+
+    const slider = screen.getByRole("slider", { name: "Volume" });
+    expect(slider).toHaveAttribute("aria-label", "Volume");
+    expect(slider).not.toHaveAttribute("aria-labelledby");
+  });
+
   it("writes the value as the locale does, or as formatValue says", () => {
     render(
       <UIProvider locale={cs}>

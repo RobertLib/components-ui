@@ -417,7 +417,7 @@ export default function RichTextEditorPage() {
             </p>
           }
           name="rich-text-editor/read-only"
-          title="Read-only"
+          title="Read-only editor"
         />
       </Section>
 

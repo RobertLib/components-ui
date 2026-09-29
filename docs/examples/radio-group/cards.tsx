@@ -32,7 +32,7 @@ export default function Cards() {
       <RadioGroup
         columns={3}
         label="Plan"
-        name="plan"
+        name="subscription"
         onChange={(event) => setPlan(event.target.value)}
         options={plans}
         value={plan}
@@ -43,7 +43,7 @@ export default function Cards() {
           defaultValue="standard"
           dim="sm"
           label="Shipping (small, vertical)"
-          name="shipping"
+          name="delivery"
           options={[
             {
               description: "2 - 3 business days, free",

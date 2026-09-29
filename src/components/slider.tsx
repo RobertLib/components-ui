@@ -669,10 +669,12 @@ export default function Slider<T extends SliderValue = number>({
     node instanceof Node && !!controlRef.current?.contains(node);
 
   // The name of the slider - of both thumbs of a range, each with a word
-  // of its own after it (a hidden element, so `aria-label` joins it too)
+  // of its own after it (a hidden element, so `aria-label` joins it too).
+  // A single thumb takes `aria-label` as it is.
   const nameId = label
     ? labelId
-    : (ariaLabelledBy ?? (ariaLabel ? `${sliderId}-name` : undefined));
+    : (ariaLabelledBy ??
+      (isRange && ariaLabel ? `${sliderId}-name` : undefined));
   const thumbNameIds = [`${sliderId}-start`, `${sliderId}-end`];
 
   const labeledMarks = (marks ?? []).filter(
