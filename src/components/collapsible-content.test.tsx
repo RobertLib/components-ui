@@ -116,6 +116,64 @@ describe("CollapsibleContent", () => {
     act(() => vi.advanceTimersByTime(100));
     expect(container).toHaveTextContent("");
   });
+
+  it.each([0, 100, 600])(
+    "finishes opening after the duration changes to %i ms",
+    (duration) => {
+      vi.useFakeTimers();
+      const content = (isOpen: boolean, duration: number) => (
+        <CollapsibleContent duration={duration} id="content" isOpen={isOpen}>
+          Details
+        </CollapsibleContent>
+      );
+      const { container, rerender } = render(content(false, 300));
+      rerender(content(true, 300));
+      act(() => vi.advanceTimersByTime(50));
+      rerender(content(true, duration));
+      act(() => vi.advanceTimersByTime(1000));
+
+      const element = container.querySelector<HTMLElement>("#content")!;
+      expect(element).not.toHaveAttribute("hidden");
+      expect(element.style.height).toBe("auto");
+      expect(element.style.overflow).toBe("");
+    },
+  );
+
+  it.each([false, true])(
+    "finishes closing after the duration changes with keepMounted=%s",
+    (keepMounted) => {
+      vi.useFakeTimers();
+      const content = (isOpen: boolean, duration: number) => (
+        <CollapsibleContent
+          duration={duration}
+          id="content"
+          isOpen={isOpen}
+          keepMounted={keepMounted}
+        >
+          Details
+        </CollapsibleContent>
+      );
+      const { container, rerender } = render(content(true, 300));
+      rerender(content(false, 300));
+      act(() => vi.advanceTimersByTime(50));
+      rerender(content(false, 100));
+      act(() => vi.advanceTimersByTime(1000));
+
+      if (keepMounted) {
+        expect(container.querySelector("#content")).toHaveAttribute("hidden");
+      } else {
+        expect(container).toBeEmptyDOMElement();
+      }
+
+      // Reopening still restores the content's natural height.
+      rerender(content(true, 100));
+      act(() => vi.advanceTimersByTime(200));
+      const element = container.querySelector<HTMLElement>("#content")!;
+      expect(element).not.toHaveAttribute("hidden");
+      expect(element.style.height).toBe("auto");
+      expect(element.style.overflow).toBe("");
+    },
+  );
 });
 
 describe("CollapsibleContent with keepMounted", () => {

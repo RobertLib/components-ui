@@ -1,13 +1,12 @@
 import type { DayRange } from "../datetime-picker/day-grid";
 import type { WeekDay } from "../../i18n/types";
+import { formatMessage } from "../../i18n/format";
 import {
-  addDays,
   dateOf,
   formatDate,
   isSameDay,
   parseISODate,
   shiftDay,
-  startOfWeek,
   toISODate,
 } from "../../utils/date";
 import {
@@ -197,6 +196,17 @@ export const isSameRange = (a: DayRange, b: DayRange) =>
 export const formatRange = ({ end, start }: DayRange, pattern: string) =>
   `${formatDate(start, pattern)}${RANGE_SEPARATOR}${formatDate(end, pattern)}`;
 
+/** The form validity message for a range outside its allowed day counts. */
+export const getRangeLengthMessage = (
+  range: DayRange | null,
+  limits: RangeLimits,
+  pattern: string,
+  outOfRangeText: string,
+) =>
+  range && !hasAllowedLength(range, limits)
+    ? formatMessage(outOfRangeText, { text: formatRange(range, pattern) })
+    : "";
+
 /**
  * The days of a built-in preset, counted from `today`: the "last" days end
  * with today, a week starts on `weekStartsOn`, and "this" week, month and
@@ -209,23 +219,28 @@ export function getPresetRange(
 ): DayRange {
   const year = today.getFullYear();
   const month = today.getMonth();
-  const weekStart = startOfWeek(today, weekStartsOn);
+  const intoWeek = (today.getDay() - weekStartsOn + 7) % 7;
+  // Derive each week's boundary from its calendar day. A week starting on
+  // a day whose midnight is skipped starts at 1:00, but still ends at the
+  // midnight of its own last day.
+  const weekDay = (offset: number) =>
+    dateOf(year, month, today.getDate() - intoWeek + offset);
 
   switch (key) {
     case "today":
       return { end: today, start: today };
     case "yesterday": {
-      const yesterday = addDays(today, -1);
+      const yesterday = shiftDay(today, -1);
       return { end: yesterday, start: yesterday };
     }
     case "last7Days":
-      return { end: today, start: addDays(today, -6) };
+      return { end: today, start: shiftDay(today, -6) };
     case "last30Days":
-      return { end: today, start: addDays(today, -29) };
+      return { end: today, start: shiftDay(today, -29) };
     case "thisWeek":
-      return { end: addDays(weekStart, 6), start: weekStart };
+      return { end: weekDay(6), start: weekDay(0) };
     case "lastWeek":
-      return { end: addDays(weekStart, -1), start: addDays(weekStart, -7) };
+      return { end: weekDay(-1), start: weekDay(-7) };
     case "thisMonth":
       return { end: dateOf(year, month + 1, 0), start: dateOf(year, month, 1) };
     case "lastMonth":

@@ -3,14 +3,7 @@ import {
   useFieldsetDisabled,
   useFormReset,
 } from "../hooks/use-form-control";
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
@@ -115,7 +108,8 @@ export interface SliderProps<T extends SliderValue = number> extends Omit<
   /**
    * Called with the value once a change is done - the pointer released,
    * or a key pressed. For work too heavy for every step of a drag, like
-   * loading data.
+   * loading data. A drag canceled by changed limits or interaction
+   * settings, or by hiding the slider, does not call it.
    */
   onChangeEnd?: (value: T) => void;
   /** Called when the focus moves into the thumbs. */
@@ -170,6 +164,13 @@ function countDecimals(value: number) {
 }
 
 /**
+ * `value` to `decimals` places - zero, not the -0 that a value just below
+ * it (-0.9 + 3 × 0.3) rounds to, which would show and submit as "-0".
+ */
+const roundTo = (value: number, decimals: number) =>
+  Number(value.toFixed(decimals)) || 0;
+
+/**
  * `value` on the nearest step from `min` - without the noise of floating
  * point arithmetic (0.1 + 0.2).
  */
@@ -180,8 +181,24 @@ function snapToStep(
   decimals: number,
 ) {
   if (!(step > 0)) return value;
-  const snapped = min + Math.round((value - min) / step) * step;
-  return Number(snapped.toFixed(decimals));
+  return roundTo(min + Math.round((value - min) / step) * step, decimals);
+}
+
+/** The nearest step inside an upper or lower bound. */
+function stepInsideBound(
+  bound: number,
+  min: number,
+  step: number,
+  decimals: number,
+  upper: boolean,
+) {
+  if (!(step > 0)) return bound;
+  // The noise of the division (0.3 / 0.1 = 2.9999999999999996) is no step
+  const position = (bound - min) / step;
+  const steps = upper
+    ? Math.floor(position + 1e-9)
+    : Math.ceil(position - 1e-9);
+  return roundTo(min + steps * step, decimals);
 }
 
 /**
@@ -189,10 +206,8 @@ function snapToStep(
  * input: a `max` off the steps (10 with steps of 3) is not reached.
  */
 function lastStepOf(max: number, min: number, step: number, decimals: number) {
-  if (!(step > 0) || max <= min) return max;
-  // The noise of the division (0.3 / 0.1 = 2.9999999999999996) is no step
-  const steps = Math.floor((max - min) / step + 1e-9);
-  return Math.min(max, Number((min + steps * step).toFixed(decimals)));
+  if (max <= min) return max;
+  return Math.min(max, stepInsideBound(max, min, step, decimals, true));
 }
 
 const isRtl = (element: Element) =>
@@ -235,6 +250,16 @@ function capturePointer(element: Element, pointerId: number) {
   }
 }
 
+function releasePointer(element: Element, pointerId: number) {
+  try {
+    if (element.hasPointerCapture?.(pointerId)) {
+      element.releasePointerCapture(pointerId);
+    }
+  } catch {
+    // A pointer that is gone already
+  }
+}
+
 interface PointerFollower {
   /** The pointer moved, still pressed. */
   onMove: (clientX: number, clientY: number) => void;
@@ -257,15 +282,16 @@ function followPointer(
   event: React.PointerEvent,
   { onEnd, onEscape, onMove }: PointerFollower,
 ) {
-  const { pointerId } = event;
+  const { currentTarget, pointerId } = event;
   // The moves and the release come to the slider even off it
-  capturePointer(event.currentTarget, pointerId);
+  capturePointer(currentTarget, pointerId);
 
   const stop = () => {
     document.removeEventListener("pointermove", handleMove);
     document.removeEventListener("pointerup", handleUp);
     document.removeEventListener("pointercancel", handleCancel);
     window.removeEventListener("keydown", handleKeyDown, true);
+    releasePointer(currentTarget, pointerId);
   };
 
   function handleMove(moveEvent: PointerEvent) {
@@ -405,7 +431,11 @@ export default function Slider<T extends SliderValue = number>({
         ? [shown[0], shown[1]]
         : [shown]
   )
-    .map((thumbValue) => clamp(thumbValue, min, max))
+    .map((thumbValue) => {
+      const clamped = clamp(thumbValue, min, max);
+      // A -0 of the parent is 0 too - it would show and submit as "-0"
+      return clamped === 0 ? 0 : clamped;
+    })
     .sort((a, b) => a - b);
 
   const decimals = Math.max(countDecimals(step), countDecimals(min));
@@ -472,14 +502,39 @@ export default function Slider<T extends SliderValue = number>({
   };
 
   // Where a thumb may go - the thumbs of a range keep `minDistance` apart.
-  // Thumbs closer than that already (a `value` of the parent) may move
-  // apart, but never jump away from where they are.
+  // Round the distance bounds inward onto the steps, so clamping cannot
+  // introduce an off-step value. Thumbs closer than that already (a `value`
+  // of the parent) may move apart, but never jump away from where they are.
   const boundsOf = (index: number): [number, number] =>
     !isRange
       ? [min, max]
       : index === 0
-        ? [min, Math.max(values[1] - minDistance, values[0])]
-        : [Math.min(values[0] + minDistance, values[1]), max];
+        ? [
+            min,
+            Math.max(
+              stepInsideBound(
+                values[1] - minDistance,
+                min,
+                step,
+                decimals,
+                true,
+              ),
+              values[0],
+            ),
+          ]
+        : [
+            Math.min(
+              stepInsideBound(
+                values[0] + minDistance,
+                min,
+                step,
+                decimals,
+                false,
+              ),
+              values[1],
+            ),
+            max,
+          ];
 
   /** Moves a thumb to `target` - returns the new values, `null` for no change. */
   const moveThumb = (index: number, target: number) => {
@@ -514,7 +569,17 @@ export default function Slider<T extends SliderValue = number>({
 
   const stopDrag = useRef<(() => void) | null>(null);
 
-  useEffect(() => () => stopDrag.current?.(), []);
+  // Changed limits or settings invalidate the geometry and rollback values
+  // of the gesture. Cancel it without another change. Activity hiding also
+  // runs layout cleanups: clear its retained visual state before showing it.
+  useLayoutEffect(
+    () => () => {
+      stopDrag.current?.();
+      stopDrag.current = null;
+      setDraggedIndex(null);
+    },
+    [isRange, locked, max, min, minDistance, orientation, step],
+  );
 
   const getThumb = (index: number) =>
     railRef.current?.querySelectorAll<HTMLElement>("[role='slider']")[index];
@@ -895,7 +960,7 @@ export default function Slider<T extends SliderValue = number>({
                       "pointer-events-none absolute rounded bg-neutral-900 px-1.5 py-0.5 text-xs font-medium whitespace-nowrap text-white tabular-nums opacity-0 transition-opacity motion-reduce:transition-none dark:bg-neutral-100 dark:text-neutral-900",
                       vertical
                         ? // Away from the labels of the marks
-                          "end-full top-1/2 me-2 -translate-y-1/2"
+                          "inset-e-full top-1/2 me-2 -translate-y-1/2"
                         : "bottom-full left-1/2 mb-2 -translate-x-1/2",
                       valueLabel === "always" || isDragged
                         ? "opacity-100"
@@ -930,7 +995,7 @@ export default function Slider<T extends SliderValue = number>({
               ))}
               {labeledMarks.map((mark) => (
                 <span
-                  className="absolute start-0 translate-y-1/2 whitespace-nowrap"
+                  className="absolute inset-s-0 translate-y-1/2 whitespace-nowrap"
                   key={mark.value}
                   style={{ bottom: `${percent(clamp(mark.value, min, max))}%` }}
                 >

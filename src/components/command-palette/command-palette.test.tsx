@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { renderToString } from "react-dom/server";
@@ -272,6 +272,51 @@ describe("CommandPalette", () => {
     expect(getActiveOption()).toHaveTextContent("Customers");
   });
 
+  it.each([false, true])(
+    "scrolls keyboard-highlighted commands into view (shadow root: %s)",
+    (useShadowRoot) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = useShadowRoot ? host.attachShadow({ mode: "open" }) : host;
+      const portalRoot = document.createElement("div");
+      root.append(portalRoot);
+      const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+      const { unmount } = render(
+        <UIProvider portalContainer={portalRoot}>
+          <CommandPalette defaultOpen items={createItems().items} />
+        </UIProvider>,
+      );
+
+      try {
+        const palette = within(portalRoot);
+        const search = palette.getByRole("combobox");
+        const logOut = palette.getByRole("option", { name: "Log out" });
+        fireEvent.keyDown(search, { key: "End" });
+        expect(logOut).toHaveAttribute("aria-selected", "true");
+        expect(scrollIntoView.mock.contexts.at(-1)).toBe(logOut);
+        expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
+
+        scrollIntoView.mockClear();
+        const customers = palette.getByRole("option", { name: "Customers" });
+        fireEvent.keyDown(search, { key: "Home" });
+        expect(customers).toHaveAttribute("aria-selected", "true");
+        expect(scrollIntoView.mock.contexts).toEqual([
+          customers.previousElementSibling,
+          customers,
+        ]);
+
+        scrollIntoView.mockClear();
+        const invoices = palette.getByRole("option", { name: "Invoices" });
+        fireEvent.keyDown(search, { key: "ArrowDown" });
+        expect(invoices).toHaveAttribute("aria-selected", "true");
+        expect(scrollIntoView.mock.contexts).toEqual([invoices]);
+      } finally {
+        unmount();
+        host.remove();
+      }
+    },
+  );
+
   it("runs the highlighted item with Enter and closes", async () => {
     const user = userEvent.setup();
     const { items, newInvoice } = createItems();
@@ -424,6 +469,87 @@ describe("CommandPalette", () => {
     ).toHaveLength(2);
     expect(screen.getAllByRole("option")[0]).toHaveTextContent("All people");
     expect(screen.getByRole("status")).toHaveTextContent("2 results");
+  });
+
+  it("drops loaded commands when loading is disabled and waits for fresh ones when enabled again", async () => {
+    const user = userEvent.setup();
+    const oldAction = vi.fn();
+    const loadItems = async () => [
+      { id: "old", label: "Old command", onSelect: oldAction },
+    ];
+    const { rerender } = render(
+      <CommandPalette defaultOpen loadItems={loadItems} />,
+    );
+    expect(
+      await screen.findByRole("option", { name: "Old command" }),
+    ).toBeInTheDocument();
+
+    rerender(<CommandPalette defaultOpen />);
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(oldAction).not.toHaveBeenCalled();
+
+    let finish!: (items: CommandPaletteItem[]) => void;
+    const pending = new Promise<CommandPaletteItem[]>((resolve) => {
+      finish = resolve;
+    });
+    rerender(<CommandPalette defaultOpen loadItems={() => pending} />);
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading…");
+    await act(async () => finish([{ id: "new", label: "New command" }]));
+    expect(
+      screen.getByRole("option", { name: "New command" }),
+    ).toBeInTheDocument();
+  });
+
+  it("aborts a removed loader and ignores its late results", async () => {
+    let finish!: (items: CommandPaletteItem[]) => void;
+    let signal!: AbortSignal;
+    const pending = new Promise<CommandPaletteItem[]>((resolve) => {
+      finish = resolve;
+    });
+    const { rerender } = render(
+      <CommandPalette
+        defaultOpen
+        loadItems={(_, options) => {
+          signal = options.signal;
+          return pending;
+        }}
+      />,
+    );
+
+    rerender(
+      <CommandPalette
+        defaultOpen
+        items={[{ id: "local", label: "Local command" }]}
+      />,
+    );
+    expect(signal.aborted).toBe(true);
+    await act(async () => finish([{ id: "late", label: "Late command" }]));
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(
+      screen.getByRole("option", { name: "Local command" }),
+    ).toBeInTheDocument();
+  });
+
+  it("forgets a failed query when loading is disabled", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { rerender } = render(
+      <CommandPalette
+        defaultOpen
+        loadItems={async () => {
+          throw new Error("Offline");
+        }}
+      />,
+    );
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    rerender(<CommandPalette defaultOpen />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    rerender(
+      <CommandPalette defaultOpen loadItems={() => new Promise(() => {})} />,
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading…");
   });
 
   it("aborts the loading of an outdated search", async () => {

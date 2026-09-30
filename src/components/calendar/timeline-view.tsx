@@ -258,6 +258,14 @@ export default function TimelineView({
     announce,
     describe: (event, display) =>
       timeLabel({ allDay: event.allDay, ...display }),
+    events,
+    geometryKey: JSON.stringify([
+      axis,
+      rowResources,
+      SLOT_WIDTH,
+      minDate,
+      maxDate,
+    ]),
     onEventDrop,
     onEventResize,
     scrollRef,
@@ -286,6 +294,14 @@ export default function TimelineView({
     to: slotFrom(last) + SLOT_DURATION,
   });
 
+  const timeRangeLimits = {
+    from: START_HOUR * 60,
+    to: END_HOUR * 60,
+    businessHours: restrictToBusinessHours ? business : null,
+  };
+  const getTimeRange = (range: SlotRange) =>
+    toTimeRange(range, timeRangeLimits);
+
   // A slot that can be picked - of an enabled day, in the working hours
   // with `restrictToBusinessHours`
   const isSlotPickable = (slotIndex: number) => {
@@ -295,7 +311,8 @@ export default function TimelineView({
       !disabled &&
       (business === null ||
         !restrictToBusinessHours ||
-        isBusinessTime(business, day, from, from + SLOT_DURATION))
+        isBusinessTime(business, day, from, from + SLOT_DURATION)) &&
+      getTimeRange({ day, from, to: from + SLOT_DURATION }) !== null
     );
   };
 
@@ -320,23 +337,37 @@ export default function TimelineView({
     ) {
       to++;
     }
+    while (!getTimeRange(slotRange(rowIndex, from, to))) {
+      if (to > anchor) to--;
+      else if (from < anchor) from++;
+      else return null;
+    }
     return slotRange(rowIndex, from, to);
   };
 
   const pickSlot = (rowIndex: number, slotIndex: number) => {
-    const { day } = slotDay(slotIndex);
-    const range = toTimeRange(slotRange(rowIndex, slotIndex, slotIndex));
+    const range = getTimeRange(slotRange(rowIndex, slotIndex, slotIndex));
+    if (!range) return;
     const resource = rows[rowIndex].resource;
     if (resource) {
       onDateClick?.(range.start, resource.id);
     } else {
-      onDateClick?.(isSameDay(range.start, day) ? range.start : day);
+      onDateClick?.(range.start);
     }
   };
 
+  // Pointer and keyboard ranges belong to the same days, resources and limits.
+  const slotGeometryKey = JSON.stringify([
+    axis,
+    rowResources,
+    SLOT_WIDTH,
+    minDate,
+    maxDate,
+    restrictToBusinessHours && business ? [...business] : null,
+  ]);
   const { handleSlotDragStart, slotDragState } = useSlotDrag({
     axis: "x",
-    endHour: END_HOUR,
+    geometryKey: slotGeometryKey,
     // The working hours around the first slot
     getBounds:
       business !== null && restrictToBusinessHours
@@ -358,7 +389,7 @@ export default function TimelineView({
     scrollRef,
     slotDurationMinutes: SLOT_DURATION,
     slotHeight: SLOT_WIDTH,
-    startHour: START_HOUR,
+    timeRangeLimits,
   });
 
   // Slots are picked with `onDateClick`, or they start a range
@@ -368,6 +399,7 @@ export default function TimelineView({
   // the time and down the resources, Shift + ← / → select a range
   const slotFocus = useSlotFocus({
     days: rows.length,
+    geometryKey: slotGeometryKey,
     gridRef,
     initialDay: 0,
     onActivate: (rowIndex, slotIndex) => {
@@ -375,13 +407,15 @@ export default function TimelineView({
       if (onDateClick) {
         pickSlot(rowIndex, slotIndex);
       } else {
-        onSlotDragEnd?.(toTimeRange(slotRange(rowIndex, slotIndex, slotIndex)));
+        const times = getTimeRange(slotRange(rowIndex, slotIndex, slotIndex));
+        if (times) onSlotDragEnd?.(times);
       }
     },
     onSelectRange: onSlotDragEnd
       ? (rowIndex, first, last, anchor) => {
           const range = pickableRange(rowIndex, anchor, first, last);
-          if (range) onSlotDragEnd(toTimeRange(range));
+          const times = range && getTimeRange(range);
+          if (times) onSlotDragEnd(times);
         }
       : undefined,
     orientation: "horizontal",
@@ -397,7 +431,7 @@ export default function TimelineView({
         selection.last,
       )
     : null;
-  const keyboardTimes = keyboardRange && toTimeRange(keyboardRange);
+  const keyboardTimes = keyboardRange && getTimeRange(keyboardRange);
   // The range dragged over the slots or selected with the keyboard
   const selectedRange = slotDragState ?? keyboardRange;
 
@@ -486,13 +520,15 @@ export default function TimelineView({
     rowIndex: number,
   ): React.ReactNode => {
     const display = getEventDisplayTimes(event);
+    const day = startOfDay(
+      event.allDay ? getAllDayRange(display).start : display.start,
+    );
     const dragging = isDragging(event.id);
     const clickable = isClickable(event);
     const color = getEventColor(event);
     // The events of a disabled day stay as they are
-    const onEnabledDay = !axis.days.find((item) =>
-      isSameDay(item.day, display.start),
-    )?.disabled;
+    const onEnabledDay = !axis.days.find((item) => isSameDay(item.day, day))
+      ?.disabled;
     const movable = !!onEventDrop && onEnabledDay;
     const resizable = !!onEventResize && !event.allDay && onEnabledDay;
     const keyMovable = movable || resizable;
@@ -521,13 +557,13 @@ export default function TimelineView({
         )}
         clickable={clickable}
         contentClassName="flex min-w-0 items-center"
-        eventDay={startOfDay(display.start)}
+        eventDay={day}
         eventId={event.id}
         handles={
           resizable && (
             <>
               <div
-                className={cn(handleClassName, "start-0")}
+                className={cn(handleClassName, "inset-s-0")}
                 onPointerDown={(e) =>
                   move.handleDragStart(
                     e,
@@ -538,7 +574,7 @@ export default function TimelineView({
                 }
               />
               <div
-                className={cn(handleClassName, "end-0")}
+                className={cn(handleClassName, "inset-e-0")}
                 onPointerDown={(e) =>
                   move.handleDragStart(
                     e,
@@ -561,7 +597,7 @@ export default function TimelineView({
             ? (e) =>
                 move.handleKeyDown(e, event, {
                   clickable,
-                  day: startOfDay(event.start),
+                  day,
                   getGeometry: (type) =>
                     (type === "move" && movable) ||
                     (type === "resize-end" && resizable)
@@ -653,7 +689,7 @@ export default function TimelineView({
           className="sticky top-0 z-20 flex border-b border-neutral-200 bg-surface dark:border-neutral-800 dark:bg-surface-dark"
           ref={headerRef}
         >
-          <div className="sticky start-0 z-10 w-40 shrink-0 border-e border-neutral-200 bg-surface dark:border-neutral-800 dark:bg-surface-dark" />
+          <div className="sticky inset-s-0 z-10 w-40 shrink-0 border-e border-neutral-200 bg-surface dark:border-neutral-800 dark:bg-surface-dark" />
           <div className="shrink-0" style={{ width: `${totalWidth}px` }}>
             <div className="flex">
               {axis.days.map((day) => {
@@ -683,7 +719,7 @@ export default function TimelineView({
                   >
                     {/* In view while the hours of the day scroll sideways -
                         beside the resource column */}
-                    <span className="sticky start-40 flex items-center gap-1.5">
+                    <span className="sticky inset-s-40 flex items-center gap-1.5">
                       <span className="font-medium">
                         {weekdayNames[day.day.getDay()]}
                       </span>
@@ -713,6 +749,7 @@ export default function TimelineView({
                       )}
                       <span className="text-xs text-neutral-600 dark:text-neutral-400">
                         {day.day.toLocaleString(toIntlLocale(locale.code), {
+                          calendar: "gregory",
                           month: "short",
                         })}
                       </span>
@@ -780,11 +817,11 @@ export default function TimelineView({
                 key={resource?.id ?? rowIndex}
                 style={{ height: `${height}px` }}
               >
-                <div className="sticky start-0 z-10 flex w-40 shrink-0 items-center border-e border-neutral-200 bg-surface px-2 dark:border-neutral-800 dark:bg-surface-dark">
+                <div className="sticky inset-s-0 z-10 flex w-40 shrink-0 items-center border-e border-neutral-200 bg-surface px-2 dark:border-neutral-800 dark:bg-surface-dark">
                   {resource && (
                     // Two lines at most - the whole name on hover
                     <div
-                      className="line-clamp-2 text-sm font-medium break-words"
+                      className="line-clamp-2 text-sm font-medium wrap-break-word"
                       title={resource.title}
                     >
                       {resource.color && (
@@ -855,11 +892,10 @@ export default function TimelineView({
                           pressType !== "mouse" &&
                           pressType !== "pen"
                         ) {
-                          onSlotDragEnd(
-                            toTimeRange(
-                              slotRange(rowIndex, slotIndex, slotIndex),
-                            ),
+                          const times = getTimeRange(
+                            slotRange(rowIndex, slotIndex, slotIndex),
                           );
+                          if (times) onSlotDragEnd(times);
                         }
                       };
 

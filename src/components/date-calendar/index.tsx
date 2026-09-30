@@ -165,20 +165,36 @@ export default function DateCalendar({
   // after a reset, it shows `defaultValue`
   const [entered, setEntered] = useState<string[]>();
   const isControlled = value !== undefined;
-  const days =
-    entered && !isControlled ? toDays(entered) : toDays(value ?? defaultValue);
+  const days = toDays(isControlled ? value : (entered ?? defaultValue));
   const keys = days.map(toISODate);
+  const selectionKey = keys.join(",");
+
+  // Keep the month of a local pick even when removing the first day. A
+  // parent's replacement of the selection follows its first day instead.
+  const [picked, setPicked] = useState<{
+    day: string;
+    selection: string;
+    pendingSelection: string | null;
+  } | null>(null);
+
+  if (picked && (!multiple || picked.selection !== selectionKey)) {
+    // A controlled parent may accept onChange on a later render. Consume
+    // that expected change once, so it cannot mask a later replacement.
+    setPicked(
+      multiple && picked.pendingSelection === selectionKey
+        ? { ...picked, pendingSelection: null, selection: selectionKey }
+        : null,
+    );
+  }
 
   const { disabled, wrapperRef } = useCalendarField({
     disabled: disabledProp,
     form,
-    onReset: () => setEntered(undefined),
+    onReset: () => {
+      setEntered(undefined);
+      setPicked(null);
+    },
   });
-
-  // With `multiple` the grid shows the first day until one is picked, then
-  // it stays where the picking goes on - removing the first day does not
-  // move it to the month of the next one
-  const [pickedDay, setPickedDay] = useState<string | null>(null);
 
   // The props are a union by `multiple` - `report` passes what it takes
   const report = onChange as ((value: string | string[]) => void) | undefined;
@@ -195,7 +211,11 @@ export default function DateCalendar({
     const next = keys.includes(key)
       ? keys.filter((picked) => picked !== key)
       : [...keys, key].sort();
-    setPickedDay(key);
+    setPicked({
+      day: key,
+      pendingSelection: next.join(","),
+      selection: selectionKey,
+    });
     if (!isControlled) setEntered(next);
     report?.(next);
   };
@@ -261,7 +281,7 @@ export default function DateCalendar({
         onSelect={pick}
         readOnly={readOnly}
         selected={
-          multiple && pickedDay ? parseISODate(pickedDay) : (days[0] ?? null)
+          multiple && picked ? parseISODate(picked.day) : (days[0] ?? null)
         }
         selection={multiple ? days : undefined}
       />

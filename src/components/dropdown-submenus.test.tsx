@@ -188,6 +188,127 @@ describe("Dropdown submenus from the keyboard", () => {
   });
 });
 
+describe("Dropdown submenus when entries change", () => {
+  const replacements: [string, DropdownEntry[]][] = [
+    ["removed", []],
+    ["changed to a command", [{ label: "Move to" }]],
+    [
+      "disabled",
+      [{ disabled: true, items: [{ label: "Inbox" }], label: "Move to" }],
+    ],
+    ["emptied", [{ items: [null, false], label: "Move to" }]],
+    [
+      "replaced by another submenu",
+      [{ items: [{ label: "PDF" }], label: "Export" }],
+    ],
+  ];
+
+  it.each(replacements)(
+    "returns focus to the menu when the submenu parent is %s",
+    async (_name, replacement) => {
+      const user = userEvent.setup();
+      const remove = vi.fn();
+      const renderDropdown = (entries: DropdownEntry[]) => (
+        <Dropdown
+          aria-label="Actions"
+          items={[...entries, { label: "Delete", onClick: remove }]}
+          trigger={<span>…</span>}
+        />
+      );
+      const { rerender } = render(
+        renderDropdown([{ items: [{ label: "Inbox" }], label: "Move to" }]),
+      );
+      screen.getByRole("button", { name: "Actions" }).focus();
+      await user.keyboard("{Enter}{ArrowRight}");
+      expect(screen.getByRole("menu", { name: "Move to" })).toHaveFocus();
+
+      rerender(renderDropdown(replacement));
+      await act(async () => {});
+
+      const menu = screen.getByRole("menu", { name: "Actions" });
+      expect(screen.getAllByRole("menu")).toHaveLength(1);
+      expect(menu).toHaveFocus();
+      expect(menu.querySelector("[aria-controls]")).toBeNull();
+      await user.keyboard("{End}{Enter}");
+      expect(remove).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("returns from a deeper submenu to the surviving root menu", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <Dropdown
+        aria-label="Actions"
+        items={menuItems()}
+        trigger={<span>…</span>}
+      />,
+    );
+    screen.getByRole("button", { name: "Actions" }).focus();
+    await user.keyboard("{Enter}{ArrowDown}{ArrowRight}{End}{ArrowRight}");
+    expect(screen.getByRole("menu", { name: "Older" })).toHaveFocus();
+
+    rerender(
+      <Dropdown
+        aria-label="Actions"
+        items={[{ label: "Edit" }]}
+        trigger={<span>…</span>}
+      />,
+    );
+    await act(async () => {});
+
+    const menu = screen.getByRole("menu", { name: "Actions" });
+    expect(menu).toHaveFocus();
+    expect(activeItem(menu)).toHaveTextContent("Edit");
+  });
+
+  it("does not take focus from a dialog when its submenu disappears", async () => {
+    const user = userEvent.setup();
+
+    function Page({ removeParent = false }: { removeParent?: boolean }) {
+      const [confirm, setConfirm] = useState(false);
+      return (
+        <>
+          <Dropdown
+            aria-label="Actions"
+            items={[
+              !removeParent && {
+                items: [
+                  {
+                    keepOpen: true,
+                    label: "Everything",
+                    onClick: () => setConfirm(true),
+                  },
+                ],
+                label: "Delete",
+              },
+              { label: "Edit" },
+            ]}
+            trigger={<span>…</span>}
+          />
+          <ConfirmDialog
+            onClose={() => setConfirm(false)}
+            onConfirm={() => setConfirm(false)}
+            open={confirm}
+            title="Delete everything?"
+          />
+        </>
+      );
+    }
+
+    const { rerender } = render(<Page />);
+    screen.getByRole("button", { name: "Actions" }).focus();
+    await user.keyboard("{Enter}{ArrowRight}{Enter}");
+    const focused = document.activeElement;
+    expect(screen.getByRole("alertdialog").contains(focused)).toBe(true);
+
+    rerender(<Page removeParent />);
+    await act(async () => {});
+
+    expect(focused).toHaveFocus();
+    expect(screen.getAllByRole("menu", { hidden: true })).toHaveLength(1);
+  });
+});
+
 describe("Dropdown submenus right to left", () => {
   afterEach(() => {
     document.documentElement.dir = "";

@@ -99,27 +99,27 @@ const placementClasses: Record<
 > = {
   "bottom-end": {
     circular:
-      "end-[14%] bottom-[14%] translate-x-1/2 translate-y-1/2 origin-bottom-right rtl:-translate-x-1/2 rtl:origin-bottom-left",
+      "inset-e-[14%] bottom-[14%] translate-x-1/2 translate-y-1/2 origin-bottom-right rtl:-translate-x-1/2 rtl:origin-bottom-left",
     rectangular:
-      "end-0 bottom-0 translate-x-1/2 translate-y-1/2 origin-bottom-right rtl:-translate-x-1/2 rtl:origin-bottom-left",
+      "inset-e-0 bottom-0 translate-x-1/2 translate-y-1/2 origin-bottom-right rtl:-translate-x-1/2 rtl:origin-bottom-left",
   },
   "bottom-start": {
     circular:
-      "start-[14%] bottom-[14%] -translate-x-1/2 translate-y-1/2 origin-bottom-left rtl:translate-x-1/2 rtl:origin-bottom-right",
+      "inset-s-[14%] bottom-[14%] -translate-x-1/2 translate-y-1/2 origin-bottom-left rtl:translate-x-1/2 rtl:origin-bottom-right",
     rectangular:
-      "start-0 bottom-0 -translate-x-1/2 translate-y-1/2 origin-bottom-left rtl:translate-x-1/2 rtl:origin-bottom-right",
+      "inset-s-0 bottom-0 -translate-x-1/2 translate-y-1/2 origin-bottom-left rtl:translate-x-1/2 rtl:origin-bottom-right",
   },
   "top-end": {
     circular:
-      "end-[14%] top-[14%] translate-x-1/2 -translate-y-1/2 origin-top-right rtl:-translate-x-1/2 rtl:origin-top-left",
+      "inset-e-[14%] top-[14%] translate-x-1/2 -translate-y-1/2 origin-top-right rtl:-translate-x-1/2 rtl:origin-top-left",
     rectangular:
-      "end-0 top-0 translate-x-1/2 -translate-y-1/2 origin-top-right rtl:-translate-x-1/2 rtl:origin-top-left",
+      "inset-e-0 top-0 translate-x-1/2 -translate-y-1/2 origin-top-right rtl:-translate-x-1/2 rtl:origin-top-left",
   },
   "top-start": {
     circular:
-      "start-[14%] top-[14%] -translate-x-1/2 -translate-y-1/2 origin-top-left rtl:translate-x-1/2 rtl:origin-top-right",
+      "inset-s-[14%] top-[14%] -translate-x-1/2 -translate-y-1/2 origin-top-left rtl:translate-x-1/2 rtl:origin-top-right",
     rectangular:
-      "start-0 top-0 -translate-x-1/2 -translate-y-1/2 origin-top-left rtl:translate-x-1/2 rtl:origin-top-right",
+      "inset-s-0 top-0 -translate-x-1/2 -translate-y-1/2 origin-top-left rtl:translate-x-1/2 rtl:origin-top-right",
   },
 };
 

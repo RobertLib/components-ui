@@ -337,6 +337,8 @@ export const en: Locale = {
         other: "Uploading {count} files…",
       },
       validationFailed: "The file could not be checked.",
+      waitForUpload: "Wait for the files to finish uploading.",
+      waitForValidation: "Wait for the files to be checked.",
     },
     form: {
       labelSuffix: ":",
@@ -361,6 +363,7 @@ export const en: Locale = {
     numberInput: {
       decrement: "Decrease",
       increment: "Increase",
+      invalidNumber: "Enter a number.",
       rangeOverflow: "Enter a value of {max} or less.",
       rangeUnderflow: "Enter a value of {min} or more.",
     },

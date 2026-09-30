@@ -160,7 +160,7 @@ export default function AvatarGroup({
               className={cn(
                 restClassName,
                 // Focused, its ring is on top of the avatar before it
-                "cursor-pointer focus:outline-hidden focus-visible:z-[9999] focus-visible:ring-primary-500",
+                "cursor-pointer focus:outline-hidden focus-visible:z-9999 focus-visible:ring-primary-500",
               )}
               type="button"
             >

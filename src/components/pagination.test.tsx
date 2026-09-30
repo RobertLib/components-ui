@@ -117,52 +117,120 @@ describe("Pagination of a cursor connection", () => {
     startCursor: "c1",
   };
 
-  it("waits after a move until the load it reports ends", async () => {
+  it("waits for the first page before allowing another cursor move", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
+    const laterPageInfo = {
+      ...pageInfo,
+      endCursor: "c60",
+      hasPreviousPage: true,
+      startCursor: "c41",
+    };
     const { rerender } = render(
-      <Pagination loading={false} onChange={onChange} pageInfo={pageInfo} />,
+      <Pagination
+        currentPage={3}
+        onChange={onChange}
+        pageInfo={laterPageInfo}
+      />,
     );
-    const next = screen.getByRole("button", { name: "Next page" });
 
-    await user.click(next);
-    // The old cursors would repeat the move
-    await user.click(next);
+    await user.click(screen.getByRole("button", { name: "First page" }));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    await user.click(screen.getByRole("button", { name: "First page" }));
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(next).toHaveAttribute("aria-disabled", "true");
-
-    // The load failed - the same page info, the move can be tried again
-    rerender(<Pagination loading onChange={onChange} pageInfo={pageInfo} />);
-    rerender(
-      <Pagination loading={false} onChange={onChange} pageInfo={pageInfo} />,
+    expect(onChange).toHaveBeenCalledWith("first");
+    expect(screen.getByRole("button", { name: "Next page" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
     );
-    expect(next).not.toHaveAttribute("aria-disabled");
-    await user.click(next);
+
+    // The response to the first-page request brings the first page's cursors.
+    rerender(<Pagination onChange={onChange} pageInfo={pageInfo} />);
+    await user.click(screen.getByRole("button", { name: "Next page" }));
     expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenLastCalledWith("next", "c20");
   });
 
-  it("does not wait for good without a loading state", async () => {
-    vi.useFakeTimers();
-    try {
+  it.each(["Next page", "First page"])(
+    "waits after %s until the load it reports ends",
+    async (buttonName) => {
+      const user = userEvent.setup();
       const onChange = vi.fn();
-      render(<Pagination onChange={onChange} pageInfo={pageInfo} />);
-      const next = screen.getByRole("button", { name: "Next page" });
+      const { rerender } = render(
+        <Pagination
+          currentPage={3}
+          loading={false}
+          onChange={onChange}
+          pageInfo={pageInfo}
+        />,
+      );
+      const next = screen.getByRole("button", { name: buttonName });
 
-      fireEvent.click(next);
-      fireEvent.click(next);
+      await user.click(next);
+      // The old cursors would repeat the move
+      await user.click(next);
       expect(onChange).toHaveBeenCalledTimes(1);
       expect(next).toHaveAttribute("aria-disabled", "true");
 
-      // The load failed and nothing said so - the page info stays
-      act(() => vi.advanceTimersByTime(10_000));
+      // The load failed - the same page info, the move can be tried again
+      rerender(
+        <Pagination
+          currentPage={3}
+          loading
+          onChange={onChange}
+          pageInfo={pageInfo}
+        />,
+      );
+      rerender(
+        <Pagination
+          currentPage={3}
+          loading={false}
+          onChange={onChange}
+          pageInfo={pageInfo}
+        />,
+      );
       expect(next).not.toHaveAttribute("aria-disabled");
-      fireEvent.click(next);
+      await user.click(next);
       expect(onChange).toHaveBeenCalledTimes(2);
-      expect(onChange).toHaveBeenLastCalledWith("next", "c20");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+    },
+  );
+
+  it.each(["Next page", "First page"])(
+    "%s does not wait for good without a loading state",
+    async (buttonName) => {
+      vi.useFakeTimers();
+      try {
+        const onChange = vi.fn();
+        render(
+          <Pagination
+            currentPage={3}
+            onChange={onChange}
+            pageInfo={pageInfo}
+          />,
+        );
+        const next = screen.getByRole("button", { name: buttonName });
+
+        fireEvent.click(next);
+        fireEvent.click(next);
+        expect(onChange).toHaveBeenCalledTimes(1);
+        expect(next).toHaveAttribute("aria-disabled", "true");
+
+        // The load failed and nothing said so - the page info stays
+        act(() => vi.advanceTimersByTime(10_000));
+        expect(next).not.toHaveAttribute("aria-disabled");
+        fireEvent.click(next);
+        expect(onChange).toHaveBeenCalledTimes(2);
+        if (buttonName === "First page") {
+          expect(onChange).toHaveBeenLastCalledWith("first");
+        } else {
+          expect(onChange).toHaveBeenLastCalledWith("next", "c20");
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 });
 
 describe("Pagination with numbered pages", () => {
@@ -416,6 +484,32 @@ describe("Pagination extras", () => {
     await user.click(screen.getByRole("button", { name: "Go" }));
     expect(onPageChange).toHaveBeenCalledTimes(2);
   });
+
+  it.each(["40", "0", "1.5"])(
+    "does not block the surrounding form with a jump value of %s",
+    async (value) => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn((event: React.FormEvent) =>
+        event.preventDefault(),
+      );
+      const onPageChange = vi.fn();
+      render(
+        <form onSubmit={onSubmit}>
+          <input defaultValue="Order" name="title" required />
+          <Pagination onPageChange={onPageChange} pageCount={12} showJumpTo />
+          <button type="submit">Save</button>
+        </form>,
+      );
+
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Go to page" }), {
+        target: { value },
+      });
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+      expect(onPageChange).not.toHaveBeenCalled();
+    },
+  );
 
   it("lays the extras out beside the list, with the class of the nav", () => {
     render(

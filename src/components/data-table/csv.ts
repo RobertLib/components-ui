@@ -57,7 +57,8 @@ function formatCsvNumber(localeCode: string, value: number) {
 
   if (!format) {
     format = new Intl.NumberFormat(toIntlLocale(localeCode), {
-      maximumFractionDigits: 20,
+      // Keep all significant digits, even below 1e-20 or in subnormal values.
+      maximumSignificantDigits: 21,
       useGrouping: false,
     });
     numberFormats.set(localeCode, format);

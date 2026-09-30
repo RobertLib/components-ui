@@ -1,10 +1,19 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import TreeView, { type TreeItem, type TreeViewProps } from ".";
 import type { LinkComponentProps } from "../../providers/router";
 import UIProvider from "../../providers/ui-provider";
+import { getActiveElement } from "../overlay-stack";
 
 const categories: TreeItem<string>[] = [
   {
@@ -61,6 +70,94 @@ function mockRightToLeft() {
 }
 
 describe("TreeView", () => {
+  it("preserves focus moved outside its shadow root during removal of the focused item", () => {
+    const host = document.createElement("div");
+    const outside = document.createElement("div");
+    document.body.append(host, outside);
+    onTestFinished(() => {
+      host.remove();
+      outside.remove();
+    });
+    const shadow = host.attachShadow({ mode: "open" });
+    const container = document.createElement("div");
+    shadow.append(container);
+    const items = [
+      { id: "first", label: "First" },
+      { id: "second", label: "Second" },
+    ];
+
+    function NextAction({ removed }: { removed: boolean }) {
+      const buttonRef = useRef<HTMLButtonElement>(null);
+      useLayoutEffect(() => {
+        if (removed) buttonRef.current?.focus();
+      }, [removed]);
+      return createPortal(<button ref={buttonRef}>Continue</button>, outside);
+    }
+
+    const tree = (removed: boolean) => (
+      <>
+        <NextAction removed={removed} />
+        <TreeView items={removed ? items.slice(0, 1) : items} />
+      </>
+    );
+    const { rerender } = render(tree(false), { container });
+    act(() =>
+      within(container).getByRole("treeitem", { name: "Second" }).focus(),
+    );
+
+    // The app deliberately moves the focus during the commit that removes
+    // the row; the tree must preserve it instead of focusing a replacement.
+    rerender(tree(true));
+    expect(getActiveElement()).toBe(
+      within(outside).getByRole("button", { name: "Continue" }),
+    );
+  });
+
+  it.each([false, true])(
+    "moves and restores the focus inside a shadow root (virtualized: %s)",
+    (virtualized) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      onTestFinished(() => host.remove());
+      const shadow = host.attachShadow({ mode: "open" });
+      const container = document.createElement("div");
+      shadow.append(container);
+      const items = Array.from({ length: 50 }, (_, index) => ({
+        id: index,
+        label: `Item ${index}`,
+      }));
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(
+        function (this: HTMLElement) {
+          return this.getAttribute("role") === "tree" ? 64 : 0;
+        },
+      );
+      const tree = (entries: typeof items) => (
+        <TreeView items={entries} virtualized={virtualized} />
+      );
+      const { rerender } = render(tree(items), { container });
+      const app = within(container);
+      const first = app.getByRole("treeitem", { name: "Item 0" });
+      act(() => first.focus());
+
+      fireEvent.keyDown(first, { composed: true, key: "ArrowDown" });
+      const second = app.getByRole("treeitem", { name: "Item 1" });
+      expect(getActiveElement(shadow)).toBe(second);
+      expect(first).toHaveAttribute("tabindex", "-1");
+
+      // End renders a distant row in a virtualized tree before focusing it.
+      fireEvent.keyDown(second, { composed: true, key: "End" });
+      expect(getActiveElement(shadow)).toBe(
+        app.getByRole("treeitem", { name: "Item 49" }),
+      );
+
+      // Removing the focused item keeps the focus on its replacement.
+      rerender(tree(items.slice(0, -1)));
+      expect(getActiveElement(shadow)).toBe(
+        app.getByRole("treeitem", { name: "Item 48" }),
+      );
+    },
+  );
+
   it("renders the top level as a named tree with positions and states", () => {
     renderTree();
 
@@ -78,6 +175,53 @@ describe("TreeView", () => {
     expect(item("Garden")).not.toHaveAttribute("aria-expanded");
     expect(item("Garden")).not.toHaveAttribute("data-state");
   });
+
+  it.each([false, true])(
+    "keeps arbitrary string and numeric ids independently named and keyboard reachable (virtualized: %s)",
+    async (virtualized) => {
+      const user = userEvent.setup();
+      const onSelectedChange = vi.fn();
+      const items: TreeItem[] = [
+        { id: "/a", label: "Slash and letter" },
+        { id: "\u02fa", label: "Unicode character" },
+        { id: "\u0000a", label: "Null and letter" },
+        { id: "\n", label: "Newline" },
+        { id: "\u0d800", label: "Unicode character and digit" },
+        { id: "\ud800", label: "Unpaired surrogate" },
+        { id: "_2fa", label: "Literal escape" },
+        { id: "a", label: "Plain id" },
+        { id: "a-label", label: "Label suffix in id" },
+        { id: 1, label: "Numeric id" },
+        { id: "1", label: "String id" },
+      ];
+      render(
+        <TreeView
+          items={items}
+          onSelectedChange={onSelectedChange}
+          virtualized={virtualized}
+        />,
+      );
+
+      const elements = items.map((entry) => item(entry.label));
+      const domIds = Array.from(
+        screen.getByRole("tree").querySelectorAll("[id]"),
+        (element) => element.id,
+      );
+      expect(new Set(domIds).size).toBe(domIds.length);
+
+      await user.tab();
+      expect(elements[0]).toHaveFocus();
+      for (const entry of items.slice(1)) {
+        await user.keyboard("{ArrowDown}");
+        expect(item(entry.label)).toHaveFocus();
+      }
+
+      await user.keyboard("{Enter}");
+      expect(onSelectedChange).toHaveBeenLastCalledWith(["1"]);
+      await user.keyboard("{ArrowUp}{Enter}");
+      expect(onSelectedChange).toHaveBeenLastCalledWith([1]);
+    },
+  );
 
   it("puts the children in a group the parent owns and names", async () => {
     const user = userEvent.setup();
@@ -646,6 +790,11 @@ describe("TreeView checkboxes", () => {
       await user.click(within(tree).getByRole("treeitem", { name: "Read" }));
     }
     act(() => (screen.getByTestId("form") as HTMLFormElement).reset());
+    await waitFor(() =>
+      expect(
+        within(trees[2]).getByRole("treeitem", { name: "Read" }),
+      ).toHaveAttribute("aria-checked", "false"),
+    );
 
     // What each item says is what its picture shows
     for (const row of screen.getAllByRole("treeitem")) {
@@ -816,7 +965,9 @@ describe("TreeView independent checkboxes", () => {
     ]);
 
     act(() => form.reset());
-    expect(new FormData(form).getAll("tags")).toEqual(["urgent"]);
+    await waitFor(() =>
+      expect(new FormData(form).getAll("tags")).toEqual(["urgent"]),
+    );
     expect(item("Status")).toHaveAttribute("aria-checked", "false");
   });
 });
@@ -1123,6 +1274,61 @@ describe("TreeView links", () => {
     expect(navigate).toHaveBeenLastCalledWith("/reports/sales");
     expect(navigate).toHaveBeenCalledTimes(2);
   });
+
+  it.each(["altKey", "ctrlKey", "metaKey", "shiftKey"] as const)(
+    "keeps %s when a click beside a link follows it without activating the item",
+    (modifier) => {
+      const navigate = vi.fn();
+      const onItemClick = vi.fn();
+      const onSelectedChange = vi.fn();
+      const onExpandedChange = vi.fn();
+      const linkClicks = vi.fn();
+      function Link({ href, onClick, ...props }: LinkComponentProps) {
+        return (
+          <a
+            {...props}
+            href={href}
+            onClick={(event) => {
+              onClick?.(event);
+              event.preventDefault();
+              linkClicks(event[modifier]);
+              if (
+                !event.altKey &&
+                !event.ctrlKey &&
+                !event.metaKey &&
+                !event.shiftKey
+              ) {
+                navigate(href);
+              }
+            }}
+          />
+        );
+      }
+      render(
+        <UIProvider router={{ Link, navigate, pathname: "/dashboard" }}>
+          <TreeView
+            items={navigation}
+            onExpandedChange={onExpandedChange}
+            onItemClick={onItemClick}
+            onSelectedChange={onSelectedChange}
+            selectionMode="single"
+          />
+        </UIProvider>,
+      );
+
+      const reports = item("Reports");
+      fireEvent.click(within(reports).getByRole("link"), { [modifier]: true });
+      fireEvent.click(reports, { [modifier]: true });
+
+      expect(linkClicks.mock.calls).toEqual([[true], [true]]);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(onItemClick).not.toHaveBeenCalled();
+      expect(onSelectedChange).not.toHaveBeenCalled();
+      expect(onExpandedChange).not.toHaveBeenCalled();
+      expect(reports).toHaveAttribute("aria-expanded", "false");
+      expect(reports).not.toHaveAttribute("aria-selected");
+    },
+  );
 
   it("marks only the current page of a tree of links by default", async () => {
     const user = userEvent.setup();
@@ -1562,11 +1768,13 @@ describe("TreeView in a form", () => {
     expect(new FormData(form).getAll("categories")).toContain("garden");
 
     act(() => form.reset());
-    expect(new FormData(form).getAll("categories")).toEqual([
-      "books",
-      "fiction",
-      "science",
-    ]);
+    await waitFor(() =>
+      expect(new FormData(form).getAll("categories")).toEqual([
+        "books",
+        "fiction",
+        "science",
+      ]),
+    );
     expect(item("Garden")).toHaveAttribute("aria-checked", "false");
   });
 
@@ -1600,6 +1808,100 @@ describe("TreeView in a form", () => {
     const form = screen.getByTestId("form") as HTMLFormElement;
     expect(new FormData(form).getAll("category")).toEqual([]);
     expect(item("Books")).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it.each([false, true])(
+    "follows a disabled fieldset (checkable: %s)",
+    async (checkable) => {
+      const onCheckedChange = vi.fn();
+      const onSelectedChange = vi.fn();
+      const onItemClick = vi.fn();
+      render(
+        <form aria-label="Role">
+          <fieldset disabled>
+            <TreeView
+              aria-label="Permissions"
+              checkable={checkable}
+              defaultChecked={["books"]}
+              defaultSelected={["books"]}
+              items={categories}
+              name="category"
+              onCheckedChange={onCheckedChange}
+              onItemClick={onItemClick}
+              onSelectedChange={onSelectedChange}
+            />
+          </fieldset>
+        </form>,
+      );
+      const form = screen.getByRole<HTMLFormElement>("form");
+      const fieldset = form.querySelector("fieldset")!;
+      const state = checkable ? "aria-checked" : "aria-selected";
+      expect(item("Books")).toHaveAttribute("aria-disabled", "true");
+      expect(item("Books")).toHaveAttribute(state, "true");
+      expect(new FormData(form).getAll("category")).toEqual([]);
+
+      // These are custom tree items, not native disabled fields. user-event
+      // suppresses their clicks inside a disabled fieldset; browsers do not.
+      fireEvent.click(item("Garden"));
+      fireEvent.keyDown(item("Garden"), { key: " " });
+      expect(item("Garden")).not.toHaveAttribute(state, "true");
+      expect(onCheckedChange).not.toHaveBeenCalled();
+      expect(onSelectedChange).not.toHaveBeenCalled();
+      expect(onItemClick).not.toHaveBeenCalled();
+
+      // Browsing remains possible, as with the tree's own disabled prop.
+      fireEvent.keyDown(item("Books"), { key: "ArrowRight" });
+      expect(item("Fiction")).toHaveAttribute("aria-disabled", "true");
+
+      await act(async () => {
+        fieldset.disabled = false;
+      });
+      expect(item("Garden")).not.toHaveAttribute("aria-disabled");
+      fireEvent.click(item("Garden"));
+      expect(item("Garden")).toHaveAttribute(state, "true");
+      expect(new FormData(form).getAll("category")).toContain("garden");
+
+      await act(async () => {
+        fieldset.disabled = true;
+      });
+      expect(item("Garden")).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(item("Garden"));
+      expect(item("Garden")).toHaveAttribute(state, "true");
+      expect(onItemClick).toHaveBeenCalledTimes(1);
+      expect(new FormData(form).getAll("category")).toEqual([]);
+    },
+  );
+
+  it("keeps the first legend's tree enabled unless its own prop disables it", () => {
+    const onCheckedChange = vi.fn();
+    const field = (disabled: boolean) => (
+      <form aria-label="Role">
+        <fieldset disabled>
+          <legend>
+            <TreeView
+              aria-label="Permissions"
+              checkable
+              disabled={disabled}
+              items={categories}
+              name="category"
+              onCheckedChange={onCheckedChange}
+            />
+          </legend>
+        </fieldset>
+      </form>
+    );
+    const { rerender } = render(field(false));
+    const form = screen.getByRole<HTMLFormElement>("form");
+    expect(item("Garden")).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(item("Garden"));
+    expect(onCheckedChange).toHaveBeenCalledWith(["garden"]);
+    expect(new FormData(form).getAll("category")).toEqual(["garden"]);
+
+    rerender(field(true));
+    expect(item("Garden")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(item("Garden"));
+    expect(onCheckedChange).toHaveBeenCalledTimes(1);
+    expect(new FormData(form).getAll("category")).toEqual([]);
   });
 });
 

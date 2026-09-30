@@ -229,7 +229,7 @@ export function TableHeader<T>({
 
   return (
     <header
-      className="sticky start-0 top-0 z-3 flex min-h-10 flex-wrap items-start justify-between gap-2 bg-surface p-2 pb-0 dark:bg-surface-dark"
+      className="sticky inset-s-0 top-0 z-3 flex min-h-10 flex-wrap items-start justify-between gap-2 bg-surface p-2 pb-0 dark:bg-surface-dark"
       ref={(element) => {
         headerRef.current = element;
         const detachRef = attachRef(ref, element);

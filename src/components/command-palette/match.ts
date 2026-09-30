@@ -9,29 +9,44 @@ export interface SearchableText {
   folded: string;
   /**
    * For every character of `folded`, the index of the character of `text`
-   * it comes from - folding may change the length.
+   * it comes from - folding may change the length, and the combining marks
+   * of a letter fold with it.
    */
   origin: number[];
   text: string;
 }
 
-const COMBINING_MARK = /\p{M}/u;
-const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
+// A character with the combining marks on it - an accent, the voicing mark
+// of a kana, the points of Hebrew. Folded together, as the search is: NFD
+// sorts the marks of a letter (a shadda typed before a fatha comes after
+// it), and a letter past U+FFFF is lowercased whole, not in halves. Marks
+// at the start of a text are on no character.
+const CHARACTER = /\P{M}\p{M}*|\p{M}+/gu;
+const CHARACTER_AT = /\P{M}\p{M}*|\p{M}+/uy;
+// A part of a word - a mark too: the voicing mark of a kana stays one when
+// folded
+const WORD_CHARACTER = /[\p{L}\p{M}\p{N}]/u;
 
 /** Prepares `text` for searching - see `SearchableText`. */
 export function toSearchable(text: string): SearchableText {
   let folded = "";
   const origin: number[] = [];
 
-  for (let index = 0; index < text.length; index++) {
-    const char = fold(text[index]);
-    for (let offset = 0; offset < char.length; offset++) {
-      folded += char[offset];
+  for (const { 0: char, index } of text.matchAll(CHARACTER)) {
+    const foldedChar = fold(char);
+    folded += foldedChar;
+    for (let offset = 0; offset < foldedChar.length; offset++) {
       origin.push(index);
     }
   }
 
   return { folded, origin, text };
+}
+
+/** Where the character at `index` of `text` ends - after its marks. */
+function endOfCharacter(text: string, index: number) {
+  CHARACTER_AT.lastIndex = index;
+  return CHARACTER_AT.test(text) ? CHARACTER_AT.lastIndex : index + 1;
 }
 
 /** The words of a search - folded like `SearchableText`, without empty ones. */
@@ -43,7 +58,11 @@ function startsAWord(folded: string, word: string) {
   let position = folded.indexOf(word);
 
   while (position !== -1) {
-    if (position === 0 || !LETTER_OR_DIGIT.test(folded[position - 1])) {
+    // The character before - a letter past U+FFFF whole, not its second half
+    const before = Array.from(
+      folded.slice(Math.max(position - 2, 0), position),
+    ).at(-1);
+    if (before === undefined || !WORD_CHARACTER.test(before)) {
       return true;
     }
     position = folded.indexOf(word, position + 1);
@@ -98,10 +117,9 @@ export function findMatchRanges(
     let position = folded.indexOf(word);
 
     while (position !== -1) {
-      let end = origin[position + word.length - 1] + 1;
-      // A combining mark after the last letter belongs to it - an accent,
-      // the voicing mark of a kana
-      while (end < text.length && COMBINING_MARK.test(text[end])) end++;
+      // The last letter with its marks - an accent, the voicing mark of a
+      // kana - and both halves of a letter past U+FFFF
+      const end = endOfCharacter(text, origin[position + word.length - 1]);
 
       ranges.push([origin[position], end]);
       position = folded.indexOf(word, position + word.length);

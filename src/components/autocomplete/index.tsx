@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useInsertionEffect,
   useMemo,
   useRef,
   useState,
@@ -15,6 +16,7 @@ import FormError from "../form-error";
 import HighlightedText from "../data-table/highlight";
 import logger from "../../utils/logger";
 import Popover from "../popover";
+import { getActiveElement, getElementByIdAt } from "../overlay-stack";
 import { foldSearchText } from "../../utils/remove-diacritics";
 import usePointerMoved from "../../hooks/use-pointer-moved";
 import Spinner from "../spinner";
@@ -78,7 +80,7 @@ export interface AutocompleteOption<T = AutocompleteValue> {
   value: T;
   /**
    * The item the option was created from - a loaded one, or a static one
-   * read by `getOptionLabel` / `getOptionValue`. `onChange` reports it.
+   * read by the default fields or option getters. `onChange` reports it.
    */
   data?: unknown;
   /** Shown in the list, but cannot be picked. */
@@ -98,6 +100,8 @@ export interface AutocompleteOption<T = AutocompleteValue> {
  * the group from `group`.
  */
 export interface AutocompleteItem {
+  /** Shown in the list, but cannot be picked. */
+  disabled?: boolean;
   /** The heading the item is listed under - see `AutocompleteOption`. */
   group?: string;
   /** The value, unless the item has a `value`. */
@@ -230,7 +234,9 @@ interface BaseAutocompleteProps<
    * `getOptionValue` - or `{ label, value }` for static options of that
    * shape; it may return a promise. The new option is selected (added in
    * multiple mode) and announced. An error thrown or rejected is shown in
-   * the list - its `message`, or a text of the locale.
+   * the list - its `message`, or a text of the locale. Resetting the form,
+   * or making another selection in single mode, ignores any pending
+   * creation and clears its status.
    */
   onCreate?: (
     search: string,
@@ -244,6 +250,7 @@ interface BaseAutocompleteProps<
    * The value is shown, focusable and submitted with the form, but cannot
    * be changed: the list does not open, and there is no clear button, no ×
    * on the chips. `aria-readonly` and `data-readonly` are on the combobox.
+   * Like a read-only native field, it is not checked by `required`.
    */
   readOnly?: boolean;
   /**
@@ -355,7 +362,10 @@ interface AsyncSourceProps<
   /** Called when `loadOptions` or `loadSelectedOptions` rejects. */
   onLoadError?: (error: unknown) => void;
   options?: never;
-  /** Items per page requested from `loadOptions`. */
+  /**
+   * Items per page requested from `loadOptions`. Changing it starts the
+   * list over from its first page.
+   */
   pageSize?: number;
   selectAll?: never;
 }
@@ -374,6 +384,8 @@ interface StaticSourceProps<
   onLoadError?: never;
   /**
    * The options, filtered by the typed term (ignoring case and diacritics).
+   * Items using the default fields of `AutocompleteItem` are converted to
+   * options; ready-made `label` / `value` options keep their own `data`.
    * With `getOptionLabel` / `getOptionValue` / `getOptionGroup` they can be
    * items of any shape (each is then its own `data`).
    */
@@ -440,8 +452,35 @@ function createOption<TItem extends object>(
         ? fallbackValue
         : String(fallbackValue ?? ""),
     data: item,
+    ...(record.disabled === true ? { disabled: true } : {}),
     ...(group ? { group } : {}),
   };
+}
+
+// Static items are read like loaded ones; ready-made options without
+// getters keep their identity and optional `data` payload.
+function normalizeStaticOption<TItem extends object>(
+  item: TItem | AutocompleteOption,
+  getOptionLabel?: (item: TItem) => string,
+  getOptionValue?: (item: TItem) => AutocompleteValue,
+  getOptionGroup?: (item: TItem) => string | null | undefined,
+): AutocompleteOption {
+  const option = item as AutocompleteOption;
+  if (
+    !getOptionLabel &&
+    !getOptionValue &&
+    !getOptionGroup &&
+    typeof option.label === "string" &&
+    (typeof option.value === "string" || typeof option.value === "number")
+  ) {
+    return option;
+  }
+  return createOption(
+    item as TItem,
+    getOptionLabel,
+    getOptionValue,
+    getOptionGroup,
+  );
 }
 
 /** A run of the listed options under one heading - or under none. */
@@ -785,6 +824,13 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   const [preloadedOptions, setPreloadedOptions] = useState<
     AutocompleteOption[]
   >([]);
+  // Options the lists for the current `loadOptionsDeps` have delivered, by
+  // value - typed text can name one before the list of its own search is
+  // there. Under other deps, the same label can be another option.
+  const [deliveredOptions, setDeliveredOptions] = useState<{
+    depsKey: string;
+    options: ReadonlyMap<string, AutocompleteOption>;
+  }>(() => ({ depsKey: "", options: new Map() }));
   // Values `loadSelectedOptions` has answered for - with their item or not
   const [settledValues, setSettledValues] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -796,6 +842,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   );
 
   // Selection of an uncontrolled field
+  const isControlled = value !== undefined;
   const [internalValues, setInternalValues] = useState(() =>
     toValues(defaultValue),
   );
@@ -809,6 +856,14 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     search: string;
   } | null>(null);
   const [createdMessage, setCreatedMessage] = useState("");
+  // A reset or a newer single selection makes an earlier creation obsolete,
+  // even if its promise cannot be canceled. A new one can start immediately.
+  const createVersion = useRef(0);
+  const cancelCreation = () => {
+    createVersion.current += 1;
+    setCreating(null);
+    setCreateError(null);
+  };
   // The focus is in the field - it shows all its chips then
   const [focused, setFocused] = useState(false);
   // The listbox, once its panel is rendered - virtualization follows the
@@ -822,6 +877,8 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // `form.reset()` - also the one after a React form action - brings back
   // the `defaultValue` of an uncontrolled field, like a native field does
   const formResetRef = useFormReset(() => {
+    cancelCreation();
+    setCreatedMessage("");
     setSearch(null);
     if (isControlled) return;
     setInternalValues(toValues(defaultValue));
@@ -858,7 +915,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     onLoadError,
   });
 
-  useEffect(() => {
+  useInsertionEffect(() => {
     callbacksRef.current = {
       getOptionGroup,
       getOptionLabel,
@@ -870,7 +927,6 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   });
 
   const isAsync = typeof loadOptions === "function";
-  const isControlled = value !== undefined;
   const selectedValues = isControlled ? toValues(value) : internalValues;
   // The props are a union by `multiple` - `commit` passes what the mode takes
   const reportChange = onChange as
@@ -902,14 +958,16 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     }
   }
 
-  // Static items of any shape are read like loaded ones
   const staticOptions = useMemo(
     () =>
-      options && (getOptionLabel || getOptionValue || getOptionGroup)
-        ? (options as TItem[]).map((item) =>
-            createOption(item, getOptionLabel, getOptionValue, getOptionGroup),
-          )
-        : (options as AutocompleteOption[] | undefined),
+      options?.map((item) =>
+        normalizeStaticOption(
+          item,
+          getOptionLabel,
+          getOptionValue,
+          getOptionGroup,
+        ),
+      ),
     [getOptionGroup, getOptionLabel, getOptionValue, options],
   );
 
@@ -934,21 +992,30 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   const isSelected = (option: AutocompleteOption) =>
     selectedKeys.has(valueKey(option.value));
 
-  // A selected option only the loaded list knows is kept - otherwise a search
-  // that drops it from the list would take its label (and chip) with it, or
-  // start a preload of the label mid-typing
-  const keptKeys = new Set(
-    [...preloadedOptions, ...pickedOptions].map((option) =>
+  // Keep the latest loaded version of each selected option - otherwise a
+  // search that drops it from the list would lose or restore an older label
+  // and item, or start a preload of the label mid-typing.
+  const keptOptions = new Map(
+    [...preloadedOptions, ...pickedOptions].map((option) => [
       valueKey(option.value),
-    ),
+      option,
+    ]),
   );
   const selectedToKeep = loadedOptions.filter((option) => {
     const key = valueKey(option.value);
-    return selectedKeys.has(key) && !keptKeys.has(key);
+    return selectedKeys.has(key) && keptOptions.get(key) !== option;
   });
 
   if (selectedToKeep.length > 0) {
-    setPickedOptions((prev) => [...prev, ...selectedToKeep]);
+    setPickedOptions((prev) => {
+      const next = new Map(
+        prev.map((option) => [valueKey(option.value), option]),
+      );
+      for (const option of selectedToKeep) {
+        next.set(valueKey(option.value), option);
+      }
+      return [...next.values()];
+    });
   }
 
   // Selected values whose items `loadSelectedOptions` is still to deliver -
@@ -1002,7 +1069,8 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       );
     };
 
-    loadSelected(values, { signal })
+    // The executor catches a synchronous throw too, just as loadPage does.
+    new Promise<TItem[]>((resolve) => resolve(loadSelected(values, { signal })))
       .then((items) => {
         if (signal.aborted) return;
 
@@ -1033,7 +1101,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // are no part of it - a phone keyboard adds one after a word it completes.
   const searchTerm = asSelect ? "" : (search ?? "").trim();
   const depsKey = JSON.stringify(loadOptionsDeps ?? []);
-  const requestKey = `${depsKey}\u0000${searchTerm}`;
+  // A different page size changes page boundaries too - the page counter,
+  // offset and cursor must start over rather than continue the old list.
+  const requestKey = `${depsKey}\u0000${pageSize}\u0000${searchTerm}`;
 
   // The list on screen belongs to an older search - it is being replaced
   const isStale = isAsync && open && listKey !== requestKey;
@@ -1056,6 +1126,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // The request in flight - a newer one aborts it, so that a slow response
   // cannot overwrite the results of a later one.
   const pendingRequest = useRef<AbortController | null>(null);
+  // Activity disconnects effects while preserving the list's state. A
+  // canceled request leaves that list incomplete and must be retried on reveal.
+  const interruptedRequest = useRef(false);
   // Items and pages received for the current list (offset / page params)
   const receivedCount = useRef(0);
   const loadedPages = useRef(0);
@@ -1080,6 +1153,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
       const controller = new AbortController();
       pendingRequest.current = controller;
+      interruptedRequest.current = false;
 
       if (append) {
         setLoadingMore(true);
@@ -1092,6 +1166,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
         setCursor(null);
         setHasMore(false);
         setLoadingFirstPage(true);
+        setLoadingMore(false);
         setListOutdated(false);
         // A failure of an earlier load of this list is no longer the news
         setFailedKey(null);
@@ -1145,6 +1220,17 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
           setLoadedOptions((prev) =>
             append ? [...prev, ...newOptions] : newOptions,
           );
+          // The key starts with the deps - JSON, which has no NUL of its own
+          const deps = key.slice(0, key.indexOf("\u0000"));
+          setDeliveredOptions((prev) => {
+            const options = new Map(
+              prev.depsKey === deps ? prev.options : undefined,
+            );
+            for (const option of newOptions) {
+              options.set(valueKey(option.value), option);
+            }
+            return { depsKey: deps, options };
+          });
           setCursor(normalized.nextCursor);
           // A page that brings nothing new ends the list - guards against an
           // API that ignores the paging parameters
@@ -1180,7 +1266,12 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   useEffect(
     () => () => {
       debouncedLoadPage.cancel();
-      pendingRequest.current?.abort();
+      const controller = pendingRequest.current;
+      if (controller) {
+        interruptedRequest.current = true;
+        pendingRequest.current = null;
+        controller.abort();
+      }
     },
     [debouncedLoadPage],
   );
@@ -1192,7 +1283,11 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   useEffect(() => {
     const isCurrent = listKey === requestKey;
 
-    if (!open || !isAsync || (isCurrent && !listOutdated)) {
+    if (
+      !open ||
+      !isAsync ||
+      (isCurrent && !listOutdated && !interruptedRequest.current)
+    ) {
       // A search still waiting for its debounce is outdated - the list
       // closed, or the term went back to the one on screen
       debouncedLoadPage.cancel();
@@ -1251,7 +1346,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
   // With `maxSelections` reached, only the selected options can be picked -
   // to remove them (and the empty option, which removes them all)
-  const selectionLimit = multiple && maxSelections ? maxSelections : undefined;
+  const selectionLimit = multiple ? maxSelections : undefined;
   const limitReached =
     selectionLimit !== undefined && selectedValues.length >= selectionLimit;
 
@@ -1480,11 +1575,15 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   };
 
   const commit = (
-    nextValues: AutocompleteValue[],
+    values: AutocompleteValue[],
     lookup: Map<string, AutocompleteOption> = knownOptions,
   ) => {
+    if (!multiple) cancelCreation();
     setInteracted(true);
 
+    // A single empty value clears the field, also when it came from an
+    // option - the same normalization as controlled and default values.
+    const nextValues = multiple ? values : toValues(values[0]);
     if (!isControlled) setInternalValues(nextValues);
 
     const items = nextValues.map(
@@ -1522,17 +1621,49 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     if (closeOnSelect) closeList();
   };
 
-  // The latest selection and `commit` for an option added once a promise
-  // resolves - the selection may have changed meanwhile
-  const latestRef = useRef({ commit, knownOptions, selectedValues });
-
-  useEffect(() => {
-    latestRef.current = { commit, knownOptions, selectedValues };
+  // The latest selection, limit and `commit` for an option added once a
+  // promise resolves - the selection or its limit may have changed meanwhile
+  const mountedRef = useRef(false);
+  const latestRef = useRef({
+    commit,
+    knownOptions,
+    selectedValues,
+    selectionLimit,
   });
 
-  const mountedRef = useRef(false);
+  useInsertionEffect(() => {
+    // Controlled values and synchronized defaults can change without a
+    // field event. They take precedence over a pending single creation too.
+    const previousValues = latestRef.current.selectedValues;
+    if (
+      !multiple &&
+      creating !== null &&
+      (selectedValues.length !== previousValues.length ||
+        selectedValues.some(
+          (selected, index) => !sameValue(selected, previousValues[index]),
+        ))
+    ) {
+      // Invalidate now, also when hidden. Insertion effects cannot update
+      // state, so clear the pending UI after this commit finishes.
+      const version = ++createVersion.current;
+      queueMicrotask(() => {
+        if (mountedRef.current && createVersion.current === version) {
+          setCreating(null);
+          setCreateError(null);
+        }
+      });
+    }
+    latestRef.current = {
+      commit,
+      knownOptions,
+      selectedValues,
+      selectionLimit,
+    };
+  });
 
-  useEffect(() => {
+  // Pending creation belongs to the field's actual lifetime: Activity can
+  // hide it while the promise settles, without discarding the outcome.
+  useInsertionEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
@@ -1546,6 +1677,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     if (!onCreate || creating !== null) return;
 
     const term = searchTerm;
+    const version = ++createVersion.current;
     setCreating(term);
     setCreateError(null);
     setCreatedMessage("");
@@ -1556,21 +1688,25 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       resolve(onCreate(term));
     })
       .then((created) => {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || createVersion.current !== version) return;
 
         // Read like the options of the field - static ones of the shape of
         // `options`, others by the `getOption…` functions
         const { getOptionGroup, getOptionLabel, getOptionValue } =
           callbacksRef.current;
-        const option =
-          isAsync || getOptionLabel || getOptionValue || getOptionGroup
-            ? createOption(
-                created as TItem,
-                getOptionLabel,
-                getOptionValue,
-                getOptionGroup,
-              )
-            : (created as AutocompleteOption);
+        const option = isAsync
+          ? createOption(
+              created as TItem,
+              getOptionLabel,
+              getOptionValue,
+              getOptionGroup,
+            )
+          : normalizeStaticOption(
+              created,
+              getOptionLabel,
+              getOptionValue,
+              getOptionGroup,
+            );
         const latest = latestRef.current;
         const lookup = new Map(latest.knownOptions).set(
           valueKey(option.value),
@@ -1586,6 +1722,8 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
         if (!multiple) {
           latest.commit([option.value], lookup);
         } else if (
+          (latest.selectionLimit === undefined ||
+            latest.selectedValues.length < latest.selectionLimit) &&
           !latest.selectedValues.some((selected) =>
             sameValue(selected, option.value),
           )
@@ -1607,8 +1745,8 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
         );
       })
       .catch((createFailure) => {
+        if (!mountedRef.current || createVersion.current !== version) return;
         logger.error("Failed to add the option", createFailure);
-        if (!mountedRef.current) return;
 
         setCreateError({
           message: getErrorMessage(
@@ -1619,7 +1757,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
         });
       })
       .finally(() => {
-        if (mountedRef.current) setCreating(null);
+        if (mountedRef.current && createVersion.current === version) {
+          setCreating(null);
+        }
       });
   };
 
@@ -1666,6 +1806,8 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     } else {
       if (selectedValues.length !== 1 || !isSelected(option)) {
         commit([option.value], lookup);
+      } else {
+        cancelCreation();
       }
       setSearch(null);
       setOpen(false);
@@ -1684,8 +1826,27 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // `null` while the field shows its value - and the option it names, which
   // it stands for then
   const typedText = allowCustomValue && search !== null ? search.trim() : null;
+  // The option is looked for in the list of the typed term - until it is
+  // there (loading, or failed), among the options known already: the
+  // selected ones and those the lists for these deps delivered, filtered as
+  // the list would be. How fast the user types does not decide the value.
+  const typedCandidates = () => {
+    if (
+      !isAsync ||
+      (listKey === requestKey && !loadingFirstPage && !loadFailed)
+    ) {
+      return filteredOptions;
+    }
+    const known = [
+      ...selectedOptions,
+      ...(deliveredOptions.depsKey === depsKey
+        ? deliveredOptions.options.values()
+        : []),
+    ];
+    return filterOptions ? filterOptions(known, searchTerm) : known;
+  };
   const typedOption = typedText
-    ? filteredOptions.find((option) => !option.disabled && namesTerm(option))
+    ? typedCandidates().find((option) => !option.disabled && namesTerm(option))
     : undefined;
 
   // Takes the typed text as the value - the option it names, or the text
@@ -1729,7 +1890,10 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   const leftWindow = useRef<{ open: boolean } | null>(null);
 
   const handleComboboxBlur = (event: React.FocusEvent) => {
-    const windowLeft = document.activeElement === event.currentTarget;
+    const windowLeft =
+      getActiveElement(
+        event.currentTarget.getRootNode() as Document | ShadowRoot,
+      ) === event.currentTarget;
     leftWindow.current = windowLeft ? { open } : null;
 
     // The focus left the field - not only the window
@@ -1767,8 +1931,13 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
   // The button goes away with the value - the focus on it moves to the input
   const handleClear = (button: HTMLElement) => {
-    if (button === document.activeElement) focusInput();
+    if (
+      button === getActiveElement(button.getRootNode() as Document | ShadowRoot)
+    ) {
+      focusInput();
+    }
     if (selectedValues.length > 0) commit([]);
+    else if (!multiple) cancelCreation();
     setSearch(null);
   };
 
@@ -1782,7 +1951,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       loadPage(requestKey, searchTerm, true, cursor, false);
     } else if (loadMore) {
       setLoadingMore(true);
-      loadMore()
+      // A synchronous throw is a failed load too - the loading flag must
+      // clear so that the next scroll can retry it.
+      new Promise<void>((resolve) => resolve(loadMore()))
         .catch((loadError) =>
           logger.error("Failed to load more options", loadError),
         )
@@ -1879,9 +2050,10 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
     let frame = 0;
     const reveal = (framesWaited: number) => {
+      const content = popoverContentRef.current;
       const option =
-        activeIndex >= 0
-          ? document.getElementById(optionId(activeIndex))
+        activeIndex >= 0 && content
+          ? getElementByIdAt(content, optionId(activeIndex))
           : null;
 
       if (option) {
@@ -1903,7 +2075,8 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     const headed = sections.some(
       (section) => section.start === index && section.label !== undefined,
     );
-    const option = document.getElementById(optionId(index));
+    const content = popoverContentRef.current;
+    const option = content ? getElementByIdAt(content, optionId(index)) : null;
 
     if (option) {
       if (headed) {
@@ -1930,10 +2103,13 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // holds, but one
   const pageStep = () => {
     const viewHeight = popoverContentRef.current?.clientHeight ?? 0;
-    const optionHeight =
-      document
-        .getElementById(optionId(Math.max(activeIndex, 0)))
-        ?.getBoundingClientRect().height ?? 0;
+    const content = popoverContentRef.current;
+    const optionHeight = content
+      ? (getElementByIdAt(
+          content,
+          optionId(Math.max(activeIndex, 0)),
+        )?.getBoundingClientRect().height ?? 0)
+      : 0;
 
     return viewHeight > 0 && optionHeight > 0
       ? Math.max(Math.floor(viewHeight / optionHeight) - 1, 1)
@@ -2201,7 +2377,10 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     if (!open) setOpen(true);
 
     // Erasing the text of a single selection clears it
-    if (!multiple && text === "" && selectedValues.length > 0) commit([]);
+    if (!multiple && text === "") {
+      if (selectedValues.length > 0) commit([]);
+      else cancelCreation();
+    }
   };
 
   // What the field holds - with `allowCustomValue`, the value the typed text
@@ -2209,7 +2388,11 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // input shows
   const typedValue = typedText ? (typedOption?.value ?? typedText) : null;
   const currentValues =
-    typedValue !== null ? [typedValue] : typedText === "" ? [] : selectedValues;
+    typedValue !== null
+      ? toValues(typedValue)
+      : typedText === ""
+        ? []
+        : selectedValues;
 
   // A single field without a value submits an empty one, so that clearing it
   // reaches backends that keep fields missing from the request unchanged. A
@@ -2220,7 +2403,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // Hidden inputs are the form value; the validation input lets the browser
   // enforce `required` although the visible input holds no value of its own.
   // Disabled, like a disabled native field, they are neither submitted nor
-  // validated.
+  // validated - read-only, the value is submitted, not validated.
   const hiddenInputs = (
     <>
       {name &&
@@ -2235,7 +2418,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
             value={selected}
           />
         ))}
-      {required && (
+      {required && !readOnly && (
         <input
           disabled={disabled}
           form={form}

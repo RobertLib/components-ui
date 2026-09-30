@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import {
   attachRef,
   isAriaInvalid,
+  useFieldsetDisabled,
   useFormReset,
 } from "../hooks/use-form-control";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
@@ -10,6 +11,8 @@ import FormDescription from "./form-description";
 import FormError from "./form-error";
 import Popover from "./popover";
 import { foldSearchText } from "../utils/remove-diacritics";
+import { getActiveElement } from "./overlay-stack";
+import useCustomValidity from "../hooks/use-custom-validity";
 import usePointerMoved from "../hooks/use-pointer-moved";
 import { formatMessage, formatPlural } from "../i18n/format";
 import { useLocale } from "../providers/ui-context";
@@ -43,7 +46,8 @@ export interface TagsInputProps extends Omit<
   dim?: "xs" | "sm" | "md" | "lg";
   /**
    * Disables the field - like a disabled native one, it is then neither
-   * submitted nor validated.
+   * submitted nor validated. A disabled `<fieldset>` around it disables
+   * it too, including its suggestions.
    */
   disabled?: boolean;
   /** Validation message - also marks the field as invalid. */
@@ -157,7 +161,7 @@ export default function TagsInput({
   defaultValue,
   description,
   dim = "md",
-  disabled = false,
+  disabled: disabledProp = false,
   error,
   form,
   id,
@@ -166,6 +170,8 @@ export default function TagsInput({
   name,
   onBlur,
   onChange,
+  onCompositionEnd,
+  onCompositionStart,
   onKeyDown,
   onPaste,
   placeholder,
@@ -180,6 +186,11 @@ export default function TagsInput({
 }: TagsInputProps) {
   const locale = useLocale();
   const { messages } = locale;
+  // The portaled suggestions are outside the fieldset of the input.
+  const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();
+  const disabled = disabledProp || fieldsetDisabled;
+  // A read-only field shows and submits its values but takes no changes.
+  const locked = disabled || readOnly;
 
   // The values of an uncontrolled field. Until the user changes them, and
   // again after a reset, it shows `defaultValue` - also one that arrived
@@ -190,11 +201,20 @@ export default function TagsInput({
   const [inputError, setInputError] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  // Enabling the field again must not reopen the list on its own.
+  if (listOpen && locked) {
+    setListOpen(false);
+    setActiveIndex(-1);
+  }
   const isControlled = value !== undefined;
   const tags = isControlled ? value : (enteredTags ?? defaultValue ?? []);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
+  const isComposing = useRef(false);
+  // Some browsers deliver the last input after compositionend. Its text
+  // was already handled there, so it must not add the same tags twice.
+  const composedText = useRef<string | null>(null);
 
   const generatedId = useId();
   const inputId = id ?? generatedId;
@@ -207,6 +227,8 @@ export default function TagsInput({
   // `form.reset()` - also the one after a React form action - brings back
   // the `defaultValue`, like it does for a native field
   const formResetRef = useFormReset(() => {
+    isComposing.current = false;
+    composedText.current = null;
     setEnteredTags(undefined);
     setText("");
     setInputError(null);
@@ -217,29 +239,29 @@ export default function TagsInput({
     (element: HTMLInputElement | null) => {
       inputRef.current = element;
       const detachReset = formResetRef(element);
+      const detachFieldset = fieldsetRef(element);
       const detachRef = attachRef(ref, element);
 
       return () => {
         inputRef.current = null;
         detachReset?.();
+        detachFieldset?.();
         detachRef();
       };
     },
-    [formResetRef, ref],
+    [fieldsetRef, formResetRef, ref],
   );
 
   // The browser refuses to submit a required field without a value - and
   // says so at the input. So it does while the input holds text that was
   // refused (a click on the submit button with `addOnBlur`), which the form
-  // would lose. Set at every render: the message belongs to the input
-  // element, and a new one would start without it.
+  // would lose. Only our own errors are cleared; an error supplied by the
+  // app stays through renders and temporary errors of the typed text.
   const validationMessage =
     inputError ??
     (required && tags.length === 0 ? messages.tagsInput.required : "");
 
-  useLayoutEffect(() => {
-    inputRef.current?.setCustomValidity(validationMessage);
-  });
+  useCustomValidity(inputRef, validationMessage, true);
 
   // Set when the × button with the focus goes away with its value - should
   // the focus get lost after all (with the button of a duplicate), it goes
@@ -250,7 +272,7 @@ export default function TagsInput({
     if (!removedWithFocus.current) return;
     removedWithFocus.current = false;
 
-    const active = document.activeElement;
+    const active = getActiveElement();
     if (!active || active === document.body) inputRef.current?.focus();
   });
 
@@ -266,8 +288,6 @@ export default function TagsInput({
       (allowDuplicates || !tags.some((tag) => sameTag(tag, suggestion))) &&
       normalizeText(suggestion).includes(query),
   );
-  // A read-only field shows and submits its values but takes no changes
-  const locked = disabled || readOnly;
   const isListShown = listOpen && !locked && shownSuggestions.length > 0;
   const active = activeIndex < shownSuggestions.length ? activeIndex : -1;
 
@@ -323,12 +343,12 @@ export default function TagsInput({
     setListOpen(!reason && remaining.length > 0);
   };
 
-  const handleTextChange = (nextText: string) => {
+  const handleTextChange = (nextText: string, composing = false) => {
     // A separator typed - or text with one, e.g. from the keyboard of a
     // phone - ends the values before it
     const parts = splitTags(nextText, separators, false);
 
-    if (parts.length > 1) {
+    if (!composing && parts.length > 1) {
       addParts(parts.slice(0, -1), parts[parts.length - 1]);
       return;
     }
@@ -348,7 +368,7 @@ export default function TagsInput({
   const removeTag = (index: number, button: HTMLElement) => {
     // The focus goes on to the value taking its place, the one before it or
     // the input - it would be lost with the button
-    if (button === document.activeElement) {
+    if (button === getActiveElement()) {
       const buttons = getTagButtons();
       (buttons[index + 1] ?? buttons[index - 1] ?? inputRef.current)?.focus();
       removedWithFocus.current = true;
@@ -381,12 +401,14 @@ export default function TagsInput({
     // `compositionend`, with the key code 229.
     if (
       event.defaultPrevented ||
+      isComposing.current ||
       event.nativeEvent.isComposing ||
       event.keyCode === 229
     ) {
       return;
     }
 
+    composedText.current = null;
     const input = event.currentTarget;
 
     switch (event.key) {
@@ -485,6 +507,7 @@ export default function TagsInput({
   };
 
   const handlePaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
+    composedText.current = null;
     onPaste?.(event);
     if (event.defaultPrevented || locked) return;
 
@@ -519,6 +542,18 @@ export default function TagsInput({
           "border-danger-500! focus-within:ring-danger-500! forced-colors:outline-1",
         disabled ? "cursor-not-allowed opacity-60" : "cursor-text",
       )}
+      onBlur={(event) => {
+        // Moving between the input and its × buttons stays in the field.
+        // A later blur from a button must still add the pending text.
+        if (
+          addOnBlur &&
+          !locked &&
+          text.trim() &&
+          !event.currentTarget.contains(event.relatedTarget)
+        ) {
+          addParts([text], "");
+        }
+      }}
       // The whole field acts as the input: a press on its padding or a value
       // keeps the focus in the input, a click focuses it
       onClick={(event) => {
@@ -594,19 +629,31 @@ export default function TagsInput({
         disabled={disabled}
         form={form}
         id={inputId}
-        onBlur={(event) => {
-          onBlur?.(event);
-          // Moving to a × button stays in the field
-          if (
-            addOnBlur &&
-            !locked &&
-            text.trim() &&
-            !fieldRef.current?.contains(event.relatedTarget)
-          ) {
-            addParts([text], "");
-          }
+        onBlur={onBlur}
+        onChange={(event) => {
+          const nextText = event.target.value;
+          const previousComposition = composedText.current;
+          composedText.current = null;
+          if (nextText === previousComposition) return;
+
+          handleTextChange(
+            nextText,
+            isComposing.current ||
+              (event.nativeEvent as InputEvent).isComposing,
+          );
         }}
-        onChange={(event) => handleTextChange(event.target.value)}
+        onCompositionEnd={(event) => {
+          onCompositionEnd?.(event);
+          if (!isComposing.current) return;
+          isComposing.current = false;
+          composedText.current = event.currentTarget.value;
+          if (!locked) handleTextChange(event.currentTarget.value);
+        }}
+        onCompositionStart={(event) => {
+          isComposing.current = true;
+          composedText.current = null;
+          onCompositionStart?.(event);
+        }}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         placeholder={tags.length > 0 ? undefined : placeholder}

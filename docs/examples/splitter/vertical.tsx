@@ -6,7 +6,7 @@ const rows = people.filter((person) => person.city === "Prague").slice(0, 12);
 export default function Vertical() {
   return (
     <Splitter
-      className="h-[380px] rounded-lg border border-neutral-200 dark:border-neutral-800"
+      className="h-95 rounded-lg border border-neutral-200 dark:border-neutral-800"
       defaultSizes={[35, 65]}
       minSizes={[15, 25]}
       orientation="vertical"

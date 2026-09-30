@@ -10,7 +10,7 @@ export default function MasterDetail() {
 
   return (
     <Splitter
-      className="h-[420px] rounded-lg border border-neutral-200 dark:border-neutral-800"
+      className="h-105 rounded-lg border border-neutral-200 dark:border-neutral-800"
       collapsible={[true, false]}
       defaultSizes={[35, 65]}
       minSizes={[20, 40]}

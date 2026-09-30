@@ -166,6 +166,9 @@ export default function Toast({
   // Slid out or dismissed - the toast renders nothing any more, also when
   // nobody unmounts it (a toast rendered on its own without `onClose`)
   const [isGone, setIsGone] = useState(false);
+  // A click and a finishing animation may dismiss it before React commits
+  // the gone state - its close callback still runs only once.
+  const dismissedRef = useRef(false);
   // Hovered or focused, the toast waits - its text can be read in peace
   const [isHovered, setIsHovered] = useState(false);
   const [hasFocus, setHasFocus] = useState(false);
@@ -224,15 +227,15 @@ export default function Toast({
   );
 
   // Hidden by its timer or by the parent (`open`)
-  const isShown = visible && open;
+  const isShown = !isGone && visible && open;
   const isPaused = isHovered || hasFocus || pageHidden || !!swipe;
 
   useEffect(() => {
-    if (isAnnounced) return;
+    if (isGone || isAnnounced) return;
 
     const timer = setTimeout(() => setIsAnnounced(true), LIVE_REGION_DELAY);
     return () => clearTimeout(timer);
-  }, [isAnnounced]);
+  }, [isAnnounced, isGone]);
 
   // The whole time again for a new duration - and for a new text
   useEffect(() => {
@@ -244,6 +247,7 @@ export default function Toast({
 
     const startedAt = Date.now();
     const timer = setTimeout(() => {
+      if (dismissedRef.current) return;
       setVisible(false);
       callbacksRef.current.onHide?.();
     }, remainingTime.current);
@@ -284,35 +288,35 @@ export default function Toast({
     (next?.querySelector<HTMLElement>("[data-toast-close]") ?? next)?.focus();
   };
 
-  // Gone once the slide-out animation is over
-  useEffect(() => {
-    if (isShown) return;
-
-    const timer = setTimeout(() => {
-      restoreFocus();
-      setIsGone(true);
-      callbacksRef.current.onClose?.();
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [isShown]);
-
   const dismiss = () => {
+    if (dismissedRef.current) return;
+    dismissedRef.current = true;
     restoreFocus();
     setIsGone(true);
     callbacksRef.current.onClose?.();
   };
 
+  // Gone once the slide-out animation is over - a manual dismissal also
+  // cancels this timer when the parent keeps the toast mounted.
+  useEffect(() => {
+    if (isGone || isShown) return;
+
+    const timer = setTimeout(dismiss, 200);
+    return () => clearTimeout(timer);
+  }, [isGone, isShown]);
+
   // Swiped away - dismissed once it has left the screen
   const isSwipedOut = !!swipe?.leaving;
 
   useEffect(() => {
-    if (!isSwipedOut) return;
+    if (isGone || !isSwipedOut) return;
 
     const timer = setTimeout(dismiss, SWIPE_OUT_DURATION);
     return () => clearTimeout(timer);
-  }, [isSwipedOut]);
+  }, [isGone, isSwipedOut]);
 
   useEffect(() => {
+    if (isGone) return;
     const currentToastRef = toastRef.current;
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -332,7 +336,7 @@ export default function Toast({
     return () => {
       currentToastRef?.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [isGone]);
 
   // A dismissible toast follows a finger swiping it sideways - released far
   // enough, or flicked, it leaves the screen that way and is dismissed;

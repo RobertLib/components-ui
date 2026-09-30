@@ -317,6 +317,9 @@ export default function ColorPicker({
     new EyeDropper()
       .open()
       .then(({ sRGBHex }) => {
+        // The picker may have closed while the browser picked a color,
+        // including when its field was disabled or made read-only.
+        if (!areaElement.current) return;
         const picked = parseColor(sRGBHex);
         if (picked) onPickValue(formatColor(picked, format, alpha));
       })

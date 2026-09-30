@@ -1,12 +1,18 @@
 import { Calendar, Clock, X } from "lucide-react";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
-import { attachRef, isAriaInvalid } from "../../hooks/use-form-control";
+import {
+  attachRef,
+  isAriaInvalid,
+  useFieldsetDisabled,
+  useFormReset,
+} from "../../hooks/use-form-control";
 import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "../form-description";
 import FormError from "../form-error";
 import hasLabel from "./has-label";
 import Popover from "../popover";
 import useIsMobile from "../../hooks/use-is-mobile";
+import useCustomValidity from "../../hooks/use-custom-validity";
 import { formatMessage } from "../../i18n/format";
 import { getTabbableElements } from "../../utils/tabbable";
 import { getNextTabStop } from "../overlay-stack";
@@ -19,7 +25,8 @@ import RequiredMark from "../required-mark";
  * none - it is no date or time (`format`), or one out of the limits
  * (`range`).
  */
-export type ParsedText = { value: string } | { error: "format" | "range" };
+export type ParsedText =
+  { value: string; validityMessage?: string } | { error: "format" | "range" };
 
 // The sizes of `Input`
 const dimStyles = {
@@ -61,7 +68,7 @@ interface PickerFieldProps extends Omit<
    * More hidden inputs for the form, besides the one of `name` - e.g. the
    * first and the last day of a range. Those without a name are left out.
    */
-  hiddenFields?: { name?: string; value: string }[];
+  hiddenFields?: { name?: string; value: (value: string) => string }[];
   /** The icon at the end of the field. */
   icon: "calendar" | "clock";
   /** Ref of the visible field. */
@@ -108,7 +115,7 @@ export default function PickerField({
   description,
   descriptionId,
   dim,
-  disabled,
+  disabled: disabledProp,
   displayValue,
   error,
   errorId,
@@ -134,6 +141,7 @@ export default function PickerField({
   popupLabel,
   readOnly,
   required,
+  sourceValue,
   validityMessage,
   value,
 }: PickerFieldProps) {
@@ -141,6 +149,9 @@ export default function PickerField({
   const isMobile = useIsMobile();
   const popupId = useId();
   const Icon = icon === "clock" ? Clock : Calendar;
+  // The portaled popup is outside the fieldset that disables its input.
+  const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();
+  const disabled = disabledProp || fieldsetDisabled;
   const canOpen = !disabled && !readOnly;
   const hasClearButton = !!value && canOpen && (clearable ?? !required);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -152,10 +163,17 @@ export default function PickerField({
   const changeOpen = (open: boolean, byKeyboard: boolean) =>
     onOpenChange(open, byKeyboard);
 
+  // Forget an open popup when the surrounding fieldset is disabled, so
+  // enabling it again does not reopen the popup on its own.
+  useLayoutEffect(() => {
+    if (isOpen && !canOpen) onOpenChange(false, false);
+  }, [canOpen, isOpen, onOpenChange]);
+
   // The text being typed - `null` while the field shows the value. A new
   // value (a pick in the popup, a reset) replaces it.
+  const suppliedValue = sourceValue ?? value;
   const [text, setText] = useState<string | null>(null);
-  const [textValue, setTextValue] = useState(value);
+  const [textValue, setTextValue] = useState(suppliedValue);
   const [textPickCount, setTextPickCount] = useState(pickCount);
   // The last typed text that gave no value - said under the field until
   // the typing goes on or the value changes
@@ -165,48 +183,74 @@ export default function PickerField({
   } | null>(null);
   const rejectedId = `${inputId}-rejected`;
 
-  if (value !== textValue || pickCount !== textPickCount) {
-    setTextValue(value);
+  if (suppliedValue !== textValue || pickCount !== textPickCount) {
+    setTextValue(suppliedValue);
     setTextPickCount(pickCount);
     setText(null);
     setRejected(null);
   }
 
-  // A value out of `min` / `max` makes the form invalid, as in a native
-  // input - one of the parent, a default or a typed one - and so does a
-  // disabled day. The message the field set last is the one it clears -
-  // one the page set stays.
-  const validityMessageRef = useRef("");
+  // Native validation and FormData must describe the same value even when
+  // requestSubmit() runs before blur. Keep onChange on Enter/blur, while
+  // the hidden fields already carry the parsed draft.
+  const typed = text?.trim();
+  const parsedText: ParsedText =
+    typed === undefined || typed === displayValue
+      ? { value, validityMessage }
+      : typed
+        ? parseText(typed)
+        : { value: "" };
+  const formValue = "value" in parsedText ? parsedText.value : "";
+  const draftError =
+    "error" in parsedText
+      ? parsedText.error
+      : required && text && !formValue
+        ? "format"
+        : undefined;
+  const formValidityMessage = draftError
+    ? formatMessage(
+        draftError === "range"
+          ? messages.dateTimePicker.outOfRangeText
+          : messages.dateTimePicker.invalidText,
+        { format, text: typed ?? "" },
+      )
+    : "value" in parsedText
+      ? (parsedText.validityMessage ?? "")
+      : "";
+  // Clear only the component's own custom errors, leaving app errors alone.
+  useCustomValidity(inputRef, formValidityMessage, text !== null);
 
-  useLayoutEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-
-    if (validityMessage) input.setCustomValidity(validityMessage);
-    else if (input.validationMessage === validityMessageRef.current) {
-      input.setCustomValidity("");
-    }
-    validityMessageRef.current = validityMessage;
-  }, [inputRef, validityMessage]);
+  // A reset can restore the same value, so watching value changes alone
+  // cannot discard a draft (or the last rejected text).
+  const formResetRef = useFormReset(() => {
+    setText(null);
+    setRejected(null);
+  }, inputProps.form);
 
   // The field is `DateTimePicker`'s `ref` too
   const inputCallbackRef = useCallback(
     (element: HTMLInputElement | null) => {
       inputRef.current = element;
       const detachRef = attachRef(fieldRef, element);
+      const detachFieldset = fieldsetRef(element);
+      const detachReset = formResetRef(element);
 
       return () => {
         inputRef.current = null;
         detachRef();
+        detachFieldset?.();
+        detachReset?.();
       };
     },
-    [fieldRef, inputRef],
+    [fieldRef, fieldsetRef, formResetRef, inputRef],
   );
 
   // Also a value out of `min` / `max` or a disabled day - the browser
   // refuses to submit it
   const invalid =
-    !!error || !!validityMessage || isAriaInvalid(inputProps["aria-invalid"]);
+    !!error ||
+    !!formValidityMessage ||
+    isAriaInvalid(inputProps["aria-invalid"]);
 
   // The picker is one field for the caller: the focus moving between the
   // field, the clear button and the popup (a portal) is neither a focus
@@ -306,7 +350,7 @@ export default function PickerField({
           name={name}
           readOnly
           type="hidden"
-          value={value || ""}
+          value={formValue}
         />
       )}
       {hiddenFields?.map(
@@ -319,7 +363,7 @@ export default function PickerField({
               name={field.name}
               readOnly
               type="hidden"
-              value={field.value}
+              value={field.value(formValue)}
             />
           ),
       )}
@@ -400,8 +444,17 @@ export default function PickerField({
                 // The caller's handler first - preventing the default
                 // skips the picker's
                 inputProps.onKeyDown?.(event);
+                // Candidate selection belongs to the IME. Safari sends the
+                // confirming Enter after compositionend with key code 229.
+                if (
+                  !canOpen ||
+                  event.defaultPrevented ||
+                  event.nativeEvent.isComposing ||
+                  event.keyCode === 229
+                ) {
+                  return;
+                }
                 keyboardRef.current = true;
-                if (!canOpen || event.defaultPrevented) return;
 
                 if (event.key === "Enter") {
                   // Takes a typed text - otherwise opens the popup. Never a
@@ -454,7 +507,7 @@ export default function PickerField({
               }}
               placeholder={placeholder}
               readOnly={readOnly}
-              // The browser checks the typed text - the value follows it
+              // Custom validity also checks the parsed draft.
               required={required}
               role="combobox"
               type="text"
@@ -464,7 +517,7 @@ export default function PickerField({
               <button
                 aria-label={messages.dateTimePicker.clear}
                 // A 24px square - big enough to hit (WCAG 2.5.8)
-                className="absolute end-7 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-300"
+                className="absolute inset-e-7 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-300"
                 onClick={(event) => {
                   event.stopPropagation();
                   onClear();
@@ -481,7 +534,7 @@ export default function PickerField({
             )}
             <Icon
               aria-hidden="true"
-              className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 text-neutral-400"
+              className="pointer-events-none absolute inset-e-2 top-1/2 -translate-y-1/2 text-neutral-400"
               size={iconSizes[dim]}
             />
           </div>

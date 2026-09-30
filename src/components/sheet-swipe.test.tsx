@@ -27,8 +27,8 @@ const header = () => sheet().querySelector("header")!;
 
 describe("Sheet start / end", () => {
   it.each([
-    ["start", "start-0", "-translate-x-full", "rtl:translate-x-full"],
-    ["end", "end-0", "translate-x-full", "rtl:-translate-x-full"],
+    ["start", "inset-s-0", "-translate-x-full", "rtl:translate-x-full"],
+    ["end", "inset-e-0", "translate-x-full", "rtl:-translate-x-full"],
   ] as const)(
     "slides in from the %s edge of the writing direction",
     (side, edgeClass, closedClass, rtlClass) => {

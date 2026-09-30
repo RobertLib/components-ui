@@ -3,7 +3,11 @@ export interface UploadWithProgressOptions {
   headers?: Record<string, string>;
   /** `PUT` (the default) for a presigned URL, `POST` for an endpoint. */
   method?: string;
-  /** Called with the share of the body sent so far, 0-100. */
+  /**
+   * Called with the share of the body sent so far, 0-100. To another origin
+   * it costs a preflight: the browser sends an `OPTIONS` request first,
+   * which the server has to answer.
+   */
   onProgress?: (percent: number) => void;
   /** Cancels the upload, e.g. when the user removes the file. */
   signal?: AbortSignal;
@@ -84,12 +88,16 @@ export default function uploadWithProgress(
     if (timeout !== undefined) xhr.timeout = timeout;
     if (withCredentials !== undefined) xhr.withCredentials = withCredentials;
 
-    xhr.upload.onprogress = (event) => {
-      // An event of an empty body, or of an unknown size, has no share
-      if (event.lengthComputable && event.total > 0) {
-        onProgress?.((event.loaded / event.total) * 100);
-      }
-    };
+    // Only when asked for: a listener on `xhr.upload` makes a cross-origin
+    // request send a preflight first, which a server may not answer
+    if (onProgress) {
+      xhr.upload.onprogress = (event) => {
+        // An event of an empty body, or of an unknown size, has no share
+        if (event.lengthComputable && event.total > 0) {
+          onProgress((event.loaded / event.total) * 100);
+        }
+      };
+    }
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {

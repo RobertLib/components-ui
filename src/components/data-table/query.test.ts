@@ -364,6 +364,26 @@ describe("applyDataTableQuery", () => {
     expect(matching("2026-09-24T23:30")).toEqual([1]);
   });
 
+  it("sorts ISO date-times with a time zone by their moment", () => {
+    const events = [
+      { id: 1, at: "2026-09-24T23:30:00Z" },
+      // Earlier, though its text is later
+      { id: 2, at: "2026-09-25T00:15:00+02:00" },
+      // The hour that comes twice when the clocks go back in Central Europe
+      { id: 3, at: "2026-10-25T02:15:00+01:00" },
+      { id: 4, at: "2026-10-25T02:30:00+02:00" },
+    ];
+    const sorted = (order: "asc" | "desc") =>
+      applyDataTableQuery(
+        events,
+        createDataTableQuery({ order, sortBy: "at" }),
+        [{ key: "at", label: "At" }],
+      ).rows.map((event) => event.id);
+
+    expect(sorted("asc")).toEqual([2, 1, 4, 3]);
+    expect(sorted("desc")).toEqual([3, 4, 1, 2]);
+  });
+
   it("returns all rows without pagination", () => {
     const result = applyDataTableQuery(
       rows,
@@ -436,6 +456,111 @@ describe("applyDataTableQuery", () => {
       "",
     ]);
   });
+
+  it.each(["asc", "desc"] as const)(
+    "keeps equal numeric representations tied in %s order",
+    (order) => {
+      const amounts = ["1.0", "1", 1, "+1", "1e0", "1.00"].map(
+        (amount, id) => ({ amount, id, name: String(6 - id) }),
+      );
+      const amountColumns = [
+        { key: "amount", label: "Amount" },
+        { key: "name", label: "Name" },
+      ];
+      const query = createDataTableQuery({ order, sortBy: "amount" });
+
+      expect(applyDataTableQuery(amounts, query, amountColumns).rows).toEqual(
+        amounts,
+      );
+      expect(
+        applyDataTableQuery(
+          amounts,
+          createDataTableQuery({
+            sort: [
+              { key: "amount", order },
+              { key: "name", order: "asc" },
+            ],
+          }),
+          amountColumns,
+        ).rows,
+      ).toEqual([...amounts].reverse());
+    },
+  );
+
+  it("keeps distinct integer strings beyond number precision ordered", () => {
+    const amounts = ["9007199254740993", "9007199254740992"].map(
+      (amount, id) => ({ amount, id }),
+    );
+    const amountColumns = [{ key: "amount", label: "Amount" }];
+    expect(
+      applyDataTableQuery(
+        amounts,
+        createDataTableQuery({ sortBy: "amount" }),
+        amountColumns,
+      ).rows,
+    ).toEqual([...amounts].reverse());
+    expect(
+      applyDataTableQuery(
+        amounts,
+        createDataTableQuery({ order: "desc", sortBy: "amount" }),
+        amountColumns,
+      ).rows,
+    ).toEqual(amounts);
+  });
+
+  it.each(["asc", "desc"] as const)(
+    "sorts large signed numeric strings exactly in %s order",
+    (order) => {
+      const ascending = [
+        "-9007199254740993",
+        "-9007199254740992.5",
+        "-9007199254740992",
+        "9007199254740992",
+        "+9007199254740992.5",
+        "9007199254740993",
+      ];
+      const amounts = [...ascending].reverse().map((amount, id) => ({
+        amount,
+        id,
+      }));
+
+      expect(
+        applyDataTableQuery(
+          amounts,
+          createDataTableQuery({ order, sortBy: "amount" }),
+          [{ key: "amount", label: "Amount" }],
+        ).rows.map((row) => row.amount),
+      ).toEqual(order === "asc" ? ascending : [...ascending].reverse());
+    },
+  );
+
+  it.each(["asc", "desc"] as const)(
+    "keeps equivalent large numbers tied for the next sort column in %s order",
+    (order) => {
+      const amounts = [
+        "-9007199254740993",
+        "-9007199254740993.0",
+        "-9.007199254740993e15",
+        " -09007199254740993 ",
+      ].map((amount, id) => ({ amount, id, name: String(4 - id) }));
+
+      expect(
+        applyDataTableQuery(
+          amounts,
+          createDataTableQuery({
+            sort: [
+              { key: "amount", order },
+              { key: "name", order: "asc" },
+            ],
+          }),
+          [
+            { key: "amount", label: "Amount" },
+            { key: "name", label: "Name" },
+          ],
+        ).rows,
+      ).toEqual([...amounts].reverse());
+    },
+  );
 
   it("sorts NaN and invalid dates last, the other rows in order", () => {
     // `parseFloat` / `new Date` of a missing value - a comparison giving

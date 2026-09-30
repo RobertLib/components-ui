@@ -183,7 +183,11 @@ export default function ConfirmDialog({
               id={fieldId}
               onChange={(event) => setTyped(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key !== "Enter" || event.nativeEvent.isComposing) {
+                if (
+                  event.key !== "Enter" ||
+                  event.nativeEvent.isComposing ||
+                  event.keyCode === 229
+                ) {
                   return;
                 }
                 event.preventDefault();

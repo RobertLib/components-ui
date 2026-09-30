@@ -1,4 +1,4 @@
-import { use, useMemo } from "react";
+import { use, useMemo, useState } from "react";
 import { deepMerge, toIntlLocale } from "../i18n/format";
 import { en } from "../i18n/en";
 import type { DeepPartial, Locale, Messages } from "../i18n/types";
@@ -66,6 +66,16 @@ export default function UIProvider({
   const navigate = router?.navigate ?? parent?.router?.navigate;
   const back = router?.back ?? parent?.router?.back;
 
+  // Inline adapters change identity on every render. Their shared state
+  // belongs to this provider; locale, link and back overrides inherit it.
+  const [ownRouterScope] = useState(() => ({}));
+  const routerScope =
+    router?.navigate !== undefined ||
+    router?.pathname !== undefined ||
+    router?.search !== undefined
+      ? ownRouterScope
+      : parent?.routerScope;
+
   const container =
     portalContainer === undefined ? parent?.portalContainer : portalContainer;
 
@@ -74,8 +84,18 @@ export default function UIProvider({
       locale: resolvedLocale,
       portalContainer: container,
       router: { Link, pathname, search, navigate, back },
+      routerScope,
     }),
-    [resolvedLocale, container, Link, pathname, search, navigate, back],
+    [
+      resolvedLocale,
+      container,
+      Link,
+      pathname,
+      search,
+      navigate,
+      back,
+      routerScope,
+    ],
   );
 
   return <UIContext value={value}>{children}</UIContext>;

@@ -72,8 +72,8 @@ afterEach(() => {
 
 describe("Popover align", () => {
   it.each([
-    ["start", "start-0"],
-    ["end", "end-0"],
+    ["start", "inset-s-0"],
+    ["end", "inset-e-0"],
     // Deprecated - they keep the physical edge
     ["left", "left-0"],
     ["right", "right-0"],

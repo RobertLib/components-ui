@@ -786,6 +786,114 @@ describe.each(["America/New_York", "Europe/Prague"])(
 
       expect(screen.getAllByText("Trip")).toHaveLength(1);
     });
+
+    it("bounds a moved spanning event by its UTC calendar start day", () => {
+      vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(
+        700,
+      );
+      const onEventDrop = vi.fn();
+      render(
+        <Calendar
+          events={[{ ...trip, end: new Date("2026-09-26") }]}
+          initialDate={d(24)}
+          minDate={d(24)}
+          onEventDrop={onEventDrop}
+        />,
+      );
+
+      const tile = () =>
+        screen.getAllByText("Trip")[1].closest(".group\\/event")!;
+      drag(tile(), 0, -100);
+      expect(onEventDrop).not.toHaveBeenCalled();
+
+      // An allowed move still reports UTC midnights.
+      drag(tile(), 0, 100);
+      expect(onEventDrop).toHaveBeenLastCalledWith(
+        change(new Date("2026-09-25"), new Date("2026-09-27")),
+      );
+    });
+
+    it("stops a timeline keyboard move at the UTC all-day maxDate", async () => {
+      const user = userEvent.setup();
+      const onEventDrop = vi.fn();
+      render(
+        <Calendar
+          events={[trip]}
+          initialDate={d(24)}
+          initialView="timelineWeek"
+          maxDate={d(24)}
+          onEventDrop={onEventDrop}
+        />,
+      );
+
+      act(() => screen.getByRole("button", { name: /^Trip,/ }).focus());
+      await user.keyboard("{Control>}x{/Control}{ArrowRight}{Enter}");
+      expect(onEventDrop).not.toHaveBeenCalled();
+    });
+
+    it("bounds a timeline pointer move and keeps UTC all-day dates", () => {
+      const onEventDrop = vi.fn();
+      render(
+        <Calendar
+          events={[trip]}
+          initialDate={d(24)}
+          initialView="timelineWeek"
+          maxDate={d(25)}
+          onEventDrop={onEventDrop}
+        />,
+      );
+
+      drag(screen.getByTitle("Trip"), 0, 4000);
+      expect(onEventDrop).toHaveBeenCalledExactlyOnceWith(
+        change(new Date("2026-09-25"), new Date("2026-09-26")),
+      );
+    });
+
+    it("allows a timeline move starting on the UTC all-day minDate", async () => {
+      const user = userEvent.setup();
+      const onEventDrop = vi.fn();
+      render(
+        <Calendar
+          events={[trip]}
+          initialDate={d(24)}
+          initialView="timelineWeek"
+          minDate={d(24)}
+          onEventDrop={onEventDrop}
+        />,
+      );
+
+      const tile = screen.getByRole("button", { name: /^Trip,/ });
+      expect(tile).toHaveAttribute("data-event-day", "2026-09-24");
+      act(() => tile.focus());
+      await user.keyboard("{Control>}x{/Control}{ArrowLeft}{Enter}");
+      expect(onEventDrop).not.toHaveBeenCalled();
+
+      await user.keyboard("{Control>}x{/Control}{ArrowRight}{Enter}");
+      expect(onEventDrop).toHaveBeenCalledExactlyOnceWith(
+        change(new Date("2026-09-25"), new Date("2026-09-26")),
+      );
+    });
+
+    it("does not make a UTC all-day timeline event after maxDate movable", () => {
+      const onEventDrop = vi.fn();
+      render(
+        <Calendar
+          events={[trip]}
+          initialDate={d(24)}
+          initialView="timelineWeek"
+          maxDate={d(23)}
+          onEventClick={() => {}}
+          onEventDrop={onEventDrop}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: /^Trip,/ }),
+      ).not.toHaveAttribute("aria-keyshortcuts");
+      expect(screen.getByTitle("Trip")).not.toHaveClass("cursor-move");
+      drag(screen.getByTitle("Trip"), 0, -600);
+      expect(onEventDrop).not.toHaveBeenCalled();
+    });
   },
 );
 

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -20,6 +26,51 @@ const sizes = [
 
 const combobox = (name: RegExp | string = /Size/) =>
   screen.getByRole<HTMLSelectElement>("combobox", { name });
+
+describe("Select script writes", () => {
+  it.each([
+    { defaults: ["a", "b"], written: "a,b" },
+    { defaults: [], written: "" },
+  ])(
+    "keeps the single option $written distinct from $defaults",
+    async ({ defaults, written }) => {
+      const options = ["", "a", "b", "a,b"].map((value) => ({
+        label: value,
+        value,
+      }));
+      const onChange = vi.fn();
+      const field = (title: string) => (
+        <form aria-label="Choices">
+          <Select
+            defaultValue={defaults}
+            label="Choice"
+            multiple
+            name="choice"
+            onChange={onChange}
+            options={options}
+            title={title}
+          />
+        </form>
+      );
+      const { rerender } = render(field("Before"));
+      const select = screen.getByRole<HTMLSelectElement>("listbox");
+      const form = screen.getByRole<HTMLFormElement>("form");
+
+      act(() => {
+        select.value = written;
+      });
+      expect(select).toHaveValue([written]);
+      rerender(field("After"));
+      expect(select).toHaveValue([written]);
+      expect(new FormData(form).getAll("choice")).toEqual([written]);
+      expect(onChange).not.toHaveBeenCalled();
+
+      act(() => form.reset());
+      await waitFor(() => expect(select).toHaveValue(defaults));
+      expect(new FormData(form).getAll("choice")).toEqual(defaults);
+    },
+  );
+});
 
 describe("Select readOnly", () => {
   it("shows its value, keeps the focus and tells it cannot be changed", async () => {

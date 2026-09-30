@@ -19,9 +19,64 @@ import type { DateTimePickerType } from ".";
 
 /** Splits `HH:mm` (optionally with seconds) into its parts. */
 export const parseTime = (value: string | undefined) => {
-  const match = value?.match(/^(\d{2}):(\d{2})/);
+  const match = value?.match(
+    /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d(?:\.\d+)?)?$/,
+  );
   return match ? { hours: match[1], minutes: match[2] } : null;
 };
+
+/** A complete `YYYY-MM-DD` value, without another type's suffix. */
+export const parseDate = (value: string | undefined) =>
+  value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? parseISODate(value) : null;
+
+/** Splits a complete `YYYY-MM` value into numbers (month 1 - 12). */
+export const parseMonth = (value: string | undefined) => {
+  const match = value?.match(/^(\d{4})-(0[1-9]|1[0-2])$/);
+  return match ? { month: Number(match[2]), year: Number(match[1]) } : null;
+};
+
+/** Splits a real ISO week of its year, including years with only 52 weeks. */
+export const parseWeek = (value: string | undefined) => {
+  const match = value?.match(/^(\d{4})-W(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const week = Number(match[2]);
+  return week >= 1 && week <= getISOWeeksInYear(year) ? { week, year } : null;
+};
+
+/** A complete local date-time, with a real date and time. */
+const parseDateTime = (value: string | undefined) => {
+  const match = value?.match(/^(\d{4}-\d{2}-\d{2})[T ](.+)$/);
+  return match && parseDate(match[1]) && parseTime(match[2])
+    ? `${match[1]}T${match[2]}`
+    : undefined;
+};
+
+/** Sanitizes supplied values like a native input; typed text has its own parser. */
+export function sanitizePickerValue(value: string, type: DateTimePickerType) {
+  switch (type) {
+    case "date":
+      return parseDate(value) ? value : "";
+    case "time":
+      return parseTime(value) ? value : "";
+    case "datetime-local":
+      return parseDateTime(value) ?? "";
+    case "month":
+      return parseMonth(value) ? value : "";
+    case "week":
+      return parseWeek(value) ? value : "";
+  }
+}
+
+/** Limits use the value format; a date-time limit can also be a whole day. */
+export function sanitizePickerLimit(
+  value: string | undefined,
+  type: DateTimePickerType,
+) {
+  if (value === undefined) return undefined;
+  if (type === "datetime-local" && parseDate(value)) return value;
+  return sanitizePickerValue(value, type) || undefined;
+}
 
 /** A time as `HH:mm`, without its seconds - `undefined` for anything else. */
 export const normalizeTime = (value: string | undefined) => {
@@ -37,8 +92,8 @@ export const normalizeDateTime = (
   value: string | undefined,
   dayTime: string,
 ) => {
-  const match = value?.match(/^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?/);
-  return match ? `${match[1]}T${match[2] ?? dayTime}` : undefined;
+  if (parseDate(value)) return `${value}T${dayTime}`;
+  return parseDateTime(value)?.slice(0, 16);
 };
 
 /**
@@ -167,8 +222,13 @@ export function snapDateTime(
     : snapped;
 }
 
-const isTime = (hours: number, minutes: number) =>
-  hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+const isTime = (hours: number, minutes: number, seconds = 0) =>
+  hours >= 0 &&
+  hours <= 23 &&
+  minutes >= 0 &&
+  minutes <= 59 &&
+  seconds >= 0 &&
+  seconds <= 59;
 
 // ISO 8601 as other apps write it: `2026-09-24`, `2026-09-24T14:30` (also
 // with a space, seconds and a zone), `2026-09`, `2026-W39`, `14:30:00`
@@ -176,7 +236,7 @@ const ISO_DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?)?$/i;
 const ISO_MONTH = /^(\d{4})-(\d{2})$/;
 const ISO_WEEK = /^(\d{4})-?W(\d{2})$/i;
-const ISO_TIME = /^(\d{2}):(\d{2})(?::\d{2}(?:[.,]\d+)?)?$/;
+const ISO_TIME = /^(\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?$/;
 
 /** A zone of an ISO date-time as `Date` reads it - `Z`, `+02:00`. */
 const isoZone = (zone: string) =>
@@ -198,7 +258,7 @@ function parseISOText(
   if (type === "time") {
     const time = ISO_TIME.exec(text);
     if (!time) return undefined;
-    return isTime(Number(time[1]), Number(time[2]))
+    return isTime(Number(time[1]), Number(time[2]), Number(time[3] ?? 0))
       ? `${time[1]}:${time[2]}`
       : null;
   }
@@ -226,7 +286,7 @@ function parseISOText(
   if (hours === undefined) {
     return type === "date" ? `${year}-${month}-${day}` : null;
   }
-  if (!isTime(Number(hours), Number(minutes))) return null;
+  if (!isTime(Number(hours), Number(minutes), Number(seconds))) return null;
 
   let local = `${year}-${month}-${day}T${hours}:${minutes}`;
   if (zone) {

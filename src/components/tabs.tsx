@@ -511,7 +511,8 @@ export default function Tabs({
   }, [activeIndex, isVertical, items, loading]);
 
   // A bar wider than its container fades out at the edges it hides tabs
-  // behind - it scrolls there by touch, trackpad or its scrollbar
+  // behind - it scrolls there by touch, trackpad or its scrollbar. Panels
+  // add a wrapper when loading ends, replacing the scrolling element.
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     const list = tabsRef.current;
@@ -551,7 +552,7 @@ export default function Tabs({
       scroller.removeEventListener("scroll", update);
       observer?.disconnect();
     };
-  }, [isVertical]);
+  }, [hasPanels, isVertical, loading]);
 
   // The tab after a closed one takes the focus - once the closed one is
   // gone, the list of tabs is another
@@ -670,7 +671,7 @@ export default function Tabs({
           ? hasPanels
             ? "shrink-0"
             : undefined
-          : "[scrollbar-width:thin] overflow-x-auto"
+          : "scrollbar-thin overflow-x-auto"
       }
       onFocus={handleFocus}
       ref={scrollerRef}
@@ -707,7 +708,7 @@ export default function Tabs({
             aria-hidden="true"
             className={cn(
               "absolute rounded-full bg-primary-600 transition-all duration-300 ease-in-out motion-reduce:transition-none dark:bg-primary-400 forced-colors:bg-[Highlight]",
-              isVertical ? "-start-px w-0.5" : "-bottom-px h-0.5",
+              isVertical ? "-inset-s-px w-0.5" : "-bottom-px h-0.5",
             )}
             style={
               isVertical

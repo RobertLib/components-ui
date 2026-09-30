@@ -137,6 +137,39 @@ describe("DataTable column state", () => {
     expect(headers()).toEqual(["Name", "Team"]);
   });
 
+  it("keeps successive column choices while the controlled owner is delayed", async () => {
+    const user = userEvent.setup();
+    const onColumnStateChange = vi.fn();
+    const props = { columns, data: rows, onColumnStateChange };
+    const { rerender } = render(<DataTable {...props} columnState={{}} />);
+
+    await openSettings(user);
+    await user.click(
+      screen.getByRole("button", { name: "Pin Name to the left" }),
+    );
+    rerender(<DataTable {...props} columnState={{}} />);
+    await user.click(
+      screen.getByRole("button", { name: "Pin Team to the right" }),
+    );
+    await user.click(screen.getByRole("switch", { name: "City" }));
+    await user.click(screen.getByRole("switch", { name: "Team" }));
+
+    const pending = onColumnStateChange.mock.lastCall?.[0];
+    expect(pending).toEqual({
+      order: [],
+      pinning: { name: "left", team: "right" },
+      visibility: { city: true, team: false },
+      widths: {},
+    });
+    expect(headers()).toEqual(["Name", "Team"]);
+
+    rerender(<DataTable {...props} columnState={pending} />);
+    expect(headers()).toEqual(["Name", "City"]);
+    expect(screen.getByRole("columnheader", { name: "Name" })).toHaveClass(
+      "sticky",
+    );
+  });
+
   it("starts with defaultColumnState until the user changes it", async () => {
     const user = userEvent.setup();
     const { unmount } = render(

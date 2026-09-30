@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Activity, StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
 import { cs } from "../../i18n/cs";
@@ -244,6 +245,132 @@ describe("DataTable column resizing", () => {
     expect(header("Name")).toHaveStyle({ width: "200px" });
   });
 
+  it.each(["table", "column", "visibility"] as const)(
+    "cancels a drag when its handle is removed by %s settings",
+    (change) => {
+      const onColumnStateChange = vi.fn();
+      const props = { columns, data: rows, onColumnStateChange };
+      const { rerender } = render(<DataTable {...props} />);
+      const separator = handle("Name");
+      separator.hasPointerCapture = vi.fn(() => true);
+      separator.releasePointerCapture = vi.fn((pointerId) => {
+        fireEvent.lostPointerCapture(separator, { pointerId });
+      });
+      fireEvent.pointerDown(separator, {
+        button: 0,
+        clientX: 100,
+        pointerId: 1,
+      });
+      fireEvent.pointerMove(separator, { clientX: 160, pointerId: 1 });
+      expect(dragWidth()).toBe("260px");
+
+      rerender(
+        <DataTable
+          {...props}
+          columns={
+            change === "column"
+              ? [{ ...columns[0], resizable: false }, columns[1]]
+              : columns
+          }
+          columnState={
+            change === "visibility"
+              ? { visibility: { name: false } }
+              : undefined
+          }
+          resizableColumns={change !== "table"}
+        />,
+      );
+
+      expect(separator.releasePointerCapture).toHaveBeenCalledWith(1);
+      expect(dragWidth()).toBe("");
+      expect(onColumnStateChange).not.toHaveBeenCalled();
+      // A release of the canceled pointer must save nothing.
+      fireEvent.pointerUp(separator, { pointerId: 1 });
+      rerender(<DataTable {...props} />);
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(header("Name")).toHaveStyle({ width: "200px" });
+      expect(onColumnStateChange).not.toHaveBeenCalled();
+
+      drag(handle("Name"), 100, 120);
+      expect(header("Name")).toHaveStyle({ width: "220px" });
+      expect(onColumnStateChange).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ widths: { name: 220 } }),
+      );
+    },
+  );
+
+  it("cancels a drag and releases capture across Activity hiding", () => {
+    const onColumnStateChange = vi.fn();
+    const content = (mode: "hidden" | "visible") => (
+      <StrictMode>
+        <Activity mode={mode}>
+          <DataTable
+            columns={columns}
+            data={rows}
+            onColumnStateChange={onColumnStateChange}
+          />
+        </Activity>
+      </StrictMode>
+    );
+    const { rerender } = render(content("visible"));
+    const separator = handle("Name");
+    separator.hasPointerCapture = vi.fn(() => true);
+    separator.releasePointerCapture = vi.fn((pointerId) => {
+      fireEvent.lostPointerCapture(separator, { pointerId });
+    });
+    fireEvent.pointerDown(separator, {
+      button: 0,
+      clientX: 100,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(separator, { clientX: 160, pointerId: 1 });
+    expect(dragWidth()).toBe("260px");
+
+    rerender(content("hidden"));
+    expect(separator.releasePointerCapture).toHaveBeenCalledWith(1);
+    rerender(content("visible"));
+
+    expect(dragWidth()).toBe("");
+    expect(handle("Name")).not.toHaveAttribute("data-resizing");
+    expect(header("Name")).toHaveStyle({ width: "200px" });
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.pointerMove(separator, { clientX: 300, pointerId: 1 });
+    fireEvent.pointerUp(separator, { pointerId: 1 });
+    expect(onColumnStateChange).not.toHaveBeenCalled();
+
+    drag(handle("Name"), 100, 120);
+    expect(header("Name")).toHaveStyle({ width: "220px" });
+    expect(onColumnStateChange).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ widths: { name: 220 } }),
+    );
+  });
+
+  it("releases an unmounted table's drag without saving or keeping Escape", () => {
+    const onColumnStateChange = vi.fn();
+    const { unmount } = render(
+      <DataTable
+        columns={columns}
+        data={rows}
+        onColumnStateChange={onColumnStateChange}
+      />,
+    );
+    const separator = handle("Name");
+    separator.hasPointerCapture = vi.fn(() => true);
+    separator.releasePointerCapture = vi.fn();
+    fireEvent.pointerDown(separator, {
+      button: 0,
+      clientX: 100,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(separator, { clientX: 160, pointerId: 1 });
+
+    unmount();
+
+    expect(separator.releasePointerCapture).toHaveBeenCalledWith(1);
+    expect(onColumnStateChange).not.toHaveBeenCalled();
+    expect(fireEvent.keyDown(document, { key: "Escape" })).toBe(true);
+  });
+
   it("brings back the column's width on a double-click", () => {
     render(<DataTable columns={columns} data={rows} tableId="people" />);
 
@@ -283,7 +410,7 @@ describe("DataTable column resizing", () => {
     );
 
     // The handle is at the end - the left edge; moving it left widens
-    expect(handle("Name")).toHaveClass("end-0");
+    expect(handle("Name")).toHaveClass("inset-e-0");
     drag(handle("Name"), 500, 450);
     expect(header("Name")).toHaveStyle({ width: "250px" });
     handle("Name").focus();
@@ -291,7 +418,7 @@ describe("DataTable column resizing", () => {
     expect(header("Name")).toHaveStyle({ width: "240px" });
 
     // A column pinned to the end - the left edge - grows to the right
-    expect(handle("Team")).toHaveClass("start-0");
+    expect(handle("Team")).toHaveClass("inset-s-0");
     drag(handle("Team"), 500, 550);
     expect(header("Team")).toHaveStyle({ width: "150px" });
     handle("Team").focus();

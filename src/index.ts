@@ -128,6 +128,7 @@ export {
 } from "./components/copy-button";
 export {
   default as DataTable,
+  type CellEditResult,
   type CellEditorProps,
   type Column,
   type ColumnEditor,

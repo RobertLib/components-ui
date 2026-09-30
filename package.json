@@ -1,7 +1,7 @@
 {
   "name": "components-ui",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "React + Tailwind CSS component library with localization, router integration and REST / GraphQL friendly data components.",
   "license": "MIT",
   "repository": {
@@ -42,24 +42,30 @@
     "build:docs": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "lint": "oxlint && node scripts/check-react-compiler.mjs",
+    "lint": "oxlint && node scripts/check-react-compiler.mjs && node scripts/check-tailwind-classes.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm run lint && npm run test && prettier --check .",
+    "test:browser": "playwright test",
+    "check": "npm run typecheck && npm run lint && npm run test:tailwind && npm run test && prettier --check .",
     "prepare": "npm run build:lib",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "lint:tailwind": "node scripts/check-tailwind-classes.mjs",
+    "test:tailwind": "node --test scripts/test-tailwind-classes.mjs"
   },
   "peerDependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tailwindcss": "^4.1.0"
+    "tailwindcss": "^4.3.0"
   },
   "dependencies": {
     "lucide-react": "^1.47.0"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
+    "@playwright/test": "^1.63.0",
     "@rolldown/plugin-babel": "^0.2.3",
+    "@tailwindcss/node": "^4.3.3",
+    "@tailwindcss/oxide": "^4.3.3",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",

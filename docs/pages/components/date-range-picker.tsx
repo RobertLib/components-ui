@@ -88,6 +88,12 @@ export default function DateRangePickerPage() {
             <code>max</code>, too short or too long) is dropped - the field
             shows the range again, and a message under it says why.
           </p>
+          <p>
+            A form submits the parsed range and its named start and end values
+            even before the field loses focus; an invalid draft blocks
+            submission. Typing still calls <code>onChange</code> only on Enter
+            or blur. A form reset also discards any unfinished text.
+          </p>
         </Prose>
       </Section>
 
@@ -161,7 +167,9 @@ export default function DateRangePickerPage() {
             limit the length of the range, counting both ends (a week is 7
             days): once the first day is picked, the days that would make the
             range too short or too long cannot end it - they can still take the
-            keyboard focus, so the arrow keys move over them.
+            keyboard focus, so the arrow keys move over them. A default or
+            controlled range outside these length limits also makes the field
+            invalid, including after the limits change.
           </p>
         }
         name="date-range-picker/limits"

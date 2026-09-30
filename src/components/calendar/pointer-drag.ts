@@ -40,6 +40,16 @@ function capturePointer(element: Element, pointerId: number) {
   }
 }
 
+function releasePointer(element: Element, pointerId: number) {
+  try {
+    if (!element.hasPointerCapture || element.hasPointerCapture(pointerId)) {
+      element.releasePointerCapture?.(pointerId);
+    }
+  } catch {
+    // The pointer or its pressed element may already be gone.
+  }
+}
+
 /**
  * Swallows the click that follows the release of a drag - it comes right
  * after it, if at all, so the next click in another task is one again.
@@ -149,6 +159,7 @@ export function startPointerDrag(
   }: PointerDragOptions,
 ): () => void {
   const { pointerId, pointerType } = event;
+  const captureTarget = event.currentTarget;
   const gridRect = grid?.getBoundingClientRect();
   // The press point in the grid
   const origin = {
@@ -185,7 +196,7 @@ export function startPointerDrag(
 
   // The moves and the release come to the pressed element even when the
   // pointer leaves it - so does the click that follows
-  capturePointer(event.currentTarget, pointerId);
+  capturePointer(captureTarget, pointerId);
 
   const report = () => {
     const rect = grid?.getBoundingClientRect();
@@ -247,6 +258,7 @@ export function startPointerDrag(
     document.removeEventListener("scroll", handleScroll, true);
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("contextmenu", handleContextMenu, true);
+    releasePointer(captureTarget, pointerId);
   };
 
   const cancel = () => {

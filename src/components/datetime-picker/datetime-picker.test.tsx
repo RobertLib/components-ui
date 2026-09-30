@@ -927,6 +927,9 @@ describe("DateTimePicker native attributes", () => {
     expect(onKeyDown).toHaveBeenCalled();
 
     const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+    expect(form.checkValidity()).toBe(false);
+    expect(new FormData(form).get("delivery")).toBe("");
+    await user.keyboard("{Escape}");
     expect(Object.fromEntries(new FormData(form))).toEqual({
       delivery: "2026-09-24",
     });

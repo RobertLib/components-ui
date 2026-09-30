@@ -171,7 +171,7 @@ export default function Button({
             group.first
               ? "rounded-t-md"
               : variant === "outline"
-                ? "-mt-[1.5px]"
+                ? "mt-[-1.5px]"
                 : "-mt-px",
             group.last && "rounded-b-md",
           ]
@@ -180,7 +180,7 @@ export default function Button({
             group.first
               ? "rounded-s-md"
               : variant === "outline"
-                ? "-ms-[1.5px]"
+                ? "ms-[-1.5px]"
                 : "-ms-px",
             group.last && "rounded-e-md",
           ],
@@ -296,6 +296,8 @@ export default function Button({
           aria-busy={loading || undefined}
           aria-disabled="true"
           className={commonClassNames}
+          onAuxClick={preventActivation}
+          onClick={preventActivation}
           role="link"
           tabIndex={undefined}
         >

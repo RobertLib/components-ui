@@ -115,23 +115,30 @@ function writeToClipboard(text: string) {
 export default function useClipboard({
   timeout = 2000,
 }: UseClipboardOptions = {}): UseClipboardResult {
-  const [copied, setCopied] = useState(false);
+  const [copiedUntil, setCopiedUntil] = useState<number | null>(null);
   const [error, setError] = useState<Error | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Counts the copies - only the result of the last one is shown
   const attempt = useRef(0);
 
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
+  // Activity removes effects while hidden, but keeps the state. Remember
+  // the deadline so showing it again only waits for the time still left,
+  // also when a pending copy finished while hidden.
+  useEffect(() => {
+    if (copiedUntil === null) return;
+
+    const timer = setTimeout(
+      () => {
+        // A newer copy may already be queued before this effect cleans up.
+        setCopiedUntil((current) => (current === copiedUntil ? null : current));
+      },
+      Math.max(0, copiedUntil - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [copiedUntil]);
 
   const reset = useCallback(() => {
     attempt.current += 1;
-    if (timer.current) clearTimeout(timer.current);
-    setCopied(false);
+    setCopiedUntil(null);
     setError(null);
   }, []);
 
@@ -143,17 +150,14 @@ export default function useClipboard({
       return writeToClipboard(text).then(
         () => {
           if (current === attempt.current) {
-            if (timer.current) clearTimeout(timer.current);
-            timer.current = setTimeout(() => setCopied(false), timeout);
             setError(null);
-            setCopied(true);
+            setCopiedUntil(Date.now() + timeout);
           }
           return true;
         },
         (reason: unknown) => {
           if (current === attempt.current) {
-            if (timer.current) clearTimeout(timer.current);
-            setCopied(false);
+            setCopiedUntil(null);
             setError(toError(reason));
           }
           return false;
@@ -163,5 +167,5 @@ export default function useClipboard({
     [timeout],
   );
 
-  return { copied, copy, error, reset };
+  return { copied: copiedUntil !== null, copy, error, reset };
 }

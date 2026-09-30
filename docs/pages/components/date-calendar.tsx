@@ -148,8 +148,10 @@ export default function DateCalendarPage() {
               either. A click on the label focuses the day in the tab order.
             </li>
             <li>
-              Without a value it opens at the month of today - on the server the
-              server's one; today is marked once the page has hydrated.
+              Without a value it opens at the browser's current month. In a
+              server-rendered page the empty calendar reserves its space until
+              hydration, so different server and browser dates cannot change the
+              initial HTML. A selected month renders on the server too.
             </li>
             <li>
               <code>className</code> goes to the box around the days - e.g.{" "}

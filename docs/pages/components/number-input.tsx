@@ -44,7 +44,8 @@ export default function NumberInputPage() {
               language&apos;s own numbering system (Arabic &quot;١٢٣&quot;)
               count as the Latin ones. Letters are refused as they are typed,
               and so is a minus sign when <code>min</code> is 0 or more, or a
-              decimal separator with <code>maximumFractionDigits={"{0}"}</code>.
+              decimal separator with <code>maximumFractionDigits={"{0}"}</code>{" "}
+              outside scientific and engineering notation.
             </li>
             <li>
               When the field loses the focus, or on Enter, a typed value outside{" "}
@@ -53,7 +54,8 @@ export default function NumberInputPage() {
               Until then - and for a value outside them the parent passes - the
               field is invalid like a native number input: a form submitted from
               a script meanwhile (<code>form.requestSubmit()</code>) is refused,
-              with a message of the language.
+              with a message of the language. An incomplete number, such as a
+              lone minus sign, also prevents submission while being edited.
             </li>
           </ul>
         </Prose>
@@ -69,7 +71,9 @@ export default function NumberInputPage() {
             the format shows - 3 by default, 2 for most currencies, more for a
             finer <code>step</code> (0.0001) unless the options set them;{" "}
             <code>maximumFractionDigits</code> is a shorthand for the one of the
-            options.
+            options. Scientific and engineering notation round the mantissa;
+            editing expands the result to a plain decimal number, so
+            &quot;1E-4&quot; is edited as &quot;0.0001&quot;.
           </p>
         }
         name="number-input/formats"

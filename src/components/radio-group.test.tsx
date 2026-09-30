@@ -1,8 +1,9 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import RadioGroup from "./radio-group";
+import SegmentedControl from "./segmented-control";
 
 const plans = [
   { label: "Free", value: "free" },
@@ -14,6 +15,65 @@ const radio = (name: string) =>
   screen.getByRole<HTMLInputElement>("radio", { name });
 
 const getForm = () => screen.getByRole<HTMLFormElement>("form");
+
+describe.each([
+  ["RadioGroup", RadioGroup],
+  ["SegmentedControl", SegmentedControl],
+] as const)("%s empty option", (_name, Control) => {
+  const options = [
+    { label: "None", value: "" },
+    { label: "Team", value: "team" },
+  ];
+
+  it("starts and resets unselected, but allows choosing the empty option", () => {
+    const field = () => (
+      <form aria-label="Order">
+        <Control label="Plan" name="plan" options={options} required />
+      </form>
+    );
+    const { rerender } = render(field());
+    const form = getForm();
+    expect(radio("None")).not.toBeChecked();
+    expect(radio("Team")).not.toBeChecked();
+    expect(form.checkValidity()).toBe(false);
+    expect(new FormData(form).has("plan")).toBe(false);
+
+    fireEvent.click(radio("None"));
+    expect(radio("None")).toBeChecked();
+    expect(form.checkValidity()).toBe(true);
+    expect(new FormData(form).get("plan")).toBe("");
+
+    act(() => form.reset());
+    rerender(field());
+    expect(radio("None")).not.toBeChecked();
+    expect(radio("Team")).not.toBeChecked();
+    expect(form.checkValidity()).toBe(false);
+    expect(new FormData(form).has("plan")).toBe(false);
+  });
+
+  it.each(["defaultValue", "value"] as const)(
+    "keeps an explicitly empty %s selected after reset",
+    (prop) => {
+      render(
+        <form aria-label="Order">
+          <Control
+            label="Plan"
+            name="plan"
+            options={options}
+            required
+            {...{ [prop]: "" }}
+          />
+        </form>,
+      );
+      expect(radio("None")).toBeChecked();
+      fireEvent.click(radio("Team"));
+      act(() => getForm().reset());
+      expect(radio("None")).toBeChecked();
+      expect(getForm().checkValidity()).toBe(true);
+      expect(new FormData(getForm()).get("plan")).toBe("");
+    },
+  );
+});
 
 describe("RadioGroup read-only", () => {
   it("keeps the pick on a click, focusable, and says it is read-only", async () => {
@@ -178,6 +238,32 @@ describe("RadioGroup cards", () => {
       "has-focus-visible:outline-2",
     );
   });
+
+  it.each(["default", "card"] as const)(
+    "points no option at a description that renders nothing (%s)",
+    (variant) => {
+      render(
+        <RadioGroup
+          label="Plan"
+          options={[
+            // `isPro && "Pro only"`, `count && "…"`
+            { description: false, label: "Free", value: "free" },
+            { description: 0, label: "Team", value: "team" },
+            { description: "", label: "Enterprise", value: "enterprise" },
+          ]}
+          variant={variant}
+        />,
+      );
+
+      for (const name of ["Free", "Team", "Enterprise"]) {
+        expect(radio(name)).not.toHaveAttribute("aria-describedby");
+      }
+      // Laid out as an option without a description
+      if (variant === "default") {
+        expect(radio("Free").closest("label")).toHaveClass("items-center");
+      }
+    },
+  );
 
   it("picks a card by a click anywhere on it, and by the arrow keys", async () => {
     const user = userEvent.setup();

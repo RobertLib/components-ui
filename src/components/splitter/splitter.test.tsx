@@ -7,7 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { Activity, StrictMode, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -434,6 +434,110 @@ describe("Splitter pointer", () => {
     drag(handle(), 300, 400);
     fireEvent.pointerMove(handle(), { clientX: 800, pointerId: 2 });
     expect(paneSize("List")).toBe(40);
+  });
+
+  it.each([
+    { name: "minimum", props: { minSizes: [60, 0] }, size: 60 },
+    { name: "maximum", props: { maxSizes: [40, 100] }, size: 40 },
+    { name: "collapsibility", props: { collapsible: [true, false] }, size: 50 },
+    {
+      name: "orientation",
+      props: { orientation: "vertical" as const },
+      size: 50,
+    },
+  ])("cancels a drag when $name changes", ({ props, size }) => {
+    const onSizesChange = vi.fn();
+    const content = (changed: boolean) => (
+      <Splitter
+        defaultSizes={[30, 70]}
+        onSizesChange={onSizesChange}
+        storageKey="canceled-drag"
+        {...(changed ? props : {})}
+      >
+        <div>List</div>
+        <div>Detail</div>
+      </Splitter>
+    );
+    const { rerender } = render(content(false));
+    sizeSplitter();
+    const separator = handle();
+    separator.setPointerCapture = vi.fn();
+    separator.hasPointerCapture = vi.fn(() => true);
+    separator.releasePointerCapture = vi.fn((pointerId) => {
+      fireEvent.lostPointerCapture(separator, { pointerId });
+    });
+
+    drag(separator, 300, 500);
+    expect(paneSize("List")).toBe(50);
+    onSizesChange.mockClear();
+    rerender(content(true));
+    expect(paneSize("List")).toBe(size);
+    expect(separator.releasePointerCapture).toHaveBeenCalledWith(1);
+    expect(document.body.style.cursor).toBe("");
+    expect(document.body.style.userSelect).toBe("");
+    expect(localStorage.getItem("canceled-drag")).toBeNull();
+
+    fireEvent.keyDown(separator, { key: "Escape" });
+    fireEvent.pointerMove(separator, {
+      clientX: 800,
+      clientY: 400,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(separator, { pointerId: 1 });
+    expect(paneSize("List")).toBe(size);
+    expect(onSizesChange).not.toHaveBeenCalled();
+
+    // A fresh gesture uses the current limits and orientation.
+    drag(separator, 300, size === 40 ? 250 : 350);
+    expect(onSizesChange).toHaveBeenCalled();
+    fireEvent.pointerUp(separator, { pointerId: 1 });
+  });
+
+  it("keeps a drag when new arrays contain the same limits", () => {
+    const content = () => (
+      <Splitter defaultSizes={[30, 70]} minSizes={[10, 10]} maxSizes={[90, 90]}>
+        <div>List</div>
+        <div>Detail</div>
+      </Splitter>
+    );
+    const { rerender } = render(content());
+    sizeSplitter();
+    drag(handle(), 300, 500);
+    rerender(content());
+    fireEvent.pointerMove(handle(), { clientX: 600, pointerId: 1 });
+    expect(paneSize("List")).toBe(60);
+    fireEvent.pointerUp(handle(), { pointerId: 1 });
+  });
+
+  it("drops the drag and capture while Activity keeps the splitter mounted", () => {
+    const onSizesChange = vi.fn();
+    const content = (mode: "hidden" | "visible", sizes: number[]) => (
+      <StrictMode>
+        <Activity mode={mode}>
+          <Splitter onSizesChange={onSizesChange} sizes={sizes}>
+            <div>List</div>
+            <div>Detail</div>
+          </Splitter>
+        </Activity>
+      </StrictMode>
+    );
+    const { rerender } = render(content("visible", [30, 70]));
+    sizeSplitter();
+    const separator = handle();
+    separator.hasPointerCapture = vi.fn(() => true);
+    separator.releasePointerCapture = vi.fn();
+    drag(separator, 300, 500);
+    onSizesChange.mockClear();
+
+    rerender(content("hidden", [50, 50]));
+    expect(separator.releasePointerCapture).toHaveBeenCalledWith(1);
+    expect(document.body.style.cursor).toBe("");
+    rerender(content("visible", [80, 20]));
+    fireEvent.keyDown(handle(), { key: "Escape" });
+    fireEvent.pointerMove(handle(), { clientX: 900, pointerId: 1 });
+    fireEvent.pointerUp(handle(), { pointerId: 1 });
+    expect(onSizesChange).not.toHaveBeenCalled();
+    expect(paneSize("List")).toBe(80);
   });
 
   it("brings back the default ratio on a double click", async () => {

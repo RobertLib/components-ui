@@ -6,7 +6,7 @@ export default function Basic() {
     <div className="relative space-y-4 text-sm">
       {/* Press Tab to see it - it shows while it has the focus */}
       <VisuallyHidden
-        className="absolute start-0 top-0 z-10 rounded-md bg-surface px-3 py-2 shadow-lg dark:bg-surface-dark"
+        className="absolute inset-s-0 top-0 z-10 rounded-md bg-surface px-3 py-2 shadow-lg dark:bg-surface-dark"
         focusable
       >
         <Link

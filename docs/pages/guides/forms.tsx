@@ -109,7 +109,7 @@ const stateStyles = `// The data attributes of the states, for Tailwind's data-*
 <Checkbox className="data-[state=indeterminate]:opacity-75" label="All" />
 <Input className="data-invalid:bg-danger-50" error={error} label="Email" />
 <RadioGroup
-  className="[&_[data-selected]]:font-semibold"
+  className="**:data-selected:font-semibold"
   label="Plan"
   options={plans}
   variant="card"

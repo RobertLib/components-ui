@@ -16,7 +16,9 @@ export interface UseLocalStorageOptions<T> {
    * any JSON - also `null`, or an object where the app wants an array. To
    * be sure of the shape, check it here and throw when it does not fit:
    * `(text) => { const value = JSON.parse(text); if (!Array.isArray(value))
-   * throw new Error("No list"); return value; }`.
+   * throw new Error("No list"); return value; }`. Changing this function
+   * reads the stored text again. Keep its reference stable (e.g. with
+   * `useCallback`) to keep a parsed object's identity between renders.
    */
   deserialize?: (stored: string) => T;
   /** Turns the value into the stored text - `JSON.stringify` by default. */
@@ -137,23 +139,32 @@ function parse<T>(
 }
 
 /**
- * Reads the value of one hook. It stays the same object while the stored
- * text does - `useSyncExternalStore` asks for it on every render.
+ * Reads the value of one hook. It stays the same object while the key,
+ * stored text and deserializer stay the same, also for updater functions.
  */
 function createReader<T>() {
-  let last: { key: string; text: string; value: T | typeof INVALID } | null =
-    null;
+  let last: {
+    deserialize: (stored: string) => T;
+    key: string;
+    text: string;
+    value: T | typeof INVALID;
+  } | null = null;
 
   return (
     key: string,
+    text: string | null,
     deserialize: (stored: string) => T,
     defaultValue: T,
   ): T => {
-    const text = readStored(key);
     if (text === null) return defaultValue;
 
-    if (!last || last.key !== key || last.text !== text) {
-      last = { key, text, value: parse(key, text, deserialize) };
+    if (
+      !last ||
+      last.key !== key ||
+      last.text !== text ||
+      last.deserialize !== deserialize
+    ) {
+      last = { deserialize, key, text, value: parse(key, text, deserialize) };
     }
     return last.value === INVALID ? defaultValue : last.value;
   };
@@ -190,11 +201,15 @@ export default function useLocalStorage<T>(
     [key],
   );
 
-  const value = useSyncExternalStore(
+  // The store snapshot is the text itself. Parsing outside it lets an
+  // inline deserializer return a new object without changing the snapshot
+  // on every render and scheduling another render of the hook.
+  const stored = useSyncExternalStore(
     subscribeToKey,
-    () => read(key, deserialize, defaultValue),
-    () => defaultValue,
+    () => readStored(key),
+    () => null,
   );
+  const value = read(key, stored, deserialize, defaultValue);
 
   const setValue = useCallback<SetLocalStorageValue<T>>(
     (next) => {
@@ -202,7 +217,12 @@ export default function useLocalStorage<T>(
       const resolved =
         typeof next === "function"
           ? (next as (value: T) => T)(
-              read(key, current.deserialize, current.defaultValue),
+              read(
+                key,
+                readStored(key),
+                current.deserialize,
+                current.defaultValue,
+              ),
             )
           : next;
 

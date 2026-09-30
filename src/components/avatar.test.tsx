@@ -182,7 +182,7 @@ describe("Avatar shape and color", () => {
     rerender(<Avatar name="Acme" shape="square" size="xl" status="online" />);
     const avatar = screen.getByRole("img", { name: "Acme, Online" });
     expect(avatar).toHaveClass("rounded-xl");
-    expect(avatar.lastElementChild).toHaveClass("-end-0.5", "-bottom-0.5");
+    expect(avatar.lastElementChild).toHaveClass("-inset-e-0.5", "-bottom-0.5");
   });
 
   it("picks the same color for a name - different ones for different names", () => {

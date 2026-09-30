@@ -1,6 +1,7 @@
 import { parseISODate, toISODate } from "../../utils/date";
 import { toNumber } from "./query";
-import type { Column, ColumnEditor, RowId } from "./types";
+import { getRowKey } from "./row-key";
+import type { CellEditResult, Column, ColumnEditor, RowId } from "./types";
 
 /**
  * The change of a cell, kept by its row id and column key - not by the row
@@ -43,7 +44,7 @@ export type CellChange = { value: unknown } | null;
 
 /** The key of a cell in the changes of the table. */
 export const getCellKey = (rowId: RowId, columnKey: string) =>
-  `${String(rowId)}\u0000${columnKey}`;
+  `${getRowKey(rowId)}\u0000${columnKey}`;
 
 /**
  * The value a cell shows: that of its change - `overridden` - or the row's
@@ -92,11 +93,11 @@ export function runCellEdit<T>(
     row: T,
     columnKey: string,
     value: unknown,
-  ) => void | Promise<void>,
+  ) => void | CellEditResult | Promise<void | CellEditResult>,
   row: T,
   columnKey: string,
   value: unknown,
-): Promise<void> {
+): Promise<void | CellEditResult> {
   try {
     return Promise.resolve(onCellEdit(row, columnKey, value));
   } catch (error) {

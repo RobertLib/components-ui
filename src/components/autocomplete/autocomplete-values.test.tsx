@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import Autocomplete, { type AutocompleteValue } from ".";
 import { cs } from "../../i18n/cs";
 import UIProvider from "../../providers/ui-provider";
+import type { LoadOptionsParams } from "./load-options";
 
 const cities = [
   { label: "Praha", value: "praha" },
@@ -88,6 +89,117 @@ describe("Autocomplete onCreate", () => {
     expect(status()).toHaveTextContent("Added “Oslo”.");
   });
 
+  it.each([
+    { id: 0, name: "Bob" },
+    { id: 7, title: "Bob" },
+    { id: 8, label: "Bob" },
+  ])("reads a created static item's default fields: %j", async (person) => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <form aria-label="form">
+        <Autocomplete
+          label="Person"
+          name="person"
+          onChange={onChange}
+          onCreate={() => person}
+          options={[{ id: 1, name: "Anna" }]}
+        />
+      </form>,
+    );
+
+    await user.type(combobox(), "Bob");
+    await user.click(screen.getByRole("option", { name: "Add “Bob”" }));
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith(person.id, person),
+    );
+    expect(onChange.mock.calls[0][1]).toBe(person);
+    expect(combobox()).toHaveValue("Bob");
+    expect(formValues("person")).toEqual([String(person.id)]);
+    expect(status()).toHaveTextContent("Added “Bob”.");
+  });
+
+  it("adds an asynchronously created static item to the existing selection", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const anna = { id: 1, name: "Anna" };
+    const bob = { id: 2, name: "Bob" };
+    render(
+      <form aria-label="form">
+        <Autocomplete
+          defaultValue={[anna.id]}
+          label="People"
+          multiple
+          name="people"
+          onChange={onChange}
+          onCreate={async () => bob}
+          options={[anna]}
+        />
+      </form>,
+    );
+
+    await user.type(combobox(), "Bob");
+    await user.click(screen.getByRole("option", { name: "Add “Bob”" }));
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith([1, 2], [anna, bob]),
+    );
+    expect(formValues("people")).toEqual(["1", "2"]);
+    expect(combobox()).toHaveValue("");
+    expect(
+      screen.getByRole("button", { name: "Clear Bob" }),
+    ).toBeInTheDocument();
+    expect(status()).toHaveTextContent("Added “Bob”.");
+  });
+
+  it("preserves the data payload of a created ready-made static option", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const person = { id: 2, name: "Bob" };
+    render(
+      <Autocomplete
+        label="Person"
+        onChange={onChange}
+        onCreate={() => ({
+          label: person.name,
+          value: person.id,
+          data: person,
+        })}
+        options={[{ id: 1, name: "Anna" }]}
+      />,
+    );
+
+    await user.type(combobox(), "Bob");
+    await user.click(screen.getByRole("option", { name: "Add “Bob”" }));
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(2, person));
+    expect(onChange.mock.calls[0][1]).toBe(person);
+    expect(combobox()).toHaveValue("Bob");
+  });
+
+  it("applies static getters to created items even if they have label and value fields", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const person = { id: 2, name: "Bob", label: "Other label", value: "other" };
+    render(
+      <Autocomplete
+        getOptionLabel={(item) => item.name}
+        getOptionValue={(item) => item.id}
+        label="Person"
+        onChange={onChange}
+        onCreate={() => person}
+        options={[{ id: 1, name: "Anna", label: "Anna", value: "anna" }]}
+      />,
+    );
+
+    await user.type(combobox(), "Bob");
+    await user.click(screen.getByRole("option", { name: "Add “Bob”" }));
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(2, person));
+    expect(combobox()).toHaveValue("Bob");
+  });
+
   it("reads an item onCreate resolves with like the loaded ones", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -154,6 +266,276 @@ describe("Autocomplete onCreate", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it.each([
+    { controlled: false, clear: false },
+    { controlled: false, clear: true },
+    { controlled: true, clear: false },
+    { controlled: true, clear: true },
+  ])(
+    "keeps a newer single selection when creation finishes (controlled: $controlled, clear: $clear)",
+    async ({ controlled, clear }) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      let resolve: (option: (typeof cities)[number]) => void = () => {};
+      const onCreate = () =>
+        new Promise<(typeof cities)[number]>((done) => {
+          resolve = done;
+        });
+      function Form() {
+        const [value, setValue] = useState<AutocompleteValue | null>("plzen");
+        return (
+          <form aria-label="form">
+            <Autocomplete
+              defaultValue="plzen"
+              label="City"
+              name="city"
+              onChange={(next) => {
+                setValue(next);
+                onChange(next);
+              }}
+              onCreate={onCreate}
+              options={cities}
+              value={controlled ? value : undefined}
+            />
+          </form>
+        );
+      }
+      render(<Form />);
+      await user.type(combobox(), "Oslo", {
+        initialSelectionStart: 0,
+        initialSelectionEnd: 5,
+      });
+      await user.click(screen.getByRole("option", { name: "Add “Oslo”" }));
+
+      if (clear) {
+        await user.click(screen.getByRole("button", { name: "Clear" }));
+      } else {
+        await user.type(combobox(), "Pra", {
+          initialSelectionStart: 0,
+          initialSelectionEnd: 4,
+        });
+        await user.click(screen.getByRole("option", { name: "Praha" }));
+      }
+      await act(async () => resolve({ label: "Oslo", value: "oslo" }));
+
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(clear ? null : "praha");
+      expect(combobox()).toHaveValue(clear ? "" : "Praha");
+      expect(formValues("city")).toEqual([clear ? "" : "praha"]);
+      expect(screen.queryByRole("status")?.textContent ?? "").not.toContain(
+        "Oslo",
+      );
+    },
+  );
+
+  it.each([false, true])(
+    "ignores a creation after reselecting the current option while a new creation runs (rejects: %s)",
+    async (rejects) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const pending: {
+        reject: (reason: Error) => void;
+        resolve: (option: (typeof cities)[number]) => void;
+      }[] = [];
+      render(
+        <form aria-label="form">
+          <Autocomplete
+            defaultValue="praha"
+            label="City"
+            name="city"
+            onChange={onChange}
+            onCreate={() =>
+              new Promise<(typeof cities)[number]>((resolve, reject) => {
+                pending.push({ reject, resolve });
+              })
+            }
+            options={cities}
+          />
+        </form>,
+      );
+      await user.type(combobox(), "Oslo", {
+        initialSelectionStart: 0,
+        initialSelectionEnd: 5,
+      });
+      await user.click(screen.getByRole("option", { name: "Add “Oslo”" }));
+      await user.type(combobox(), "Pra", {
+        initialSelectionStart: 0,
+        initialSelectionEnd: 4,
+      });
+      await user.click(screen.getByRole("option", { name: "Praha" }));
+      await user.type(combobox(), "Bergen", {
+        initialSelectionStart: 0,
+        initialSelectionEnd: 5,
+      });
+      await user.click(screen.getByRole("option", { name: "Add “Bergen”" }));
+      expect(pending).toHaveLength(2);
+
+      await act(async () => {
+        if (rejects) pending[0].reject(new Error("Obsolete failure"));
+        else pending[0].resolve({ label: "Oslo", value: "oslo" });
+      });
+      expect(onChange).not.toHaveBeenCalled();
+      expect(formValues("city")).toEqual(["praha"]);
+      expect(combobox()).toHaveValue("Bergen");
+      expect(status()).toHaveTextContent("Adding “Bergen”…");
+      expect(screen.queryByRole("alert")).toBeNull();
+
+      await act(async () =>
+        pending[1].resolve({ label: "Bergen", value: "bergen" }),
+      );
+      expect(onChange).toHaveBeenCalledExactlyOnceWith("bergen", null);
+      expect(combobox()).toHaveValue("Bergen");
+      expect(formValues("city")).toEqual(["bergen"]);
+      expect(status()).toHaveTextContent("Added “Bergen”.");
+    },
+  );
+
+  it("keeps a controlled value changed outside the field while creation is pending", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    let resolve: (option: (typeof cities)[number]) => void = () => {};
+    const onCreate = () =>
+      new Promise<(typeof cities)[number]>((done) => {
+        resolve = done;
+      });
+    const field = (value: string | null) => (
+      <form aria-label="form">
+        <Autocomplete
+          label="City"
+          name="city"
+          onChange={onChange}
+          onCreate={onCreate}
+          options={cities}
+          value={value}
+        />
+      </form>
+    );
+    const { rerender } = render(field(null));
+    await user.type(combobox(), "Oslo");
+    await user.click(screen.getByRole("option", { name: "Add “Oslo”" }));
+    rerender(field("praha"));
+    await user.keyboard("{Escape}");
+    await act(async () => resolve({ label: "Oslo", value: "oslo" }));
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(combobox()).toHaveValue("Praha");
+    expect(formValues("city")).toEqual(["praha"]);
+  });
+
+  it.each([
+    { controlled: false, rejects: false },
+    { controlled: false, rejects: true },
+    { controlled: true, rejects: false },
+    { controlled: true, rejects: true },
+  ])(
+    "ignores creation before a reset while a new one runs (controlled: $controlled, rejects: $rejects)",
+    async ({ controlled, rejects }) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const pending: {
+        reject: (reason: Error) => void;
+        resolve: (option: (typeof cities)[number]) => void;
+      }[] = [];
+      const onCreate = () =>
+        new Promise<(typeof cities)[number]>((resolve, reject) => {
+          pending.push({ reject, resolve });
+        });
+      function Form() {
+        const [value, setValue] = useState<AutocompleteValue | null>(null);
+        return (
+          <form aria-label="form">
+            <Autocomplete
+              label="City"
+              name="city"
+              onChange={(next) => {
+                setValue(next);
+                onChange(next);
+              }}
+              onCreate={onCreate}
+              options={cities}
+              value={controlled ? value : undefined}
+            />
+          </form>
+        );
+      }
+      render(<Form />);
+      const form = screen.getByRole<HTMLFormElement>("form");
+      const create = async () => {
+        await user.clear(combobox());
+        await user.type(combobox(), "Oslo");
+        await user.click(screen.getByRole("option", { name: "Add “Oslo”" }));
+      };
+      await create();
+      await act(async () => form.reset());
+      await waitFor(() => expect(combobox()).toHaveValue(""));
+      expect(formValues("city")).toEqual([""]);
+      expect(status()).not.toHaveTextContent("Adding");
+
+      await create();
+      expect(pending).toHaveLength(2);
+      await act(async () => {
+        if (rejects) pending[0].reject(new Error("Obsolete failure"));
+        else pending[0].resolve({ label: "Old Oslo", value: "old-oslo" });
+      });
+      expect(onChange).not.toHaveBeenCalled();
+      expect(formValues("city")).toEqual([""]);
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(status()).toHaveTextContent("Adding “Oslo”…");
+      expect(
+        screen.getByRole("option", { name: "Adding “Oslo”…" }),
+      ).toHaveAttribute("aria-disabled", "true");
+
+      await act(async () =>
+        pending[1].resolve({ label: "Oslo", value: "oslo" }),
+      );
+      expect(onChange).toHaveBeenCalledExactlyOnceWith("oslo");
+      expect(combobox()).toHaveValue("Oslo");
+      expect(status()).toHaveTextContent("Added “Oslo”.");
+
+      await act(async () => form.reset());
+      await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+    },
+  );
+
+  it("clears creation errors on reset and preserves a creation if reset is canceled", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let resolve: (option: (typeof cities)[number]) => void = () => {};
+    const onCreate = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("The name is taken."))
+      .mockImplementationOnce(
+        () => new Promise<(typeof cities)[number]>((done) => (resolve = done)),
+      );
+    const onChange = vi.fn();
+    render(
+      <form aria-label="form">
+        <Autocomplete
+          label="City"
+          onChange={onChange}
+          onCreate={onCreate}
+          options={cities}
+        />
+      </form>,
+    );
+    const form = screen.getByRole<HTMLFormElement>("form");
+    await user.type(combobox(), "Oslo");
+    await user.click(screen.getByRole("option", { name: "Add “Oslo”" }));
+    expect(await screen.findByRole("alert")).toBeVisible();
+    await act(async () => form.reset());
+    await waitFor(() => expect(combobox()).toHaveValue(""));
+    await user.type(combobox(), "Oslo");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await user.click(screen.getByRole("option", { name: "Add “Oslo”" }));
+    form.addEventListener("reset", (event) => event.preventDefault(), {
+      once: true,
+    });
+    await act(async () => form.reset());
+    expect(status()).toHaveTextContent("Adding “Oslo”…");
+    await act(async () => resolve({ label: "Oslo", value: "oslo" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("oslo", null);
+    expect(combobox()).toHaveValue("Oslo");
+  });
+
   it("adds a chip in multiple mode, keeping the list open", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -182,6 +564,86 @@ describe("Autocomplete onCreate", () => {
     await user.type(combobox(), "oslo");
     expect(screen.queryByRole("option", { name: /Add/ })).toBeNull();
   });
+
+  it("does not create an option when maxSelections is zero", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn((text: string) => ({ label: text, value: text }));
+    const onChange = vi.fn();
+    render(
+      <Autocomplete
+        label="Cities"
+        maxSelections={0}
+        multiple
+        onChange={onChange}
+        onCreate={onCreate}
+        options={cities}
+      />,
+    );
+
+    await user.type(combobox(), "Oslo");
+    const add = screen.getByRole("option", { name: "Add “Oslo”" });
+    expect(add).toHaveAttribute("aria-disabled", "true");
+    await user.click(add);
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { initialLimit: 1, nextLimit: 1, selectsCreated: false },
+    { initialLimit: 2, nextLimit: 0, selectsCreated: false },
+    { initialLimit: 2, nextLimit: 1, selectsCreated: false },
+    { initialLimit: 1, nextLimit: 2, selectsCreated: true },
+  ])(
+    "respects the current selection and limit when creation finishes ($initialLimit → $nextLimit)",
+    async ({ initialLimit, nextLimit, selectsCreated }) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      let resolve: (option: (typeof cities)[number]) => void = () => {};
+      const onCreate = () =>
+        new Promise<(typeof cities)[number]>((done) => {
+          resolve = done;
+        });
+      const field = (maxSelections: number) => (
+        <form aria-label="form">
+          <Autocomplete
+            label="Cities"
+            maxSelections={maxSelections}
+            multiple
+            name="cities"
+            onChange={onChange}
+            onCreate={onCreate}
+            options={cities}
+          />
+        </form>
+      );
+      const { rerender } = render(field(initialLimit));
+
+      await user.type(combobox(), "Oslo");
+      await user.click(screen.getByRole("option", { name: "Add “Oslo”" }));
+      // A user can pick an existing option while the new one is being made.
+      await user.clear(combobox());
+      await user.click(screen.getByRole("option", { name: "Praha" }));
+      expect(formValues("cities")).toEqual(["praha"]);
+
+      rerender(field(nextLimit));
+      await act(async () => resolve({ label: "Oslo", value: "oslo" }));
+
+      const expected = selectsCreated ? ["praha", "oslo"] : ["praha"];
+      expect(formValues("cities")).toEqual(expected);
+      expect(onChange).toHaveBeenCalledTimes(selectsCreated ? 2 : 1);
+      expect(onChange).toHaveBeenLastCalledWith(
+        expected,
+        expected.map(() => null),
+      );
+      expect(
+        screen.getByRole("button", { name: "Clear Praha" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Clear Oslo" }) !== null,
+      ).toBe(selectsCreated);
+    },
+  );
 
   it("speaks the language of the locale", async () => {
     const user = userEvent.setup();
@@ -303,6 +765,111 @@ describe("Autocomplete allowCustomValue", () => {
     await user.tab();
     expect(onChange).toHaveBeenCalledWith("zurich", null);
     expect(combobox()).toHaveValue("Zürich");
+  });
+
+  it("picks a loaded option the text names before its own search loads", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const places = [
+      { id: 42, name: "Prague" },
+      { id: 7, name: "Oslo" },
+    ];
+    // The search for the typed text never answers
+    const loadOptions = vi.fn(({ search }: LoadOptionsParams) =>
+      search ? new Promise<typeof places>(() => {}) : Promise.resolve(places),
+    );
+    render(
+      <form aria-label="form">
+        <Autocomplete
+          allowCustomValue
+          label="City"
+          loadOptions={loadOptions}
+          name="city"
+          onChange={onChange}
+        />
+        <button type="button">Next</button>
+      </form>,
+    );
+
+    await user.click(combobox());
+    await screen.findByRole("option", { name: "Prague" });
+    await user.type(combobox(), "prague");
+    // While the search waits for its debounce, then for its answer
+    expect(formValues("city")).toEqual(["42"]);
+    await waitFor(() =>
+      expect(loadOptions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ search: "prague" }),
+      ),
+    );
+    expect(formValues("city")).toEqual(["42"]);
+
+    await user.tab();
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(42, {
+      id: 42,
+      name: "Prague",
+    });
+    expect(combobox()).toHaveValue("Prague");
+  });
+
+  it("keeps the selected option the text names again before the list loads", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <Autocomplete
+        allowCustomValue
+        defaultValue={42}
+        label="City"
+        loadOptions={() =>
+          new Promise<{ id: number; name: string }[]>(() => {})
+        }
+        loadSelectedOptions={async () => [{ id: 42, name: "Prague" }]}
+        onChange={onChange}
+      />,
+    );
+
+    await waitFor(() => expect(combobox()).toHaveValue("Prague"));
+    await user.type(combobox(), "{Backspace}e");
+    await user.tab();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(combobox()).toHaveValue("Prague");
+  });
+
+  it("does not take an option loaded for other loadOptionsDeps", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    // Only the sales list loads - the support one is still on its way
+    const field = (department: string) => (
+      <form aria-label="form">
+        <Autocomplete
+          allowCustomValue
+          label="Person"
+          loadOptions={({ search }) =>
+            department === "sales" && !search
+              ? Promise.resolve([{ id: 1, name: "Anna" }])
+              : new Promise<{ id: number; name: string }[]>(() => {})
+          }
+          loadOptionsDeps={[department]}
+          name="person"
+          onChange={onChange}
+        />
+        <button type="button">Next</button>
+      </form>
+    );
+    const { rerender } = render(field("sales"));
+
+    await user.click(combobox());
+    await user.click(await screen.findByRole("option", { name: "Anna" }));
+    expect(onChange).toHaveBeenLastCalledWith(1, { id: 1, name: "Anna" });
+    await user.clear(combobox());
+    expect(onChange).toHaveBeenLastCalledWith(null, null);
+    await user.tab();
+
+    // Another Anna, maybe - or none
+    rerender(field("support"));
+    await user.type(combobox(), "Anna");
+    expect(formValues("person")).toEqual(["Anna"]);
+    await user.tab();
+    expect(onChange).toHaveBeenLastCalledWith("Anna", null);
   });
 
   it("still picks the highlighted option on Enter, and clears on erasing", async () => {
@@ -490,6 +1057,68 @@ describe("Autocomplete maxVisibleChips", () => {
 });
 
 describe("Autocomplete readOnly", () => {
+  it.each([
+    { asSelect: false, multiple: false },
+    { asSelect: false, multiple: true },
+    { asSelect: true, multiple: false },
+    { asSelect: true, multiple: true },
+  ])(
+    "submits required read-only values without validation (asSelect=$asSelect, multiple=$multiple)",
+    async ({ asSelect, multiple }) => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn((event: React.FormEvent) =>
+        event.preventDefault(),
+      );
+      const field = (readOnly: boolean, populated: boolean) => (
+        <form aria-label="form" onSubmit={onSubmit}>
+          <Autocomplete
+            asSelect={asSelect}
+            label="Cities"
+            name="cities"
+            options={cities}
+            readOnly={readOnly}
+            required
+            {...(multiple
+              ? {
+                  multiple: true as const,
+                  value: populated ? ["praha", "plzen"] : null,
+                }
+              : {
+                  multiple: false as const,
+                  value: populated ? "praha" : null,
+                })}
+          />
+          <button type="submit">Save</button>
+        </form>
+      );
+      const { rerender } = render(field(true, true));
+      const form = screen.getByRole<HTMLFormElement>("form");
+
+      expect(form.checkValidity()).toBe(true);
+      expect(formValues("cities")).toEqual(
+        multiple ? ["praha", "plzen"] : ["praha"],
+      );
+
+      rerender(field(true, false));
+      expect(combobox()).toHaveAttribute("aria-required", "true");
+      expect(form.checkValidity()).toBe(true);
+      expect(formValues("cities")).toEqual(multiple ? [] : [""]);
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+
+      // Making it editable restores the requirement the user can now meet.
+      rerender(field(false, false));
+      expect(form.checkValidity()).toBe(false);
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+
+      rerender(field(true, false));
+      expect(form.checkValidity()).toBe(true);
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(onSubmit).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("shows and submits its value but takes no changes", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

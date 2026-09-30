@@ -102,7 +102,7 @@ const sizeClasses = {
     text: "pt-0.5",
   },
   md: {
-    dotOffset: "h-[11px]",
+    dotOffset: "h-2.75",
     dot: "h-2.5 w-2.5",
     gap: "pb-6",
     icon: "h-8 w-8 [&>svg]:size-4",

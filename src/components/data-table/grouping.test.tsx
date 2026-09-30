@@ -221,6 +221,29 @@ describe("DataTable row groups", () => {
     ).toEqual(["Team: B (2 rows)", "Team: A (1 row)"]);
   });
 
+  it("orders the groups of ISO date-times with a time zone by their moment", () => {
+    render(
+      <DataTable
+        clientSide
+        columns={[{ key: "at", label: "At", sortable: true }]}
+        data={[
+          { at: "2026-09-24T23:30:00Z", id: 1 },
+          // Earlier, though its text is later
+          { at: "2026-09-25T00:15:00+02:00", id: 2 },
+        ]}
+        defaultQuery={{ sortBy: "at" }}
+        groupBy="at"
+      />,
+    );
+
+    expect(
+      screen.getAllByRole("button", { name: /^At:/ }).map((b) => b.textContent),
+    ).toEqual([
+      "At: 2026-09-25T00:15:00+02:00 (1 row)",
+      "At: 2026-09-24T23:30:00Z (1 row)",
+    ]);
+  });
+
   it("counts all rows of a group on a page of it", () => {
     render(
       <DataTable

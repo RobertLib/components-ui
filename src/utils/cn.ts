@@ -8,6 +8,8 @@ type ClassValue =
   | Record<string, unknown>;
 
 function toVal(mix: ClassValue): string {
+  // Falsy values add nothing - also 0, as of `count && "has-items"`
+  if (!mix) return "";
   if (typeof mix === "string" || typeof mix === "number") return mix.toString();
 
   const res: string[] = [];
@@ -101,6 +103,9 @@ const isSize = (value: string) =>
     value,
   );
 
+/** Tailwind's line-height unit is available for height utilities only. */
+const isHeight = (value: string) => isSize(value) || value === "lh";
+
 /** A number or an arbitrary value, or one of `words`. */
 const numberOr =
   (...words: string[]) =>
@@ -162,6 +167,8 @@ for (const prefix of [
   "inset",
   "inset-x",
   "inset-y",
+  "inset-s",
+  "inset-e",
   "top",
   "right",
   "bottom",
@@ -173,8 +180,11 @@ for (const prefix of [
 ]) {
   PREFIXES[prefix] = isInset;
 }
-for (const prefix of ["w", "h", "size", "min-w", "max-w", "min-h", "max-h"]) {
+for (const prefix of ["w", "size", "min-w", "max-w"]) {
   PREFIXES[prefix] = isSize;
+}
+for (const prefix of ["h", "min-h", "max-h"]) {
+  PREFIXES[prefix] = isHeight;
 }
 
 /**
@@ -182,6 +192,8 @@ for (const prefix of ["w", "h", "size", "min-w", "max-w", "min-h", "max-h"]) {
  * `p-0` also replaces an earlier `px-4`, a later `px-0` not an earlier `p-4`.
  */
 const OVERRIDES: Record<string, string[]> = {
+  "font-size": ["font-size-leading"],
+  "font-size-leading": ["font-size", "leading"],
   gap: ["gap-x", "gap-y"],
   inset: [
     "inset-x",
@@ -190,10 +202,10 @@ const OVERRIDES: Record<string, string[]> = {
     "right",
     "bottom",
     "left",
-    "start",
-    "end",
+    "inset-s",
+    "inset-e",
   ],
-  "inset-x": ["left", "right", "start", "end"],
+  "inset-x": ["left", "right", "inset-s", "inset-e"],
   "inset-y": ["top", "bottom"],
   overflow: ["overflow-x", "overflow-y"],
   rounded: [
@@ -321,8 +333,8 @@ function isLength(value: string) {
 
 /** The group of a utility without its variants, `!` and minus sign. */
 function utilityGroup(utility: string): string | undefined {
-  const standalone = STANDALONE[utility];
-  if (standalone) return standalone;
+  // Custom classes such as `constructor` are not inherited utilities.
+  if (Object.hasOwn(STANDALONE, utility)) return STANDALONE[utility];
 
   // The longest prefix first: `min-w-0` is `min-w`, not `min`
   const parts = utility.split("-");
@@ -350,8 +362,13 @@ function textShadowGroup(value: string): string | undefined {
 function prefixedGroup(prefix: string, value: string): string | undefined {
   if (!value) return undefined;
 
-  const isValue = PREFIXES[prefix];
-  if (isValue) return isValue(value) ? prefix : undefined;
+  if (Object.hasOwn(PREFIXES, prefix)) {
+    if (!PREFIXES[prefix](value)) return undefined;
+    // Legacy aliases set the same logical side as their canonical names.
+    if (prefix === "start") return "inset-s";
+    if (prefix === "end") return "inset-e";
+    return prefix;
+  }
 
   switch (prefix) {
     case "flex":
@@ -400,9 +417,13 @@ function prefixedGroup(prefix: string, value: string): string | undefined {
         return "font-weight";
       }
       return /^(?:sans|serif|mono)$/.test(value) ? "font-family" : undefined;
-    case "text":
-      // `text-sm/6` - a size with a line height
-      if (FONT_SIZES.has(value.replace(/\/.*$/, ""))) return "font-size";
+    case "text": {
+      // A slash outside brackets adds a line height, which also replaces
+      // earlier `leading-*`. Slashes inside calc() are part of the size.
+      const [size, leading] = splitParts(value, "/");
+      if (FONT_SIZES.has(size) || (/^[[(]/.test(size) && isLength(size))) {
+        return leading ? "font-size-leading" : "font-size";
+      }
       if (/^(?:left|center|right|justify|start|end)$/.test(value)) {
         return "text-align";
       }
@@ -412,7 +433,8 @@ function prefixedGroup(prefix: string, value: string): string | undefined {
       // and its color, not the color of the text
       if (/^shadow(?:-|$)/.test(value)) return textShadowGroup(value.slice(7));
       if (isColor(value)) return "text-color";
-      return /^[[(]/.test(value) && isLength(value) ? "font-size" : undefined;
+      return undefined;
+    }
     case "bg":
       if (isColor(value)) return "bg-color";
       return /^(?:none|linear-|radial|conic|gradient-|\[url\(|\[(?:image:)?(?:linear|radial|conic)-gradient)/.test(
@@ -480,8 +502,8 @@ interface ClassConflict {
   group: string;
 }
 
-/** `hover:md:px-2` -> the variants and the utility, brackets respected. */
-function splitVariants(className: string): string[] {
+/** Splits variants or a slash modifier, respecting brackets and parentheses. */
+function splitParts(className: string, separator: ":" | "/"): string[] {
   const parts: string[] = [];
   let depth = 0;
   let start = 0;
@@ -490,7 +512,7 @@ function splitVariants(className: string): string[] {
     const char = className[i];
     if (char === "[" || char === "(") depth++;
     else if (char === "]" || char === ")") depth--;
-    else if (char === ":" && depth === 0) {
+    else if (char === separator && depth === 0) {
       parts.push(className.slice(start, i));
       start = i + 1;
     }
@@ -561,7 +583,7 @@ function variantScope(variants: string[]) {
 
 /** `undefined` for a class that conflicts with nothing. */
 function parseClass(className: string): ClassConflict | undefined {
-  const parts = splitVariants(className);
+  const parts = splitParts(className, ":");
   let utility = parts.pop() ?? "";
 
   // `!p-0` (Tailwind 3) and `p-0!` (Tailwind 4)
@@ -612,7 +634,10 @@ function mergeClasses(classes: string[]): string[] {
       if (overridden.has(key)) continue;
 
       overridden.add(key);
-      for (const group of OVERRIDES[conflict.group] ?? []) {
+      const overrides = Object.hasOwn(OVERRIDES, conflict.group)
+        ? OVERRIDES[conflict.group]
+        : [];
+      for (const group of overrides) {
         overridden.add(conflict.scope + group);
       }
     }

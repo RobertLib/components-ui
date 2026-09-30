@@ -143,9 +143,9 @@ describe("Progress", () => {
         "animate-[progress-indeterminate_1.5s_ease-in-out_infinite]",
         // Fading in place instead for reduced motion
         "motion-reduce:animate-[progress-fade_2s_ease-in-out_infinite]",
-        "motion-reduce:start-[30%]",
+        "motion-reduce:inset-s-[30%]",
         // From the start - mirrored, from the right, right to left
-        "start-0",
+        "inset-s-0",
         "rtl:-scale-x-100",
       );
     }

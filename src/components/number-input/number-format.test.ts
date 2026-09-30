@@ -95,12 +95,163 @@ describe("getNumberFormat", () => {
     expect(Object.is(money.round(-0.001), -0)).toBe(false);
   });
 
+  it.each(["en-US", "cs-CZ", "pl-PL", "cy-GB", "fr-FR"])(
+    "reads every grammatical form of a formatted unit or currency in %s",
+    (locale) => {
+      const options: Intl.NumberFormatOptions[] = [
+        { style: "unit", unit: "meter", unitDisplay: "long" },
+        { style: "currency", currency: "USD", currencyDisplay: "name" },
+      ];
+      for (const formatOptions of options) {
+        const format = getNumberFormat(locale, formatOptions);
+        for (const value of [0, 1, 2, 3, 4, 5, 6, 11, 21, 1.5, 1e6, -1, -2]) {
+          const text = format.format(value);
+          expect(format.isPartial(text, true), text).toBe(true);
+          expect(format.parse(text), text).toBe(value);
+        }
+      }
+    },
+  );
+
+  it.each([
+    { roundingMode: "trunc", value: 1.239, expected: 1.23 },
+    { roundingMode: "ceil", value: -1.239, expected: -1.23 },
+    { roundingMode: "floor", value: -1.231, expected: -1.24 },
+    { roundingMode: "halfEven", value: 1.225, expected: 1.22 },
+    { roundingMode: "halfEven", value: 1.235, expected: 1.24 },
+  ] as const)(
+    "uses $roundingMode to read and edit $value as $expected",
+    ({ roundingMode, value, expected }) => {
+      const format = getNumberFormat("en-US", {
+        maximumFractionDigits: 2,
+        roundingMode,
+      });
+      expect(format.parse(String(value))).toBe(expected);
+      expect(format.round(value)).toBe(expected);
+      expect(format.toEditText(value)).toBe(String(expected));
+      expect(format.format(value)).toBe(String(expected));
+    },
+  );
+
+  it("uses the currency's rounding increment when reading and editing", () => {
+    const format = getNumberFormat("en-US", {
+      currency: "CHF",
+      roundingIncrement: 5,
+      roundingMode: "trunc",
+      style: "currency",
+    });
+    expect(format.parse("1.29")).toBe(1.25);
+    expect(format.round(1.29)).toBe(1.25);
+    expect(format.toEditText(1.29)).toBe("1.25");
+    expect(format.toEditText(1)).toBe("1.00");
+  });
+
+  it("rounds the percent number before converting it to a fraction", () => {
+    const format = getNumberFormat("cs-CZ", {
+      maximumFractionDigits: 1,
+      roundingMode: "floor",
+      style: "percent",
+    });
+    expect(format.parse("12,39 %")).toBe(0.123);
+    expect(format.round(0.1239)).toBe(0.123);
+    expect(format.toEditText(0.1239)).toBe("12,3");
+    expect(format.format(0.1239)).toBe("12,3\u00a0%");
+  });
+
+  it("uses significant digits consistently when reading and editing", () => {
+    const format = getNumberFormat("en-US", {
+      maximumSignificantDigits: 3,
+      roundingMode: "trunc",
+    });
+    expect(format.parse("1239")).toBe(1230);
+    expect(format.round(1239)).toBe(1230);
+    expect(format.toEditText(1239)).toBe("1230");
+    expect(format.format(1239)).toBe("1,230");
+  });
+
+  it.each<Intl.NumberFormatOptions>([
+    { notation: "compact" },
+    {
+      maximumFractionDigits: 0,
+      maximumSignificantDigits: 3,
+      roundingPriority: "morePrecision",
+    },
+  ])("accepts fractions kept by significant digits with %j", (options) => {
+    for (const locale of ["en-US", "cs-CZ"]) {
+      const format = getNumberFormat(locale, options);
+      const text = format.toEditText(1.5);
+      expect(format.isPartial(text, true)).toBe(true);
+      expect(format.parse(text)).toBe(1.5);
+      expect(format.round(1.5)).toBe(1.5);
+    }
+  });
+
+  it("still refuses fractions when lessPrecision requires whole numbers", () => {
+    const format = getNumberFormat("en-US", {
+      maximumFractionDigits: 0,
+      maximumSignificantDigits: 3,
+      roundingPriority: "lessPrecision",
+    });
+    expect(format.isPartial("1.5", true)).toBe(false);
+    expect(format.round(1.5)).toBe(2);
+  });
+
+  it("keeps a finer step with compact notation's default precision", () => {
+    const format = getStepNumberFormat("en-US", { notation: "compact" }, 0.01);
+    expect(format.round(10.01)).toBe(10.01);
+    expect(format.toEditText(10.01)).toBe("10.01");
+  });
+
   it("keeps all the digits a number has", () => {
     const precise = getNumberFormat("en-US", { maximumFractionDigits: 9 });
     expect(en.parse("1234567890123456")).toBe(1234567890123456);
     expect(en.round(1234567890123456)).toBe(1234567890123456);
     expect(en.toEditText(1234567890123456)).toBe("1234567890123456");
     expect(precise.parse("1234567.123456789")).toBe(1234567.123456789);
+  });
+
+  it.each([
+    { notation: "scientific", value: 0.000123456, rounded: 0.0001235 },
+    { notation: "scientific", value: 123456.789, rounded: 123500 },
+    { notation: "engineering", value: 0.0001234567, rounded: 0.000123457 },
+    { notation: "engineering", value: 123456.789, rounded: 123457 },
+  ] as const)(
+    "rounds $notation $value by its mantissa when reading and editing",
+    ({ notation, value, rounded }) => {
+      const format = getNumberFormat("cs-CZ", { notation });
+      const text = String(rounded).replace(".", ",");
+      expect(format.round(value)).toBe(rounded);
+      expect(format.parse(String(value))).toBe(rounded);
+      expect(format.toEditText(value)).toBe(text);
+      expect(format.parse(text)).toBe(rounded);
+      expect(format.format(rounded)).toBe(format.format(value));
+    },
+  );
+
+  it.each(["scientific", "engineering"] as const)(
+    "allows fractions with a whole %s mantissa and honors its rounding mode",
+    (notation) => {
+      const format = getNumberFormat("en-US", {
+        notation,
+        maximumFractionDigits: 0,
+        roundingMode: "trunc",
+      });
+      const expected = notation === "scientific" ? 0.0001 : 0.000123;
+      expect(format.isPartial("0.0001239", true)).toBe(true);
+      expect(format.parse("0.0001239")).toBe(expected);
+      expect(format.toEditText(0.0001239)).toBe(String(expected));
+    },
+  );
+
+  it("edits an exponential percentage as its rounded percent number", () => {
+    const format = getNumberFormat("en-US", {
+      notation: "scientific",
+      style: "percent",
+      maximumFractionDigits: 2,
+    });
+    expect(format.format(0.000001234)).toBe("1.23E-4%");
+    expect(format.toEditText(0.000001234)).toBe("0.000123");
+    expect(format.parse("0.0001234")).toBe(0.00000123);
   });
 
   it("types percentages as the percent number", () => {
@@ -114,6 +265,62 @@ describe("getNumberFormat", () => {
     expect(percent.parse("7 %")).toBe(0.07);
     expect(percent.fractionDigits).toBe(1);
   });
+
+  it("keeps the typed percent digits at a significant-digit rounding boundary", () => {
+    const format = getNumberFormat("en-US", {
+      maximumSignificantDigits: 1,
+      style: "percent",
+    });
+    expect(format.parse("0.14999999999999996")).toBe(0.001);
+    expect(format.parse("-0.14999999999999996")).toBe(-0.001);
+  });
+
+  it.each([1e307, -1e307, Number.MAX_VALUE, -Number.MAX_VALUE])(
+    "keeps the finite percentage %s when its percent number overflows",
+    (value) => {
+      const format = getNumberFormat("en-US", { style: "percent" });
+      const text = format.toEditText(value);
+      expect(format.round(value)).toBe(value);
+      expect(format.isPartial(text, true)).toBe(true);
+      expect(format.parse(text)).toBe(value);
+      expect(format.parse(format.format(value))).toBe(value);
+    },
+  );
+
+  it.each(["standard", "scientific", "engineering"] as const)(
+    "rounds and edits overflowing percentages with %s notation",
+    (notation) => {
+      const format = getNumberFormat("cs-CZ", {
+        maximumSignificantDigits: 3,
+        notation,
+        roundingMode: "trunc",
+        style: "percent",
+      });
+      for (const value of [1.23456789e307, -1.23456789e307]) {
+        const expected = Math.sign(value) * 1.23e307;
+        expect(format.round(value)).toBe(expected);
+        expect(format.parse(format.toEditText(value))).toBe(expected);
+      }
+      expect(format.isPartial("9".repeat(312), true)).toBe(false);
+      expect(format.parse("9".repeat(312))).toBeNull();
+    },
+  );
+
+  it.each(["standard", "scientific", "engineering"] as const)(
+    "keeps a finite percentage when %s rounding overflows its percent number",
+    (notation) => {
+      const format = getNumberFormat("en-US", {
+        maximumSignificantDigits: 1,
+        notation,
+        style: "percent",
+      });
+      for (const value of [1.79e306, -1.79e306]) {
+        const expected = Math.sign(value) * 2e306;
+        expect(format.round(value)).toBe(expected);
+        expect(format.parse(format.toEditText(value))).toBe(expected);
+      }
+    },
+  );
 
   it("reads a 0 before a separator as no group - 0,234 is 0.234", () => {
     expect(en.parse("0,234")).toBe(0.234);
@@ -144,6 +351,25 @@ describe("getNumberFormat", () => {
     expect(en.isPartial("9".repeat(400), true)).toBe(false);
     expect(en.parse("9".repeat(300))).toBe(1e300);
   });
+
+  it.each(["en-US", "fa-IR"])(
+    "keeps accounting signs around direction marks in %s",
+    (locale) => {
+      const accounting = getNumberFormat(locale, {
+        currency: "USD",
+        currencySign: "accounting",
+        style: "currency",
+      });
+      for (const mark of ["", "\u061c", "\u200e", "\u200f"]) {
+        const text = `${mark}${accounting.format(-1234.5)}${mark}`;
+        expect(accounting.parse(text)).toBe(-1234.5);
+        expect(accounting.isPartial(text, true)).toBe(true);
+        expect(accounting.isPartial(text, false)).toBe(false);
+      }
+      expect(accounting.parse(accounting.format(1234.5))).toBe(1234.5);
+      expect(accounting.parse("\u200e(-12)\u200f")).toBeNull();
+    },
+  );
 
   it("reads the digits of the locale's own numbering system", () => {
     const arabic = getNumberFormat("ar-EG");
@@ -209,6 +435,18 @@ describe("toCanonical", () => {
     expect(toCanonical(1e-7)).toBe("0.0000001");
     expect(toCanonical(1e21)).toBe("1000000000000000000000");
   });
+
+  it.each([
+    1e-21,
+    -1.2345678912345679e-25,
+    Number.MIN_VALUE,
+    Number.MAX_VALUE,
+    1e18 + 128,
+  ])("submits %s without rounding or exponent notation", (value) => {
+    const text = toCanonical(value);
+    expect(text).toMatch(/^-?\d+(?:\.\d+)?$/);
+    expect(Number(text)).toBe(value);
+  });
 });
 
 describe("stepValue", () => {
@@ -266,5 +504,27 @@ describe("stepValue", () => {
     expect(stepValue(null, 1, 1, { min: 5, step: 1 })).toBe(5);
     expect(stepValue(null, -1, 1, { max: 20, step: 1 })).toBe(20);
     expect(stepValue(null, 1, 1, { max: -5, step: 1 })).toBe(-5);
+  });
+
+  it("takes exactly one step throughout the safe integer range", () => {
+    for (const magnitude of [1e15, 2e15, Number.MAX_SAFE_INTEGER - 10]) {
+      for (const value of [magnitude, -magnitude]) {
+        expect(stepValue(value, 1, 1, { step: 1 })).toBe(value + 1);
+        expect(stepValue(value, -1, 1, { step: 1 })).toBe(value - 1);
+        expect(stepValue(value, 1, 1, { min: value - 5, step: 1 })).toBe(
+          value + 1,
+        );
+        expect(stepValue(value, -1, 1, { min: value - 5, step: 1 })).toBe(
+          value - 1,
+        );
+      }
+    }
+    // A representable fraction is still between steps at these magnitudes.
+    expect(stepValue(1e15 + 0.75, 1, 1, { step: 1 })).toBe(1e15 + 1);
+    expect(stepValue(1e15 + 0.25, -1, 1, { step: 1 })).toBe(1e15);
+    expect(stepValue(1e15, 1, 10, { max: 1e15 + 1.75, step: 1 })).toBe(
+      1e15 + 1,
+    );
+    expect(stepValue(0.1 + 0.2, -1, 1, { step: 0.1 })).toBe(0.2);
   });
 });

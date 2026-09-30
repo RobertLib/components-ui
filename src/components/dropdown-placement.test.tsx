@@ -41,7 +41,7 @@ describe("Dropdown placement", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Actions" }));
-    expect(panel()).toHaveClass("top-full", "end-0");
+    expect(panel()).toHaveClass("top-full", "inset-e-0");
     expect(panel().style.marginTop).toBe("10px");
   });
 
@@ -59,7 +59,7 @@ describe("Dropdown placement", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Actions" }));
-    expect(panel()).toHaveClass("bottom-full", "start-0");
+    expect(panel()).toHaveClass("bottom-full", "inset-s-0");
 
     rerender(
       <Dropdown

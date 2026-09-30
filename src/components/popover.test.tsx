@@ -280,6 +280,61 @@ describe("Popover in hover mode", () => {
     expect(screen.queryByRole("link", { name: "Compare plans" })).toBeNull();
   });
 
+  it.each(["trigger", "panel", "nested panel"])(
+    "stays open after the pointer leaves while its %s has focus",
+    async (focusedPart) => {
+      const user = userEvent.setup();
+      render(
+        <>
+          <Popover
+            contentLabel="Plan details"
+            trigger={<button type="button">Plan</button>}
+          >
+            <input aria-label="Plan name" />
+            <Popover
+              buttonTrigger
+              trigger={<button type="button">More</button>}
+              triggerType="click"
+            >
+              <input aria-label="Notes" />
+            </Popover>
+          </Popover>
+          <button type="button">Elsewhere</button>
+        </>,
+      );
+
+      await user.tab();
+      if (focusedPart === "panel") await user.tab();
+      if (focusedPart === "nested panel") {
+        await user.click(screen.getByRole("button", { name: "More" }));
+        await user.tab();
+      }
+      const focused =
+        focusedPart === "trigger"
+          ? screen.getByRole("button", { name: "Plan" })
+          : screen.getByRole("textbox", {
+              name: focusedPart === "panel" ? "Plan name" : "Notes",
+            });
+      expect(focused).toHaveFocus();
+
+      await user.hover(focused);
+      const outside = screen.getByRole("button", { name: "Elsewhere" });
+      await user.hover(outside);
+      await act(() => sleep(80));
+
+      expect(
+        screen.getByRole("dialog", { name: "Plan details" }),
+      ).toBeInTheDocument();
+      expect(focused).toHaveFocus();
+
+      act(() => outside.focus());
+      expect(outside).toHaveFocus();
+      expect(
+        screen.queryByRole("dialog", { name: "Plan details" }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
   it("goes into the panel only from the last control of its trigger", async () => {
     const user = userEvent.setup();
     render(
@@ -384,6 +439,22 @@ describe("Popover from the keyboard", () => {
     await user.tab();
     expect(screen.getByRole("button", { name: "Next" })).toHaveFocus();
     expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+  });
+
+  it("moves Tab into the panel past a stop the browser gives no focus", async () => {
+    const user = userEvent.setup();
+    render(panel);
+    const trigger = screen.getByRole("button", { name: "Filters" });
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    // As Firefox does with a link in editable text
+    vi.spyOn(
+      screen.getByRole("button", { name: "Apply" }),
+      "focus",
+    ).mockImplementation(() => {});
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Reset" })).toHaveFocus();
   });
 
   it("goes round to the first control of a Dialog it is the last one of", async () => {
@@ -674,6 +745,7 @@ describe("Popover placement", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("opens on the other side when there is no room to the right", () => {
@@ -697,6 +769,26 @@ describe("Popover placement", () => {
 
     await act(() => sleep(50));
     // 900 - (768 - 8) px over the bottom edge of the jsdom viewport
+    expect(screen.getByRole("dialog").style.translate).toBe("0px -140px");
+  });
+
+  it("moves an open side panel up as the window gets shorter", async () => {
+    triggerAt({ bottom: 730, height: 30, left: 10, right: 90, top: 700 });
+    vi.stubGlobal("innerHeight", 1000);
+    render(
+      <Popover open position="right" trigger={<span>Trigger</span>}>
+        Panel
+      </Popover>,
+    );
+    await act(() => sleep(50));
+    expect(screen.getByRole("dialog").style.translate).toBe("");
+
+    // The trigger stays where it is
+    vi.stubGlobal("innerHeight", 768);
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    await act(() => sleep(50));
     expect(screen.getByRole("dialog").style.translate).toBe("0px -140px");
   });
 });
@@ -1233,6 +1325,59 @@ describe("Popover flipping", () => {
     await act(() => sleep(20));
     expect(panel()).toHaveClass("bottom-full");
   });
+
+  it("flips while open as the on-screen keyboard comes up and goes away", async () => {
+    layout({ bottom: 430, height: 30, left: 10, right: 110, top: 400 });
+    // Fires its own resize, as the visual viewport of a phone does
+    const viewport = Object.assign(new EventTarget(), {
+      height: 768,
+      offsetLeft: 0,
+      offsetTop: 0,
+      width: 1024,
+    });
+    vi.stubGlobal("visualViewport", viewport);
+    render(
+      <Popover open position="bottom" trigger={<span>Trigger</span>}>
+        Panel
+      </Popover>,
+    );
+    await act(() => sleep(20));
+    expect(panel()).toHaveClass("top-full");
+
+    // The field stays where it is - only the room below it shrinks, to
+    // 500 - 430 - 16 = 54px, while there is 400 - 16 = 384px above it
+    viewport.height = 500;
+    act(() => {
+      viewport.dispatchEvent(new Event("resize"));
+    });
+    expect(panel()).toHaveClass("bottom-full");
+
+    viewport.height = 768;
+    act(() => {
+      viewport.dispatchEvent(new Event("resize"));
+    });
+    expect(panel()).toHaveClass("top-full");
+  });
+
+  it("holds an open panel to the room a shorter window leaves", async () => {
+    layout({ bottom: 130, height: 30, left: 10, right: 110, top: 100 });
+    panelHeight = 300;
+    render(
+      <Popover open position="bottom" trigger={<span>Trigger</span>}>
+        Panel
+      </Popover>,
+    );
+    await act(() => sleep(20));
+    expect(panel().style.maxHeight).toBe("");
+
+    // 400 - 130 - 16 = 254px below, 100 - 16 = 84px above
+    vi.stubGlobal("innerHeight", 400);
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(panel()).toHaveClass("top-full");
+    expect(panel().style.maxHeight).toBe("254px");
+  });
 });
 
 describe("Popover renders", () => {
@@ -1333,6 +1478,46 @@ describe("Popover names", () => {
 });
 
 describe("Popover in a shadow root", () => {
+  it.each(["Escape", "parent"])(
+    "returns the focus from a shadow field to the trigger when closed by %s",
+    async (close) => {
+      let field: HTMLInputElement | undefined;
+      const onOpenChange = vi.fn();
+      const renderPopover = (open: boolean) => (
+        <Popover
+          onOpenChange={onOpenChange}
+          open={open}
+          trigger={<span>Details</span>}
+          triggerType="click"
+        >
+          <div
+            ref={(host) => {
+              if (host && !host.shadowRoot) {
+                field = document.createElement("input");
+                host.attachShadow({ mode: "open" }).append(field);
+              }
+            }}
+          />
+        </Popover>
+      );
+      const { rerender } = render(renderPopover(true));
+      const trigger = screen.getByRole("button", { name: "Details" });
+      act(() => field!.focus());
+      expect((field!.getRootNode() as ShadowRoot).activeElement).toBe(field);
+
+      if (close === "Escape") {
+        fireEvent.keyDown(field!, { composed: true, key: "Escape" });
+        expect(onOpenChange).toHaveBeenCalledWith(false);
+        expect(trigger).toHaveFocus();
+      }
+
+      await act(async () => rerender(renderPopover(false)));
+
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(trigger).toHaveFocus();
+    },
+  );
+
   it("closes on a click on its trigger - not a click outside", () => {
     const host = document.createElement("div");
     document.body.append(host);

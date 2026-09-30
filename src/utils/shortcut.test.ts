@@ -106,6 +106,14 @@ describe("matchesShortcut", () => {
     expect(
       matchesShortcut(press("Enter", { shiftKey: true }), "shift+enter"),
     ).toBe(true);
+    // The space is a named key, no symbol
+    expect(matchesShortcut(press(" ", { shiftKey: true }), "space")).toBe(
+      false,
+    );
+    expect(matchesShortcut(press(" "), "space")).toBe(true);
+    expect(matchesShortcut(press(" ", { shiftKey: true }), "shift+space")).toBe(
+      true,
+    );
   });
 
   it("matches a letter by its place when the layout types another character", () => {

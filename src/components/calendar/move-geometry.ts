@@ -93,19 +93,18 @@ export function shiftEventByDays(
   if (event.allDay) {
     const range = getAllDayRange(event);
     if (range.start !== event.start) {
-      const shiftUTC = (date: Date) =>
-        new Date(
-          Date.UTC(
-            date.getUTCFullYear(),
-            date.getUTCMonth(),
-            date.getUTCDate() + days,
-          ),
-        );
+      const shiftUTC = (date: Date) => {
+        const shifted = new Date(date);
+        shifted.setUTCDate(shifted.getUTCDate() + days);
+        return shifted;
+      };
       return { end: shiftUTC(event.end), start: shiftUTC(event.start) };
     }
     return {
-      end: shiftByDays(event.end, days),
-      start: shiftByDays(event.start, days),
+      // A skipped midnight starts a day at 1:00. All-day edges follow the
+      // target day's own start, instead of carrying that hour into it.
+      end: addCalendarDays(range.end, days),
+      start: addCalendarDays(range.start, days),
     };
   }
 
@@ -232,11 +231,28 @@ export function createGridGeometry({
       // The start goes by the rows, the end keeps the length of the event
       // - in a daylight saving gap a row is no time at all, in a repeated
       // hour it is twice as long
-      const start = atMinutesOf(event.start, day, from + delta);
+      const desired = atMinutesOf(event.start, day, from + delta);
+      const length = event.end.getTime() - event.start.getTime();
+      // Check the actual times after normalizing the clock rows. Keeping
+      // the duration across a skipped or repeated hour can otherwise take
+      // the end past the hours shown, also when moving to another day.
+      const earliest = (
+        from < top ? atMinutesOf(event.start, day, from) : atMinutes(day, top)
+      ).getTime();
+      const endLimit = (
+        to >= bottom ? atMinutesOf(event.end, day, to) : atMinutes(day, bottom)
+      ).getTime();
+      // An original end in the second run of a repeated hour keeps that
+      // representation, including a part already outside the grid.
+      const latest =
+        (isSameDay(day, eventDay)
+          ? Math.max(endLimit, event.end.getTime())
+          : endLimit) - length;
+      // A shorter target day may have no room for the unchanged duration.
+      if (latest < earliest) return unchanged;
+      const start = new Date(clamp(desired.getTime(), earliest, latest));
       return {
-        end: new Date(
-          start.getTime() + event.end.getTime() - event.start.getTime(),
-        ),
+        end: new Date(start.getTime() + length),
         resourceId: targetResource,
         start,
       };
@@ -329,6 +345,10 @@ interface DayGeometryOptions {
   hasResources: boolean;
   /** The cell of the tile moved. */
   index: number;
+  /** Days after it are disabled, also for the start of a spanning event. */
+  maxDate?: Date;
+  /** Days before it are disabled, also for the start of a spanning event. */
+  minDate?: Date;
   /** The page is laid out right to left - the cells too. */
   rtl: boolean;
 }
@@ -346,6 +366,8 @@ export function createDayGeometry({
   grid,
   hasResources,
   index,
+  maxDate,
+  minDate,
   rtl,
 }: DayGeometryOptions): MoveGeometry {
   const rows = Math.ceil(cells.length / columns);
@@ -362,6 +384,15 @@ export function createDayGeometry({
   const movable = !!origin && !origin.disabled;
   const cellWidth = grid && movable ? grid.offsetWidth / columns : 0;
   const cellHeight = grid && movable && rows > 1 ? grid.offsetHeight / rows : 0;
+  // The grabbed tile may be on a later day of the event. Limit the move
+  // by its actual start, using the calendar days of UTC all-day events.
+  const startDay = startOfDay(
+    event.allDay ? getAllDayRange(event).start : event.start,
+  );
+  const firstDay = minDate && startOfDay(minDate);
+  const lastDay = maxDate && startOfDay(maxDate);
+  const minDays = firstDay ? daysBetween(startDay, firstDay) : -Infinity;
+  const maxDays = lastDay ? daysBetween(startDay, lastDay) : Infinity;
 
   const compute = ({ x, y }: MoveSteps): EventDisplay => {
     if (!origin || origin.disabled || enabled.length === 0) return unchanged;
@@ -374,11 +405,26 @@ export function createDayGeometry({
     const cell = cells[target];
     if (!cell || cell.disabled) return unchanged;
 
-    const days = daysBetween(origin.day, cell.day);
+    // An already out-of-range start stays in place at the edge, without
+    // jumping to the boundary when picked up.
+    const days = clamp(
+      daysBetween(origin.day, cell.day),
+      Math.min(0, minDays),
+      Math.max(0, maxDays),
+    );
     const targetResource = hasResources ? cell.resourceId : resourceId;
     if (days === 0 && targetResource === resourceId) return unchanged;
 
-    return { ...shiftEventByDays(event, days), resourceId: targetResource };
+    const shifted = shiftEventByDays(event, days);
+    const day = startOfDay(
+      event.allDay ? getAllDayRange(shifted).start : shifted.start,
+    );
+    // A start already before the allowed days must reach them before a
+    // drop, including a change of resource, can be reported.
+    if ((firstDay && day < firstDay) || (lastDay && day > lastDay)) {
+      return unchanged;
+    }
+    return { ...shifted, resourceId: targetResource };
   };
 
   return {
@@ -495,7 +541,8 @@ function rowAt(grid: HTMLElement | null, y: number): number | null {
  * How an event moves in the resource timeline: across by whole slots of
  * the hours shown - on to the next day after the last one - and down to the
  * rows of other resources; a resize moves one edge by whole slots. A timed
- * event keeps its length in absolute time; an all-day one moves by whole
+ * event keeps its length in absolute time; a resize respects its minimum
+ * length across daylight saving changes. An all-day event moves by whole
  * days (the width of a day) and stays one. Only onto the enabled days.
  */
 export function createTimelineGeometry({
@@ -523,8 +570,11 @@ export function createTimelineGeometry({
   // The enabled days follow each other - the part of the timeline they take
   const first = (enabled[0] ?? 0) * perDay;
   const last = ((enabled[enabled.length - 1] ?? -1) + 1) * perDay;
-  const from = timelinePosition(axis, event.start);
-  const to = timelinePosition(axis, event.end);
+  // Use the same calendar days as the all-day tile, while moves still
+  // report the event's original representation through shiftEventByDays.
+  const range = event.allDay ? getAllDayRange(event) : event;
+  const from = timelinePosition(axis, range.start);
+  const to = timelinePosition(axis, range.end);
   const dayOf = (position: number) =>
     clamp(Math.floor(position / perDay), 0, axis.days.length - 1);
   const onEnabledDay = !axis.days[dayOf(from)]?.disabled;
@@ -557,29 +607,65 @@ export function createTimelineGeometry({
           axis.days[day].day,
         );
         if (days === 0 && targetResource === resourceId) return unchanged;
-        return { ...shiftEventByDays(event, days), resourceId: targetResource };
+        const shifted = shiftEventByDays(event, days);
+        // The clipped edge can be on an enabled day while the actual start
+        // is still before it. Check the calendar day, also for UTC dates.
+        const { start } = getAllDayRange(shifted);
+        if (
+          !axis.days.some(
+            ({ day, disabled }) => !disabled && isSameDay(day, start),
+          )
+        ) {
+          return unchanged;
+        }
+        return { ...shifted, resourceId: targetResource };
       }
 
       // A start in the hours shown moves along them - on to the next day;
       // one out of them by the clock of its day, not onto the edge
-      const start =
-        distance === 0
-          ? event.start
-          : startsInView
-            ? timelineDate(
-                axis,
-                clamp(
-                  from + distance,
-                  first,
-                  Math.max(first, last - axis.slotDuration),
-                ),
-                event.start,
-              )
-            : atMinutesOf(
-                event.start,
-                startOfDay(event.start),
-                minutesIntoDay(startOfDay(event.start), event.start) + distance,
-              );
+      let start = event.start;
+      if (distance !== 0) {
+        const latest = Math.max(first, last - axis.slotDuration);
+        if (startsInView) {
+          start = timelineDate(
+            axis,
+            clamp(from + distance, first, latest),
+            event.start,
+          );
+        } else {
+          const day = startOfDay(event.start);
+          const minutes = minutesIntoDay(day, event.start);
+          // Limit the distance, keeping an already clipped start in place
+          // at the edge. It must not move farther into disabled days just
+          // because it follows the clock instead of the visible slots.
+          const delta = clamp(
+            distance,
+            Math.min(
+              0,
+              minutesIntoDay(day, timelineDate(axis, first, event.start)) -
+                minutes,
+            ),
+            Math.max(
+              0,
+              minutesIntoDay(day, timelineDate(axis, latest, event.start)) -
+                minutes,
+            ),
+          );
+          if (delta !== 0) {
+            start = atMinutesOf(event.start, day, minutes + delta);
+          }
+        }
+      }
+      // A spanning event may originally start before the axis (or on a
+      // hidden day). Keep that original position, but never report a new
+      // drop whose start is still outside the enabled days.
+      if (
+        !axis.days.some(
+          ({ day, disabled }) => !disabled && isSameDay(day, start),
+        )
+      ) {
+        return unchanged;
+      }
       if (
         start.getTime() === event.start.getTime() &&
         targetResource === resourceId
@@ -604,17 +690,30 @@ export function createTimelineGeometry({
         Math.max(first, to - minDuration),
       );
       if (edge === from) return unchanged;
+      // Clock minutes in a skipped hour can resolve to the end itself.
+      // Keep the minimum in absolute time, or the existing shorter length.
+      const start = timelineDate(axis, edge, event.start);
+      const latest = Math.max(
+        event.start.getTime(),
+        event.end.getTime() - minDuration * 60_000,
+      );
       return {
         end: event.end,
         resourceId,
-        start: timelineDate(axis, edge, event.start),
+        start: start.getTime() > latest ? new Date(latest) : start,
       };
     }
 
     const edge = clamp(to + distance, Math.min(last, from + minDuration), last);
     if (edge === to) return unchanged;
+    // A repeated clock time may resolve to the run before the start.
+    const end = timelineDate(axis, edge, event.end, true);
+    const earliest = Math.min(
+      event.end.getTime(),
+      event.start.getTime() + minDuration * 60_000,
+    );
     return {
-      end: timelineDate(axis, edge, event.end, true),
+      end: end.getTime() < earliest ? new Date(earliest) : end,
       resourceId,
       start: event.start,
     };

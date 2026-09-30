@@ -14,6 +14,7 @@ import {
 import { createPortal } from "react-dom";
 import cn, { joinTokens } from "../utils/cn";
 import {
+  getActiveElement,
   getDirection,
   isBelowModalOverlay,
   isEscapeKey,
@@ -27,8 +28,10 @@ import { attachRef } from "../hooks/use-form-control";
 import { usePortalContainer } from "../providers/ui-context";
 import {
   getClippingAncestors,
+  getVisibleArea,
   isOutOfView,
   resolveSide,
+  type AnchorRect,
   type FloatingSide,
   type PhysicalSide,
 } from "./menu/position";
@@ -134,6 +137,13 @@ export interface TooltipProps extends Omit<
 
 const GAP = 8;
 
+const isSamePlacement = (a: Placement, b: Placement) =>
+  a.arrow === b.arrow &&
+  a.hidden === b.hidden &&
+  a.left === b.left &&
+  a.side === b.side &&
+  a.top === b.top;
+
 // Grace period for the pointer to travel across GAP between the trigger and
 // the tooltip (either way) without the tooltip closing underneath it.
 const HIDE_DELAY = 150;
@@ -151,23 +161,21 @@ const PERPENDICULAR: Record<Side, [Side, Side]> = {
  * Where a tooltip of `width` x `height` goes next to `rect`: on `preferred`,
  * on the opposite side when only that one has the room, else on a side
  * across that has it (below or above a `left` / `right` one) - or, with room
- * nowhere, on the side with the most. It is kept inside the viewport both
- * ways, over the trigger at last.
+ * nowhere, on the side with the most. It is kept inside `area` - the part
+ * of the page that is seen - both ways, over the trigger at last.
  */
 function place(
   rect: DOMRect,
   width: number,
   height: number,
   preferred: Side,
+  area: AnchorRect,
 ): Placement {
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-
   const room: Record<Side, number> = {
-    bottom: viewportHeight - rect.bottom - GAP,
-    left: rect.left - GAP,
-    right: viewportWidth - rect.right - GAP,
-    top: rect.top - GAP,
+    bottom: area.bottom - rect.bottom - GAP,
+    left: rect.left - area.left - GAP,
+    right: area.right - rect.right - GAP,
+    top: rect.top - area.top - GAP,
   };
   const needed = (side: Side) =>
     (side === "top" || side === "bottom" ? height : width) + VIEWPORT_MARGIN;
@@ -190,9 +198,17 @@ function place(
   const centerX = rect.left + rect.width / 2;
   const centerY = rect.top + rect.height / 2;
   const clampLeft = (left: number) =>
-    clamp(left, VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN);
+    clamp(
+      left,
+      area.left + VIEWPORT_MARGIN,
+      area.right - width - VIEWPORT_MARGIN,
+    );
   const clampTop = (top: number) =>
-    clamp(top, VIEWPORT_MARGIN, viewportHeight - height - VIEWPORT_MARGIN);
+    clamp(
+      top,
+      area.top + VIEWPORT_MARGIN,
+      area.bottom - height - VIEWPORT_MARGIN,
+    );
 
   if (side === "top" || side === "bottom") {
     const left = clampLeft(centerX - width / 2);
@@ -251,6 +267,9 @@ export default function Tooltip({
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  // The element whose keyboard focus opened the tooltip. Pointer events
+  // can change :focus-visible without ending that focus.
+  const keyboardFocusRef = useRef<Element | null>(null);
   // The ancestors of the trigger that clip it, and its writing direction -
   // read as the tooltip shows
   const clipsRef = useRef<Element[]>([]);
@@ -382,6 +401,18 @@ export default function Tooltip({
     }
 
     hideTimer.current = setTimeout(() => {
+      // Leaving with the pointer does not end keyboard focus. Interactive
+      // content that took the focus stays too, until it loses it. Escape
+      // and clicks still dismiss directly through `hideNow`.
+      const focused = getActiveElement();
+      if (
+        focused &&
+        (keyboardFocusRef.current === focused ||
+          (interactive && tooltipRef.current?.contains(focused)))
+      ) {
+        return;
+      }
+
       // Left by the pointer - the next trigger it rests on shows its tooltip
       // at once
       if (visibleRef.current && byPointerRef.current) {
@@ -428,6 +459,7 @@ export default function Tooltip({
     // is announced - not the focus of a click, nor the focus in the panel of
     // a popover or menu the trigger opened
     if (isOwnEvent(event) && event.target.matches(":focus-visible")) {
+      keyboardFocusRef.current = event.target;
       clearTimers();
       show(false);
     }
@@ -435,6 +467,9 @@ export default function Tooltip({
   };
 
   const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    if (keyboardFocusRef.current === event.target) {
+      keyboardFocusRef.current = null;
+    }
     const tooltip = tooltipRef.current;
     // A click in an interactive tooltip takes the focus from the trigger (to
     // its scrollable list, or to the page) - it stays open under the pointer
@@ -510,23 +545,31 @@ export default function Tooltip({
 
     const tooltip = tooltipRef.current;
     const rect = trigger.getBoundingClientRect();
-    setPlacement({
+    const next = {
       ...place(
         rect,
         tooltip?.offsetWidth ?? 0,
         tooltip?.offsetHeight ?? 0,
         resolveSide(position, rtlRef.current),
+        getVisibleArea(),
       ),
       hidden: isOutOfView(rect, clipsRef.current),
-    });
+    };
+    // A scroll that leaves it where it is renders nothing
+    setPlacement((current) =>
+      current && isSamePlacement(current, next) ? current : next,
+    );
   }, [position]);
 
   // Rendered in a portal (below) so the floating panel escapes any
   // ancestor with overflow-x-auto/hidden instead of being clipped by it.
   // Placed once rendered (it is measured) and again while the page scrolls
-  // or resizes.
+  // or resizes - on phones also when the on-screen keyboard or pinch zoom
+  // changes the visual viewport.
   useLayoutEffect(() => {
-    if (!isShown) return;
+    // Server-rendered open tooltips have no portal until hydration ends.
+    // Measure then, with the tooltip's actual dimensions.
+    if (!isShown || !isHydrated) return;
 
     const trigger = triggerRef.current;
     clipsRef.current = trigger ? getClippingAncestors(trigger) : [];
@@ -537,13 +580,18 @@ export default function Tooltip({
     );
     updatePlacement();
 
+    const viewport = window.visualViewport;
     window.addEventListener("resize", updatePlacement);
     window.addEventListener("scroll", updatePlacement, true);
+    viewport?.addEventListener("resize", updatePlacement);
+    viewport?.addEventListener("scroll", updatePlacement);
     return () => {
       window.removeEventListener("resize", updatePlacement);
       window.removeEventListener("scroll", updatePlacement, true);
+      viewport?.removeEventListener("resize", updatePlacement);
+      viewport?.removeEventListener("scroll", updatePlacement);
     };
-  }, [isShown, title, updatePlacement]);
+  }, [isHydrated, isShown, title, updatePlacement]);
 
   return (
     <div

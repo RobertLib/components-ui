@@ -99,4 +99,21 @@ describe("uploadWithProgress", () => {
     progress({ lengthComputable: true, loaded: 25, total: 100 });
     expect(onProgress).toHaveBeenCalledExactlyOnceWith(25);
   });
+
+  it("listens to the upload only with onProgress - a listener makes another origin need a preflight", () => {
+    // Any listener on `xhr.upload` makes a simple cross-origin POST send an
+    // OPTIONS request first, which a storage endpoint may not answer
+    const send = vi
+      .spyOn(XMLHttpRequest.prototype, "send")
+      .mockImplementation(() => {});
+    const listen = vi.spyOn(XMLHttpRequestUpload.prototype, "addEventListener");
+
+    void uploadWithProgress("https://storage.example.com/upload", "data", {
+      method: "POST",
+    });
+    const sent = send.mock.contexts[0] as XMLHttpRequest;
+
+    expect(sent.upload.onprogress).toBeNull();
+    expect(listen).not.toHaveBeenCalled();
+  });
 });

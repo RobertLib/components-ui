@@ -133,6 +133,41 @@ describe("parseDisplayValue", () => {
     }
   });
 
+  it.each(["60", "99", "99.123"])(
+    "refuses invalid ISO seconds (%s) before dropping them",
+    (seconds) => {
+      expect(parseDisplayValue(`14:30:${seconds}`, "HH:mm", "time")).toBeNull();
+
+      for (const type of ["date", "datetime-local"] as const) {
+        for (const zone of ["", "Z", "+02:00"]) {
+          expect(
+            parseDisplayValue(
+              `2026-09-24T14:30:${seconds}${zone}`,
+              "DD.MM.YYYY HH:mm",
+              type,
+            ),
+          ).toBeNull();
+        }
+      }
+    },
+  );
+
+  it.each(["00", "59", "59.123"])(
+    "accepts valid ISO seconds (%s) and drops them",
+    (seconds) => {
+      expect(parseDisplayValue(`14:30:${seconds}`, "HH:mm", "time")).toBe(
+        "14:30",
+      );
+      expect(
+        parseDisplayValue(
+          `2026-09-24T14:30:${seconds}`,
+          "DD.MM.YYYY HH:mm",
+          "datetime-local",
+        ),
+      ).toBe("2026-09-24T14:30");
+    },
+  );
+
   it("refuses texts of another shape", () => {
     expect(parseDisplayValue("tomorrow", "DD.MM.YYYY", "date")).toBeNull();
     expect(parseDisplayValue("", "DD.MM.YYYY", "date")).toBeNull();

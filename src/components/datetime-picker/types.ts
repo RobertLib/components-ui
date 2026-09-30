@@ -94,6 +94,8 @@ export interface CustomPickerProps {
   readOnly?: boolean;
   /** The browser checks that the field has a value. */
   required?: boolean;
+  /** The supplied value, before sanitization - a change also replaces a draft. */
+  sourceValue?: string;
   /** The value in the format of the native input - `""` without one. */
   value: string;
 }

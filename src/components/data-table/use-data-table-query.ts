@@ -8,7 +8,7 @@ import {
   type DataTableQuery,
 } from "./query";
 import logger from "../../utils/logger";
-import { useRouter } from "../../providers/ui-context";
+import { useRouter, useRouterScope } from "../../providers/ui-context";
 
 export interface UseDataTableQueryOptions {
   /** Initial (and URL default) values, e.g. `{ pageSize: 50, sortBy: "name" }`. */
@@ -52,17 +52,31 @@ interface PendingSearches {
   users: number;
 }
 
-// Shared by all hooks of a page (keyed by its path), so that the changes of
-// several tables (`urlPrefix`) made before the router catches up build on
-// each other instead of the last one overwriting the others
-const pendingSearches = new Map<string, PendingSearches>();
+// Shared by the hooks of one router and page, so changes of several tables
+// (`urlPrefix`) compose while that router catches up. Another router may
+// have the same pathname without sharing its pending changes.
+const pendingSearches = new WeakMap<object, Map<string, PendingSearches>>();
 
-const getPendingSearches = (pathname: string, search: string) => {
-  let entry = pendingSearches.get(pathname);
+const getRouterSearches = (scope: object) => {
+  let pages = pendingSearches.get(scope);
+  if (!pages) {
+    pages = new Map();
+    pendingSearches.set(scope, pages);
+  }
+  return pages;
+};
+
+const getPendingSearches = (
+  scope: object,
+  pathname: string,
+  search: string,
+) => {
+  const pages = getRouterSearches(scope);
+  let entry = pages.get(pathname);
 
   if (!entry) {
     entry = { pending: [], seen: search, users: 0 };
-    pendingSearches.set(pathname, entry);
+    pages.set(pathname, entry);
   }
 
   return entry;
@@ -133,6 +147,7 @@ export default function useDataTableQuery({
   urlPrefix = "",
 }: UseDataTableQueryOptions = {}): [DataTableQuery, SetDataTableQuery] {
   const router = useRouter();
+  const routerScope = useRouterScope();
   const { pathname, search: routerSearch } = router;
 
   // Compared by value, so an inline `defaults` object is fine
@@ -166,10 +181,10 @@ export default function useDataTableQuery({
 
   // Read by `setQuery`, which may run several times before a re-render - and
   // before a router that updates `search` asynchronously catches up
-  const latestRouter = useRef(router);
+  const latestRouter = useRef({ router, scope: routerScope });
 
   useEffect(() => {
-    latestRouter.current = router;
+    latestRouter.current = { router, scope: routerScope };
   });
 
   // The entry of the page lives while a table of the page uses it - a new
@@ -177,8 +192,8 @@ export default function useDataTableQuery({
   useEffect(() => {
     if (!syncWithUrl) return;
 
-    const { search } = latestRouter.current;
-    const entry = getPendingSearches(pathname, search);
+    const { search } = latestRouter.current.router;
+    const entry = getPendingSearches(routerScope, pathname, search);
     if (entry.users === 0) {
       entry.pending = [];
       entry.seen = search;
@@ -187,13 +202,16 @@ export default function useDataTableQuery({
 
     return () => {
       entry.users -= 1;
-      if (entry.users === 0) pendingSearches.delete(pathname);
+      if (entry.users === 0) getRouterSearches(routerScope).delete(pathname);
     };
-  }, [pathname, syncWithUrl]);
+  }, [pathname, routerScope, syncWithUrl]);
 
   useEffect(() => {
     if (syncWithUrl) {
-      observeSearch(getPendingSearches(pathname, routerSearch), routerSearch);
+      observeSearch(
+        getPendingSearches(routerScope, pathname, routerSearch),
+        routerSearch,
+      );
     }
   });
 
@@ -208,8 +226,9 @@ export default function useDataTableQuery({
         return;
       }
 
-      const currentRouter = latestRouter.current;
+      const { router: currentRouter, scope } = latestRouter.current;
       const entry = getPendingSearches(
+        scope,
         currentRouter.pathname,
         currentRouter.search,
       );

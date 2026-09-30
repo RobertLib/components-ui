@@ -454,7 +454,7 @@ export function TableRow<T extends { id: RowId }>({
               ...getCellStyle(null, leadingLayout(LEADING_KEYS.actions), false),
             }}
           >
-            <div className="absolute -end-px top-0 h-full border-e border-neutral-200 shadow dark:border-neutral-800" />
+            <div className="absolute -inset-e-px top-0 h-full border-e border-neutral-200 shadow dark:border-neutral-800" />
             <EdgeShadow side={leadingLayout(LEADING_KEYS.actions).shadow} />
             {actions(row)}
           </td>

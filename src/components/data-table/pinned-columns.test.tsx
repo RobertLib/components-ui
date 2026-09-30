@@ -361,12 +361,12 @@ describe("DataTable pinned columns", () => {
     act(() => scrollTable(container, 0));
     expect(shadowOf(header("Name"))).toBeNull();
     expect(shadowOf(header("Salary"))).toHaveClass(
-      "-start-2",
+      "-inset-s-2",
       "rtl:bg-linear-to-r",
     );
     act(() => scrollTable(container, -300));
     expect(shadowOf(header("Name"))).toHaveClass(
-      "-end-2",
+      "-inset-e-2",
       "rtl:bg-linear-to-l",
     );
     act(() => scrollTable(container, -600));

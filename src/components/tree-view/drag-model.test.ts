@@ -7,6 +7,8 @@ import {
   getPointerZone,
   isNoopMove,
   isValidDrop,
+  samePlace,
+  stepFromCursor,
   type DropPlace,
 } from "./drag-model";
 import {
@@ -184,6 +186,40 @@ describe("getDropPlaces", () => {
   });
 });
 
+describe("stepFromCursor", () => {
+  const before = getDropPlaces(rows);
+  // A collapsed - its places are gone
+  const after = getDropPlaces(
+    getVisibleRows(items, {
+      canLoad: false,
+      expanded: new Set(["c"]),
+      loads: noLoads,
+    }),
+  );
+  const name = (at: number) => `${after[at]?.position} ${after[at]?.targetId}`;
+  const at = (id: string, position: DropPlace["position"] = "before") =>
+    before.findIndex((entry) => samePlace(entry, place(position, id)));
+
+  it("steps from its place where that is now", () => {
+    const cursor = { at: at("b"), places: before };
+    expect(name(stepFromCursor(after, cursor, 1))).toBe("inside b");
+    expect(name(stepFromCursor(after, cursor, -1))).toBe("inside a");
+  });
+
+  it("steps from right after the nearest place before it that is left", () => {
+    // Before A2 - after inside A, the nearest place left
+    const cursor = { at: at("a2"), places: before };
+    expect(name(stepFromCursor(after, cursor, 1))).toBe("before b");
+    expect(name(stepFromCursor(after, cursor, -1))).toBe("inside a");
+  });
+
+  it("steps from before the first place when nothing before it is left", () => {
+    const cursor = { at: 0, places: [place("before", "gone")] };
+    expect(stepFromCursor(after, cursor, 1)).toBe(0);
+    expect(stepFromCursor(after, cursor, -1)).toBe(-1);
+  });
+});
+
 describe("getPlaceRow", () => {
   it("draws before at the top of the target, after below its last descendant", () => {
     expect(getPlaceRow(place("before", "a2"), rows, rowIndexById)).toEqual({
@@ -196,6 +232,7 @@ describe("getPlaceRow", () => {
       edge: "bottom",
       level: 2,
       rowIndex: 3,
+      status: false,
     });
     expect(getPlaceRow(place("inside", "b"), rows, rowIndexById)).toEqual({
       edge: "inside",
@@ -203,6 +240,32 @@ describe("getPlaceRow", () => {
       rowIndex: 4,
     });
     expect(getPlaceRow(place("inside", "gone"), rows, rowIndexById)).toBe(null);
+  });
+
+  it("draws after below the row saying the children of the last descendant load", () => {
+    const lazy: TreeItem<string>[] = [
+      {
+        children: [{ hasChildren: true, id: "x1", label: "X1" }],
+        id: "x",
+        label: "X",
+      },
+    ];
+    const lazyRows = getVisibleRows(lazy, {
+      canLoad: true,
+      expanded: new Set(["x", "x1"]),
+      loads: noLoads,
+    });
+    const lazyIndexById = new Map(
+      lazyRows.map((row, rowIndex) => [row.id, rowIndex]),
+    );
+
+    // X1 is loading - the line goes below its loading row
+    expect(getPlaceRow(place("after", "x"), lazyRows, lazyIndexById)).toEqual({
+      edge: "bottom",
+      level: 1,
+      rowIndex: 1,
+      status: true,
+    });
   });
 });
 

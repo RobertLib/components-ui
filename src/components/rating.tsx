@@ -438,7 +438,7 @@ export default function Rating({
               {fill > 0 && (
                 <span
                   className={cn(
-                    "absolute inset-y-0 start-0 flex overflow-hidden",
+                    "absolute inset-y-0 inset-s-0 flex overflow-hidden",
                     filledColors[color],
                     forcedFilledColors,
                   )}

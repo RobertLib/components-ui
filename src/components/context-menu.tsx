@@ -189,6 +189,7 @@ function useLongPress(
     onPointerDown: (event: React.PointerEvent) => {
       if (
         !enabled ||
+        event.defaultPrevented ||
         event.pointerType !== "touch" ||
         handledEvents.has(event.nativeEvent)
       ) {
@@ -474,7 +475,12 @@ export default function ContextMenu({
   // the target may have its own. Tab leaves the menu as if it were not
   // there: on from where the focus was, Shift + Tab back to it.
   const handlePanelKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Tab") {
+    // The submenus share this menu's tree. A dialog or another panel
+    // opened from custom content owns the keys bubbling through its portal.
+    const sourceMenu = (event.target as Element).closest("[data-menu-tree]");
+    if (sourceMenu?.getAttribute("data-menu-tree") !== menuId) return;
+
+    if (event.key === "Tab" && !event.defaultPrevented) {
       const target = menu?.returnFocus;
       if (target?.isConnected) {
         target.focus({ preventScroll: true });

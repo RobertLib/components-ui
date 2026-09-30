@@ -36,6 +36,35 @@ const files: TreeItem<string>[] = [
   { id: "notes", label: "Notes" },
 ];
 
+const blockedMoveSources: [string, Partial<TreeViewProps<TreeItem<string>>>][] =
+  [
+    [
+      "a moved item becomes disabled",
+      {
+        items: files.map((entry) =>
+          entry.id === "photos"
+            ? {
+                ...entry,
+                children: [{ disabled: true, id: "beach", label: "Beach" }],
+              }
+            : entry,
+        ),
+      },
+    ],
+    [
+      "a moved item's ancestor becomes disabled",
+      {
+        items: files.map((entry) =>
+          entry.id === "photos" ? { ...entry, disabled: true } : entry,
+        ),
+      },
+    ],
+    [
+      "canDrag rejects a moved item",
+      { canDrag: (entry) => entry.id !== "beach" },
+    ],
+  ];
+
 /** `items` with the move applied - what an app does in `onMove`. */
 function applyMove<T extends TreeItem<string>>(
   items: T[],
@@ -280,6 +309,72 @@ describe("TreeView moving with the keys", () => {
     expect(item("Photos")).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("goes on from the moved item once children load above it", async () => {
+    const user = userEvent.setup();
+    let resolve!: (children: TreeItem<string>[]) => void;
+    const loadChildren = vi.fn(
+      () =>
+        new Promise<TreeItem<string>[]>((done) => {
+          resolve = done;
+        }),
+    );
+    render(
+      <TreeView
+        aria-label="Files"
+        defaultExpanded={["archive"]}
+        items={[
+          { hasChildren: true, id: "archive", label: "Archive" },
+          { id: "notes", label: "Notes" },
+          { id: "photos", label: "Photos" },
+        ]}
+        loadChildren={loadChildren}
+        onMove={() => {}}
+      />,
+    );
+
+    await user.click(item("Notes"));
+    await user.keyboard("{Control>}x{/Control}");
+    await act(async () =>
+      resolve([
+        { id: "2025", label: "2025" },
+        { id: "2026", label: "2026" },
+      ]),
+    );
+    expect(itemNames()).toEqual(["Archive", "2025", "2026", "Notes", "Photos"]);
+
+    // Down from Notes - not from where it was before the rows above came
+    await user.keyboard("{ArrowDown}");
+    expect(announced()).toBe("Inside Photos");
+  });
+
+  it("goes on from where the chosen place was once the rows change from outside", async () => {
+    const user = userEvent.setup();
+    const props = {
+      "aria-label": "Files",
+      onExpandedChange: () => {},
+      onMove: () => {},
+    };
+    const { rerender } = render(
+      <TreeView {...props} expanded={[]} items={files} />,
+    );
+
+    await user.click(item("Photos"));
+    await user.keyboard("{Control>}x{/Control}{End}");
+    expect(announced()).toBe("After Notes");
+
+    // Documents expands, and an item comes after Notes - which no longer
+    // ends the tree
+    rerender(
+      <TreeView
+        {...props}
+        expanded={["documents"]}
+        items={[...files, { id: "videos", label: "Videos" }]}
+      />,
+    );
+    await user.keyboard("{ArrowUp}");
+    expect(announced()).toBe("Inside Notes");
+  });
+
   it("offers only the places canDrop allows, and moves only what canDrag allows", async () => {
     const user = userEvent.setup();
     render(
@@ -344,6 +439,33 @@ describe("TreeView moving with the keys", () => {
     expect(itemNames().slice(0, 3)).toEqual(["2025", "Notes", "Documents"]);
   });
 
+  it.each(blockedMoveSources)(
+    "does not commit a keyboard move when %s after choosing a place",
+    async (_reason, changedProps) => {
+      const user = userEvent.setup();
+      const onMove = vi.fn();
+      const props = {
+        defaultExpanded: ["photos"],
+        defaultSelected: ["beach", "notes"],
+        items: files,
+        onMove,
+        selectionMode: "multiple" as const,
+      };
+      const { rerender } = render(<TreeView {...props} />);
+
+      await user.tab();
+      await user.keyboard("{End}{Control>}x{/Control}");
+      expect(announced()).toMatch(/^Moving 2 items\./);
+      await user.keyboard("{Home}");
+      expect(item("Documents")).toHaveAttribute("data-drop-edge", "top");
+
+      // Notes remains draggable, but every item in the move must be allowed.
+      rerender(<TreeView {...props} {...changedProps} />);
+      await user.keyboard("{Enter}");
+      expect(onMove).not.toHaveBeenCalled();
+    },
+  );
+
   it("does nothing on Ctrl + X without onMove", async () => {
     const user = userEvent.setup();
     render(<TreeView aria-label="Files" items={files} />);
@@ -384,6 +506,48 @@ describe("TreeView moving with the keys", () => {
     expect(loadChildren).not.toHaveBeenCalled();
     expect(item("Archive")).toHaveAttribute("aria-expanded", "false");
   });
+
+  it.each([
+    ["loading", false],
+    ["loading", true],
+    ["error", false],
+    ["error", true],
+  ] as const)(
+    "draws the line after an item below its %s row (virtualized: %s)",
+    async (status, virtualized) => {
+      const user = userEvent.setup();
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      render(
+        <TreeView
+          aria-label="Files"
+          defaultExpanded={["archive"]}
+          items={[
+            { id: "notes", label: "Notes" },
+            { hasChildren: true, id: "archive", label: "Archive" },
+          ]}
+          loadChildren={() =>
+            status === "loading"
+              ? new Promise<TreeItem<string>[]>(() => {})
+              : Promise.reject(new Error("Offline"))
+          }
+          onMove={() => {}}
+          virtualized={virtualized}
+        />,
+      );
+      const statusRow =
+        status === "loading"
+          ? screen.getByText("Loading…").parentElement
+          : (await screen.findByRole("alert")).parentElement;
+
+      await user.click(item("Notes"));
+      await user.keyboard("{Control>}x{/Control}{End}");
+      expect(announced()).toBe("After Archive");
+      // Where Notes lands - not above the row, where a first child would
+      expect(item("Archive")).not.toHaveAttribute("data-drop-edge");
+      expect(statusRow).toHaveAttribute("data-drop-edge", "bottom");
+      expect(statusRow?.querySelector(".bg-primary-500")).not.toBeNull();
+    },
+  );
 });
 
 /** The rows of the tree, 32px high one below the other from 100px down. */
@@ -426,6 +590,7 @@ describe("TreeView dragging with the pointer", () => {
 
   afterEach(() => {
     delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+    vi.useRealTimers();
   });
 
   const press = (name: string, pointerType = "mouse") =>
@@ -529,6 +694,37 @@ describe("TreeView dragging with the pointer", () => {
     });
   });
 
+  it("draws the line after an item below its loading row", () => {
+    const onMove = vi.fn();
+    render(
+      <TreeView
+        aria-label="Files"
+        defaultExpanded={["archive"]}
+        items={[
+          { id: "notes", label: "Notes" },
+          { hasChildren: true, id: "archive", label: "Archive" },
+        ]}
+        loadChildren={() => new Promise<TreeItem<string>[]>(() => {})}
+        onMove={onMove}
+      />,
+    );
+
+    press("Notes");
+    moveTo(pointAt("Archive", 0.9));
+    expect(item("Archive")).not.toHaveAttribute("data-drop-edge");
+    expect(screen.getByText("Loading…").parentElement).toHaveAttribute(
+      "data-drop-edge",
+      "bottom",
+    );
+    release();
+
+    expect(onMove).toHaveBeenCalledWith({
+      itemIds: ["notes"],
+      position: "after",
+      targetId: "archive",
+    });
+  });
+
   it("drops nothing over the dragged item itself, or where the item is", () => {
     const onMove = vi.fn();
     render(<Movable onMove={onMove} />);
@@ -568,6 +764,118 @@ describe("TreeView dragging with the pointer", () => {
     fireEvent.click(item("Contracts"));
     expect(onMove).not.toHaveBeenCalled();
     expect(onSelectedChange).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["disabled", { disabled: true }],
+    ["its dragged item is removed", { items: files.slice(0, -1) }],
+    ["onMove is removed", { onMove: undefined }],
+  ] as const)("cancels a drag when %s", (_reason, changedProps) => {
+    const onMove = vi.fn();
+    const { rerender } = render(<TreeView items={files} onMove={onMove} />);
+
+    press("Notes");
+    moveTo(pointAt("Documents", 0.1));
+    expect(item("Documents")).toHaveAttribute("data-drop-edge", "top");
+
+    rerender(<TreeView items={files} onMove={onMove} {...changedProps} />);
+    expect(document.querySelectorAll("[data-drop-edge]")).toHaveLength(0);
+    // The document listeners of the ended drag no longer block interaction.
+    expect(fireEvent.touchMove(document)).toBe(true);
+    expect(
+      fireEvent(document, new Event("selectstart", { cancelable: true })),
+    ).toBe(true);
+
+    // Re-enabling the tree cannot revive the old press.
+    rerender(<TreeView items={files} onMove={onMove} />);
+    moveTo(pointAt("Documents", 0.1));
+    release();
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it("cancels the whole drag when one of its selected items is removed", () => {
+    const onMove = vi.fn();
+    const props = {
+      defaultSelected: ["photos", "notes"],
+      onMove,
+      selectionMode: "multiple" as const,
+    };
+    const { rerender } = render(<TreeView items={files} {...props} />);
+
+    press("Notes");
+    moveTo(pointAt("Documents", 0.1));
+    expect(item("Photos")).toHaveClass("opacity-50");
+
+    rerender(<TreeView items={files.slice(0, -1)} {...props} />);
+    expect(item("Photos")).not.toHaveClass("opacity-50");
+    expect(document.querySelectorAll("[data-drop-edge]")).toHaveLength(0);
+    release();
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it.each(blockedMoveSources)(
+    "does not commit a pointer drag when %s after choosing a place",
+    (_reason, changedProps) => {
+      const onMove = vi.fn();
+      const props = {
+        defaultExpanded: ["photos"],
+        defaultSelected: ["beach", "notes"],
+        items: files,
+        onMove,
+        selectionMode: "multiple" as const,
+      };
+      const { rerender } = render(<TreeView {...props} />);
+
+      press("Notes");
+      moveTo(pointAt("Documents", 0.1));
+      expect(item("Beach")).toHaveClass("opacity-50");
+      expect(item("Documents")).toHaveAttribute("data-drop-edge", "top");
+
+      rerender(<TreeView {...props} {...changedProps} />);
+      release();
+      expect(onMove).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["disabled", { disabled: true }],
+    ["its pressed item is removed", { items: files.slice(0, -1) }],
+  ] as const)(
+    "cancels a pending long press when %s",
+    (_reason, changedProps) => {
+      vi.useFakeTimers();
+      const onMove = vi.fn();
+      const { rerender } = render(<TreeView items={files} onMove={onMove} />);
+
+      press("Notes", "touch");
+      rerender(<TreeView items={files} onMove={onMove} {...changedProps} />);
+      expect(fireEvent.contextMenu(document)).toBe(true);
+      act(() => vi.advanceTimersByTime(500));
+      expect(fireEvent.touchMove(document)).toBe(true);
+
+      rerender(<TreeView items={files} onMove={onMove} />);
+      moveTo(pointAt("Documents", 0.1));
+      release();
+      expect(onMove).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    },
+  );
+
+  it("cancels pending hover expansion when a dragged item is removed", () => {
+    vi.useFakeTimers();
+    const onMove = vi.fn();
+    const { rerender } = render(<TreeView items={files} onMove={onMove} />);
+
+    press("Notes");
+    moveTo(pointAt("Photos"));
+    expect(item("Photos")).toHaveAttribute("data-drop-edge", "inside");
+    rerender(<TreeView items={files.slice(0, -1)} onMove={onMove} />);
+    act(() => vi.advanceTimersByTime(700));
+
+    expect(item("Photos")).toHaveAttribute("aria-expanded", "false");
+    release();
+    expect(onMove).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it("selects on a click without a drag", async () => {
@@ -646,6 +954,40 @@ describe("TreeView dragging with the pointer", () => {
     // It goes on in the next frame
     expect(frames).toHaveLength(2);
     release();
+  });
+
+  it("stops auto-scrolling when the tree is disabled during a drag", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) =>
+      frames.push(callback),
+    );
+    const cancelFrame = vi
+      .spyOn(window, "cancelAnimationFrame")
+      .mockImplementation(() => {});
+    const onMove = vi.fn();
+    const props = {
+      items: files,
+      onMove,
+      style: { overflowY: "auto" as const },
+    };
+    const { rerender } = render(<TreeView {...props} />);
+    const container = screen.getByRole("tree");
+    Object.defineProperties(container, {
+      clientHeight: { configurable: true, value: 1000 },
+      scrollHeight: { configurable: true, value: 3000 },
+    });
+
+    press("Notes");
+    moveTo({ clientX: 10, clientY: 990 });
+    expect(frames).toHaveLength(1);
+    rerender(<TreeView {...props} disabled />);
+    expect(cancelFrame).toHaveBeenCalledWith(1);
+
+    act(() => frames[0](0));
+    expect(container.scrollTop).toBe(0);
+    expect(frames).toHaveLength(1);
+    release();
+    expect(onMove).not.toHaveBeenCalled();
   });
 
   it("does not drag a disabled item, nor from a control in the row", () => {

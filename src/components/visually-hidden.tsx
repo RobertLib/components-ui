@@ -4,7 +4,7 @@ export interface VisuallyHiddenProps extends React.ComponentProps<"span"> {
   /**
    * Shows the content while it, or an element in it, has the focus - e.g. a
    * "Skip to content" link. Style the shown state with `className` (e.g.
-   * `fixed start-2 top-2`) - while hidden, the content is clipped away
+   * `fixed inset-s-2 top-2`) - while hidden, the content is clipped away
    * whatever the classes say.
    */
   focusable?: boolean;

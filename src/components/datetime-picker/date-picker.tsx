@@ -60,6 +60,13 @@ export default function DatePicker({
   const canPick = (day: Date) =>
     isInRange(toISODate(day), min, max) && !isDateDisabled?.(day);
 
+  const getUnavailableMessage = (value: string) => {
+    const day = parseISODate(value);
+    return day && isDateDisabled?.(day)
+      ? formatMessage(messages.unavailable, { value: formatValue(value) })
+      : "";
+  };
+
   // A picked day, a preset or today - the popup closes
   const pick = (date: string) => {
     markPicked();
@@ -75,10 +82,7 @@ export default function DatePicker({
       selectedDate ? toISODate(selectedDate) : undefined,
       { max, min },
       formatValue,
-    ) ||
-    (selectedDate && isDateDisabled?.(selectedDate)
-      ? formatMessage(messages.unavailable, { value: formatValue(value) })
-      : "");
+    ) || getUnavailableMessage(value);
 
   // Only in the open popup - "today" is the browser's
   const today = startOfDay(new Date());
@@ -116,7 +120,7 @@ export default function DatePicker({
         const typed = parseDisplayValue(text, locale.formats.date, "date");
         if (!typed) return { error: "format" };
         return isInRange(typed, min, max)
-          ? { value: typed }
+          ? { value: typed, validityMessage: getUnavailableMessage(typed) }
           : { error: "range" };
       }}
       pickCount={pickCount}

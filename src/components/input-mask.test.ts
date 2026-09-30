@@ -32,6 +32,19 @@ function edit(
     : `${value.slice(0, selectionStart)}[${value.slice(selectionStart, selectionEnd)}]${value.slice(selectionEnd)}`;
 }
 
+/** The value after typing `keys` one by one into an empty field. */
+function typeKeys(mask: ReturnType<typeof parseMask>, keys: string): string {
+  let value = "";
+  let caret = 0;
+  for (const key of Array.from(keys)) {
+    const next = value.slice(0, caret) + key + value.slice(caret);
+    const result = editMasked(mask, value, next, caret + key.length);
+    value = result.value;
+    caret = result.selectionEnd;
+  }
+  return value;
+}
+
 describe("parseMask", () => {
   it("reads placeholders, literals and escaped characters", () => {
     const mask = parseMask("\\#@* #");
@@ -95,6 +108,45 @@ describe("applyMask", () => {
     expect(applyMask("CZ## ####", "cz65 0800").formatted).toBe("CZ65 0800");
   });
 
+  it("reads the text it formats as the same value", () => {
+    // Literals a placeholder would take too are those of the mask
+    expect(applyMask("07### ######", "071")).toEqual({
+      complete: false,
+      formatted: "071",
+      raw: "1",
+    });
+    expect(applyMask("1##", "15").raw).toBe("5");
+    expect(applyMask("SN****", "SNa1").raw).toBe("a1");
+    // Without them in their places the digits are the number
+    expect(applyMask("07### ######", "071234567").formatted).toBe(
+      "07071 234567",
+    );
+
+    // Also a value filled in only in part
+    for (const [mask, text] of [
+      ["07### ######", "123456789"],
+      ["1##", "56"],
+      ["SN****", "a1b2"],
+      ["+420 ### ### ###", "420123456"],
+    ]) {
+      for (let length = 0; length <= text.length; length++) {
+        const value = applyMask(mask, text.slice(0, length));
+        expect(applyMask(mask, value.formatted)).toEqual(value);
+      }
+    }
+  });
+
+  it("keeps the literals typed in front of the placeholders", () => {
+    expect(applyMask("+420 ### ### ###", "+42")).toEqual({
+      complete: false,
+      formatted: "+42",
+      raw: "",
+    });
+    expect(applyMask("+1 (###) ###-####", "(").formatted).toBe("+1 (");
+    // Digits alone are the number
+    expect(applyMask("+420 ### ### ###", "42").formatted).toBe("+420 42");
+  });
+
   it("takes the digits of other scripts as Latin ones", () => {
     expect(applyMask("########", "１２３４５６７８").raw).toBe("12345678");
     expect(applyMask("###", "٤٥٦").raw).toBe("456");
@@ -114,6 +166,38 @@ describe("editMasked", () => {
     expect(edit(zip, "12", "13|2")).toBe("13|2");
     // In front of a literal the next digit goes after it
     expect(edit(zip, "124 5", "123|4 5")).toBe("123 |45");
+  });
+
+  it("types into a mask that starts with literals a placeholder takes", () => {
+    const prefixed = parseMask("07### ######");
+    expect(edit(prefixed, "", "1|")).toBe("071|");
+    expect(edit(prefixed, "071", "0712|")).toBe("0712|");
+    expect(typeKeys(prefixed, "123456789")).toBe("07123 456789");
+    // A typed 0 in front of the literal 0 is a digit of the number
+    expect(edit(prefixed, "", "0|")).toBe("070|");
+
+    const serial = parseMask("SN****");
+    expect(typeKeys(serial, "a1b2")).toBe("SNa1b2");
+  });
+
+  it("types a value with its literals as it is pasted", () => {
+    // A typed + starts the literals - the next characters match them
+    expect(edit(phone, "", "+|")).toBe("+|");
+    expect(edit(phone, "+", "+4|")).toBe("+4|");
+    expect(edit(phone, "+420", "+4207|")).toBe("+420 7|");
+    expect(edit(phone, "+42", "+4|", "deleteContentBackward")).toBe("+4|");
+    expect(edit(phone, "+", "|", "deleteContentBackward")).toBe("|");
+
+    expect(typeKeys(phone, "+420777123456")).toBe("+420 777 123 456");
+    expect(typeKeys(phone, "+420 777 123 456")).toBe("+420 777 123 456");
+    expect(typeKeys(parseMask("+1 (###) ###-####"), "+15551234567")).toBe(
+      "+1 (555) 123-4567",
+    );
+    // And without them
+    expect(typeKeys(phone, "777123456")).toBe("+420 777 123 456");
+    expect(typeKeys(parseMask("+1 (###) ###-####"), "(555) 123-4567")).toBe(
+      "+1 (555) 123-4567",
+    );
   });
 
   it("refuses characters no placeholder takes", () => {

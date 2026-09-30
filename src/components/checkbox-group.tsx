@@ -4,7 +4,8 @@ import {
   useCheckedControl,
   useFormReset,
 } from "../hooks/use-form-control";
-import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
+import useCustomValidity from "../hooks/use-custom-validity";
 import cn, { joinTokens } from "../utils/cn";
 import {
   cardClassName,
@@ -185,6 +186,14 @@ const descriptionIndentStyles = {
   lg: "ps-8",
 };
 
+const hiddenValidationStyle: React.CSSProperties = {
+  position: "absolute",
+  opacity: 0,
+  pointerEvents: "none",
+  width: 1,
+  height: 1,
+};
+
 interface CheckboxRowProps {
   checked: boolean;
   description?: React.ReactNode;
@@ -236,19 +245,19 @@ function CheckboxRow({
   const inputRef = useRef<HTMLInputElement>(null);
   const checkboxRef = useCheckedControl({
     checked,
+    form,
     indeterminate,
     ref: inputRef,
   });
 
   // The browser shows the message when the form is submitted, at this
   // checkbox, and does not submit it
-  useLayoutEffect(() => {
-    inputRef.current?.setCustomValidity(validationMessage);
-  }, [validationMessage]);
+  useCustomValidity(inputRef, validationMessage);
 
   const card = variant === "card";
-  const hasDescription =
-    description !== undefined && description !== null && description !== "";
+  // Only a description that renders describes the checkbox - not the
+  // `false` of `isPro && "Pro only"`. FormDescription renders no falsy one.
+  const hasDescription = Boolean(description);
   const labelId = `${id}-label`;
   const descriptionId = hasDescription ? `${id}-description` : undefined;
 
@@ -424,8 +433,17 @@ export default function CheckboxGroup<
   // the `defaultValue`, like it does for native checkboxes
   const formResetRef = useFormReset(() => setPickedValues(undefined), form);
 
+  const groupElement = useRef<HTMLElement | null>(null);
   const groupElementRef = useCallback(
-    (element: HTMLElement | null) => attachRef(ref, element),
+    (element: HTMLElement | null) => {
+      groupElement.current = element;
+      const detachRef = attachRef(ref, element);
+
+      return () => {
+        groupElement.current = null;
+        detachRef();
+      };
+    },
     [ref],
   );
 
@@ -452,6 +470,15 @@ export default function CheckboxGroup<
         : "";
   const validationIndex = options.findIndex(
     (option) => !isOptionDisabled(option),
+  );
+  // An empty list, or one with only disabled options, still has to satisfy
+  // the group's minimum. No option can carry its validation message then.
+  const needsValidationInput =
+    !disabled && validationIndex === -1 && validationMessage !== "";
+  const validationRef = useRef<HTMLInputElement | null>(null);
+  useCustomValidity(
+    validationRef,
+    needsValidationInput ? validationMessage : "",
   );
 
   const commit = (nextKeys: ReadonlySet<string>) => {
@@ -508,6 +535,40 @@ export default function CheckboxGroup<
 
   const optionList = (
     <div className={cn(!!label && "mt-2", optionTextSizes[dim], className)}>
+      {needsValidationInput && (
+        <input
+          aria-hidden="true"
+          disabled={disabled}
+          form={form}
+          onChange={() => {}}
+          onFocus={(event) => {
+            const input = event.currentTarget;
+            // Let native validation finish focusing its input first.
+            // Moving focus synchronously prevents Firefox from focusing
+            // this same invalid control on subsequent submit attempts.
+            queueMicrotask(() => {
+              const group = groupElement.current;
+              if (
+                validationRef.current === input &&
+                input.isConnected &&
+                input.ownerDocument.activeElement === input &&
+                group?.isConnected
+              ) {
+                group.focus();
+              }
+            });
+          }}
+          readOnly={readOnly}
+          ref={validationRef}
+          // Native required also works if Activity mounts the input while
+          // hidden, before its ref and custom validity can attach.
+          required
+          style={hiddenValidationStyle}
+          tabIndex={-1}
+          type="text"
+          value=""
+        />
+      )}
       {showSelectAll && (
         <CheckboxRow
           {...rowProps}
@@ -586,6 +647,7 @@ export default function CheckboxGroup<
     "data-readonly": readOnly ? "" : undefined,
     id,
     ref: groupElementRef,
+    tabIndex: props.tabIndex ?? (needsValidationInput ? -1 : undefined),
   };
 
   return (

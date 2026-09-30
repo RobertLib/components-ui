@@ -1,5 +1,6 @@
 import { useCallback, useState, useSyncExternalStore } from "react";
 import logger from "../../utils/logger";
+import columnRecord from "./column-record";
 import type {
   ColumnPin,
   DataTableColumnState,
@@ -26,9 +27,9 @@ export interface TableState {
 
 export const EMPTY_TABLE_STATE: TableState = {
   columnOrder: [],
-  columnPinning: {},
-  columnVisibility: {},
-  columnWidths: {},
+  columnPinning: columnRecord(),
+  columnVisibility: columnRecord(),
+  columnWidths: columnRecord(),
   density: null,
 };
 
@@ -38,7 +39,8 @@ const DENSITIES: readonly string[] = [
   "comfortable",
 ] satisfies DataTableDensity[];
 
-const storageKey = (tableId: string) => `table-state-${tableId}`;
+const STORAGE_PREFIX = "table-state-";
+const storageKey = (tableId: string) => `${STORAGE_PREFIX}${tableId}`;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -54,12 +56,14 @@ const pickEntries = <V>(
   isValid: (item: unknown) => item is V,
 ): Record<string, V> =>
   isRecord(value)
-    ? Object.fromEntries(
-        Object.entries(value).filter((entry): entry is [string, V] =>
-          isValid(entry[1]),
+    ? columnRecord(
+        Object.fromEntries(
+          Object.entries(value).filter((entry): entry is [string, V] =>
+            isValid(entry[1]),
+          ),
         ),
       )
-    : {};
+    : columnRecord();
 
 const isBoolean = (value: unknown): value is boolean =>
   typeof value === "boolean";
@@ -168,7 +172,7 @@ const snapshots = new Map<
 >();
 
 // Settings that could not be saved (blocked or full storage) - they last
-// until the page is reloaded
+// until saved successfully, replaced by another tab or the page is reloaded
 const unsaved = new Map<string, TableState>();
 
 const listeners = new Set<() => void>();
@@ -218,14 +222,35 @@ function setTableState(tableId: string, state: TableState, keepEmpty: boolean) {
   listeners.forEach((listener) => listener());
 }
 
+/** Whether the change is in localStorage, which may be blocked. */
+function isLocalStorage(area: Storage | null) {
+  try {
+    return area === null || area === localStorage;
+  } catch {
+    return false;
+  }
+}
+
+function handleStorage(event: StorageEvent) {
+  if (!isLocalStorage(event.storageArea)) return;
+  if (event.key !== null && !event.key.startsWith(STORAGE_PREFIX)) return;
+
+  // Another tab's saved settings (or removal) replace a failed local write.
+  // A clear has no key and replaces all of them, including unmounted tables.
+  if (event.key === null) unsaved.clear();
+  else unsaved.delete(event.key.slice(STORAGE_PREFIX.length));
+  listeners.forEach((listener) => listener());
+}
+
 function subscribe(listener: () => void) {
+  if (listeners.size === 0) window.addEventListener("storage", handleStorage);
   listeners.add(listener);
-  // Another tab of the app changed the settings
-  window.addEventListener("storage", listener);
 
   return () => {
     listeners.delete(listener);
-    window.removeEventListener("storage", listener);
+    if (listeners.size === 0) {
+      window.removeEventListener("storage", handleStorage);
+    }
   };
 }
 
@@ -262,11 +287,11 @@ export default function useTableState(
         // On the latest settings - several changes may come in a row
         setTableState(
           tableId,
-          { ...(getSavedState(tableId) ?? fallback), ...changes },
+          parseState({ ...(getSavedState(tableId) ?? fallback), ...changes }),
           !isEmptyState(fallback),
         );
       } else {
-        setLocalState((previous) => ({ ...previous, ...changes }));
+        setLocalState((previous) => parseState({ ...previous, ...changes }));
       }
     },
     [fallback, tableId],

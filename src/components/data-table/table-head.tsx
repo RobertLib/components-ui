@@ -238,7 +238,7 @@ export function TableHead<T>({
 
   return (
     <thead
-      className="sticky start-0 z-2 bg-surface shadow dark:bg-surface-dark dark:shadow-neutral-800"
+      className="sticky inset-s-0 z-2 bg-surface shadow dark:bg-surface-dark dark:shadow-neutral-800"
       ref={ref}
       style={{ top: stickyTop }}
     >
@@ -341,7 +341,7 @@ export function TableHead<T>({
             ref={actionColumnRef}
             style={getCellStyle(null, layoutOf(LEADING_KEYS.actions), true)}
           >
-            <div className="absolute -end-px top-0 h-full border-e border-neutral-200 dark:border-neutral-800" />
+            <div className="absolute -inset-e-px top-0 h-full border-e border-neutral-200 dark:border-neutral-800" />
             <EdgeShadow side={layoutOf(LEADING_KEYS.actions).shadow} />
             <span className="font-semibold">{messages.dataTable.actions}</span>
           </th>
@@ -352,7 +352,9 @@ export function TableHead<T>({
           const clipped = isClipped(column, layout);
           const isSized = !!column.maxWidth || layout.width !== undefined;
           const columnName = column.labelTitle ?? column.label;
-          const infoId = `${idPrefix}-info-${column.key}`;
+          // By the place of the column - a key may have spaces, which split
+          // the ids of `aria-describedby`
+          const infoId = `${idPrefix}-info-${columnIndex}`;
           const labelId = `${idPrefix}-label-${columnIndex}`;
           // Where the column is in the sorting - the first one is `0`
           const sortIndex = sort.findIndex((item) => item.key === column.key);
@@ -579,7 +581,7 @@ export function TableHead<T>({
               className="sticky z-1 bg-surface px-2 pb-1 align-top dark:bg-surface-dark"
               style={getCellStyle(null, layoutOf(LEADING_KEYS.actions), false)}
             >
-              <div className="absolute -end-px top-0 h-full border-e border-neutral-200 dark:border-neutral-800" />
+              <div className="absolute -inset-e-px top-0 h-full border-e border-neutral-200 dark:border-neutral-800" />
               <EdgeShadow side={layoutOf(LEADING_KEYS.actions).shadow} />
               <div className="flex justify-end">
                 <ClearFiltersButton

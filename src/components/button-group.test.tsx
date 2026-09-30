@@ -66,7 +66,7 @@ describe("ButtonGroup", () => {
     );
     expect(screen.getByRole("button", { name: "Out" })).toHaveClass(
       "rounded-b-md",
-      "-mt-[1.5px]",
+      "mt-[-1.5px]",
     );
   });
 

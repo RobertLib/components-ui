@@ -664,6 +664,54 @@ describe("DateRangePicker presets", () => {
 });
 
 describe("DateRangePicker limits", () => {
+  it.each([
+    {
+      constraint: "isDateDisabled",
+      limits: { isDateDisabled: (date: Date) => date.getDate() === 24 },
+      nextStart: 25,
+      nextEnd: 26,
+    },
+    {
+      constraint: "min",
+      limits: { min: "2026-09-25" },
+      nextStart: 25,
+      nextEnd: 26,
+    },
+    {
+      constraint: "max",
+      limits: { max: "2026-09-23" },
+      nextStart: 22,
+      nextEnd: 23,
+    },
+  ])(
+    "starts over when $constraint makes the first picked day unavailable",
+    async ({ limits, nextStart, nextEnd }) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const { rerender } = render(
+        <DateRangePicker label="Period" onChange={onChange} />,
+      );
+
+      await user.click(screen.getByRole("combobox", { name: /Period/ }));
+      await user.click(day("September 24, 2026"));
+      expect(screen.getByText("Select the last day")).toBeInTheDocument();
+
+      rerender(
+        <DateRangePicker label="Period" onChange={onChange} {...limits} />,
+      );
+      expect(screen.getByText("Select the first day")).toBeInTheDocument();
+      expect(isInRange("September 24, 2026")).toBe(false);
+
+      await user.click(day(`September ${nextStart}, 2026`));
+      expect(onChange).not.toHaveBeenCalled();
+      await user.click(day(`September ${nextEnd}, 2026`));
+      expect(onChange).toHaveBeenCalledExactlyOnceWith({
+        end: `2026-09-${nextEnd}`,
+        start: `2026-09-${nextStart}`,
+      });
+    },
+  );
+
   it("disables the days out of min and max", async () => {
     const { input, user } = renderPicker({
       max: "2026-09-20",
@@ -811,6 +859,58 @@ describe("DateRangePicker in forms", () => {
     await user.clear(input);
     await user.type(input, "9/10/2026 - 9/20/2026{Enter}");
     expect(form.checkValidity()).toBe(true);
+  });
+
+  it.each([{ maxDays: 7 }, { minDays: 31 }])(
+    "makes a default range outside its day limits invalid: %j",
+    (limits) => {
+      render(
+        <UIProvider locale={cs}>
+          <form aria-label="Report">
+            <DateRangePicker
+              defaultValue={september}
+              name="period"
+              {...limits}
+            />
+          </form>
+        </UIProvider>,
+      );
+      const form = screen.getByRole<HTMLFormElement>("form");
+      const input = screen.getByRole<HTMLInputElement>("combobox");
+      expect(form.checkValidity()).toBe(false);
+      expect(input.validationMessage).toBe(
+        "„01.09.2026 – 30.09.2026“ je mimo povolený rozsah.",
+      );
+      expect(new FormData(form).get("period")).toBe("2026-09-01/2026-09-30");
+    },
+  );
+
+  it("revalidates a controlled range when its day limits or value change", () => {
+    const onChange = vi.fn();
+    const picker = (value: DateRange, minDays: number, maxDays: number) => (
+      <form aria-label="Report">
+        <DateRangePicker
+          maxDays={maxDays}
+          minDays={minDays}
+          name="period"
+          onChange={onChange}
+          value={value}
+        />
+      </form>
+    );
+    const shorter = { start: "2026-09-01", end: "2026-09-04" };
+    const { rerender } = render(picker(september, 1, 30));
+    const form = screen.getByRole<HTMLFormElement>("form");
+    expect(form.checkValidity()).toBe(true);
+    rerender(picker(september, 1, 7));
+    expect(form.checkValidity()).toBe(false);
+    rerender(picker(shorter, 1, 7));
+    expect(form.checkValidity()).toBe(true);
+    rerender(picker(shorter, 5, 7));
+    expect(form.checkValidity()).toBe(false);
+    rerender(picker(shorter, 4, 7));
+    expect(form.checkValidity()).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("drops a typed text for the range it has picked again", async () => {

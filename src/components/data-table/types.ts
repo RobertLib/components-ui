@@ -46,6 +46,12 @@ export type ColumnSummary<T> =
 /** Height of the rows - `normal` is the default look. */
 export type DataTableDensity = "compact" | "normal" | "comfortable";
 
+/** The value confirmed by `onCellEdit`, including normalization by the server. */
+export interface CellEditResult {
+  /** The saved value. An explicit `null` or `undefined` clears the cell. */
+  value: unknown;
+}
+
 /** What the `renderEditor` of a column gets. */
 export interface CellEditorProps<T> {
   /** Ends the editing without a change - the cell shows its value again. */

@@ -6,6 +6,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Dialog from "./dialog";
 import Drawer from "./drawer";
+import Dropdown from "./dropdown";
 import Tooltip from "./tooltip";
 import DrawerProvider from "../providers/drawer-provider";
 import { useDrawer } from "../providers/drawer-context";
@@ -582,7 +583,7 @@ describe("Drawer slid in on a phone", () => {
     );
   }
 
-  const renderOnPhone = () => {
+  const renderOnPhone = (header = <WithDialog />) => {
     vi.stubGlobal(
       "matchMedia",
       vi.fn((query: string) => ({
@@ -597,7 +598,7 @@ describe("Drawer slid in on a phone", () => {
         <DrawerProvider storageKey={null}>
           <Toggle />
           <Drawer
-            header={<WithDialog />}
+            header={header}
             items={[
               { href: "/users", label: "Users" },
               { href: "/reports", label: "Reports" },
@@ -698,6 +699,65 @@ describe("Drawer slid in on a phone", () => {
     await user.click(backdrop);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+
+  it.each(["mouse", "touch"])(
+    "stays open when a %s press on its backdrop closes a menu above it",
+    async (pointer) => {
+      const user = userEvent.setup();
+      renderOnPhone(
+        <Dropdown items={[{ label: "Edit" }]} trigger={<span>Actions</span>} />,
+      );
+
+      await user.click(screen.getByRole("button", { name: "Menu" }));
+      await user.click(screen.getByRole("button", { name: "Actions" }));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+
+      const backdrop = screen.getByRole("button", { name: "Close" });
+      if (pointer === "touch") {
+        await user.pointer([
+          { keys: "[TouchA>]", target: backdrop },
+          { keys: "[/TouchA]" },
+        ]);
+      } else {
+        await user.click(backdrop);
+      }
+
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("dialog", { name: "Main navigation" }),
+      ).toBeInTheDocument();
+
+      await user.click(backdrop);
+      expect(screen.queryByRole("dialog")).toBeNull();
+    },
+  );
+
+  it("closes on a backdrop activation without a pointer press", async () => {
+    const user = userEvent.setup();
+    renderOnPhone();
+
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("closes on a backdrop press while a tooltip is shown", async () => {
+    const user = userEvent.setup();
+    renderOnPhone(
+      <Tooltip delay={0} title="Your account">
+        <button type="button">Account</button>
+      </Tooltip>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Account" }));
+    await act(() => sleep(5));
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("hides the page next to it from assistive technology - not its backdrop", async () => {

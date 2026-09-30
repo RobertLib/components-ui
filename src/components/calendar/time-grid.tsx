@@ -3,12 +3,7 @@ import type {
   CalendarResource,
   CalendarViewProps,
 } from "./types";
-import {
-  addCalendarDays,
-  getSlotStart,
-  isSameDay,
-  minutesIntoDay,
-} from "./date-utils";
+import { addCalendarDays, isSameDay, minutesIntoDay } from "./date-utils";
 import {
   getBusinessRanges,
   getOffHours,
@@ -243,6 +238,16 @@ export default function TimeGrid({
     announce,
     describe: (event, display) =>
       timeLabel({ allDay: event.allDay, ...display }),
+    events,
+    geometryKey: JSON.stringify([
+      dragColumns,
+      START_HOUR,
+      END_HOUR,
+      SLOT_DURATION,
+      SLOT_HEIGHT,
+      minDate,
+      maxDate,
+    ]),
     onEventDrop,
     onEventResize,
     scrollRef,
@@ -260,8 +265,27 @@ export default function TimeGrid({
     !restrictToBusinessHours ||
     isBusinessTime(business, day, from, from + SLOT_DURATION);
 
+  const timeRangeLimits = {
+    from: START_HOUR * 60,
+    to: END_HOUR * 60,
+    businessHours: restrictToBusinessHours ? business : null,
+  };
+  const getTimeRange = (range: SlotRange) =>
+    toTimeRange(range, timeRangeLimits);
+
+  // Pointer and keyboard ranges belong to the same days, resources and limits.
+  const slotGeometryKey = JSON.stringify([
+    dragColumns,
+    START_HOUR,
+    END_HOUR,
+    SLOT_DURATION,
+    SLOT_HEIGHT,
+    minDate,
+    maxDate,
+    restrictToBusinessHours && business ? [...business] : null,
+  ]);
   const { handleSlotDragStart, slotDragState } = useSlotDrag({
-    endHour: END_HOUR,
+    geometryKey: slotGeometryKey,
     // The working hours around the first slot
     getBounds:
       business !== null && restrictToBusinessHours
@@ -283,7 +307,7 @@ export default function TimeGrid({
     scrollRef,
     slotDurationMinutes: SLOT_DURATION,
     slotHeight: SLOT_HEIGHT,
-    startHour: START_HOUR,
+    timeRangeLimits,
   });
 
   // The slots from the start hour to the end hour (inclusive)
@@ -314,17 +338,6 @@ export default function TimeGrid({
   const slotFrom = (slotIndex: number) =>
     Math.min(slotMinutesOf(slotIndex), END_HOUR * 60 - SLOT_DURATION);
 
-  // The day and time of a slot - the row of the end hour stands for the
-  // last slot before it
-  const slotStart = (columnIndex: number, slotIndex: number) =>
-    getSlotStart(
-      columns[columnIndex].date,
-      timeSlots[slotIndex].hour,
-      timeSlots[slotIndex].minute,
-      SLOT_DURATION,
-      END_HOUR,
-    );
-
   // The slots `first` - `last` of a column as a range - the row of the end
   // hour stands for the last slot before it
   const slotRange = (
@@ -342,7 +355,8 @@ export default function TimeGrid({
   // with `restrictToBusinessHours`
   const isSlotPickable = (columnIndex: number, slotIndex: number) =>
     !columns[columnIndex].disabled &&
-    isBusinessSlot(columns[columnIndex].date, slotFrom(slotIndex));
+    isBusinessSlot(columns[columnIndex].date, slotFrom(slotIndex)) &&
+    getTimeRange(slotRange(columnIndex, slotIndex, slotIndex)) !== null;
 
   // The slots of a range the keys selected that can be picked - those
   // around the first one, up to a slot out of the working hours
@@ -357,17 +371,23 @@ export default function TimeGrid({
     while (from > first && isSlotPickable(columnIndex, from - 1)) from--;
     let to = anchor;
     while (to < last && isSlotPickable(columnIndex, to + 1)) to++;
+    while (!getTimeRange(slotRange(columnIndex, from, to))) {
+      if (to > anchor) to--;
+      else if (from < anchor) from++;
+      else return null;
+    }
     return slotRange(columnIndex, from, to);
   };
 
   // A picked slot - with the resource of its column
   const pickSlot = (columnIndex: number, slotIndex: number) => {
-    const date = slotStart(columnIndex, slotIndex);
+    const times = getTimeRange(slotRange(columnIndex, slotIndex, slotIndex));
+    if (!times) return;
     const resource = columns[columnIndex].resource;
     if (resource) {
-      onDateClick?.(date, resource.id);
+      onDateClick?.(times.start, resource.id);
     } else {
-      onDateClick?.(date);
+      onDateClick?.(times.start);
     }
   };
 
@@ -378,6 +398,7 @@ export default function TimeGrid({
   // slots and the columns; Shift + arrow keys select a range
   const slotFocus = useSlotFocus({
     days: columns.length,
+    geometryKey: slotGeometryKey,
     gridRef,
     initialDay: Math.max(
       columns.findIndex((column) => column.isSelected),
@@ -388,15 +409,17 @@ export default function TimeGrid({
       if (onDateClick) {
         pickSlot(columnIndex, slotIndex);
       } else {
-        onSlotDragEnd?.(
-          toTimeRange(slotRange(columnIndex, slotIndex, slotIndex)),
+        const times = getTimeRange(
+          slotRange(columnIndex, slotIndex, slotIndex),
         );
+        if (times) onSlotDragEnd?.(times);
       }
     },
     onSelectRange: onSlotDragEnd
       ? (columnIndex, first, last, anchor) => {
           const range = pickableRange(columnIndex, anchor, first, last);
-          if (range) onSlotDragEnd(toTimeRange(range));
+          const times = range && getTimeRange(range);
+          if (times) onSlotDragEnd(times);
         }
       : undefined,
     slots: timeSlots.length,
@@ -411,7 +434,7 @@ export default function TimeGrid({
         selection.last,
       )
     : null;
-  const keyboardTimes = keyboardRange && toTimeRange(keyboardRange);
+  const keyboardTimes = keyboardRange && getTimeRange(keyboardRange);
   // The range dragged over the slots or selected with the keyboard
   const selectedRange = slotDragState ?? keyboardRange;
 
@@ -480,6 +503,8 @@ export default function TimeGrid({
       grid: headerGridRef.current,
       hasResources: !!resourceList,
       index: columnIndex,
+      maxDate,
+      minDate,
       rtl: isRtl(scrollRef.current),
     });
 
@@ -712,6 +737,7 @@ export default function TimeGrid({
         )}
         <Line className="text-xs text-neutral-600 dark:text-neutral-400">
           {day.date.toLocaleString(toIntlLocale(locale.code), {
+            calendar: "gregory",
             month: "short",
           })}
         </Line>
@@ -829,7 +855,7 @@ export default function TimeGrid({
       ref={headerRef}
       style={{ minWidth: `${TIME_COLUMN_WIDTH + columnsMinWidth}px` }}
     >
-      <div className="sticky start-0 z-11 border-e border-neutral-200 bg-surface dark:border-neutral-800 dark:bg-surface-dark" />
+      <div className="sticky inset-s-0 z-11 border-e border-neutral-200 bg-surface dark:border-neutral-800 dark:bg-surface-dark" />
       <div
         className={cn("grid", isWholeWeek && "grid-cols-7")}
         ref={headerGridRef}
@@ -851,7 +877,7 @@ export default function TimeGrid({
               >
                 {/* In view while the resources of the day scroll sideways
                     - right of the time column */}
-                <div className="sticky start-15 flex w-fit items-center gap-1.5 px-1">
+                <div className="sticky inset-s-15 flex w-fit items-center gap-1.5 px-1">
                   {dayHeading(day, true)}
                 </div>
               </div>
@@ -874,7 +900,7 @@ export default function TimeGrid({
                 >
                   {/* Two lines at most - the whole name on hover */}
                   <div
-                    className="line-clamp-2 text-center text-sm font-medium break-words"
+                    className="line-clamp-2 text-center text-sm font-medium wrap-break-word"
                     title={resource.title}
                   >
                     {resource.color && (
@@ -944,7 +970,7 @@ export default function TimeGrid({
         className="grid grid-cols-[60px_1fr]"
         style={{ minWidth: `${TIME_COLUMN_WIDTH + columnsMinWidth}px` }}
       >
-        <div className="time-column sticky start-0 z-10 bg-surface dark:bg-surface-dark">
+        <div className="time-column sticky inset-s-0 z-10 bg-surface dark:bg-surface-dark">
           {timeSlots.map((timeSlot, index) => {
             const minutes = timeSlot.hour * 60 + timeSlot.minute;
             const next =
@@ -964,7 +990,7 @@ export default function TimeGrid({
               >
                 {/* On one line - "10:00 AM" fits the column this way */}
                 {isLabelLine(minutes) && (
-                  <span className="absolute end-1.5 top-1 whitespace-nowrap">
+                  <span className="absolute inset-e-1.5 top-1 whitespace-nowrap">
                     {formatPattern(
                       locale.formats.time,
                       {
@@ -1028,7 +1054,7 @@ export default function TimeGrid({
                   />
                 ))}
                 {endsDay(columnIndex) && (
-                  <div className="pointer-events-none absolute inset-y-0 end-0 w-px bg-neutral-300 dark:bg-neutral-600" />
+                  <div className="pointer-events-none absolute inset-y-0 inset-e-0 w-px bg-neutral-300 dark:bg-neutral-600" />
                 )}
                 {timeSlots.map((_, index) => {
                   const pickable = isSlotPickable(columnIndex, index);
@@ -1047,9 +1073,10 @@ export default function TimeGrid({
                       pressType !== "mouse" &&
                       pressType !== "pen"
                     ) {
-                      onSlotDragEnd(
-                        toTimeRange(slotRange(columnIndex, index, index)),
+                      const times = getTimeRange(
+                        slotRange(columnIndex, index, index),
                       );
+                      if (times) onSlotDragEnd(times);
                     }
                   };
 
@@ -1167,7 +1194,7 @@ export default function TimeGrid({
                     data-now-indicator=""
                     style={{ top: `${nowTop}px` }}
                   >
-                    <span className="absolute -start-1 top-1/2 size-2.5 -translate-y-1/2 rounded-full bg-danger-500 dark:bg-danger-400" />
+                    <span className="absolute -inset-s-1 top-1/2 size-2.5 -translate-y-1/2 rounded-full bg-danger-500 dark:bg-danger-400" />
                   </div>
                 )}
               </div>

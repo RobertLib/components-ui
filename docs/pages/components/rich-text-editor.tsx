@@ -341,7 +341,9 @@ export default function RichTextEditorPage() {
             the value gets the image once its URL is there. A rejection - or a
             URL that is no safe image source - removes the preview and says the
             image could not be uploaded. The <code>signal</code> aborts when the
-            editor unmounts. One undo takes an uploaded image out again.
+            editor unmounts or its form resets. A reset discards pending uploads
+            and releases their validation state. One undo takes an uploaded
+            image out again.
           </p>
           <p>
             An image keeps its <code>src</code>, <code>alt</code>,{" "}

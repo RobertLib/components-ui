@@ -1,4 +1,5 @@
 import { computeSummary } from "./summary";
+import columnRecord from "./column-record";
 import { formatCellValue } from "./format-value";
 import {
   compareSortKeys,
@@ -21,7 +22,7 @@ export interface FlatColumns<T> {
   groups: Record<string, ColumnGroup<T>>;
 }
 
-const NO_GROUPS = {};
+const NO_GROUPS = columnRecord<never>();
 
 const isColumnGroup = <T>(entry: DataTableColumn<T>): entry is ColumnGroup<T> =>
   "children" in entry && !!entry.children;
@@ -42,8 +43,8 @@ export function flattenColumns<T>(
   }
 
   const columns: Column<T>[] = [];
-  const groupOf: Record<string, string> = {};
-  const groups: Record<string, ColumnGroup<T>> = {};
+  const groupOf = columnRecord<string>();
+  const groups = columnRecord<ColumnGroup<T>>();
 
   for (const entry of entries) {
     if (isColumnGroup(entry)) {
@@ -146,7 +147,7 @@ export interface BodyRowGroup {
 
 /** The summaries of the columns over the rows of a group. */
 export function summarizeGroup<T>(columns: Column<T>[], rows: T[]) {
-  const values: Record<string, unknown> = {};
+  const values = columnRecord<unknown>();
   let hasValues = false;
 
   for (const column of columns) {

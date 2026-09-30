@@ -200,6 +200,30 @@ describe("useHotkeys", () => {
     expect(second).not.toHaveBeenCalled();
   });
 
+  it("leaves Shift + Space to its own shortcut, not to space", () => {
+    const play = vi.fn();
+    const back = vi.fn();
+    render(
+      <Shortcuts
+        hotkeys={[
+          ["space", play],
+          ["shift+space", back],
+        ]}
+      />,
+    );
+
+    fireEvent.keyDown(document.body, {
+      code: "Space",
+      key: " ",
+      shiftKey: true,
+    });
+    expect(play).not.toHaveBeenCalled();
+    expect(back).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(document.body, { code: "Space", key: " " });
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
   it("calls the handler of the latest render and turns off with enabled", () => {
     const first = vi.fn();
     const latest = vi.fn();

@@ -109,6 +109,11 @@ function toSegments(
   max: number,
 ) {
   const range = max - min;
+  // Opposite finite extremes can overflow their difference. Halving both
+  // ends keeps the same proportions while making the subtraction finite.
+  const scale = Number.isFinite(range) ? 1 : 2;
+  const scaledMin = min / scale;
+  const scaledRange = max / scale - scaledMin;
   const step = data.length > 1 ? WIDTH / (data.length - 1) : 0;
   const segments: Point[][] = [];
   let current: Point[] = [];
@@ -122,7 +127,10 @@ function toSegments(
 
     // A flat series runs through the middle
     const share =
-      range > 0 ? (Math.min(Math.max(value, min), max) - min) / range : 0.5;
+      range > 0
+        ? (Math.min(Math.max(value, min), max) / scale - scaledMin) /
+          scaledRange
+        : 0.5;
     current.push({
       x: round(data.length > 1 ? index * step : WIDTH / 2),
       y: round(HEIGHT - share * HEIGHT),

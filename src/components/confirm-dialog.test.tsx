@@ -1,4 +1,10 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -126,6 +132,24 @@ describe("ConfirmDialog with confirmationText", () => {
 
     await user.keyboard("acme-website{Enter}");
     expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { phase: "during composition", isComposing: true, keyCode: 13 },
+    { phase: "after Safari compositionend", isComposing: false, keyCode: 229 },
+  ])("leaves IME Enter $phase to the field", ({ isComposing, keyCode }) => {
+    const onConfirm = vi.fn();
+    render(<DeleteProject onConfirm={onConfirm} />);
+
+    const field = screen.getByRole("textbox");
+    fireEvent.change(field, { target: { value: "acme-website" } });
+    fireEvent.keyDown(field, { key: "Enter", isComposing, keyCode });
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+
+    fireEvent.keyDown(field, { key: "Enter", isComposing: false, keyCode: 13 });
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
   it("is empty again at the next opening", async () => {

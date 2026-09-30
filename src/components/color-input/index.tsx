@@ -1,5 +1,11 @@
 import { useCallback, useId, useRef, useState } from "react";
-import { isAriaInvalid, useFormReset } from "../../hooks/use-form-control";
+import {
+  attachRef,
+  isAriaInvalid,
+  useFieldsetDisabled,
+  useFormReset,
+} from "../../hooks/use-form-control";
+import useCustomValidity from "../../hooks/use-custom-validity";
 import cn, { joinTokens } from "../../utils/cn";
 import ColorPicker, { CHECKERBOARD, type ColorSwatch } from "./color-picker";
 import {
@@ -47,7 +53,8 @@ export interface ColorInputProps extends Omit<
   dim?: Dim;
   /**
    * Disables the field - it is then neither submitted nor validated, and
-   * the swatch opens no picker.
+   * the swatch opens no picker. A disabled `<fieldset>` around it disables
+   * it too, closing an open picker.
    */
   disabled?: boolean;
   /** Validation message - also marks the field as invalid. */
@@ -150,7 +157,7 @@ export default function ColorInput({
   defaultValue,
   description,
   dim = "md",
-  disabled = false,
+  disabled: disabledProp = false,
   error,
   eyeDropper = true,
   form,
@@ -169,6 +176,9 @@ export default function ColorInput({
   ...props
 }: ColorInputProps) {
   const messages = useMessages();
+  // The portaled picker is outside the fieldset that disables its input.
+  const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();
+  const disabled = disabledProp || fieldsetDisabled;
   const canOpen = !disabled && !readOnly;
 
   // What the user entered into an uncontrolled field. Until then, and again
@@ -194,6 +204,8 @@ export default function ColorInput({
   }
 
   const [isOpen, setIsOpen] = useState(false);
+  // Enabling the field again must not reopen the picker on its own.
+  if (isOpen && !canOpen) setIsOpen(false);
   const open = isOpen && canOpen;
 
   // The color of the picker - its own while it stands for the value, so
@@ -213,7 +225,31 @@ export default function ColorInput({
   const errorId = error ? `${inputId}-error` : undefined;
   const descriptionId = description ? `${inputId}-description` : undefined;
   const rejectedId = `${inputId}-rejected`;
-  const invalid = !!error || isAriaInvalid(props["aria-invalid"]);
+  // Keep Enter/blur as the onChange boundary, but submit the value visible
+  // in the field even when requestSubmit() runs before either event.
+  const formValue = text === null ? value : normalizeColor(text, format, alpha);
+  const validityMessage =
+    formValue === null || (required && text && !formValue)
+      ? formatMessage(messages.colorInput.invalid, {
+          example: EXAMPLES[format],
+          text: text?.trim() ?? "",
+        })
+      : "";
+  const invalid =
+    !!error || !!validityMessage || isAriaInvalid(props["aria-invalid"]);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const inputCallbackRef = useCallback(
+    (element: HTMLInputElement | null) => {
+      inputRef.current = element;
+      const detach = attachRef(ref, element);
+      return () => {
+        inputRef.current = null;
+        detach();
+      };
+    },
+    [ref],
+  );
+  useCustomValidity(inputRef, validityMessage, text !== null);
 
   // `form.reset()` - also the one after a React form action - brings back
   // the `defaultValue`
@@ -222,6 +258,18 @@ export default function ColorInput({
     setText(null);
     setRejected(null);
   }, form);
+  const wrapperRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      const detachReset = formResetRef(element);
+      const detachFieldset = fieldsetRef(element);
+
+      return () => {
+        detachReset?.();
+        detachFieldset?.();
+      };
+    },
+    [fieldsetRef, formResetRef],
+  );
 
   // The area of the picker takes the focus once it opens
   const focusOnOpen = useRef(false);
@@ -285,7 +333,7 @@ export default function ColorInput({
   );
 
   return (
-    <div className="flex flex-col gap-1.5" ref={formResetRef}>
+    <div className="flex flex-col gap-1.5" ref={wrapperRef}>
       {label && (
         <label className="block truncate text-sm font-medium" htmlFor={inputId}>
           {label}
@@ -409,8 +457,8 @@ export default function ColorInput({
             }
           }}
           readOnly={readOnly}
-          ref={ref}
-          // The browser checks the text - the value follows it
+          ref={inputCallbackRef}
+          // Custom validity also checks the parsed draft.
           required={required}
           spellCheck={false}
           type="text"
@@ -424,7 +472,7 @@ export default function ColorInput({
           form={form}
           name={name}
           type="hidden"
-          value={value}
+          value={formValue ?? ""}
         />
       )}
 

@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { startTransition, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import DataTable, { type DataTableProps } from ".";
 import type { Column, RowId } from "./types";
@@ -136,6 +136,35 @@ describe("DataTable row selection", () => {
     );
 
     expect(checkedNames()).toEqual(["Person 3"]);
+  });
+
+  it("drops unavailable default ids before running a group action after loading", async () => {
+    const user = userEvent.setup();
+    const onSelectedIdsChange = vi.fn();
+    const onClick = vi.fn();
+    const data = [rows[0]];
+    const props = {
+      columns,
+      data,
+      defaultSelectedIds: [1, 99],
+      groupActions: [{ label: "Archive", onClick }],
+      onSelectedIdsChange,
+    };
+    const { rerender } = render(<DataTable {...props} loading />);
+    expect(onSelectedIdsChange).not.toHaveBeenCalled();
+
+    rerender(<DataTable {...props} loading={false} />);
+
+    expect(onSelectedIdsChange).toHaveBeenCalledExactlyOnceWith(
+      [1],
+      expect.objectContaining({ count: 1, ids: [1], rows: data }),
+    );
+    expect(screen.getByText("1 item selected")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    expect(onClick).toHaveBeenCalledExactlyOnceWith(
+      data,
+      expect.objectContaining({ count: 1, ids: [1], rows: data }),
+    );
   });
 
   it("selects one row at a time in single mode", async () => {
@@ -338,6 +367,67 @@ describe("DataTable row selection", () => {
       0,
     );
   });
+
+  it.each(["transition", "timeout"])(
+    "keeps all matching rows while the parent applies the ids late (%s)",
+    async (deferral) => {
+      const onSelectedIdsChange = vi.fn();
+      function Table() {
+        const [selectedIds, setSelectedIds] = useState<RowId[]>([]);
+        return (
+          <DataTable
+            clientSide
+            columns={columns}
+            data={rows}
+            defaultQuery={{ pageSize: 2 }}
+            filteredSelection
+            onSelectedIdsChange={(ids, selection) => {
+              onSelectedIdsChange(ids, selection);
+              // e.g. the URL of a router, updated after navigating
+              if (deferral === "transition") {
+                startTransition(() => setSelectedIds(ids));
+              } else {
+                setTimeout(() => setSelectedIds(ids));
+              }
+            }}
+            selectedIds={selectedIds}
+          />
+        );
+      }
+      render(<Table />);
+      const settle = () =>
+        act(() => new Promise((resolve) => setTimeout(resolve)));
+
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: "Select all rows" }),
+      );
+      await settle();
+      // A second change before the parent applied the first
+      fireEvent.click(
+        screen.getByRole("button", { name: "Select all 6 rows" }),
+      );
+      fireEvent.click(checkbox("Person 1"));
+      await settle();
+
+      expect(screen.getByText(/matching rows are selected/)).toHaveTextContent(
+        "5 matching rows are selected.",
+      );
+      expect(checkbox("Person 1")).not.toBeChecked();
+      expect(checkbox("Person 2")).toBeChecked();
+      expect(onSelectedIdsChange).toHaveBeenLastCalledWith(
+        [2, 3, 4, 5, 6],
+        expect.objectContaining({ allFiltered: true, count: 5 }),
+      );
+
+      // Applied, another selection of the parent still ends it
+      fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+      await settle();
+      expect(
+        screen.queryByText(/matching rows are selected/),
+      ).not.toBeInTheDocument();
+      expect(checkbox("Person 2")).not.toBeChecked();
+    },
+  );
 
   it("gives group actions the ids of a controlled selection", async () => {
     const user = userEvent.setup();

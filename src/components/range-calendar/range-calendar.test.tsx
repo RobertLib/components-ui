@@ -1,4 +1,11 @@
-import { act, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { hydrateRoot } from "react-dom/client";
@@ -38,6 +45,30 @@ const getForm = () => screen.getByRole<HTMLFormElement>("form");
 const september: DateRange = { end: "2026-09-12", start: "2026-09-08" };
 
 describe("RangeCalendar", () => {
+  it("drops a draft whose first day becomes disabled and lets picking start over", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(<RangeCalendar onChange={onChange} />);
+
+    await user.click(day("September 24, 2026"));
+    rerender(
+      <RangeCalendar
+        isDateDisabled={(date) => date.getDate() === 24}
+        onChange={onChange}
+      />,
+    );
+    expect(screen.getByText("Select the first day")).toBeInTheDocument();
+    expect(isInRange("September 24, 2026")).toBe(false);
+
+    await user.click(day("September 25, 2026"));
+    expect(onChange).not.toHaveBeenCalled();
+    await user.click(day("September 26, 2026"));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({
+      end: "2026-09-26",
+      start: "2026-09-25",
+    });
+  });
+
   it("picks the first day, then the last, and submits the range", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -117,6 +148,61 @@ describe("RangeCalendar", () => {
     });
   });
 
+  it("stays on the month of the last day picked, and shows the first month of a range of the parent", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    function Controlled() {
+      const [value, setValue] = useState<DateRange | null>(september);
+      return (
+        <>
+          <RangeCalendar
+            label="Stay"
+            onChange={(range) => {
+              onChange(range);
+              setValue(range);
+            }}
+            value={value}
+          />
+          <button
+            onClick={() => setValue({ end: "2026-07-10", start: "2026-07-06" })}
+            type="button"
+          >
+            July
+          </button>
+        </>
+      );
+    }
+
+    render(<Controlled />);
+
+    // By the keyboard - the last day in the next month keeps the focus
+    act(() => day("September 28, 2026").focus());
+    await user.keyboard("{Enter}{ArrowDown}");
+    await settle();
+    await user.keyboard("{Enter}");
+    await settle();
+    expect(onChange).toHaveBeenLastCalledWith({
+      end: "2026-10-05",
+      start: "2026-09-28",
+    });
+    expect(screen.getByRole("grid", { name: "October 2026" })).toBeVisible();
+    expect(day("October 5, 2026")).toHaveFocus();
+
+    // By the mouse - after paging to the next month
+    await user.click(day("October 20, 2026"));
+    await user.click(screen.getByRole("button", { name: "Next month" }));
+    await user.click(day("November 3, 2026"));
+    expect(onChange).toHaveBeenLastCalledWith({
+      end: "2026-11-03",
+      start: "2026-10-20",
+    });
+    expect(screen.getByRole("grid", { name: "November 2026" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "July" }));
+    expect(screen.getByRole("grid", { name: "July 2026" })).toBeVisible();
+  });
+
   it("follows a controlled value and brings back the default on a reset", async () => {
     const user = userEvent.setup();
 
@@ -147,7 +233,68 @@ describe("RangeCalendar", () => {
     await user.click(day("September 21, 2026"));
     expect(new FormData(getForm()).get("stay")).toBe("2026-09-20/2026-09-21");
     act(() => getForm().reset());
-    expect(new FormData(getForm()).get("stay")).toBe("2026-09-08/2026-09-12");
+    await waitFor(() =>
+      expect(new FormData(getForm()).get("stay")).toBe("2026-09-08/2026-09-12"),
+    );
+  });
+
+  it.each([false, true])(
+    "drops a range picked halfway on reset when its value stays the same (controlled=%s)",
+    async (controlled) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <form aria-label="Booking">
+          <RangeCalendar
+            {...(controlled
+              ? { value: september }
+              : { defaultValue: september })}
+            label="Stay"
+            name="stay"
+            onChange={onChange}
+          />
+        </form>,
+      );
+
+      await user.click(day("September 15, 2026"));
+      expect(screen.getByText("Select the last day")).toBeInTheDocument();
+      const focusedDay = day("September 15, 2026");
+      act(() => getForm().reset());
+      await waitFor(() =>
+        expect(screen.getByText("Select the first day")).toBeInTheDocument(),
+      );
+      expect(focusedDay).toHaveFocus();
+      expect(new FormData(getForm()).get("stay")).toBe("2026-09-08/2026-09-12");
+      expect(onChange).not.toHaveBeenCalled();
+
+      await user.click(day("September 20, 2026"));
+      expect(onChange).not.toHaveBeenCalled();
+      await user.click(day("September 21, 2026"));
+      expect(onChange).toHaveBeenCalledExactlyOnceWith({
+        end: "2026-09-21",
+        start: "2026-09-20",
+      });
+    },
+  );
+
+  it("keeps a range picked halfway when the form reset is canceled", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <form aria-label="Booking" onReset={(event) => event.preventDefault()}>
+        <RangeCalendar defaultValue={september} onChange={onChange} />
+      </form>,
+    );
+
+    await user.click(day("September 15, 2026"));
+    act(() => getForm().reset());
+    await settle();
+    expect(screen.getByText("Select the last day")).toBeInTheDocument();
+    await user.click(day("September 20, 2026"));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({
+      end: "2026-09-20",
+      start: "2026-09-15",
+    });
   });
 
   it("shows two months with months={2}", () => {
@@ -261,6 +408,95 @@ describe("RangeCalendar", () => {
     ).toHaveAttribute("aria-pressed", "true");
   });
 
+  it.each([false, true])(
+    "drops a draft when a preset selects the current range (controlled=%s)",
+    async (controlled) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <RangeCalendar
+          {...(controlled ? { value: september } : { defaultValue: september })}
+          onChange={onChange}
+          presets={[{ label: "Original range", range: september }]}
+        />,
+      );
+
+      await user.click(day("September 20, 2026"));
+      await user.hover(day("September 22, 2026"));
+      expect(isInRange("September 21, 2026")).toBe(true);
+      expect(screen.getByText("Select the last day")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Original range" }));
+      expect(screen.getByText("Select the first day")).toBeInTheDocument();
+      expect(isInRange("September 10, 2026")).toBe(true);
+      expect(isInRange("September 21, 2026")).toBe(false);
+      expect(onChange).not.toHaveBeenCalled();
+
+      // The next click starts a fresh range, instead of finishing the draft.
+      await user.click(day("September 25, 2026"));
+      expect(onChange).not.toHaveBeenCalled();
+      await user.click(day("September 27, 2026"));
+      expect(onChange).toHaveBeenCalledExactlyOnceWith({
+        end: "2026-09-27",
+        start: "2026-09-25",
+      });
+    },
+  );
+
+  it.each([{ maxDays: 4 }, { minDays: 6 }])(
+    "makes a default range outside its day limits invalid: %j",
+    (limits) => {
+      render(
+        <form aria-label="Booking">
+          <RangeCalendar defaultValue={september} name="stay" {...limits} />
+        </form>,
+      );
+      expect(getForm().checkValidity()).toBe(false);
+      expect(
+        getForm().querySelector<HTMLInputElement>("input[type=text]")
+          ?.validationMessage,
+      ).toBe("“09/08/2026 – 09/12/2026” is outside the allowed range.");
+      expect(new FormData(getForm()).get("stay")).toBe("2026-09-08/2026-09-12");
+    },
+  );
+
+  it("revalidates controlled ranges and limits after read-only mode", () => {
+    const onChange = vi.fn();
+    const calendar = (
+      value: DateRange,
+      minDays: number,
+      maxDays: number,
+      readOnly = false,
+    ) => (
+      <form aria-label="Booking">
+        <RangeCalendar
+          maxDays={maxDays}
+          minDays={minDays}
+          name="stay"
+          onChange={onChange}
+          readOnly={readOnly}
+          value={value}
+        />
+      </form>
+    );
+    const shorter = { start: "2026-09-08", end: "2026-09-10" };
+    const { rerender } = render(calendar(september, 1, 5));
+    expect(getForm().checkValidity()).toBe(true);
+    rerender(calendar(september, 1, 4));
+    expect(getForm().checkValidity()).toBe(false);
+    rerender(calendar(september, 1, 4, true));
+    expect(getForm().checkValidity()).toBe(true);
+    rerender(calendar(september, 1, 4));
+    expect(getForm().checkValidity()).toBe(false);
+    rerender(calendar(shorter, 1, 4));
+    expect(getForm().checkValidity()).toBe(true);
+    rerender(calendar(shorter, 4, 5));
+    expect(getForm().checkValidity()).toBe(false);
+    rerender(calendar(shorter, 3, 5));
+    expect(getForm().checkValidity()).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("is read-only - browsed but not changed - or disabled", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -313,6 +549,71 @@ describe("RangeCalendar", () => {
 });
 
 describe("RangeCalendar on the server", () => {
+  it.each([
+    {
+      boundary: "month",
+      serverTime: new Date(2026, 8, 30, 23, 59, 59),
+      browserTime: new Date(2026, 9, 1, 0, 0, 1),
+      todayLabel: "October 1, 2026",
+      nextDayLabel: "October 2, 2026",
+      range: { start: "2026-10-01", end: "2026-10-02" },
+    },
+    {
+      boundary: "year",
+      serverTime: new Date(2026, 11, 31, 23, 59, 59),
+      browserTime: new Date(2027, 0, 1, 0, 0, 1),
+      todayLabel: "January 1, 2027",
+      nextDayLabel: "January 2, 2027",
+      range: { start: "2027-01-01", end: "2027-01-02" },
+    },
+  ])(
+    "hydrates an empty calendar across a $boundary boundary",
+    async ({ serverTime, browserTime, todayLabel, nextDayLabel, range }) => {
+      const onChange = vi.fn();
+      const calendar = (
+        <form>
+          <RangeCalendar months={2} name="stay" onChange={onChange} />
+        </form>
+      );
+      vi.setSystemTime(serverTime);
+      const container = document.createElement("div");
+      container.innerHTML = renderToString(calendar);
+      document.body.append(container);
+      const form = container.querySelector("form")!;
+      expect(container.querySelector("[role='grid']")).toBeNull();
+
+      vi.setSystemTime(browserTime);
+      const onRecoverableError = vi.fn();
+      const root = await act(async () =>
+        hydrateRoot(container, calendar, { onRecoverableError }),
+      );
+      try {
+        expect(onRecoverableError).not.toHaveBeenCalled();
+        expect(container.querySelector("form")).toBe(form);
+        expect(within(container).getAllByRole("grid")).toHaveLength(2);
+        const today = within(container).getByRole("button", {
+          name: todayLabel,
+        });
+        expect(today).toHaveAttribute("aria-current", "date");
+        expect(today).toHaveAttribute("tabindex", "0");
+        expect(new FormData(form).get("stay")).toBe("");
+        expect(onChange).not.toHaveBeenCalled();
+
+        fireEvent.click(today);
+        fireEvent.click(
+          within(container).getByRole("button", { name: nextDayLabel }),
+        );
+        expect(new FormData(form).get("stay")).toBe(
+          `${range.start}/${range.end}`,
+        );
+        expect(onChange).toHaveBeenCalledExactlyOnceWith(range);
+      } finally {
+        act(() => root.unmount());
+        container.remove();
+      }
+    },
+  );
+
   it("renders without the browser, then hydrates without a mismatch", async () => {
     const calendar = (
       <UIProvider locale={cs}>

@@ -27,7 +27,7 @@ import {
   useOverlayLayer,
 } from "./overlay-stack";
 import { attachRef } from "../hooks/use-form-control";
-import { getTabbableElements } from "../utils/tabbable";
+import { composedContains, getTabbableElements } from "../utils/tabbable";
 import { useMessages, usePortalContainer } from "../providers/ui-context";
 import { ButtonGroupContext } from "./button-group-context";
 
@@ -341,7 +341,7 @@ export default function ModalDialog({
     if (!isOpen || !dialog) return;
 
     // Unless an `autoFocus` field has taken it already
-    if (!dialog.contains(getActiveElement())) {
+    if (!composedContains(dialog, getActiveElement())) {
       const tabbableElements = getTabbableElements(dialog);
       // Skip the close button in the header when there is anything else.
       // With nothing to focus (a disabled close button, no fields) the

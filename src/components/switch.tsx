@@ -99,7 +99,11 @@ export default function Switch({
   required,
   ...props
 }: SwitchProps) {
-  const checkboxRef = useCheckedControl({ checked: props.checked, ref });
+  const checkboxRef = useCheckedControl({
+    checked: props.checked,
+    form: props.form,
+    ref,
+  });
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const labelId = `${inputId}-label`;
@@ -173,7 +177,7 @@ export default function Switch({
         <div
           aria-hidden="true"
           className={cn(
-            "relative shrink-0 rounded-full bg-neutral-200 peer-checked:bg-primary-600 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 after:absolute after:start-0.5 after:top-0.5 after:rounded-full after:border after:border-neutral-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white motion-reduce:after:transition-none rtl:peer-checked:after:-translate-x-full dark:bg-neutral-700 dark:peer-checked:bg-primary-600 dark:after:border-neutral-700",
+            "relative shrink-0 rounded-full bg-neutral-200 peer-checked:bg-primary-600 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 after:absolute after:inset-s-0.5 after:top-0.5 after:rounded-full after:border after:border-neutral-300 after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-checked:after:border-white motion-reduce:after:transition-none rtl:peer-checked:after:-translate-x-full dark:bg-neutral-700 dark:peer-checked:bg-primary-600 dark:after:border-neutral-700",
             trackSizes[dim],
             // Forced colors (Windows High Contrast) draw no background and
             // no ring: the track gets an outline, the system's highlight

@@ -484,7 +484,8 @@ export interface Messages {
     openCalendar: string;
     /**
      * Under a field whose typed date or time is out of `min` / `max` (for a
-     * range also of `minDays` / `maxDays`) - `{text}` is the text.
+     * range also of `minDays` / `maxDays`) - `{text}` is the text. Also the
+     * form validity message of a range outside its allowed day counts.
      */
     outOfRangeText: string;
     /**
@@ -602,6 +603,10 @@ export interface Messages {
     uploadingCount: PluralMessage;
     /** A file the `validate` of the field failed on (it threw). */
     validationFailed: string;
+    /** Form validation while files upload or wait for their upload. */
+    waitForUpload: string;
+    /** Form validation while picked files are checked asynchronously. */
+    waitForValidation: string;
   };
   /** Shared by the form fields. */
   form: {
@@ -648,6 +653,8 @@ export interface Messages {
     decrement: string;
     /** Accessible name of the button that raises the value by a step. */
     increment: string;
+    /** Validity message of an incomplete number, such as a lone minus sign. */
+    invalidNumber: string;
     /**
      * Validity message of a value above `max` - `{max}` is the bound in the
      * format of the field.
@@ -896,7 +903,10 @@ export interface Messages {
  * date formats and the first day of the week. Pass it to `UIProvider`.
  */
 export interface Locale {
-  /** BCP 47 language tag used for `Intl` formatting, e.g. `"cs-CZ"`. */
+  /**
+   * BCP 47 language tag used for `Intl` formatting, e.g. `"cs-CZ"`.
+   * Calendars and date pickers keep Gregorian dates in every language.
+   */
   code: string;
   /** Display patterns of the date and time pickers. */
   formats: DateFormats;

@@ -177,6 +177,80 @@ describe("Textarea autosize", () => {
     expect(textarea).toHaveValue("a\nb");
   });
 
+  it.each([
+    ["200px", "200px", "200px"],
+    ["200px", "12rem", "12rem"],
+    [200, 200, "200px"],
+    [200, 320, "320px"],
+  ])(
+    "restores the inline height from %s to %s when autosize ends",
+    (initialHeight, height, expected) => {
+      vi.stubGlobal("CSS", { supports: () => false });
+      const { rerender } = render(
+        <Textarea autosize label="Note" style={{ height: initialHeight }} />,
+      );
+
+      rerender(<Textarea label="Note" style={{ height }} />);
+
+      const textarea = screen.getByRole("textbox", { name: /Note/ });
+      expect(textarea.style.height).toBe(expected);
+      expect(document.querySelectorAll("textarea")).toHaveLength(1);
+    },
+  );
+
+  it("measures inline typography and spacing, also when the styles change", () => {
+    vi.stubGlobal("CSS", { supports: () => false });
+    const view = (lineHeight: number) => (
+      <Textarea
+        autosize
+        defaultValue={"First line\nSecond line\nThird line"}
+        label="Note"
+        style={{
+          fontSize: 32,
+          lineHeight: `${lineHeight}px`,
+          padding: "4px 12px",
+          width: 300,
+          minHeight: 60,
+          maxHeight: 200,
+        }}
+      />
+    );
+    const { rerender } = render(view(40));
+    const textarea = screen.getByRole("textbox", { name: /Note/ });
+    const shadow = document.querySelector<HTMLTextAreaElement>(
+      "textarea[aria-hidden=true]",
+    )!;
+
+    // jsdom cannot lay out text. Measure using the measuring element's
+    // styles, so a copy using the default font would give the wrong height.
+    Object.defineProperty(shadow, "scrollHeight", {
+      configurable: true,
+      get: () => {
+        const style = getComputedStyle(shadow);
+        return (
+          shadow.value.split("\n").length *
+            (parseFloat(style.lineHeight) || 24) +
+          (parseFloat(style.paddingTop) || 0) +
+          (parseFloat(style.paddingBottom) || 0)
+        );
+      },
+    });
+
+    rerender(view(40));
+    expect(textarea.style.height).toBe("128px");
+    expect(shadow).toHaveStyle({ fontSize: "32px", width: "300px" });
+    // The copy measures freely and stays hidden despite the public styles.
+    expect(shadow).toHaveStyle({
+      minHeight: "0",
+      maxHeight: "none",
+      visibility: "hidden",
+    });
+
+    rerender(view(48));
+    expect(textarea.style.height).toBe("152px");
+    expect(textarea).toHaveStyle({ minHeight: "60px", maxHeight: "200px" });
+  });
+
   it("leaves the resize handle without autosize", () => {
     render(<Textarea label="Note" maxRows={3} minRows={2} />);
 

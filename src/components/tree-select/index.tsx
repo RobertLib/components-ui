@@ -6,7 +6,7 @@ import FormDescription from "../form-description";
 import FormError from "../form-error";
 import Popover from "../popover";
 import TreeView from "../tree-view";
-import { getNextTabStop } from "../overlay-stack";
+import { getActiveElement, getNextTabStop } from "../overlay-stack";
 import { getTabbableElements } from "../../utils/tabbable";
 import { formatPlural, toIntlLocale } from "../../i18n/format";
 import {
@@ -22,9 +22,11 @@ import {
   getCheckStates,
   indexTree,
   toggleCheck,
+  TYPEAHEAD_TIMEOUT,
   type LoadState,
 } from "../tree-view/tree-model";
 import type { TreeItem, TreeItemId, TreeItemState } from "../tree-view/types";
+import { encodeId } from "../tree-view/dom";
 import RequiredMark from "../required-mark";
 
 // The heights, paddings and font sizes of `Input`
@@ -339,7 +341,11 @@ export default function TreeSelect<T extends TreeItem>({
         loadChildren(index.byId.get(item.id) ?? item, options).then(
           (children) => {
             const list = Array.isArray(children) ? children : [];
-            setLoaded((previous) => new Map(previous).set(item.id, list));
+            // A loader may finish after the popup closed and aborted it.
+            // Its result must not replace children from a later opening.
+            if (!options.signal.aborted) {
+              setLoaded((previous) => new Map(previous).set(item.id, list));
+            }
             return list;
           },
         )
@@ -394,6 +400,8 @@ export default function TreeSelect<T extends TreeItem>({
   // The pointer the field was last pressed with - a finger opens the popup
   // without the on-screen keyboard of the search field
   const pointerTypeRef = useRef("mouse");
+  // When a letter was last typed in the tree - for its typeahead search
+  const typedAtRef = useRef(-Infinity);
 
   // `form.reset()` brings back the `defaultValue` of an uncontrolled field
   const formResetRef = useFormReset(() => {
@@ -460,7 +468,12 @@ export default function TreeSelect<T extends TreeItem>({
     setOpen(false);
     setSearch("");
     // Back to the field from the popup - not when the focus has moved on
-    if (panelRef.current?.contains(document.activeElement)) {
+    const panel = panelRef.current;
+    if (
+      panel?.contains(
+        getActiveElement(panel.getRootNode() as Document | ShadowRoot),
+      )
+    ) {
       comboboxRef.current?.focus();
     }
   };
@@ -491,7 +504,7 @@ export default function TreeSelect<T extends TreeItem>({
   };
 
   const removeChip = (itemId: TreeItemId) => {
-    if (!isCascade || !checkStates) {
+    if (!isCascade || !checkStates || !index.byId.has(itemId)) {
       commit(values.filter((checked) => checked !== itemId));
       return;
     }
@@ -503,7 +516,7 @@ export default function TreeSelect<T extends TreeItem>({
       loads,
       states: checkStates,
     });
-    commit(next ?? values.filter((checked) => checked !== itemId));
+    if (next !== null) commit(next);
   };
 
   // Something to clear - the disabled items keep their state
@@ -515,9 +528,15 @@ export default function TreeSelect<T extends TreeItem>({
   const clear = (button: HTMLElement) => {
     // The button goes away with the value - the focus on it moves to the
     // combobox
-    if (button === document.activeElement) comboboxRef.current?.focus();
+    if (
+      button === getActiveElement(button.getRootNode() as Document | ShadowRoot)
+    ) {
+      comboboxRef.current?.focus();
+    }
     commit(
-      multiple ? values.filter((itemId) => index.disabled.has(itemId)) : [],
+      multiple
+        ? normalizedValues.filter((itemId) => index.disabled.has(itemId))
+        : [],
     );
   };
 
@@ -593,18 +612,45 @@ export default function TreeSelect<T extends TreeItem>({
     }
   };
 
-  // Up from the first item goes back to the search field
+  // The keys of the tree's items - after the tree has handled them
   const handleTreeKeyDown = (event: React.KeyboardEvent<HTMLUListElement>) => {
     const target = event.target as Element;
+    if (target.getAttribute("role") !== "treeitem") return;
+
+    // Up from the first item goes back to the search field
     if (
       event.key === "ArrowUp" &&
       !event.altKey &&
       searchable &&
-      target.getAttribute("role") === "treeitem" &&
       target.getAttribute("aria-level") === "1" &&
       target.getAttribute("aria-posinset") === "1"
     ) {
       searchRef.current?.focus();
+      return;
+    }
+    if (event.nativeEvent.isComposing) return;
+
+    // A Space typed soon after a letter goes on with the typeahead search
+    // of the tree ("New York") - as the tree has it, it picks nothing
+    const typing = event.timeStamp - typedAtRef.current < TYPEAHEAD_TIMEOUT;
+    if (event.key === " " && !typing) {
+      // Space on the item picked already closes too - the tree reports
+      // nothing then: its selection stays, and Space is no click in a tree
+      // that selects
+      if (
+        !multiple &&
+        target.getAttribute("aria-selected") === "true" &&
+        !target.hasAttribute("aria-disabled")
+      ) {
+        closePopup();
+      }
+    } else if (
+      event.key.length === 1 &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey
+    ) {
+      typedAtRef.current = event.timeStamp;
     }
   };
 
@@ -713,7 +759,7 @@ export default function TreeSelect<T extends TreeItem>({
           <input
             disabled={disabled}
             form={form}
-            key={String(submitted)}
+            key={encodeId(submitted)}
             name={name}
             readOnly
             type="hidden"
@@ -793,7 +839,7 @@ export default function TreeSelect<T extends TreeItem>({
           >
             {shownChips.map((itemId) => (
               <Chip
-                key={String(itemId)}
+                key={encodeId(itemId)}
                 onRemove={
                   canChange && !index.disabled.has(itemId)
                     ? () => removeChip(itemId)

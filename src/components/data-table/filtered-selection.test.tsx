@@ -2,12 +2,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import DataTable from ".";
+import DataTable, { type DataTableProps } from ".";
 import ConfirmProvider from "../../providers/confirm-provider";
 import UIProvider from "../../providers/ui-provider";
 import { cs } from "../../i18n/cs";
 import { useConfirm } from "../../providers/confirm-context";
-import type { Column } from "./types";
+import type { Column, RowId } from "./types";
 
 interface Row {
   id: number;
@@ -114,6 +114,173 @@ describe("DataTable selection of all matching rows", () => {
     expect(rowBox("Person 3")).not.toBeChecked();
     expect(screen.getByRole("button", { name: "Archive" })).toBeDisabled();
     expect(barText()).toBe("");
+  });
+
+  it.each([false, true])(
+    "drops exclusions for removed client-side rows (controlled: %s)",
+    async (controlled) => {
+      const user = userEvent.setup();
+      const onClick = vi.fn();
+      const onSelectedIdsChange = vi.fn();
+      const originalRows = rows.slice(0, 3);
+
+      function Table({ data }: Pick<DataTableProps<Row>, "data">) {
+        const [selectedIds, setSelectedIds] = useState<RowId[]>([]);
+        return (
+          <DataTable
+            clientSide
+            columns={columns}
+            data={data}
+            defaultQuery={{ pageSize: 2 }}
+            filteredSelection
+            groupActions={[{ label: "Archive", onClick }]}
+            onSelectedIdsChange={(ids, selection) => {
+              setSelectedIds(ids);
+              onSelectedIdsChange(ids, selection);
+            }}
+            selectedIds={controlled ? selectedIds : undefined}
+          />
+        );
+      }
+
+      const { rerender } = render(<Table data={originalRows} />);
+      const selectAll = screen.getByRole("checkbox", {
+        name: "Select all rows",
+      });
+      await user.click(selectAll);
+      await user.click(
+        screen.getByRole("button", { name: "Select all 3 rows" }),
+      );
+      await user.click(rowBox("Person 1"));
+      await user.click(rowBox("Person 2"));
+
+      rerender(<Table data={[rows[2]]} />);
+
+      expect(rowBox("Person 3")).toBeChecked();
+      expect(selectAll).toBeChecked();
+      expect(selectAll).not.toBePartiallyChecked();
+      expect(barText()).toBe("1 row is selected. Clear selection");
+      expect(screen.getByRole("button", { name: "Archive" })).toBeEnabled();
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+      expect(onClick).toHaveBeenLastCalledWith(
+        [rows[2]],
+        expect.objectContaining({
+          allFiltered: true,
+          count: 1,
+          excludedRows: [],
+          ids: [3],
+          rows: [rows[2]],
+        }),
+      );
+
+      // Removed exclusions stay gone if the rows are loaded again.
+      rerender(<Table data={originalRows} />);
+      expect(rowBox("Person 1")).toBeChecked();
+      expect(rowBox("Person 2")).toBeChecked();
+      expect(barText()).toBe("All 3 rows are selected. Clear selection");
+
+      await user.click(rowBox("Person 1"));
+      expect(onSelectedIdsChange).toHaveBeenLastCalledWith(
+        [2, 3],
+        expect.objectContaining({
+          allFiltered: true,
+          count: 2,
+          excludedRows: [rows[0]],
+          ids: [2, 3],
+          rows: [rows[1], rows[2]],
+        }),
+      );
+      await user.click(selectAll);
+      expect(rowBox("Person 1")).toBeChecked();
+      await user.click(selectAll);
+      expect(barText()).toBe("");
+      expect(onSelectedIdsChange).toHaveBeenLastCalledWith(
+        [],
+        expect.objectContaining({
+          allFiltered: false,
+          count: 0,
+          excludedRows: [],
+        }),
+      );
+    },
+  );
+
+  it("reconciles exclusions with refreshed rows matching the client-side filters", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    const initialRows = rows.slice(0, 4);
+    const props = {
+      clientSide: true,
+      columns,
+      defaultQuery: { pageSize: 2, search: "Person" },
+      enableGlobalSearch: true,
+      filteredSelection: true,
+      groupActions: [{ label: "Archive", onClick }],
+    };
+    const { rerender } = render(<DataTable {...props} data={initialRows} />);
+    await user.click(screen.getByRole("checkbox", { name: "Select all rows" }));
+    await user.click(screen.getByRole("button", { name: "Select all 4 rows" }));
+    await user.click(rowBox("Person 1"));
+    await user.click(rowBox("Person 2"));
+
+    const refreshedRows = [
+      { ...rows[0], name: "Outside search" },
+      { ...rows[1], name: "Person 2 refreshed" },
+      rows[2],
+      rows[3],
+    ];
+    rerender(<DataTable {...props} data={refreshedRows} />);
+
+    expect(rowBox("Person 2 refreshed")).not.toBeChecked();
+    expect(barText()).toBe("2 matching rows are selected. Clear selection");
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    expect(onClick).toHaveBeenLastCalledWith(
+      [rows[2], rows[3]],
+      expect.objectContaining({
+        allFiltered: true,
+        count: 2,
+        excludedRows: [refreshedRows[1]],
+        ids: [3, 4],
+      }),
+    );
+
+    // Empty data while loading is a placeholder, not a removed exclusion.
+    rerender(<DataTable {...props} data={[]} loading />);
+    rerender(<DataTable {...props} data={refreshedRows} />);
+    expect(rowBox("Person 2 refreshed")).not.toBeChecked();
+    expect(barText()).toBe("2 matching rows are selected. Clear selection");
+  });
+
+  it("keeps exclusions from other pages with server-side data", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    const props = {
+      columns,
+      defaultQuery: { pageSize: 2 },
+      filteredSelection: true,
+      groupActions: [{ label: "Archive", onClick }],
+      total: 4,
+    };
+    const { rerender } = render(
+      <DataTable {...props} data={rows.slice(0, 2)} />,
+    );
+    await user.click(screen.getByRole("checkbox", { name: "Select all rows" }));
+    await user.click(screen.getByRole("button", { name: "Select all 4 rows" }));
+    await user.click(rowBox("Person 1"));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    rerender(<DataTable {...props} data={rows.slice(2, 4)} />);
+
+    expect(rowBox("Person 3")).toBeChecked();
+    expect(barText()).toBe("3 matching rows are selected. Clear selection");
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    expect(onClick).toHaveBeenLastCalledWith(
+      [rows[2], rows[3]],
+      expect.objectContaining({ count: 3, excludedRows: [rows[0]] }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    rerender(<DataTable {...props} data={rows.slice(0, 2)} />);
+    expect(rowBox("Person 1")).not.toBeChecked();
   });
 
   it("writes the rows left in the language of the table", async () => {

@@ -225,10 +225,12 @@ export default function Pagination({
   const reportsLoading = loadingProp !== undefined;
 
   // The cursors a move started from - until `pageInfo` brings others (or a
-  // load ends, e.g. with an error) they would repeat the same move
-  const cursorKey = pageInfo
-    ? `${pageInfo.startCursor ?? ""}\n${pageInfo.endCursor ?? ""}`
-    : null;
+  // load ends, e.g. with an error) they would repeat the same move. An
+  // offset API can supply only the pageInfo flags, without any cursors.
+  const cursorKey =
+    pageInfo?.startCursor || pageInfo?.endCursor
+      ? `${pageInfo.startCursor ?? ""}\n${pageInfo.endCursor ?? ""}`
+      : null;
   const [movedFrom, setMovedFrom] = useState<string | null>(null);
   const [wasLoading, setWasLoading] = useState(loading);
 
@@ -295,7 +297,7 @@ export default function Pagination({
 
   const move = (...args: [PaginationDirection, (string | undefined)?]) => {
     if (isBusy || !available[args[0]]) return;
-    if (args[1] && cursorKey !== null) setMovedFrom(cursorKey);
+    if (cursorKey !== null) setMovedFrom(cursorKey);
     onChange?.(...args);
 
     // The number of the page too - of an offset list, which knows it
@@ -515,6 +517,9 @@ export default function Pagination({
           <label htmlFor={jumpId}>{messages.pagination.goTo}</label>
           <input
             className="h-7 form-control w-16 px-1 py-0 text-sm tabular-nums"
+            // Navigation is not a field of a form around the table: an
+            // out-of-range page must not block that form's submission.
+            form=""
             id={jumpId}
             inputMode="numeric"
             max={lastPage}

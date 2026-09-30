@@ -169,8 +169,10 @@ export function matchesShortcut(
 ) {
   const { alt, ctrl, key, meta, shift } = toShortcut(shortcut, isApple);
 
-  // A symbol like "?" or "/" needs Shift on some layouts only
-  const isSymbol = key.length === 1 && !isLatinLetter(key) && !isDigit(key);
+  // A symbol like "?" or "/" needs Shift on some layouts only. The space is
+  // a named key - Shift + Space is another shortcut.
+  const isSymbol =
+    key.length === 1 && key !== " " && !isLatinLetter(key) && !isDigit(key);
   const shiftMatches = event.shiftKey === shift || (isSymbol && !shift);
 
   return (

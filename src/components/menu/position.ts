@@ -54,19 +54,19 @@ export const pointRect = ({ x, y }: Point): AnchorRect => ({
 });
 
 /**
- * Held to the height of the viewport - a taller menu starts at its top and
+ * Held to the height of `area` - a taller menu starts at its top and
  * scrolls.
  */
-function fitHeight(top: number, height: number, viewport: Size) {
-  const room = viewport.height - 2 * VIEWPORT_MARGIN;
+function fitHeight(top: number, height: number, area: AnchorRect) {
+  const room = area.bottom - area.top - 2 * VIEWPORT_MARGIN;
   if (height > room) {
-    return { maxHeight: Math.max(room, 0), top: VIEWPORT_MARGIN };
+    return { maxHeight: Math.max(room, 0), top: area.top + VIEWPORT_MARGIN };
   }
   return {
     top: clamp(
       top,
-      VIEWPORT_MARGIN,
-      viewport.height - VIEWPORT_MARGIN - height,
+      area.top + VIEWPORT_MARGIN,
+      area.bottom - VIEWPORT_MARGIN - height,
     ),
   };
 }
@@ -76,56 +76,55 @@ function fitHeight(top: number, height: number, viewport: Size) {
  * pointer, or the focused element it was opened from with the keyboard -
  * or, right to left (`rtl`), from its right edge. Without room there, it
  * opens above the anchor and from its other edge, and it is pushed inside
- * the viewport at last.
+ * `area` - the part of the page that is seen - at last.
  */
 export function placeAtAnchor(
   anchor: AnchorRect,
   size: Size,
-  viewport: Size,
+  area: AnchorRect,
   gap: number,
   rtl = false,
 ): MenuPosition {
-  const fitsRight =
-    anchor.left + size.width <= viewport.width - VIEWPORT_MARGIN;
-  const fitsLeft = anchor.right - size.width >= VIEWPORT_MARGIN;
+  const fitsRight = anchor.left + size.width <= area.right - VIEWPORT_MARGIN;
+  const fitsLeft = anchor.right - size.width >= area.left + VIEWPORT_MARGIN;
   const endsAtRight = rtl ? fitsLeft || !fitsRight : !fitsRight;
   const alignedLeft = clamp(
     endsAtRight ? anchor.right - size.width : anchor.left,
-    VIEWPORT_MARGIN,
-    viewport.width - VIEWPORT_MARGIN - size.width,
+    area.left + VIEWPORT_MARGIN,
+    area.right - VIEWPORT_MARGIN - size.width,
   );
 
   const below = anchor.bottom + gap;
   const above = anchor.top - gap - size.height;
   const isBelow =
-    below + size.height <= viewport.height - VIEWPORT_MARGIN ||
-    above < VIEWPORT_MARGIN;
+    below + size.height <= area.bottom - VIEWPORT_MARGIN ||
+    above < area.top + VIEWPORT_MARGIN;
 
   return {
     align: endsAtRight !== rtl ? "end" : "start",
     left: alignedLeft,
     side: isBelow ? "bottom" : "top",
-    ...fitHeight(isBelow ? below : above, size.height, viewport),
+    ...fitHeight(isBelow ? below : above, size.height, area),
   };
 }
 
 /**
  * Where a submenu goes: right of its item - left of it right to left
- * (`rtl`) - its first item level with it. Near that edge of the viewport it
- * opens on the other side; with room on neither side (a phone) it opens
- * below the item, over the rest of its menu.
+ * (`rtl`) - its first item level with it. Near that edge of `area` - the
+ * part of the page that is seen - it opens on the other side; with room on
+ * neither side (a phone) it opens below the item, over the rest of its menu.
  */
 export function placeSubmenu(
   item: AnchorRect,
   size: Size,
-  viewport: Size,
+  area: AnchorRect,
   rtl = false,
 ): MenuPosition {
   const right = item.right + ITEM_INSET - 1;
   const left = item.left - ITEM_INSET + 1 - size.width;
   const top = item.top - ITEM_INSET;
-  const fitsRight = right + size.width <= viewport.width - VIEWPORT_MARGIN;
-  const fitsLeft = left >= VIEWPORT_MARGIN;
+  const fitsRight = right + size.width <= area.right - VIEWPORT_MARGIN;
+  const fitsLeft = left >= area.left + VIEWPORT_MARGIN;
 
   for (const side of rtl
     ? (["left", "right"] as const)
@@ -135,7 +134,7 @@ export function placeSubmenu(
         align: "start",
         left: side === "right" ? right : left,
         side,
-        ...fitHeight(top, size.height, viewport),
+        ...fitHeight(top, size.height, area),
       };
     }
   }
@@ -145,10 +144,10 @@ export function placeSubmenu(
     side: "bottom",
     left: clamp(
       rtl ? item.right - 12 - size.width : item.left + 12,
-      VIEWPORT_MARGIN,
-      viewport.width - VIEWPORT_MARGIN - size.width,
+      area.left + VIEWPORT_MARGIN,
+      area.right - VIEWPORT_MARGIN - size.width,
     ),
-    ...fitHeight(item.bottom + 2, size.height, viewport),
+    ...fitHeight(item.bottom + 2, size.height, area),
   };
 }
 

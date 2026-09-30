@@ -11,6 +11,13 @@ describe("cn", () => {
     ).toBe("px-2 1 a b c");
   });
 
+  it("skips 0 like the other falsy values - a `count && class` of no items", () => {
+    const items: string[] = [];
+    expect(cn("a", items.length && "has-items")).toBe("a");
+    expect(cn(["a", 0, NaN, 2])).toBe("a 2");
+    expect(cn(0)).toBeUndefined();
+  });
+
   it("returns undefined when there is no class", () => {
     expect(cn()).toBeUndefined();
     expect(cn(undefined, false, "", {})).toBeUndefined();
@@ -50,6 +57,39 @@ describe("cn", () => {
     expect(cn("border-t-2", "border")).toBe("border");
     expect(cn("gap-x-2", "gap-4")).toBe("gap-4");
     expect(cn("overflow-x-auto", "overflow-hidden")).toBe("overflow-hidden");
+  });
+
+  it("merges canonical logical inset utilities with their legacy aliases", () => {
+    expect(cn("start-0", "inset-s-2")).toBe("inset-s-2");
+    expect(cn("inset-s-0", "start-2")).toBe("start-2");
+    expect(cn("end-0", "inset-e-2")).toBe("inset-e-2");
+    expect(cn("inset-e-0", "end-2")).toBe("end-2");
+    expect(cn("inset-s-0 inset-e-0", "inset-s-4 inset-e-4")).toBe(
+      "inset-s-4 inset-e-4",
+    );
+    expect(cn("-inset-s-2", "inset-s-4")).toBe("inset-s-4");
+    expect(cn("inset-e-2", "-inset-e-4")).toBe("-inset-e-4");
+    expect(cn("inset-s-0 inset-e-0", "inset-x-2")).toBe("inset-x-2");
+    expect(cn("inset-s-0 end-0", "inset-2")).toBe("inset-2");
+    expect(cn("inset-x-2", "inset-s-0")).toBe("inset-x-2 inset-s-0");
+    expect(cn("inset-s-0 inset-e-0", "inset-y-2")).toBe(
+      "inset-s-0 inset-e-0 inset-y-2",
+    );
+    expect(cn("left-0", "inset-s-2")).toBe("left-0 inset-s-2");
+    expect(cn("md:start-0", "md:inset-s-2")).toBe("md:inset-s-2");
+    expect(cn("md:inset-e-0", "inset-e-2")).toBe("md:inset-e-0 inset-e-2");
+    expect(cn("!start-0", "inset-s-2!")).toBe("inset-s-2!");
+    expect(cn("inset-e-0!", "inset-e-2")).toBe("inset-e-0! inset-e-2");
+  });
+
+  it("recognizes line-height units for height utilities", () => {
+    expect(cn("h-lh", "h-4")).toBe("h-4");
+    expect(cn("h-[1lh]", "h-lh")).toBe("h-lh");
+    expect(cn("min-h-4", "min-h-lh")).toBe("min-h-lh");
+    expect(cn("max-h-lh", "max-h-full")).toBe("max-h-full");
+    expect(cn("h-lh w-4", "size-5")).toBe("size-5");
+    expect(cn("size-5", "h-lh")).toBe("size-5 h-lh");
+    expect(cn("w-lh", "w-4")).toBe("w-lh w-4");
   });
 
   it("tells sizes from colors and other properties of one prefix", () => {
@@ -109,6 +149,31 @@ describe("cn", () => {
       "text-shadow-sky-300 text-shadow-lg/20",
     );
     expect(cn("text-shadow-lg", "text-shadow-none")).toBe("text-shadow-none");
+  });
+
+  it("merges a font size's slash line height with earlier leading only", () => {
+    expect(cn("leading-10", "text-lg/7")).toBe("text-lg/7");
+    expect(cn("text-lg/7", "leading-10")).toBe("text-lg/7 leading-10");
+    expect(cn("leading-10", "text-lg")).toBe("leading-10 text-lg");
+    expect(cn("text-sm", "text-lg/7")).toBe("text-lg/7");
+    expect(cn("text-lg/7", "text-sm")).toBe("text-sm");
+    expect(cn("text-sm/6", "text-lg/7")).toBe("text-lg/7");
+    expect(cn("leading-10", "text-[1.125rem]/[1.75rem]")).toBe(
+      "text-[1.125rem]/[1.75rem]",
+    );
+    expect(cn("leading-10", "text-(length:--size)/(--line-height)")).toBe(
+      "text-(length:--size)/(--line-height)",
+    );
+    expect(cn("leading-10", "text-[calc(1rem/2)]")).toBe(
+      "leading-10 text-[calc(1rem/2)]",
+    );
+    expect(cn("leading-10", "text-red-500/50")).toBe(
+      "leading-10 text-red-500/50",
+    );
+    expect(cn("md:leading-10", "md:text-lg/7")).toBe("md:text-lg/7");
+    expect(cn("leading-10", "md:text-lg/7")).toBe("leading-10 md:text-lg/7");
+    expect(cn("leading-10!", "text-lg/7!")).toBe("text-lg/7!");
+    expect(cn("leading-10!", "text-lg/7")).toBe("leading-10! text-lg/7");
   });
 
   it("merges only classes under the same variants", () => {
@@ -205,6 +270,23 @@ describe("cn", () => {
       "justify-between justify-me",
     );
   });
+
+  it("keeps custom classes named after object prototype properties", () => {
+    for (const name of [
+      "constructor",
+      "toString",
+      "valueOf",
+      "__proto__",
+      "hasOwnProperty",
+    ]) {
+      expect(cn("p-2", name, `${name}-card`, `${name}-label`, "p-4")).toBe(
+        `${name} ${name}-card ${name}-label p-4`,
+      );
+      expect(cn(`hover:${name}-card`, `hover:${name}-label`)).toBe(
+        `hover:${name}-card hover:${name}-label`,
+      );
+    }
+  });
 });
 
 describe("joinTokens", () => {
@@ -214,5 +296,12 @@ describe("joinTokens", () => {
     );
     expect(joinTokens("p-1", "p-2", "p-1")).toBe("p-1 p-2 p-1");
     expect(joinTokens(undefined, false, "")).toBeUndefined();
+  });
+
+  it("skips 0 like the other falsy values", () => {
+    expect(joinTokens("size-hint", 0, ["size-error", 0])).toBe(
+      "size-hint size-error",
+    );
+    expect(joinTokens(0)).toBeUndefined();
   });
 });

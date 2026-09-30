@@ -2,6 +2,7 @@ import {
   attachRef,
   checkedState,
   useFormControl,
+  useOmitFormValue,
 } from "../hooks/use-form-control";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import cn, { joinTokens } from "../utils/cn";
@@ -211,17 +212,19 @@ export default function SegmentedControl<
   const dim = dimProp ?? size ?? "md";
   const vertical = orientation === "vertical";
   const messages = useMessages();
-  const { fieldRef, handleChange, value } = useFormControl<HTMLInputElement>({
-    defaultValue,
-    // The value of a radio is a string - the option has the original one
-    onChange: (event) => {
-      const option = options.find(
-        (candidate) => String(candidate.value) === event.target.value,
-      );
-      if (option) onChange?.(option.value);
-    },
-    value: controlledValue,
-  });
+  const { fieldRef, handleChange, hasValue, value } =
+    useFormControl<HTMLInputElement>({
+      defaultValue,
+      form,
+      // The value of a radio is a string - the option has the original one
+      onChange: (event) => {
+        const option = options.find(
+          (candidate) => String(candidate.value) === event.target.value,
+        );
+        if (option) onChange?.(option.value);
+      },
+      value: controlledValue,
+    });
 
   // Without a name the options of two controls would form one radio group
   const generatedName = useId();
@@ -232,7 +235,7 @@ export default function SegmentedControl<
   const descriptionId = description ? `${groupId}-description` : undefined;
 
   const selectedIndex = options.findIndex(
-    (option) => String(option.value) === String(value),
+    (option) => hasValue && String(option.value) === String(value),
   );
 
   // Where the indicator is - measured in the browser. Until then (on the
@@ -301,25 +304,9 @@ export default function SegmentedControl<
 
   // The generated name only groups the radios - the form leaves it out of
   // its data, as it leaves out radios without a name
-  const wrapperRef = useCallback(
-    (element: HTMLElement | null) => {
-      const formElement = !element
-        ? null
-        : form
-          ? element.ownerDocument.getElementById(form)
-          : element.closest("form");
-      if (!(formElement instanceof HTMLFormElement) || name !== undefined) {
-        return;
-      }
-
-      const dropGeneratedName = (event: FormDataEvent) =>
-        event.formData.delete(generatedName);
-      formElement.addEventListener("formdata", dropGeneratedName);
-
-      return () =>
-        formElement.removeEventListener("formdata", dropGeneratedName);
-    },
-    [form, generatedName, name],
+  const wrapperRef = useOmitFormValue(
+    name === undefined ? generatedName : undefined,
+    form,
   );
 
   const bar = (

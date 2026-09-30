@@ -15,7 +15,7 @@ export default function Tokens() {
   return (
     <div className="space-y-2 overflow-x-auto">
       {scales.map((scale) => (
-        <div className="flex min-w-[560px] items-center gap-2" key={scale}>
+        <div className="flex min-w-140 items-center gap-2" key={scale}>
           <div className="w-20 shrink-0 text-xs font-medium">{scale}</div>
           {shades.map((shade) => (
             <div
@@ -27,7 +27,7 @@ export default function Tokens() {
           ))}
         </div>
       ))}
-      <div className="flex min-w-[560px] items-center gap-2 pt-2 text-xs">
+      <div className="flex min-w-140 items-center gap-2 pt-2 text-xs">
         <div className="w-20 shrink-0" />
         {shades.map((shade) => (
           <div

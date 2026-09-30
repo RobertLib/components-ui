@@ -40,10 +40,14 @@ export default function useRowSelection<T extends { id: RowId }>(
   const rowIds = useMemo(() => data.map((row) => row.id), [data]);
   // The ids of the rows by value - a refetch of the same rows keeps it
   const idsKey = useMemo(() => JSON.stringify(rowIds), [rowIds]);
+  // Loading rows are placeholders, even when the result has the same ids
+  // (including none). Reconcile the selection once the load has ended.
+  const settledIdsKey = loading ? null : idsKey;
 
   const [selection, setSelection] = useState<{
     ids: RowId[];
-    idsKey: string;
+    /** The last reconciled rows; null while waiting for a load to finish. */
+    idsKey: string | null;
     key: string;
   }>(() => {
     // Only rows that are there - unless they are still on their way
@@ -55,7 +59,7 @@ export default function useRowSelection<T extends { id: RowId }>(
         loading || rowIds.length === 0
           ? ids
           : ids.filter((id) => present.has(id)),
-      idsKey,
+      idsKey: settledIdsKey,
       key: resetKey,
     };
   });
@@ -64,14 +68,16 @@ export default function useRowSelection<T extends { id: RowId }>(
 
   if (!isControlled && selection.key !== resetKey) {
     // Dropped for good - coming back to the same filters starts unselected
-    setSelection({ ids: [], idsKey, key: resetKey });
-  } else if (!isControlled && !loading && selection.idsKey !== idsKey) {
-    // Other rows came - a selected row that is gone stays unselected when
-    // it comes back (a return to its page)
+    setSelection({ ids: [], idsKey: settledIdsKey, key: resetKey });
+  } else if (!isControlled && selection.idsKey !== settledIdsKey) {
+    // While loading, keep the selection. Once the rows arrive, a selected
+    // row that is gone stays unselected when it comes back.
     const present = new Set(rowIds);
     setSelection({
-      ids: selection.ids.filter((id) => present.has(id)),
-      idsKey,
+      ids: loading
+        ? selection.ids
+        : selection.ids.filter((id) => present.has(id)),
+      idsKey: settledIdsKey,
       key: resetKey,
     });
   }

@@ -8,7 +8,10 @@ import {
 import userEvent from "@testing-library/user-event";
 import { Profiler } from "react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import Calendar, { type CalendarEvent } from ".";
+import Calendar, { type CalendarEvent, type CalendarProps } from ".";
+import { createLocale } from "../../i18n/format";
+import { en } from "../../i18n/en";
+import UIProvider from "../../providers/ui-provider";
 
 /** A day of September 2026 - the 24th is a Thursday. */
 const d = (day: number, hours = 0, minutes = 0) =>
@@ -935,53 +938,379 @@ describe.each([
       expect(newEnd.getTime() - newStart.getTime()).toBe(30 * 60_000);
     });
 
-    it("resizes the start into the skipped hour to no empty event", () => {
-      const [year, month, day] = springForward;
+    it.each([
+      { initialView: "day", offset: 0, deltaX: 0, seconds: 0 },
+      { initialView: "week", offset: 0, deltaX: 0, seconds: 0 },
+      { initialView: "week", offset: -2, deltaX: 200, seconds: 0 },
+      { initialView: "week", offset: 0, deltaX: 0, seconds: 30 },
+    ] as const)(
+      "stops a move at the end hour after a skipped hour ($initialView, day $offset, $seconds seconds)",
+      ({ initialView, offset, deltaX, seconds }) => {
+        const [year, month, day] = springForward;
+        const at = (offset: number, hours: number, minutes = 0, seconds = 0) =>
+          new Date(year, month, day + offset, hours, minutes, seconds);
+        vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(
+          700,
+        );
+        const onEventDrop = vi.fn();
+        render(
+          <UIProvider locale={createLocale(en, { weekStartsOn: 1 })}>
+            <Calendar
+              dayEndHour={3}
+              dayStartHour={0}
+              events={[
+                event(
+                  "Night",
+                  at(offset, 1, 0, seconds),
+                  at(offset, 1, 30, seconds),
+                ),
+              ]}
+              initialDate={at(0, 12)}
+              initialView={initialView}
+              onEventDrop={onEventDrop}
+              slotDuration={30}
+            />
+          </UIProvider>,
+        );
+
+        // Three rows down request 2:30, which resolves to 3:00. The
+        // thirty-minute event must stop at the last start that still fits.
+        drag(screen.getByTitle("Night"), 192, deltaX);
+        expect(onEventDrop).toHaveBeenCalledOnce();
+        expect(onEventDrop).toHaveBeenLastCalledWith(
+          change(at(0, 1, 30), at(0, 3)),
+        );
+      },
+    );
+
+    it("stops a move at the end hour after a repeated hour", () => {
+      const [year, month, day] = fallBack;
+      const at = (hours: number) => new Date(year, month, day, hours);
+      const onEventDrop = vi.fn();
+      render(
+        <Calendar
+          dayEndHour={4}
+          dayStartHour={0}
+          events={[event("Night", at(repeatedHour), at(3))]}
+          initialDate={at(12)}
+          initialView="week"
+          onEventDrop={onEventDrop}
+        />,
+      );
+
+      // After the repeated hour the same absolute duration takes more
+      // clock rows. The last fitting start is its second occurrence.
+      drag(screen.getByTitle("Night"), 128);
+      expect(onEventDrop).toHaveBeenCalledOnce();
+      expect(onEventDrop).toHaveBeenLastCalledWith(
+        change(new Date(at(repeatedHour).getTime() + 3_600_000), at(4)),
+      );
+    });
+
+    it("keeps an already clipped end in the second run of a repeated hour", () => {
+      const [year, month, day] = fallBack;
       const at = (hours: number, minutes = 0) =>
         new Date(year, month, day, hours, minutes);
+      const onEventDrop = vi.fn();
+      render(
+        <Calendar
+          dayEndHour={repeatedHour}
+          dayStartHour={0}
+          events={[
+            event(
+              "Night",
+              at(repeatedHour - 1, 30),
+              new Date(at(repeatedHour, 30).getTime() + 3_600_000),
+            ),
+          ]}
+          initialDate={at(12)}
+          initialView="week"
+          onEventDrop={onEventDrop}
+        />,
+      );
+
+      // One row up keeps the original duration, without snapping the end
+      // from the second run of the repeated hour to its first one.
+      drag(screen.getByTitle("Night"), -64);
+      expect(onEventDrop).toHaveBeenCalledOnce();
+      expect(onEventDrop).toHaveBeenLastCalledWith(
+        change(
+          at(repeatedHour - 1),
+          new Date(at(repeatedHour).getTime() + 3_600_000),
+        ),
+      );
+    });
+
+    it.each([
+      { endHour: 3, seconds: 0 },
+      { endHour: 4, seconds: 0 },
+      { endHour: 4, seconds: 30 },
+    ])(
+      "moves an event from a longer day only when it fits before $endHour:00 ($seconds seconds)",
+      ({ endHour, seconds }) => {
+        const [year, month, day] = fallBack;
+        const at = (offset: number, hours: number, seconds = 0) =>
+          new Date(year, month, day + offset, hours, 0, seconds);
+        vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(
+          700,
+        );
+        const onEventDrop = vi.fn();
+        render(
+          <UIProvider locale={createLocale(en, { weekStartsOn: 0 })}>
+            <Calendar
+              dayEndHour={endHour}
+              dayStartHour={0}
+              events={[event("Night", at(0, 0, seconds), at(0, 3, seconds))]}
+              initialDate={at(0, 12)}
+              initialView="week"
+              onEventDrop={onEventDrop}
+            />
+          </UIProvider>,
+        );
+
+        // The original day includes the repeated hour: 0:00–3:00 is
+        // four hours, which needs 0:00–4:00 on the following day.
+        drag(screen.getByTitle("Night"), 0, 100);
+        if (endHour === 3) {
+          expect(onEventDrop).not.toHaveBeenCalled();
+        } else {
+          expect(onEventDrop).toHaveBeenCalledOnce();
+          expect(onEventDrop).toHaveBeenLastCalledWith(
+            change(at(1, 0), at(1, 4)),
+          );
+        }
+      },
+    );
+
+    it("preserves seconds of already clipped edges when moving to another day", () => {
+      const [year, month, day] = fallBack;
+      const at = (offset: number, hours: number, seconds = 0) =>
+        new Date(year, month, day + offset, hours, 0, seconds);
+      vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(
+        700,
+      );
+      const onEventDrop = vi.fn();
+      render(
+        <UIProvider locale={createLocale(en, { weekStartsOn: 0 })}>
+          <Calendar
+            events={[event("Long", at(1, 6, 30), at(1, 23, 30))]}
+            initialDate={at(0, 12)}
+            initialView="week"
+            onEventDrop={onEventDrop}
+          />
+        </UIProvider>,
+      );
+
+      // Both days have ordinary hours, and the original event already
+      // extends past both edges of the grid. A sideways move keeps them.
+      drag(screen.getByTitle("Long"), 0, 100);
+      expect(onEventDrop).toHaveBeenCalledOnce();
+      expect(onEventDrop).toHaveBeenLastCalledWith(
+        change(at(2, 6, 30), at(2, 23, 30)),
+      );
+    });
+
+    it.each([
+      ["forward", springForward],
+      ["back", fallBack],
+    ])(
+      "bounds a clipped timeline start by clock slots when the clocks go %s",
+      (_, [year, month, day]) => {
+        const at = (hours: number, minutes = 0) =>
+          new Date(year, month, day, hours, minutes);
+        const start = at(1);
+        const end = at(8);
+        const onEventDrop = vi.fn();
+        render(
+          <Calendar
+            events={[event("Night", start, end)]}
+            initialDate={at(12)}
+            initialView="timelineDay"
+            maxDate={at(0)}
+            minDate={at(0)}
+            onEventDrop={onEventDrop}
+            slotDuration={30}
+          />,
+        );
+
+        drag(screen.getByTitle("Night"), 0, -4000);
+        expect(onEventDrop).not.toHaveBeenCalled();
+
+        drag(screen.getByTitle("Night"), 0, 4000);
+        const { newEnd, newStart } = onEventDrop.mock.calls[0][0];
+        expect(newStart).toEqual(at(21, 30));
+        expect(newEnd.getTime() - newStart.getTime()).toBe(
+          end.getTime() - start.getTime(),
+        );
+      },
+    );
+
+    it("preserves a clipped start in the second repeated hour at the lower bound", () => {
+      const [year, month, day] = fallBack;
+      const start = new Date(
+        new Date(year, month, day, repeatedHour, 30).getTime() + 3_600_000,
+      );
+      const onEventDrop = vi.fn();
+      render(
+        <Calendar
+          events={[event("Night", start, new Date(year, month, day, 8))]}
+          initialDate={start}
+          initialView="timelineDay"
+          maxDate={start}
+          minDate={start}
+          onEventDrop={onEventDrop}
+        />,
+      );
+
+      drag(screen.getByTitle("Night"), 0, -4000);
+      expect(onEventDrop).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { distance: 128, initialView: "week", selector: ".cursor-ns-resize" },
+      {
+        distance: 96,
+        initialView: "timelineDay",
+        selector: ".cursor-ew-resize",
+      },
+      {
+        distance: 40,
+        initialView: "timelineWeek",
+        selector: ".cursor-ew-resize",
+      },
+    ] as const)(
+      "resizes the start into the skipped hour to no empty event ($initialView)",
+      ({ distance, initialView, selector }) => {
+        const [year, month, day] = springForward;
+        const at = (hours: number, minutes = 0) =>
+          new Date(year, month, day, hours, minutes);
+        const onEventResize = vi.fn();
+        render(
+          <Calendar
+            dayEndHour={6}
+            dayStartHour={0}
+            events={[event("Night", at(1, 30), at(3))]}
+            initialDate={at(12)}
+            initialView={initialView}
+            onEventResize={onEventResize}
+          />,
+        );
+
+        // An hour later by the clock - the skipped 2:30 resolves to the end
+        const startHandle = screen
+          .getByTitle("Night")
+          .querySelectorAll(selector)[0];
+        drag(
+          startHandle,
+          initialView === "week" ? distance : 0,
+          initialView === "week" ? 0 : distance,
+        );
+        expect(onEventResize).toHaveBeenCalledOnce();
+        const { newEnd, newStart } = onEventResize.mock.calls[0][0];
+        expect(newEnd).toEqual(at(3));
+        // The shortest length before the end
+        expect(newEnd.getTime() - newStart.getTime()).toBe(15 * 60_000);
+      },
+    );
+
+    it.each([
+      { distance: 128, initialView: "week", selector: ".cursor-ns-resize" },
+      {
+        distance: 96,
+        initialView: "timelineDay",
+        selector: ".cursor-ew-resize",
+      },
+      {
+        distance: 40,
+        initialView: "timelineWeek",
+        selector: ".cursor-ew-resize",
+      },
+    ] as const)(
+      "resizes the end in the repeated hour to no negative length ($initialView)",
+      ({ distance, initialView, selector }) => {
+        const [year, month, day] = fallBack;
+        // The half past in the second run of the hour
+        const start = new Date(
+          new Date(year, month, day, repeatedHour, 30).getTime() + 3_600_000,
+        );
+        const onEventResize = vi.fn();
+        render(
+          <Calendar
+            dayEndHour={6}
+            dayStartHour={0}
+            events={[
+              event("Night", start, new Date(start.getTime() + 3_600_000)),
+            ]}
+            initialDate={start}
+            initialView={initialView}
+            onEventResize={onEventResize}
+          />,
+        );
+
+        // An hour earlier by the clock - in the first run, before the start
+        const endHandle = screen
+          .getByTitle("Night")
+          .querySelectorAll(selector)[1];
+        drag(
+          endHandle,
+          initialView === "week" ? -distance : 0,
+          initialView === "week" ? 0 : -distance,
+        );
+        expect(onEventResize).toHaveBeenCalledOnce();
+        const { newEnd, newStart } = onEventResize.mock.calls[0][0];
+        expect(newStart).toEqual(start);
+        expect(newEnd.getTime() - newStart.getTime()).toBe(15 * 60_000);
+      },
+    );
+
+    it("keeps a short timeline event when its start enters the skipped hour", () => {
+      const [year, month, day] = springForward;
+      const start = new Date(year, month, day, 1, 55);
       const onEventResize = vi.fn();
       render(
         <Calendar
+          dayEndHour={6}
           dayStartHour={0}
-          events={[event("Night", at(1), at(3))]}
-          initialDate={at(12)}
-          initialView="week"
+          events={[
+            event("Short", start, new Date(start.getTime() + 10 * 60_000)),
+          ]}
+          initialDate={start}
+          initialView="timelineDay"
           onEventResize={onEventResize}
         />,
       );
 
-      // The top edge two rows down - to 2:00, the end at 3:00
-      drag(handles(screen.getByTitle("Night")).top, 128);
-      const { newEnd, newStart } = onEventResize.mock.calls[0][0];
-      expect(newEnd).toEqual(at(3));
-      // The shortest length before the end
-      expect(newEnd.getTime() - newStart.getTime()).toBe(15 * 60_000);
+      const startHandle = screen
+        .getByTitle("Short")
+        .querySelectorAll(".cursor-ew-resize")[0];
+      drag(startHandle, 0, 96);
+      expect(onEventResize).not.toHaveBeenCalled();
     });
 
-    it("resizes the end in the repeated hour to no negative length", () => {
+    it("keeps a short timeline event when its end enters the earlier repeated hour", () => {
       const [year, month, day] = fallBack;
-      // The half past in the second run of the hour
       const start = new Date(
         new Date(year, month, day, repeatedHour, 30).getTime() + 3_600_000,
       );
       const onEventResize = vi.fn();
       render(
         <Calendar
+          dayEndHour={6}
           dayStartHour={0}
           events={[
-            event("Night", start, new Date(start.getTime() + 3_600_000)),
+            event("Short", start, new Date(start.getTime() + 10 * 60_000)),
           ]}
           initialDate={start}
-          initialView="week"
+          initialView="timelineDay"
           onEventResize={onEventResize}
         />,
       );
 
-      // The bottom edge two rows up - the clock time before the start
-      drag(handles(screen.getByTitle("Night")).bottom, -128);
-      const { newEnd, newStart } = onEventResize.mock.calls[0][0];
-      expect(newStart).toEqual(start);
-      expect(newEnd.getTime() - newStart.getTime()).toBe(15 * 60_000);
+      const endHandle = screen
+        .getByTitle("Short")
+        .querySelectorAll(".cursor-ew-resize")[1];
+      drag(endHandle, 0, -96);
+      expect(onEventResize).not.toHaveBeenCalled();
     });
 
     it("names the rows of the skipped hour by their own time", () => {
@@ -1036,3 +1365,167 @@ describe.each([
     });
   },
 );
+
+describe("Calendar slot limits after a skipped daylight saving hour", () => {
+  let previousTZ: string | undefined;
+
+  beforeAll(() => {
+    previousTZ = process.env.TZ;
+    process.env.TZ = "Europe/Prague";
+  });
+
+  afterAll(() => {
+    if (previousTZ === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTZ;
+  });
+
+  const at = (hour: number, minute = 0) => new Date(2026, 2, 29, hour, minute);
+  const props: CalendarProps = {
+    dayEndHour: 5,
+    dayStartHour: 1,
+    nowIndicator: false,
+    resources: [{ id: "room", title: "Room" }],
+    slotDuration: 60,
+  };
+  const slotAt = (container: HTMLElement, time = "2:00") =>
+    [...container.querySelectorAll<HTMLElement>("[data-slot]")].find((slot) => {
+      const label = slot.getAttribute("aria-label") ?? "";
+      return label.includes("March 29, 2026") && label.includes(` ${time}`);
+    })!;
+  const pointerRange = (slot: HTMLElement, x: number, y: number) => {
+    const pointer = { ...press, button: 0, pointerId: 1, pointerType: "mouse" };
+    fireEvent.pointerDown(slot, pointer);
+    fireEvent.pointerMove(document, {
+      buttons: 1,
+      clientX: press.clientX + x,
+      clientY: press.clientY + y,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(document, { pointerId: 1 });
+  };
+
+  describe.each([
+    { view: "day", x: 0, y: 128, arrow: "ArrowDown" },
+    { view: "week", x: 0, y: 128, arrow: "ArrowDown" },
+    { view: "timelineDay", x: 96, y: 0, arrow: "ArrowRight" },
+    { view: "timelineWeek", x: 40, y: 0, arrow: "ArrowRight" },
+  ] as const)("$view", ({ view, x, y, arrow }) => {
+    const limits: { name: string; update: Partial<CalendarProps> }[] = [
+      { name: "the end hour", update: { dayEndHour: 3 } },
+      {
+        name: "working hours ending at the gap",
+        update: {
+          businessHours: { days: [0], start: "02:00", end: "03:00" },
+          restrictToBusinessHours: true,
+        },
+      },
+      {
+        name: "a working-hours break after the gap",
+        update: {
+          businessHours: [
+            { days: [0], start: "02:00", end: "02:30" },
+            { days: [0], start: "03:30", end: "05:00" },
+          ],
+          restrictToBusinessHours: true,
+          slotDuration: 30,
+        },
+      },
+    ];
+
+    describe.each(["date", "range"] as const)("%s activation", (activation) => {
+      it.each(limits)(
+        "cannot normalize a selection past $name",
+        ({ update }) => {
+          const onDateClick = vi.fn();
+          const onSlotDragEnd = vi.fn();
+          const { container } = render(
+            <Calendar
+              {...props}
+              {...update}
+              initialDate={at(1)}
+              initialView={view}
+              onDateClick={activation === "date" ? onDateClick : undefined}
+              onSlotDragEnd={onSlotDragEnd}
+            />,
+          );
+          const slot = slotAt(container);
+          expect(slot).toHaveAttribute("aria-disabled", "true");
+
+          fireEvent.click(slot);
+          fireEvent.keyDown(slot, { key: "Enter" });
+          fireEvent.keyDown(slot, { key: arrow, shiftKey: true });
+          fireEvent.keyDown(slot, { key: "Enter" });
+          pointerRange(slot, x, y);
+          expect(onDateClick).not.toHaveBeenCalled();
+          expect(onSlotDragEnd).not.toHaveBeenCalled();
+        },
+      );
+
+      it("keeps a positive range after the gap when the limits permit it", () => {
+        const onDateClick = vi.fn();
+        const onSlotDragEnd = vi.fn();
+        const { container } = render(
+          <Calendar
+            {...props}
+            businessHours={{ days: [0], start: "02:00", end: "04:00" }}
+            dayEndHour={4}
+            initialDate={at(1)}
+            initialView={view}
+            onDateClick={activation === "date" ? onDateClick : undefined}
+            onSlotDragEnd={onSlotDragEnd}
+            restrictToBusinessHours
+          />,
+        );
+        const slot = slotAt(container);
+        const expected = { end: at(4), resourceId: "room", start: at(3) };
+        expect(slot).not.toHaveAttribute("aria-disabled", "true");
+
+        fireEvent.click(slot);
+        fireEvent.keyDown(slot, { key: "Enter" });
+        if (activation === "date") {
+          expect(onDateClick).toHaveBeenCalledTimes(2);
+          expect(onDateClick).toHaveBeenLastCalledWith(at(3), "room");
+          expect(onSlotDragEnd).not.toHaveBeenCalled();
+        } else {
+          expect(onSlotDragEnd).toHaveBeenCalledTimes(2);
+          expect(onSlotDragEnd).toHaveBeenLastCalledWith(expected);
+        }
+        onSlotDragEnd.mockClear();
+
+        fireEvent.keyDown(slot, { key: arrow, shiftKey: true });
+        fireEvent.keyDown(slotAt(container, "3:00"), { key: "Enter" });
+        expect(onSlotDragEnd).toHaveBeenCalledExactlyOnceWith(expected);
+        onSlotDragEnd.mockClear();
+
+        pointerRange(slot, x, y);
+        expect(onSlotDragEnd).toHaveBeenCalledExactlyOnceWith(expected);
+      });
+    });
+
+    it("stops a combined skipped-row range at the last allowed whole slot", () => {
+      const onSlotDragEnd = vi.fn();
+      const { container } = render(
+        <Calendar
+          {...props}
+          businessHours={{ days: [0], start: "02:00", end: "03:30" }}
+          dayEndHour={4}
+          initialDate={at(1)}
+          initialView={view}
+          onSlotDragEnd={onSlotDragEnd}
+          restrictToBusinessHours
+          slotDuration={30}
+        />,
+      );
+      const slot = slotAt(container);
+      const expected = { end: at(3, 30), resourceId: "room", start: at(3) };
+
+      fireEvent.keyDown(slot, { key: arrow, shiftKey: true });
+      fireEvent.keyDown(slotAt(container, "2:30"), { key: "Enter" });
+      expect(onSlotDragEnd).toHaveBeenCalledExactlyOnceWith(expected);
+      onSlotDragEnd.mockClear();
+
+      pointerRange(slot, x / 2, y / 2);
+      expect(onSlotDragEnd).toHaveBeenCalledExactlyOnceWith(expected);
+    });
+  });
+});

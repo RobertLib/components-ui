@@ -13,9 +13,12 @@ import {
   getActiveElement,
   getDirection,
   getElementByIdAt,
+  getFocusReturnTargetsWithNeighbors,
   isEscapeKey,
   isTopmostOverlay,
+  noteFocusLoss,
   OverlayContext,
+  returnFocus,
   useOverlayLayer,
 } from "../overlay-stack";
 import { getGracePolygon, isPointInPolygon, type Point } from "./position";
@@ -115,6 +118,7 @@ export default function MenuList({
     dir: "ltr" | "rtl";
     focus: boolean;
     index: number;
+    label: string;
   } | null>(null);
   const { Link } = useRouter();
   // Shortcuts are announced as the platform names its keys - the Windows
@@ -220,6 +224,7 @@ export default function MenuList({
       dir: listRef.current ? getDirection(listRef.current) : "ltr",
       focus,
       index,
+      label: rowLabel(row) ?? "",
     });
   };
 
@@ -697,7 +702,26 @@ export default function MenuList({
   };
 
   const activeRow = rows[activeIndex];
-  const openEntries = submenu ? rowSubmenu(rows[submenu.index]) : undefined;
+  const submenuRow = submenu ? rows[submenu.index] : undefined;
+  const openEntries = rowSubmenu(submenuRow);
+  // Entries may change while the menu is open. An index that now belongs
+  // to another command must not keep its predecessor's submenu open.
+  const hasOpenSubmenu =
+    submenu !== null &&
+    rowLabel(submenuRow) === submenu.label &&
+    !isRowDisabled(submenuRow) &&
+    !!openEntries?.some((entry) => !isSkippedEntry(entry));
+
+  if (submenu && !hasOpenSubmenu) setSubmenu(null);
+  // The highlighted last item may have disappeared too. Keep keyboard
+  // navigation on the nearest remaining row without moving DOM focus.
+  if (activeIndex >= rows.length) setActiveIndex(rows.length - 1);
+
+  useLayoutEffect(() => {
+    if (hasOpenSubmenu) return;
+    clearOpenTimer();
+    clearGrace();
+  }, [hasOpenSubmenu]);
 
   return (
     <>
@@ -759,7 +783,7 @@ export default function MenuList({
         })}
       </ul>
 
-      {submenu && openEntries && (
+      {submenu && hasOpenSubmenu && openEntries && (
         <Submenu
           dir={submenu.dir}
           entries={openEntries}
@@ -827,6 +851,26 @@ function Submenu({
 
   const panelId = `${id}-panel`;
   const getPortalContainer = usePortalContainer();
+
+  // A data update may remove this submenu without an explicit close.
+  // Remember the parent while the overlay stack still knows its trigger.
+  // Restore only focus lost with this panel: a dialog opened from it, or
+  // anything else that has taken the focus meanwhile, keeps it.
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    const targets = getFocusReturnTargetsWithNeighbors(parentRef.current);
+    return () => {
+      const active = getActiveElement();
+      if (!active || !panel?.contains(active)) return;
+      noteFocusLoss(active);
+      queueMicrotask(() => {
+        const current = getActiveElement();
+        if (!panel.isConnected && (!current || current === document.body)) {
+          returnFocus(targets);
+        }
+      });
+    };
+  }, [panelRef, parentRef]);
 
   // A Dialog opened from the submenu gives the focus back to the menu - or,
   // once that is gone too, to the trigger - when it closes

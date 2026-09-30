@@ -138,6 +138,47 @@ describe("DataTable row activation", () => {
     expect(third).toHaveFocus();
   });
 
+  it("makes rows without conditional links reachable from the keyboard", async () => {
+    const user = userEvent.setup();
+    const onRowClick = vi.fn();
+    const data = [...rows, { id: 4, name: "Dana", note: "Fourth" }];
+    const props = {
+      columns,
+      data,
+      getRowHref: (row: Row) => (row.id === 2 ? "/people/2" : undefined),
+      onRowClick,
+    };
+    const { rerender } = render(<DataTable {...props} />);
+
+    const [first, linked, third, fourth] = bodyRows();
+    expect(linked).not.toHaveAttribute("tabindex");
+    expect(first).toHaveAttribute("tabindex", "0");
+    expect(third).toHaveAttribute("tabindex", "-1");
+    first.focus();
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(third).toHaveFocus();
+    expect(onRowClick).toHaveBeenCalledWith(
+      data[2],
+      expect.objectContaining({ type: "keydown" }),
+    );
+    await user.keyboard("{End}");
+    expect(fourth).toHaveFocus();
+    await user.keyboard("{Home}");
+    expect(first).toHaveFocus();
+    await user.keyboard("{ArrowDown}{ArrowUp}");
+    expect(first).toHaveFocus();
+
+    // A row acquiring a link gives the row tab stop to another unlinked row.
+    rerender(
+      <DataTable
+        {...props}
+        getRowHref={(row) => (row.id < 3 ? `/people/${row.id}` : undefined)}
+      />,
+    );
+    expect(first).not.toHaveAttribute("tabindex");
+    expect(third).toHaveAttribute("tabindex", "0");
+  });
+
   it("links the first cell of a row with getRowHref", async () => {
     const user = userEvent.setup();
     const navigate = vi.fn();

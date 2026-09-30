@@ -17,9 +17,11 @@ import Dropdown from "./dropdown";
 import FileUpload from "./file-upload";
 import Popover from "./popover";
 import Tooltip from "./tooltip";
+import { getActiveElement } from "./overlay-stack";
 import SnackbarProvider from "../providers/snackbar-provider";
 import { useSnackbar } from "../providers/snackbar-context";
 import useHotkeys from "../hooks/use-hotkeys";
+import * as tabbable from "../utils/tabbable";
 
 const noop = () => {};
 
@@ -266,7 +268,218 @@ describe("Dialog focus trap", () => {
     expect(name).toHaveFocus();
   });
 
-  it("leaves Tab to the browser on a control amid the others it stops at", () => {
+  it("keeps focus in a nested shadow field and cycles Tab through it", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <button type="button">Behind</button>
+        <Dialog open title="Edit">
+          <input aria-label="First" />
+          <div
+            data-testid="field-host"
+            ref={(host) => {
+              if (!host || host.shadowRoot) return;
+              const shadow = host.attachShadow({ mode: "open" });
+              const nested = document.createElement("div");
+              shadow.append(nested);
+              nested.attachShadow({ mode: "open" }).innerHTML = "<input />";
+            }}
+          />
+        </Dialog>
+      </>,
+    );
+    const field = screen
+      .getByTestId("field-host")
+      .shadowRoot!.querySelector("div")!
+      .shadowRoot!.querySelector("input")!;
+    act(() => field.focus());
+    expect(getActiveElement()).toBe(field);
+    await user.keyboard("Ahoj");
+    expect(field).toHaveValue("Ahoj");
+
+    act(() =>
+      screen.getByRole("button", { hidden: true, name: "Behind" }).focus(),
+    );
+    expect(getActiveElement()).toBe(field);
+
+    const close = screen.getByRole("button", { name: "Close dialog" });
+    expect(fireEvent.keyDown(field, { composed: true, key: "Tab" })).toBe(
+      false,
+    );
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(getActiveElement()).toBe(field);
+  });
+
+  it("preserves the focus a shadow field takes as the dialog opens", () => {
+    render(
+      <Dialog open title="Edit">
+        <input aria-label="First" />
+        <div
+          data-testid="field-host"
+          ref={(host) => {
+            if (!host || host.shadowRoot) return;
+            const shadow = host.attachShadow({ mode: "open" });
+            const field = document.createElement("input");
+            shadow.append(field);
+            field.focus();
+          }}
+        />
+      </Dialog>,
+    );
+    const field = screen
+      .getByTestId("field-host")
+      .shadowRoot!.querySelector("input");
+    expect(getActiveElement()).toBe(field);
+  });
+
+  it("allows a shadow field in a popover opened from the dialog", () => {
+    render(
+      <Dialog open title="Edit">
+        <Popover open trigger="More" triggerType="click">
+          <div
+            data-testid="field-host"
+            ref={(host) => {
+              if (!host || host.shadowRoot) return;
+              host.attachShadow({ mode: "open" }).innerHTML = "<input />";
+            }}
+          />
+        </Popover>
+      </Dialog>,
+    );
+    const field = screen
+      .getByTestId("field-host")
+      .shadowRoot!.querySelector("input")!;
+    act(() => field.focus());
+    expect(getActiveElement()).toBe(field);
+  });
+
+  it("moves between controls even when the browser would skip buttons", () => {
+    render(
+      <Dialog open title="Edit">
+        <input aria-label="Name" />
+        <button type="button">Save record</button>
+      </Dialog>,
+    );
+    const field = screen.getByRole("textbox", { name: "Name" });
+    const save = screen.getByRole("button", { name: "Save record" });
+    act(() => field.focus());
+
+    // No native traversal: the trap must handle this itself, including
+    // WebKit's preference to skip buttons and leave the document.
+    expect(fireEvent.keyDown(field, { key: "Tab" })).toBe(false);
+    expect(save).toHaveFocus();
+    expect(fireEvent.keyDown(save, { key: "Tab", shiftKey: true })).toBe(false);
+    expect(field).toHaveFocus();
+  });
+
+  it("leaves a prevented Tab to the control handling it", () => {
+    render(
+      <Dialog open title="Edit">
+        <input
+          aria-label="Name"
+          onKeyDown={(event) => {
+            if (event.key === "Tab") event.preventDefault();
+          }}
+        />
+        <button type="button">Save record</button>
+      </Dialog>,
+    );
+    const field = screen.getByRole("textbox", { name: "Name" });
+    act(() => field.focus());
+    fireEvent.keyDown(field, { key: "Tab" });
+    expect(field).toHaveFocus();
+  });
+
+  it("keeps positive tabindex controls before ordinary controls", () => {
+    render(
+      <Dialog closeDisabled open title="Edit">
+        <button tabIndex={2} type="button">
+          Second
+        </button>
+        <input aria-label="Ordinary" />
+        <button tabIndex={1} type="button">
+          First
+        </button>
+        <button tabIndex={2} type="button">
+          Third
+        </button>
+      </Dialog>,
+    );
+    const first = screen.getByRole("button", { name: "First" });
+    const second = screen.getByRole("button", { name: "Second" });
+    const third = screen.getByRole("button", { name: "Third" });
+    const ordinary = screen.getByRole("textbox", { name: "Ordinary" });
+    act(() => first.focus());
+
+    for (const [from, to] of [
+      [first, second],
+      [second, third],
+      [third, ordinary],
+      [ordinary, first],
+    ]) {
+      expect(fireEvent.keyDown(from, { key: "Tab" })).toBe(false);
+      expect(to).toHaveFocus();
+    }
+    expect(fireEvent.keyDown(first, { key: "Tab", shiftKey: true })).toBe(
+      false,
+    );
+    expect(ordinary).toHaveFocus();
+  });
+
+  it("passes over a Tab stop the browser gives no focus", () => {
+    render(
+      <Dialog closeDisabled open title="Edit">
+        <button type="button">Before</button>
+        <a href="#terms">Terms</a>
+        <button type="button">After</button>
+      </Dialog>,
+    );
+    const before = screen.getByRole("button", { name: "Before" });
+    const after = screen.getByRole("button", { name: "After" });
+    // As Firefox does with a link in editable text, also one with a
+    // `tabindex`
+    vi.spyOn(
+      screen.getByRole("link", { name: "Terms" }),
+      "focus",
+    ).mockImplementation(() => {});
+    act(() => before.focus());
+
+    expect(fireEvent.keyDown(before, { key: "Tab" })).toBe(false);
+    expect(after).toHaveFocus();
+    expect(fireEvent.keyDown(after, { key: "Tab", shiftKey: true })).toBe(
+      false,
+    );
+    expect(before).toHaveFocus();
+  });
+
+  it("uses only the checked radio as the group's Tab stop", () => {
+    render(
+      <Dialog closeDisabled open title="Delivery">
+        <input aria-label="Name" />
+        <input aria-label="Standard" name="delivery" type="radio" />
+        <input
+          aria-label="Express"
+          defaultChecked
+          name="delivery"
+          type="radio"
+        />
+        <button type="button">Save record</button>
+      </Dialog>,
+    );
+    const field = screen.getByRole("textbox", { name: "Name" });
+    const checked = screen.getByRole("radio", { name: "Express" });
+    const save = screen.getByRole("button", { name: "Save record" });
+    act(() => field.focus());
+    expect(fireEvent.keyDown(field, { key: "Tab" })).toBe(false);
+    expect(checked).toHaveFocus();
+    expect(fireEvent.keyDown(checked, { key: "Tab" })).toBe(false);
+    expect(save).toHaveFocus();
+    expect(fireEvent.keyDown(save, { key: "Tab", shiftKey: true })).toBe(false);
+    expect(checked).toHaveFocus();
+  });
+
+  it("moves through summary and frame controls in their order", () => {
     render(
       <Dialog open title="Help">
         <button type="button">First</button>
@@ -279,17 +492,19 @@ describe("Dialog focus trap", () => {
       </Dialog>,
     );
 
-    for (const name of ["Shipping", "Map"]) {
-      const control = screen.queryByText(name) ?? screen.getByTitle(name);
-      act(() => control.focus());
-      // Neither taken to the first control nor to the last - Tab goes on
-      // to the next one by itself
-      expect(fireEvent.keyDown(control, { key: "Tab" })).toBe(true);
-      expect(fireEvent.keyDown(control, { key: "Tab", shiftKey: true })).toBe(
-        true,
-      );
-      expect(control).toHaveFocus();
-    }
+    const summary = screen.getByText("Shipping");
+    const frame = screen.getByTitle("Map");
+    act(() => summary.focus());
+    expect(fireEvent.keyDown(summary, { key: "Tab" })).toBe(false);
+    expect(frame).toHaveFocus();
+    expect(fireEvent.keyDown(frame, { key: "Tab", shiftKey: true })).toBe(
+      false,
+    );
+    expect(summary).toHaveFocus();
+    expect(fireEvent.keyDown(summary, { key: "Tab", shiftKey: true })).toBe(
+      false,
+    );
+    expect(screen.getByRole("button", { name: "First" })).toHaveFocus();
   });
 
   it("goes round from an element focused by a script past the last control", () => {
@@ -308,6 +523,47 @@ describe("Dialog focus trap", () => {
     );
     expect(fireEvent.keyDown(errors, { key: "Tab" })).toBe(false);
     expect(screen.getByRole("button", { name: "Close dialog" })).toHaveFocus();
+  });
+
+  it("cycles Tab from a programmatically focused shadow element after the last control", () => {
+    render(
+      <Dialog open title="Report">
+        <button type="button">Export</button>
+        <div
+          data-testid="summary-host"
+          ref={(host) => {
+            if (!host || host.shadowRoot) return;
+            host.attachShadow({ mode: "open" }).innerHTML =
+              '<p tabindex="-1">3 errors</p>';
+          }}
+        />
+      </Dialog>,
+    );
+    const errors = screen
+      .getByTestId("summary-host")
+      .shadowRoot!.querySelector("p")!;
+    act(() => errors.focus());
+    expect(getActiveElement()).toBe(errors);
+    expect(
+      fireEvent.keyDown(errors, { composed: true, key: "Tab", shiftKey: true }),
+    ).toBe(true);
+    expect(fireEvent.keyDown(errors, { composed: true, key: "Tab" })).toBe(
+      false,
+    );
+    expect(screen.getByRole("button", { name: "Close dialog" })).toHaveFocus();
+  });
+
+  it("lets Tab enter the children of a programmatically focused container", () => {
+    render(
+      <Dialog open title="Report">
+        <section aria-label="Errors" tabIndex={-1}>
+          <button type="button">Resolve</button>
+        </section>
+      </Dialog>,
+    );
+    const errors = screen.getByRole("region", { name: "Errors" });
+    act(() => errors.focus());
+    expect(fireEvent.keyDown(errors, { key: "Tab" })).toBe(true);
   });
 
   it("keeps the focus on the dialog when its backdrop is pressed", () => {
@@ -489,19 +745,19 @@ describe("Dialog giving the focus back", () => {
     render(<Page />);
     const bold = screen.getByRole("button", { name: "Bold" });
     const rename = screen.getByRole("button", { name: "Rename" });
-    const query = vi.spyOn(document.body, "querySelectorAll");
+    const findStops = vi.spyOn(tabbable, "getTabStopsBeside");
 
     // A click that leaves the focus where it is (Safari) opens nothing - it
     // costs nothing in a long page either
     fireEvent.click(bold);
-    expect(query).not.toHaveBeenCalled();
+    expect(findStops).not.toHaveBeenCalled();
 
     fireEvent.click(rename);
     await waitFor(() =>
       expect(document.activeElement).toHaveAccessibleName("Name"),
     );
-    expect(query).toHaveBeenCalled();
-    query.mockRestore();
+    expect(findStops).toHaveBeenCalled();
+    findStops.mockRestore();
 
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(rename).toHaveFocus();

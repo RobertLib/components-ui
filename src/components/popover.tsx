@@ -25,7 +25,11 @@ import {
   returnFocus,
   useOverlayLayer,
 } from "./overlay-stack";
-import { getTabbableElements } from "../utils/tabbable";
+import {
+  composedContains,
+  focusFirst,
+  getTabbableElements,
+} from "../utils/tabbable";
 import useIsMobile from "../hooks/use-is-mobile";
 import { attachRef } from "../hooks/use-form-control";
 import { usePortalContainer } from "../providers/ui-context";
@@ -39,6 +43,7 @@ import {
   measureAnchor,
   resolveSide,
   type AnchorBox,
+  type AnchorRect,
   type FloatingSide,
   type PhysicalSide,
   type VirtualAnchor,
@@ -99,10 +104,10 @@ const ALIGN_CLASSES: Record<
   // Above or below it, logical but for the deprecated `left` / `right`
   vertical: {
     center: "left-1/2",
-    end: "end-0",
+    end: "inset-e-0",
     left: "left-0",
     right: "right-0",
-    start: "start-0",
+    start: "inset-s-0",
   },
 };
 
@@ -158,13 +163,17 @@ const OPPOSITE_SIDE = {
   top: "bottom",
 } as const;
 
+const isSameArea = (a: AnchorRect, b: AnchorRect) =>
+  a.top === b.top &&
+  a.left === b.left &&
+  a.bottom === b.bottom &&
+  a.right === b.right;
+
 /**
- * The room around `rect` for the panel `gap` pixels away from it, in the
- * part of the page that is seen - and its whole `height`. Takes the rect, so
- * the compiler reads the viewport again for each new one.
+ * The room around `rect` for the panel `gap` pixels away from it, in `area`
+ * - the part of the page that is seen - and the whole `height` of that.
  */
-function getRoomAround(rect: AnchorBox, gap: number) {
-  const area = getVisibleArea();
+function getRoomAround(rect: AnchorBox, area: AnchorRect, gap: number) {
   return {
     bottom: area.bottom - rect.bottom - gap - VIEWPORT_MARGIN,
     height: area.bottom - area.top - 2 * VIEWPORT_MARGIN,
@@ -235,7 +244,7 @@ function FocusRescue({
     () => () => {
       const panel = callbacksRef.current.findPanel();
       const active = getActiveElement();
-      if (!active || !panel?.contains(active)) return;
+      if (!active || !panel || !composedContains(panel, active)) return;
 
       // A Dialog opened in the same commit - by the pick that closed the
       // panel - finds the focus on the page body; it gives it back to where
@@ -395,6 +404,10 @@ export default function Popover({
   const [isOpen, setIsOpen] = useState(false);
   // The box of the trigger - or of the `anchor` - the panel is placed at
   const [triggerRect, setTriggerRect] = useState<AnchorBox | null>(null);
+  // The part of the page that is seen - the on-screen keyboard of a phone,
+  // pinch zoom or a smaller window change the room around a trigger that
+  // stays where it is
+  const [visibleArea, setVisibleArea] = useState<AnchorRect | null>(null);
   // The trigger (or the anchor) is scrolled out of view - the panel hides
   const [isAnchorHidden, setIsAnchorHidden] = useState(false);
   // Where the `arrow` is in the positioning box, and the panel's colors
@@ -465,9 +478,9 @@ export default function Popover({
     maxHeight?: number;
     side: PhysicalSide;
   } => {
-    if (!triggerRect) return { side: physicalPosition };
+    if (!triggerRect || !visibleArea) return { side: physicalPosition };
 
-    const room = getRoomAround(triggerRect, gap);
+    const room = getRoomAround(triggerRect, visibleArea, gap);
     const isSide = physicalPosition === "left" || physicalPosition === "right";
     const needed = isSide
       ? (contentSize?.width ?? (parseFloat(width) || 0))
@@ -484,7 +497,7 @@ export default function Popover({
     return contentSize && contentSize.height > heightRoom
       ? { maxHeight: Math.max(heightRoom, 0), side }
       : { side };
-  }, [contentSize, gap, physicalPosition, triggerRect, width]);
+  }, [contentSize, gap, physicalPosition, triggerRect, visibleArea, width]);
   const effectivePosition = placement.side;
 
   const popoverId = useId();
@@ -571,7 +584,9 @@ export default function Popover({
   // The panel is attached to the `anchor`, to the button given as the
   // trigger - the wrapper around it may be wider (a block) - or to the
   // wrapper. It hides while that is scrolled out of view - out of the
-  // viewport, or out of a scrolling container it is in.
+  // viewport, or out of a scrolling container it is in. The part of the
+  // page that is seen is read with it - each kept as it is (no new render)
+  // until it changes.
   const updateTriggerRect = useCallback(() => {
     const wrapper = popoverRef.current;
     if (!wrapper) return;
@@ -594,6 +609,10 @@ export default function Popover({
 
     const box = measureAnchor(target);
     setTriggerRect((current) => (isSameBox(current, box) ? current : box));
+    const area = getVisibleArea();
+    setVisibleArea((current) =>
+      current && isSameArea(current, area) ? current : area,
+    );
     setIsAnchorHidden(isOutOfView(box, clips));
   }, [isButtonTrigger]);
 
@@ -636,6 +655,7 @@ export default function Popover({
       overflowCheckedRef.current = false;
       clipsRef.current = { clips: [], element: null };
       setTriggerRect(null);
+      setVisibleArea(null);
       setContentSize(null);
       setIsOverflowing(false);
       setShift(NO_SHIFT);
@@ -734,9 +754,9 @@ export default function Popover({
 
   // Keep the panel inside the viewport - e.g. a date picker opened from a
   // field at the right edge of the page, or a `left` / `right` panel next
-  // to a trigger at the bottom
+  // to a trigger at the bottom - also when only the viewport changes
   useEffect(() => {
-    if (!openState || !triggerRect) return;
+    if (!openState || !triggerRect || !visibleArea) return;
 
     const frame = requestAnimationFrame(() => {
       const contentElement = contentRef?.current || internalContentRef.current;
@@ -759,12 +779,11 @@ export default function Popover({
 
       // The measured box includes the current shift - take it out
       const rect = contentElement.getBoundingClientRect();
-      const area = getVisibleArea();
       const x = fit(
         rect.left - shift.x,
         rect.right - shift.x,
-        area.left,
-        area.right,
+        visibleArea.left,
+        visibleArea.right,
       );
       // `top` / `bottom` panels flip instead
       const y =
@@ -772,8 +791,8 @@ export default function Popover({
           ? fit(
               rect.top - shift.y,
               rect.bottom - shift.y,
-              area.top,
-              area.bottom,
+              visibleArea.top,
+              visibleArea.bottom,
             )
           : 0;
 
@@ -790,6 +809,7 @@ export default function Popover({
     openState,
     shift,
     triggerRect,
+    visibleArea,
   ]);
 
   // The arrow points at the center of the anchor from the edge of the panel
@@ -923,7 +943,8 @@ export default function Popover({
             contentRef?.current || internalContentRef.current;
           if (
             !interactiveTrigger &&
-            contentElement?.contains(getActiveElement())
+            contentElement &&
+            composedContains(contentElement, getActiveElement())
           ) {
             focusTrigger();
           }
@@ -1082,7 +1103,9 @@ export default function Popover({
       const triggerStops = getTabbableElements(wrapper);
       if (triggerStops.length > 0 && target !== triggerStops.at(-1)) return;
       event.preventDefault();
-      tabbables[0].focus();
+      // The first stop that takes the focus - a browser may give none to
+      // one (Firefox to a link in editable text)
+      focusFirst(tabbables);
       return;
     }
 
@@ -1209,7 +1232,13 @@ export default function Popover({
             const isHoveringContent =
               contentElement && contentElement.matches(":hover");
 
-            if (!isHoveringBridge && !isHoveringContent) {
+            // The focus keeps it open after the pointer leaves - also in
+            // a nested overlay whose panel is a separate portal.
+            const isFocusedInside = isInOverlayTree(
+              layerId,
+              getActiveElement(),
+            );
+            if (!isHoveringBridge && !isHoveringContent && !isFocusedInside) {
               handleOpenChange(false);
             }
           }, 50);

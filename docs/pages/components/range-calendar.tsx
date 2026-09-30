@@ -27,8 +27,9 @@ export default function RangeCalendarPage() {
             the nearest disabled day. <code>startName</code> /{" "}
             <code>endName</code> submit the days, <code>name</code> the range as
             one ISO 8601 interval; <code>required</code>, <code>min</code>,{" "}
-            <code>max</code> and the disabled days are enforced by the browser,
-            and <code>form.reset()</code> brings back the{" "}
+            <code>max</code>, <code>minDays</code>, <code>maxDays</code> and the
+            disabled days are enforced by the browser, also for default or
+            controlled values, and <code>form.reset()</code> brings back the{" "}
             <code>defaultValue</code>.
           </p>
         }
@@ -101,6 +102,11 @@ export default function RangeCalendarPage() {
               <code>readOnly</code> and <code>disabled</code> work as in{" "}
               <code>DateCalendar</code>, and so do <code>onBlur</code>,{" "}
               <code>ref</code> and a form library's <code>Controller</code>.
+            </li>
+            <li>
+              Without a value the calendar reserves its space in a
+              server-rendered page, then opens at the browser's current month
+              after hydration. A selected range renders on the server too.
             </li>
             <li>
               Two months need about 34rem - show one on phones (

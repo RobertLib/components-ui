@@ -17,7 +17,9 @@ import {
   isNoopMove,
   isValidDrop,
   samePlace,
+  stepFromCursor,
   type DropPlace,
+  type PlaceCursor,
   type TreeDropPosition,
   type TreeMove,
 } from "./drag-model";
@@ -89,10 +91,11 @@ function findScroller(element: HTMLElement | null) {
 /** A move of items going on - by the pointer, or chosen with the keys. */
 interface MoveSession {
   /**
-   * The keys: where in the places the choosing goes on from, once the
-   * chosen place is gone (collapsed away) - at first the moved item.
+   * The keys: the place the choosing goes on from - the chosen one, at
+   * first the moved item's - kept with the places as they were, for when
+   * the rows change meanwhile.
    */
-  cursor: number;
+  cursor: PlaceCursor;
   ids: TreeItemId[];
   mode: "keyboard" | "pointer";
   place: DropPlace | null;
@@ -142,8 +145,11 @@ export interface TreeDragOptions<T extends TreeItem> {
   onMove?: (move: TreeMove<T["id"]>) => void;
   /** Shows the children of the item `id`, which items were dropped into. */
   revealChildren: (id: TreeItemId) => void;
-  /** Scrolls the row at `rowIndex` into view. */
-  revealRow: (rowIndex: number) => void;
+  /**
+   * Scrolls the row at `rowIndex` into view - with `status`, the row under
+   * it saying its children load too.
+   */
+  revealRow: (rowIndex: number, status?: boolean) => void;
   rowIndexById: ReadonlyMap<TreeItemId, number>;
   /** The index of the row an element of the tree is the tree item of. */
   rowIndexOfElement: (element: Element) => number | undefined;
@@ -170,10 +176,18 @@ export default function useTreeDrag<T extends TreeItem>(
   const pressRef = useRef<Press | null>(null);
   const badgeRef = useRef<HTMLElement | null>(null);
 
-  // Moving turned off, or the moved items are gone - the move ends
+  const endPress = (press: Press) => {
+    press.stop();
+    clearTimeout(press.longPress);
+    clearTimeout(press.expandTimer);
+    cancelAnimationFrame(press.frame);
+    if (pressRef.current === press) pressRef.current = null;
+  };
+
+  // Moving turned off, or any moved item is gone - the whole move ends
   if (
     session &&
-    (!options.enabled || !session.ids.some((id) => options.index.byId.has(id)))
+    (!options.enabled || !session.ids.every((id) => options.index.byId.has(id)))
   ) {
     setSession(null);
   }
@@ -185,6 +199,15 @@ export default function useTreeDrag<T extends TreeItem>(
 
   useLayoutEffect(() => {
     latestRef.current = latest;
+    // The press can outlive its visible session, or still be waiting for a
+    // touch long press. Stop its document listeners and timers as well.
+    const press = pressRef.current;
+    if (
+      press &&
+      (!options.enabled || !press.ids.every((id) => options.index.byId.has(id)))
+    ) {
+      endPress(press);
+    }
   });
 
   const announce = (text: string) =>
@@ -225,7 +248,22 @@ export default function useTreeDrag<T extends TreeItem>(
 
   /** Whether `ids` can be dropped at `place` - and it moves them somewhere. */
   const isAllowed = (place: DropPlace, ids: TreeItemId[]) => {
-    const { canDrop, index, items, loads } = latestRef.current;
+    const { canDrag, canDrop, enabled, index, items, loads } =
+      latestRef.current;
+    if (!enabled) return false;
+    // A source's permissions may have changed since the move started.
+    if (
+      !ids.every((id) => {
+        const item = index.byId.get(id);
+        return (
+          item !== undefined &&
+          !index.disabled.has(id) &&
+          (canDrag?.(item) ?? true)
+        );
+      })
+    ) {
+      return false;
+    }
     if (!isValidDrop(place, new Set(ids), index)) return false;
     if (isNoopMove(place, ids, { index, items, loads })) return false;
     if (!canDrop) return true;
@@ -281,10 +319,11 @@ export default function useTreeDrag<T extends TreeItem>(
       return;
     }
 
-    const cursor = getDropPlaces(rows).findIndex(
+    const places = getDropPlaces(rows);
+    const at = places.findIndex(
       (place) => place.position === "before" && place.targetId === row.id,
     );
-    setSession({ cursor, ids, mode: "keyboard", place: null });
+    setSession({ cursor: { at, places }, ids, mode: "keyboard", place: null });
     announce(
       `${describeItems(ids, messages.treeView.moving, messages.treeView.movingMany)} ${messages.treeView.moveInstructions}`,
     );
@@ -297,10 +336,6 @@ export default function useTreeDrag<T extends TreeItem>(
     if (!session) return;
 
     const places = getDropPlaces(rows);
-    const found = session.place
-      ? places.findIndex((place) => samePlace(place, session.place))
-      : -1;
-    const from = found === -1 ? session.cursor : found;
     const step = direction === "previous" || direction === "last" ? -1 : 1;
 
     let at =
@@ -308,7 +343,7 @@ export default function useTreeDrag<T extends TreeItem>(
         ? 0
         : direction === "last"
           ? places.length - 1
-          : from + step;
+          : stepFromCursor(places, session.cursor, step);
     while (
       at >= 0 &&
       at < places.length &&
@@ -328,11 +363,11 @@ export default function useTreeDrag<T extends TreeItem>(
       return;
     }
 
-    setSession({ ...session, cursor: at, place });
+    setSession({ ...session, cursor: { at, places }, place });
     announce(describePlace(place));
 
     const indicator = getPlaceRow(place, rows, rowIndexById);
-    if (indicator) revealRow(indicator.rowIndex);
+    if (indicator) revealRow(indicator.rowIndex, indicator.status);
   };
 
   /** Drops the picked items at the chosen place. */
@@ -441,14 +476,6 @@ export default function useTreeDrag<T extends TreeItem>(
   };
 
   // The pointer
-
-  const endPress = (press: Press) => {
-    press.stop();
-    clearTimeout(press.longPress);
-    clearTimeout(press.expandTimer);
-    cancelAnimationFrame(press.frame);
-    if (pressRef.current === press) pressRef.current = null;
-  };
 
   const moveBadge = (press: Press) => {
     const badge = badgeRef.current;
@@ -594,7 +621,12 @@ export default function useTreeDrag<T extends TreeItem>(
   const startDragging = (press: Press) => {
     press.dragging = true;
     press.scroller = findScroller(latestRef.current.treeRef.current);
-    setSession({ cursor: -1, ids: press.ids, mode: "pointer", place: null });
+    setSession({
+      cursor: { at: -1, places: [] },
+      ids: press.ids,
+      mode: "pointer",
+      place: null,
+    });
     updatePointerPlace(press);
     autoScroll(press);
   };

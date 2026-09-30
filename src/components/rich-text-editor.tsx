@@ -26,6 +26,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -37,6 +38,7 @@ import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { formatMessage, formatNumber, formatPlural } from "../i18n/format";
+import { getActiveElement } from "./overlay-stack";
 import sanitizeRichText, {
   isSafeHref,
   isSafeImageSrc,
@@ -48,9 +50,11 @@ import sanitizeRichText, {
 import {
   attachRef,
   isAriaInvalid,
+  useFieldsetDisabled,
   useFormReset,
 } from "../hooks/use-form-control";
 import useIsApplePlatform from "../hooks/use-is-apple-platform";
+import useCustomValidity from "../hooks/use-custom-validity";
 import { useLocale } from "../providers/ui-context";
 import { applyAutoformat, findAutoformat } from "./rich-text/autoformat";
 import {
@@ -66,6 +70,7 @@ import { leaveCodeBlock } from "./rich-text/code-blocks";
 import {
   countCharacters,
   countHtmlCharacters,
+  countRangeCharacters,
   countTextCharacters,
   truncateHtml,
   truncateText,
@@ -161,6 +166,10 @@ export type { RichTextTool, RichTextToolbarItem } from "./rich-text/tools";
 // `tel:` and `mailto:` have no host, their digits are no port
 const HAS_SCHEME =
   /^((?:mailto|tel):|[a-z][a-z\d+\-.]*:(?!\d+(?:[/?#]|$))|\/\/)/i;
+// A host before a path - `example.com/docs` is a web address, `docs/page`
+// a relative path. An explicit `./` disambiguates a path containing dots.
+const HOST =
+  /^(?:localhost|[^\s./?#:]+(?:\.[^\s./?#:]+)+|\[[\da-f:.]+\])(?::\d+)?$/i;
 const EMAIL = /^[^\s@/:]+@[^\s@/:]+\.[^\s@/:]+$/;
 const PHONE = /^\+?[\d\s().-]+$/;
 // An IPv4 address - the host of a device in the network, not a phone
@@ -170,11 +179,12 @@ const IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 /**
  * The link of what the user typed into the link field - an e-mail address
  * links with `mailto:`, a phone number with `tel:` (also one typed with
- * it), and an address without a scheme gets `https://` (the browser would
- * resolve it against the app, which gives a dead route) - also an IP
- * address, whose digits and dots are no phone number.
+ * it), and a web address without a scheme gets `https://` - also an IP
+ * address, whose digits and dots are no phone number. Relative paths,
+ * queries and fragments stay relative.
  */
 function toHref(text: string) {
+  if (/^(?:[/?#]|\.\.?(?:\/|$))/.test(text)) return text;
   if (EMAIL.test(text)) return `mailto:${text}`;
 
   const phone = text.replace(/^tel:/i, "");
@@ -186,7 +196,10 @@ function toHref(text: string) {
     return `tel:${phone.replace(/[^\d+]/g, "")}`;
   }
 
-  return HAS_SCHEME.test(text) ? text : `https://${text}`;
+  if (HAS_SCHEME.test(text)) return text;
+
+  const path = text.search(/[/?#]/);
+  return path > 0 && !HOST.test(text.slice(0, path)) ? text : `https://${text}`;
 }
 
 // Formatting from the keyboard, or the menus of the browser and the system
@@ -288,11 +301,11 @@ function splitGroups<T>(items: readonly (T | "|")[]): T[][] {
 function ToolGroups({ groups }: { groups: React.ReactNode[][] }) {
   return (
     // The padding keeps the focus rings of the tools inside the clip
-    <div className="overflow-hidden p-[3px]">
-      <div className="-ms-[9px] flex flex-wrap items-center gap-y-1">
+    <div className="overflow-hidden p-0.75">
+      <div className="-ms-2.25 flex flex-wrap items-center gap-y-1">
         {groups.map((group, index) => (
           <div
-            className="relative ms-1 flex items-center gap-0.5 ps-[5px] before:absolute before:start-0 before:top-1/2 before:h-5 before:w-px before:-translate-y-1/2 before:bg-neutral-300 dark:before:bg-neutral-700"
+            className="relative ms-1 flex items-center gap-0.5 ps-1.25 before:absolute before:inset-s-0 before:top-1/2 before:h-5 before:w-px before:-translate-y-1/2 before:bg-neutral-300 dark:before:bg-neutral-700"
             key={index}
           >
             {group}
@@ -428,6 +441,24 @@ interface Upload {
   /** The URL of the uploaded image - `null` while it uploads, `""` when it failed. */
   src: string | null;
 }
+
+/** Discards uploads and their previews when their content is no longer kept. */
+function discardUploads(uploads: Map<string, Upload>) {
+  for (const upload of uploads.values()) {
+    upload.controller.abort();
+    if (upload.preview && upload.src === null) {
+      URL.revokeObjectURL(upload.preview);
+    }
+  }
+  uploads.clear();
+}
+
+/** A synchronous upload failure follows the same cleanup as a rejection. */
+const callUploadImage = (
+  upload: RichTextImageUpload,
+  file: File,
+  signal: AbortSignal,
+) => new Promise<string>((resolve) => resolve(upload(file, { signal })));
 
 /** A URL of the file to show while it uploads - `null` where there is none. */
 function previewOf(file: File) {
@@ -740,7 +771,7 @@ function moveToolbarFocus(event: React.KeyboardEvent<HTMLElement>) {
       "button[data-tool]:not(:disabled)",
     ),
   );
-  const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const index = buttons.indexOf(getActiveElement() as HTMLButtonElement);
   if (index === -1) return;
 
   event.preventDefault();
@@ -834,7 +865,7 @@ function ToolButton({
 export type RichTextImageUpload = (
   file: File,
   options: {
-    /** Aborted when the upload is no longer wanted - the editor unmounted. */
+    /** Aborted when the editor unmounts, resets, or replaces its content. */
     signal: AbortSignal;
   },
 ) => Promise<string>;
@@ -893,7 +924,8 @@ export interface RichTextEditorProps extends Omit<
   description?: React.ReactNode;
   /**
    * Nothing can be edited or focused - and, like a disabled field, nothing
-   * is submitted. See `readOnly` for content that is shown and submitted.
+   * is submitted. A disabled `<fieldset>` around it disables it too.
+   * See `readOnly` for content that is shown and submitted.
    */
   disabled?: boolean;
   /** Validation message - also marks the editor as invalid. */
@@ -976,8 +1008,9 @@ export interface RichTextEditorProps extends Omit<
    * dropped - resolves with its URL (`http(s):` or relative; a `data:` URL
    * with `allowImageDataUrls`), rejects when the upload fails. Until then a
    * placeholder shows the image and the form cannot be submitted; `signal`
-   * aborts when the editor unmounts. Without it, the image tool takes a URL
-   * only, and pasted or dropped image files are refused. Check the type
+   * aborts when the editor unmounts, its form is reset, or new content replaces
+   * the placeholder and its undo history. Without it, the image tool takes a
+   * URL only, and pasted or dropped image files are refused. Check the type
    * and size of the file on the server.
    */
   uploadImage?: RichTextImageUpload;
@@ -1010,7 +1043,7 @@ export default function RichTextEditor({
   className,
   defaultValue,
   description,
-  disabled = false,
+  disabled: disabledProp = false,
   error,
   form,
   id,
@@ -1048,6 +1081,9 @@ export default function RichTextEditor({
   // Shortcuts use ⌘ on Apple devices - the server (and hydration) renders
   // those of Ctrl
   const isApple = useIsApplePlatform();
+  // A contentEditable element is not disabled by its fieldset natively.
+  const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();
+  const disabled = disabledProp || fieldsetDisabled;
 
   const items = toolbarItemsOf(toolbar);
   const tools = items.filter((item): item is RichTextTool => item !== "|");
@@ -1106,6 +1142,7 @@ export default function RichTextEditor({
   // The uploads of images by the ids of their placeholders - also those
   // that ended, for the placeholders an undo brings back
   const uploads = useRef(new Map<string, Upload>());
+  const replacedUploads = useRef(new Map<string, Upload>());
   const [uploadCount, setUploadCount] = useState(0);
   // An upload failed - told under the editor until the next one
   const [uploadFailed, setUploadFailed] = useState(false);
@@ -1178,6 +1215,7 @@ export default function RichTextEditor({
   // The latest handler of an upload that ended - it reports the change as
   // the editor is then, not as it was when the upload started
   const finishUploadRef = useRef<(id: string, url: unknown) => void>(() => {});
+  const resumeUploadsRef = useRef(() => {});
   // Counts the inputs of a controlled editor - an input the parent did not
   // take into its `value` is undone, like in a controlled native field
   const [inputCount, setInputCount] = useState(0);
@@ -1186,6 +1224,38 @@ export default function RichTextEditor({
   // or table has no text either
   const [resetCount, setResetCount] = useState(0);
   const shownResetCount = useRef(0);
+  // Hidden Activity commits update the submitted content but run no DOM
+  // effects. Release upload validation in the same render when new content
+  // or formats replace the placeholders. Accepted edits and undo keep them.
+  const [uploadContent, setUploadContent] = useState({
+    content,
+    formatKey,
+    inputCount,
+    resetCount,
+    revision: 0,
+  });
+  if (
+    uploadContent.content !== content ||
+    uploadContent.formatKey !== formatKey ||
+    uploadContent.inputCount !== inputCount ||
+    uploadContent.resetCount !== resetCount
+  ) {
+    const replacesUploads =
+      uploadContent.formatKey !== formatKey ||
+      uploadContent.resetCount !== resetCount ||
+      content !== (reported ?? uploadContent.content);
+    setUploadContent({
+      content,
+      formatKey,
+      inputCount,
+      resetCount,
+      revision: uploadContent.revision + (replacesUploads ? 1 : 0),
+    });
+    if (replacesUploads) {
+      setUploadCount(0);
+      setUploadFailed(false);
+    }
+  }
   // The content of the editor normalized last, and the value it gave - an
   // input normalizes it once, not again for the effect after it
   const normalized = useRef<{
@@ -1260,21 +1330,29 @@ export default function RichTextEditor({
         : "";
   const validates = required || limit !== undefined || canUploadImages;
 
-  useLayoutEffect(() => {
-    validationRef.current?.setCustomValidity(validationMessage);
-  }, [validates, validationMessage]);
+  useCustomValidity(validationRef, validationMessage);
 
-  // An upload is not wanted once the editor is gone
-  useEffect(() => {
+  // Invalidate replaced uploads on every committed content revision, even
+  // while hidden. Abort listeners can update their owner, so notify them
+  // after insertion effects; late results already see an empty upload map.
+  useInsertionEffect(() => {
+    const discarded = replacedUploads.current;
+    for (const [id, upload] of uploads.current) discarded.set(id, upload);
+    uploads.current.clear();
+    if (discarded.size > 0) queueMicrotask(() => discardUploads(discarded));
+  }, [uploadContent.revision]);
+
+  // An upload is not wanted once the editor is gone. Insertion effects
+  // follow the actual lifetime, so Activity and StrictMode keep uploads
+  // and their previews with the content they preserve.
+  useInsertionEffect(() => {
     const current = uploads.current;
     return () => {
-      for (const upload of current.values()) {
-        upload.controller.abort();
-        if (upload.preview && upload.src === null) {
-          URL.revokeObjectURL(upload.preview);
-        }
-      }
+      const discarded = new Map(current);
       current.clear();
+      // Ignore late results at once; abort listeners may update state, so
+      // notify them after the insertion effect has finished.
+      queueMicrotask(() => discardUploads(discarded));
     };
   }, []);
 
@@ -1283,13 +1361,15 @@ export default function RichTextEditor({
     (element: HTMLDivElement | null) => {
       editorRef.current = element;
       const detachRef = attachRef(ref, element);
+      const detachFieldset = fieldsetRef(element);
 
       return () => {
         editorRef.current = null;
         detachRef();
+        detachFieldset?.();
       };
     },
-    [ref],
+    [fieldsetRef, ref],
   );
 
   /** The value of the content of the editor - normalized once for each change. */
@@ -1312,6 +1392,10 @@ export default function RichTextEditor({
     const editor = editorRef.current;
     if (!editor) return;
 
+    // Visible replacements abort before returning control to the app;
+    // hidden replacements use the microtask queued above instead.
+    discardUploads(replacedUploads.current);
+
     const toolsChanged = shownFormatKey.current !== formatKey;
     shownFormatKey.current = formatKey;
     const isReset = shownResetCount.current !== resetCount;
@@ -1321,6 +1405,11 @@ export default function RichTextEditor({
       isReset ||
       content !== normalizeEditor(editor.innerHTML, formatKey);
     if (replaces) {
+      // This content and its new history cannot restore the old upload
+      // placeholders. Release their previews and ignore their late results.
+      discardUploads(uploads.current);
+      setUploadCount(0);
+      setUploadFailed(false);
       editor.innerHTML = content;
       pendingCode.current = null;
       setBlank(isBlank(editor));
@@ -1343,6 +1432,12 @@ export default function RichTextEditor({
   // `form.reset()` - also the one after a React form action - brings back
   // the `defaultValue` of an uncontrolled editor, like a native field does
   const formResetRef = useFormReset(() => {
+    // The reset drops the placeholders and their undo history, also in a
+    // controlled editor. Their uploads must no longer block submission or
+    // report a failure after the user has moved on.
+    discardUploads(uploads.current);
+    setUploadCount(0);
+    setUploadFailed(false);
     setEntered(null);
     setResetCount((count) => count + 1);
   }, form);
@@ -1378,7 +1473,7 @@ export default function RichTextEditor({
     if (!editor) return;
 
     const range = rangeIn(editor);
-    if (!range && wrapperRef.current?.contains(document.activeElement)) {
+    if (!range && wrapperRef.current?.contains(getActiveElement())) {
       // In the toolbar or a form - they act on the editor's selection
       return;
     }
@@ -1495,10 +1590,12 @@ export default function RichTextEditor({
    * or none. Those still uploading stay; an undo can bring back any of them.
    */
   const resolveUploads = (editor: HTMLElement) => {
+    let changed = false;
     for (const placeholder of uploadPlaceholdersIn(editor)) {
       const id = placeholder.getAttribute(UPLOAD_ATTRIBUTE) ?? "";
       const src = uploads.current.get(id)?.src;
       if (src === null) continue;
+      changed = true;
 
       if (src) {
         placeholder.setAttribute("src", src);
@@ -1507,6 +1604,7 @@ export default function RichTextEditor({
         placeholder.remove();
       }
     }
+    return changed;
   };
 
   const restoreSnapshot = (snapshot: Snapshot | null) => {
@@ -1644,14 +1742,20 @@ export default function RichTextEditor({
       return;
     }
 
-    const href = toHref(url);
+    const link = linkElement.current;
+    // Confirming a stored URL does not reinterpret it: `guide.html` may
+    // already be a relative path, even though a new one resembles a host.
+    const keepsHref =
+      !!link &&
+      editorRef.current?.contains(link) &&
+      link.getAttribute("href") === url;
+    const href = keepsHref ? url : toHref(url);
     if (!isSafeHref(href)) {
       setIsLinkInvalid(true);
       return;
     }
 
     closeLinkForm();
-    const link = linkElement.current;
 
     if (link && editorRef.current?.contains(link)) {
       runCommand(() => {
@@ -1728,11 +1832,14 @@ export default function RichTextEditor({
         : null;
     upload.src = src ?? "";
     if (upload.preview) URL.revokeObjectURL(upload.preview);
-    setUploadCount((count) => count - 1);
     if (!src) setUploadFailed(true);
 
     const editor = editorRef.current;
-    if (!editor || !editor.querySelector(`img[${UPLOAD_ATTRIBUTE}="${id}"]`)) {
+    // A hidden editor applies its results on reveal. Keep submission
+    // blocked until then, so its value cannot omit a finished image.
+    if (!editor) return;
+    setUploadCount((count) => count - 1);
+    if (!editor.querySelector(`img[${UPLOAD_ATTRIBUTE}="${id}"]`)) {
       return;
     }
     // Not a step of the undo history - the placeholder was the image
@@ -1779,7 +1886,7 @@ export default function RichTextEditor({
         }
 
         setUploadCount((count) => count + 1);
-        upload(file, { signal: controller.signal }).then(
+        callUploadImage(upload, file, controller.signal).then(
           (url) => finishUploadRef.current(id, url),
           () => finishUploadRef.current(id, null),
         );
@@ -1880,6 +1987,10 @@ export default function RichTextEditor({
   };
 
   const handleImageFormKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    // IME candidate keys stay with the input, including Safari's confirming
+    // Enter delivered after compositionend with key code 229.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+
     // The keys of the form - not a submit of the form around, nor the
     // Escape of a dialog
     if (event.key === "Escape") {
@@ -1895,6 +2006,8 @@ export default function RichTextEditor({
   };
 
   const handleTableFormKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+
     // The keys of the form - not a submit of the form around, nor the
     // Escape of a dialog
     if (event.key === "Escape") {
@@ -2281,8 +2394,7 @@ export default function RichTextEditor({
       const text =
         event.data ?? event.dataTransfer?.getData("text/plain") ?? "";
       const room =
-        limit -
-        (countCharacters(editor) - countCharacters(range.cloneContents()));
+        limit - (countCharacters(editor) - countRangeCharacters(editor, range));
       if (countTextCharacters(text) > room) {
         event.preventDefault();
         const fitting = truncateText(text, Math.max(room, 0));
@@ -2343,7 +2455,30 @@ export default function RichTextEditor({
     handleBeforeInputRef.current = handleBeforeInput;
     updateToolStateRef.current = updateToolState;
     finishUploadRef.current = finishUpload;
+    resumeUploadsRef.current = () => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      setUploadCount(
+        [...uploads.current.values()].filter((upload) => upload.src === null)
+          .length,
+      );
+      if (resolveUploads(editor)) reportChange(null, false);
+    };
   });
+
+  // Activity detaches the editor ref while hidden. An upload can finish
+  // then: show its result when the editor returns, after applying any
+  // replacement content and replaying effects in StrictMode. Report it
+  // without adding an undo step.
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (active) resumeUploadsRef.current();
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -2387,7 +2522,19 @@ export default function RichTextEditor({
     if (range.startContainer.nodeType !== Node.TEXT_NODE) return;
 
     const text = range.startContainer as Text;
-    const start = Math.max(0, range.startOffset - over);
+    let start = Math.max(0, range.startOffset - over);
+    // The limit counts UTF-16 units, but the cut must keep a whole character
+    // - an emoji taking the last two units cannot leave its high surrogate.
+    const before = text.data.charCodeAt(start - 1);
+    const after = text.data.charCodeAt(start);
+    if (
+      before >= 0xd800 &&
+      before <= 0xdbff &&
+      after >= 0xdc00 &&
+      after <= 0xdfff
+    ) {
+      start--;
+    }
     text.deleteData(start, range.startOffset - start);
     const caret = document.createRange();
     caret.setStart(text, start);
@@ -2552,7 +2699,7 @@ export default function RichTextEditor({
       ? Infinity
       : limit -
         countCharacters(editor) +
-        (range ? countCharacters(range.cloneContents()) : 0);
+        (range ? countRangeCharacters(editor, range) : 0);
 
   /** Pasted or dropped HTML that fits into `maxLength` - cut after it. */
   const fitHtml = (editor: HTMLElement, range: Range | null, html: string) => {
@@ -2797,7 +2944,7 @@ export default function RichTextEditor({
           <div
             aria-label={label || ariaLabelledBy ? undefined : ariaLabel}
             aria-labelledby={label ? labelTextId : ariaLabelledBy}
-            className="border-b border-neutral-300 p-[3px] dark:border-neutral-700"
+            className="border-b border-neutral-300 p-0.75 dark:border-neutral-700"
             onKeyDown={moveToolbarFocus}
             ref={toolbarRef}
             role="toolbar"
@@ -2859,7 +3006,7 @@ export default function RichTextEditor({
         {toolState.hasTable && tools.includes("table") && !readOnly && (
           <div
             aria-labelledby={tableLabelId}
-            className="border-b border-neutral-300 bg-neutral-50 p-[3px] dark:border-neutral-700 dark:bg-neutral-900/50"
+            className="border-b border-neutral-300 bg-neutral-50 p-0.75 dark:border-neutral-700 dark:bg-neutral-900/50"
             onKeyDown={moveToolbarFocus}
             role="toolbar"
           >
@@ -2923,6 +3070,10 @@ export default function RichTextEditor({
                 setIsLinkInvalid(false);
               }}
               onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing || event.keyCode === 229) {
+                  return;
+                }
+
                 // The keys of the field - not a submit of the form around,
                 // nor the Escape of a dialog
                 if (event.key === "Enter") {

@@ -175,6 +175,81 @@ describe("useLocalStorage", () => {
     expect(localStorage.getItem("since")).toBe("2026-10-01");
   });
 
+  it("reads unchanged text with a new deserializer and uses it for updates", () => {
+    localStorage.setItem("parser-change", "3");
+    const { result, rerender } = renderHook(
+      ({ deserialize, serialize }) =>
+        useLocalStorage("parser-change", 0, { deserialize, serialize }),
+      {
+        initialProps: {
+          deserialize: (text: string) => Number(text),
+          serialize: (value: number) => String(value),
+        },
+      },
+    );
+    const setValue = result.current[1];
+    expect(result.current[0]).toBe(3);
+
+    rerender({
+      deserialize: (text: string) => Number(text) * 2,
+      serialize: (value: number) => String(value / 2),
+    });
+    expect(result.current[0]).toBe(6);
+    expect(localStorage.getItem("parser-change")).toBe("3");
+    expect(result.current[1]).toBe(setValue);
+
+    act(() => {
+      setValue((value) => value + 2);
+      setValue((value) => value + 2);
+    });
+    expect(result.current[0]).toBe(10);
+    expect(localStorage.getItem("parser-change")).toBe("5");
+  });
+
+  it("checks unchanged stored data again when its validation changes", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    localStorage.setItem("parser-validation", "3");
+    const deserialize = (text: string) => Number(text);
+    const { result, rerender } = renderHook(
+      ({ deserialize }) =>
+        useLocalStorage("parser-validation", 0, { deserialize }),
+      { initialProps: { deserialize } },
+    );
+    expect(result.current[0]).toBe(3);
+
+    rerender({
+      deserialize: () => {
+        throw new Error("This value is no longer allowed.");
+      },
+    });
+    expect(result.current[0]).toBe(0);
+
+    rerender({ deserialize });
+    expect(result.current[0]).toBe(3);
+  });
+
+  it("supports an inline object deserializer without scheduling repeated renders", () => {
+    localStorage.setItem("inline-parser", '{"count":1}');
+    const { result, rerender } = renderHook(function useStoredObject() {
+      "use no memo";
+      return useLocalStorage(
+        "inline-parser",
+        { count: 0 },
+        {
+          deserialize: (text) => JSON.parse(text) as { count: number },
+        },
+      );
+    });
+
+    expect(result.current[0]).toEqual({ count: 1 });
+    rerender();
+    expect(result.current[0]).toEqual({ count: 1 });
+    act(() => result.current[1](({ count }) => ({ count: count + 1 })));
+    expect(result.current[0]).toEqual({ count: 2 });
+    act(() => writeFromOtherTab("inline-parser", '{"count":3}'));
+    expect(result.current[0]).toEqual({ count: 3 });
+  });
+
   it("keeps a value it cannot save until the page is reloaded", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const setItem = vi

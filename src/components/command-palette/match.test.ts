@@ -41,6 +41,23 @@ describe("rankMatch", () => {
     expect(rank(decomposed, composed)).not.toBeNull();
   });
 
+  it("matches a label typed as it is - its marks typed in any order, its letters past U+FFFF", () => {
+    // The dagesh before the sheva, the shadda before the fatha - the other
+    // way round than NFD sorts them
+    const hebrew = "\u05D1\u05BC\u05B0\u05E8";
+    const arabic = "\u0634\u0651\u064E\u0645\u0633";
+    // "Deseret" in Deseret, whose letters take two code units each
+    const deseret =
+      "\u{10414}\u{1042F}\u{10445}\u{10428}\u{10449}\u{1042F}\u{1043B}";
+
+    expect(rank(hebrew, hebrew)).toBe(0);
+    expect(rank(arabic, arabic)).toBe(0);
+    expect(rank(arabic, "\u0634\u064E\u0651")).toBe(0);
+    expect(rank(deseret, deseret)).toBe(0);
+    // Its capital in lower case
+    expect(rank(deseret, "\u{1043C}\u{1042F}")).toBe(0);
+  });
+
   it("needs every word, in the label or the other texts", () => {
     expect(rank("New invoice", "invoice new")).not.toBeNull();
     expect(rank("New invoice", "new bill", "bill receipt")).not.toBeNull();
@@ -56,6 +73,17 @@ describe("rankMatch", () => {
     expect(start).toBeLessThan(wordStart!);
     expect(wordStart).toBeLessThan(inside!);
     expect(inside).toBeLessThan(elsewhere!);
+  });
+
+  it("does not take a mark or a letter past U+FFFF for the end of a word", () => {
+    const inside = rank("Reinvoicing", "inv");
+
+    // After the voicing mark of ガ, which folding leaves as a mark of its own
+    expect(rank("ガス", "ス")).toBe(inside);
+    // After a Hebrew letter with its points
+    expect(rank("בְּר", "ר")).toBe(inside);
+    // After a letter of two code units
+    expect(rank("\u{10414}\u{1042F}\u{10445}", "\u{1042F}")).toBe(inside);
   });
 });
 
@@ -88,6 +116,18 @@ describe("findMatchRanges", () => {
     // "ガ" written as "カ" and a combining voicing mark
     expect(ranges("\u30ab\u3099ス", "カ")).toEqual([[0, 2]]);
     expect(ranges("ガス 한국", "한")).toEqual([[3, 4]]);
+  });
+
+  it("keeps the marks with their letter and a letter past U+FFFF whole", () => {
+    // The dagesh before the sheva - NFD swaps them
+    expect(ranges("\u05D1\u05BC\u05B0\u05E8", "\u05D1")).toEqual([[0, 3]]);
+    // The shadda before the fatha
+    expect(ranges("\u0634\u0651\u064E\u0645", "\u0645")).toEqual([[3, 4]]);
+    // A capital of Deseret, which takes two code units
+    expect(ranges("\u{10414}\u{1042F} \u{10414}", "\u{1043C}")).toEqual([
+      [0, 2],
+      [5, 7],
+    ]);
   });
 
   it("finds nothing without words", () => {

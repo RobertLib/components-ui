@@ -52,7 +52,7 @@ describe("Skeleton", () => {
     // Each line is as high as a line of the text around
     const lines = Array.from(text.children);
     expect(lines).toHaveLength(3);
-    lines.forEach((line) => expect(line).toHaveClass("h-[1lh]"));
+    lines.forEach((line) => expect(line).toHaveClass("h-lh"));
 
     const bars = lines.map((line) => line.firstElementChild);
     expect(bars[0]).toHaveClass("w-full", "animate-pulse");

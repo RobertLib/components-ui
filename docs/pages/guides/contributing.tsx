@@ -19,6 +19,7 @@ const scripts = `npm run dev          # the docs with hot reload - http://localh
 npm run check        # type check, lint, tests and formatting - what CI runs
 npm run lint         # oxlint and the React Compiler check
 npm test             # the unit and component tests (Vitest)
+npm run test:browser # browser regressions (Chromium, Firefox and WebKit)
 npm run format       # Prettier, with Tailwind class sorting
 npm run build:lib    # the package: dist/ (a module per source file), styles.css, types
 npm run build:docs   # the docs as a static site in dist-docs/`;
@@ -46,7 +47,7 @@ npm version minor
 # 2. push the commit and the tag
 git push --follow-tags
 # 3. projects update the dependency to the new tag
-npm install git+https://github.com/RobertLib/components-ui.git#v0.3.0`;
+npm install git+https://github.com/RobertLib/components-ui.git#v0.3.1`;
 
 export default function ContributingGuide() {
   return (
@@ -66,6 +67,16 @@ export default function ContributingGuide() {
             - the library and these docs), the lint (oxlint and the React
             Compiler check), the tests and <code>prettier --check</code>. Run{" "}
             <code>npm run format</code> before committing.
+          </p>
+          <p>
+            Install the browsers once with{" "}
+            <code>npx playwright install chromium firefox webkit</code>, then
+            run <code>npm run test:browser</code> for the real-browser
+            regressions in <code>tests/browser/</code>. They run in Chromium,
+            Firefox and WebKit, with mobile emulation in Chromium and WebKit
+            too. The runner starts a separate Vite server on port 4174. CI runs
+            these tests too; failed tests keep screenshots and traces, and{" "}
+            <code>npx playwright show-report</code> opens the local report.
           </p>
         </Prose>
       </Section>

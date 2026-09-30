@@ -19,4 +19,14 @@ jobs:
       # `prepare` builds the library on install
       - run: npm ci
       - run: npm run check
+      # TZ-dependent tests must keep process workers when threads are requested
+      - run: npm test -- --project=timezones --pool=threads
       - run: npm run build:docs
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v5
+        if: ${{ !cancelled() && hashFiles('playwright-report/index.html') != '' }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14

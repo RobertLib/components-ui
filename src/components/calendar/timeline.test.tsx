@@ -198,6 +198,167 @@ describe("Calendar timeline", () => {
     expect(onEventDrop).toHaveBeenCalledWith(change(d(24, 11), d(24, 12), "c"));
   });
 
+  it.each(["timelineDay", "timelineWeek"] as const)(
+    "keeps a clipped start within the enabled days when dragged (%s)",
+    (view) => {
+      const onEventDrop = vi.fn();
+      const { container } = renderTimeline(
+        {
+          events: [event("Early", d(24, 6), d(24, 8), { resourceId: "a" })],
+          maxDate: d(24),
+          minDate: d(24),
+          onEventDrop,
+          slotDuration: 30,
+        },
+        view,
+      );
+      layOutRows(container);
+
+      // A start before the hours shown stays there at the lower bound.
+      drag(screen.getByTitle("Early"), -800);
+      expect(onEventDrop).not.toHaveBeenCalled();
+
+      // It still moves by the clock, without jumping onto the visible edge.
+      const slotWidth = view === "timelineDay" ? 48 : 24;
+      drag(screen.getByTitle("Early"), slotWidth);
+      expect(onEventDrop).toHaveBeenLastCalledWith(
+        change(d(24, 6, 30), d(24, 8, 30), "a"),
+      );
+
+      // The start stops at the last allowed slot; the duration stays intact.
+      drag(screen.getByTitle("Early"), 4000);
+      expect(onEventDrop).toHaveBeenLastCalledWith(
+        change(d(24, 21, 30), d(24, 23, 30), "a"),
+      );
+    },
+  );
+
+  it("keeps a clipped start within the enabled days when moved by the keys", async () => {
+    const user = userEvent.setup();
+    const onEventDrop = vi.fn();
+    renderTimeline({
+      events: [event("Early", d(24, 6), d(24, 8), { resourceId: "a" })],
+      maxDate: d(24),
+      minDate: d(24),
+      onEventDrop,
+      slotDuration: 30,
+    });
+
+    act(() => screen.getByRole("button", { name: /^Early,/ }).focus());
+    await user.keyboard("{Control>}x{/Control}{ArrowLeft}{Enter}");
+    expect(onEventDrop).not.toHaveBeenCalled();
+
+    // A vertical move keeps the original out-of-view time.
+    act(() => screen.getByRole("button", { name: /^Early,/ }).focus());
+    await user.keyboard("{Control>}x{/Control}{ArrowDown}{Enter}");
+    expect(onEventDrop).toHaveBeenLastCalledWith(
+      change(d(24, 6), d(24, 8), "b"),
+    );
+
+    act(() => screen.getByRole("button", { name: /^Early,/ }).focus());
+    await user.keyboard("{Control>}x{/Control}{ArrowRight>50/}{Enter}");
+    expect(onEventDrop).toHaveBeenLastCalledWith(
+      change(d(24, 21, 30), d(24, 23, 30), "a"),
+    );
+  });
+
+  it("does not drop a spanning event while its start is still before the enabled days", () => {
+    const onEventDrop = vi.fn();
+    const { container } = renderTimeline({
+      events: [event("Night", d(23, 22), d(24, 9), { resourceId: "a" })],
+      maxDate: d(24),
+      minDate: d(24),
+      onEventDrop,
+      slotDuration: 30,
+    });
+    layOutRows(container);
+
+    drag(screen.getByTitle("Night"), 48);
+    expect(onEventDrop).not.toHaveBeenCalled();
+    drag(screen.getByTitle("Night"), 0, 48);
+    expect(onEventDrop).not.toHaveBeenCalled();
+
+    // Once its start reaches an enabled day, it can move with its full length.
+    drag(screen.getByTitle("Night"), 96 * 4);
+    expect(onEventDrop).toHaveBeenCalledWith(change(d(24, 2), d(24, 13), "a"));
+  });
+
+  it.each(["local", "UTC"] as const)(
+    "keeps a spanning all-day event within the enabled days (%s dates)",
+    async (zone) => {
+      const date = (day: number) =>
+        zone === "UTC" ? new Date(Date.UTC(2026, 8, day)) : d(day);
+      const user = userEvent.setup();
+      const onEventDrop = vi.fn();
+      const { container } = renderTimeline({
+        events: [
+          event("Outside", date(23), date(25), {
+            allDay: true,
+            resourceId: "a",
+          }),
+          event("Inside", date(24), date(25), {
+            allDay: true,
+            resourceId: "a",
+          }),
+        ],
+        maxDate: d(24),
+        minDate: d(24),
+        onEventDrop,
+      });
+      layOutRows(container);
+
+      // A different resource does not make the original start allowed.
+      drag(screen.getByTitle("Outside"), 0, 48);
+      expect(onEventDrop).not.toHaveBeenCalled();
+      act(() => screen.getByRole("button", { name: /^Outside,/ }).focus());
+      await user.keyboard("{Control>}x{/Control}{ArrowDown}{Enter}");
+      expect(onEventDrop).not.toHaveBeenCalled();
+
+      // An allowed all-day start still moves, keeping its date representation.
+      drag(screen.getByTitle("Inside"), 0, 48);
+      expect(onEventDrop).toHaveBeenLastCalledWith(
+        change(date(24), date(25), "b"),
+      );
+      act(() => screen.getByRole("button", { name: /^Inside,/ }).focus());
+      await user.keyboard("{Control>}x{/Control}{ArrowDown}{Enter}");
+      expect(onEventDrop).toHaveBeenCalledTimes(2);
+      expect(onEventDrop).toHaveBeenLastCalledWith(
+        change(date(24), date(25), "b"),
+      );
+    },
+  );
+
+  it.each(["local", "UTC"] as const)(
+    "moves a clipped all-day start into the enabled days (%s dates)",
+    (zone) => {
+      const date = (day: number) =>
+        zone === "UTC" ? new Date(Date.UTC(2026, 8, day)) : d(day);
+      const onEventDrop = vi.fn();
+      const { container } = renderTimeline(
+        {
+          events: [
+            event("Trip", date(19), date(23), {
+              allDay: true,
+              resourceId: "a",
+            }),
+          ],
+          hiddenDays: [0, 6],
+          minDate: d(21),
+          onEventDrop,
+        },
+        "timelineWeek",
+      );
+      layOutRows(container);
+
+      // One displayed day is 15 hours, 40 pixels each. Its clipped edge is
+      // already Monday, but the event's actual start must reach Monday too.
+      drag(screen.getByTitle("Trip"), 600);
+      expect(onEventDrop).not.toHaveBeenCalled();
+      drag(screen.getByTitle("Trip"), 1200);
+      expect(onEventDrop).toHaveBeenCalledWith(change(date(21), date(25), "a"));
+    },
+  );
+
   it("resizes an event by its edges", () => {
     const onEventResize = vi.fn();
     renderTimeline({

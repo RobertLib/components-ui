@@ -30,12 +30,16 @@ export const daysIntoWeek = (date: Date, weekStartsOn: WeekDay) =>
 export const startOfCalendarWeek = (date: Date, weekStartsOn: WeekDay) =>
   addCalendarDays(date, -daysIntoWeek(date, weekStartsOn));
 
-/** Whole days from the day of `from` to the day of `to`. */
+/** The number of the local calendar day, counted in UTC without skipped days. */
+function calendarDayNumber(date: Date) {
+  const day = new Date(0);
+  day.setUTCFullYear(date.getFullYear(), date.getMonth(), date.getDate());
+  return day.getTime() / 86_400_000;
+}
+
+/** Whole calendar days from the day of `from` to the day of `to`. */
 export const daysBetween = (from: Date, to: Date) =>
-  // Rounded - a day with a daylight saving change is not 24 hours long
-  Math.round(
-    (startOfDay(to).getTime() - startOfDay(from).getTime()) / 86_400_000,
-  );
+  calendarDayNumber(to) - calendarDayNumber(from);
 
 /**
  * The clock time `minutes` after the midnight starting the day of `date` -

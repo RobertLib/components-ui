@@ -10,7 +10,7 @@ const messages = [
 export default function ThreePanes() {
   return (
     <Splitter
-      className="h-[320px] rounded-lg border border-neutral-200 text-sm dark:border-neutral-800"
+      className="h-80 rounded-lg border border-neutral-200 text-sm dark:border-neutral-800"
       collapsible={[true, false, false]}
       defaultSizes={[20, 35, 45]}
       minSizes={[12, 25, 25]}

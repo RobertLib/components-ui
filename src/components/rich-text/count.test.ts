@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   countCharacters,
   countHtmlCharacters,
+  countRangeCharacters,
   countTextCharacters,
   truncateHtml,
   truncateText,
@@ -25,7 +26,7 @@ describe("countHtmlCharacters", () => {
     expect(countHtmlCharacters("<p>😀</p>")).toBe(2);
   });
 
-  it("counts a fragment of the editor - a selection", () => {
+  it("counts a selection in the editor", () => {
     const editor = document.createElement("div");
     editor.innerHTML = "<p>Hello <b>world</b></p>";
     const range = document.createRange();
@@ -33,7 +34,77 @@ describe("countHtmlCharacters", () => {
     range.setEnd(editor.querySelector("b")?.firstChild as Node, 3);
 
     expect(countCharacters(editor)).toBe(11);
-    expect(countCharacters(range.cloneContents())).toBe(3);
+    expect(countRangeCharacters(editor, range)).toBe(3);
+  });
+});
+
+describe("countRangeCharacters", () => {
+  it.each([
+    { html: "a b", text: "a b", start: 1, end: 2, expected: 1 },
+    { html: "<p>a b</p>", text: "a b", start: 1, end: 2, expected: 1 },
+    { html: "<p> </p>", text: " ", start: 0, end: 1, expected: 1 },
+    {
+      html: "<p>a   b</p>",
+      text: "a   b",
+      start: 1,
+      end: 4,
+      expected: 1,
+    },
+    {
+      html: "<pre><code>a \n b</code></pre>",
+      text: "a \n b",
+      start: 1,
+      end: 4,
+      expected: 3,
+    },
+    {
+      html: "<p>a</p>\n  <p>b</p>",
+      text: "\n  ",
+      start: 0,
+      end: 3,
+      expected: 0,
+    },
+    {
+      html: "<ul>\n  <li>a</li></ul>",
+      text: "\n  ",
+      start: 0,
+      end: 3,
+      expected: 0,
+    },
+  ])(
+    "keeps the whitespace context of $html",
+    ({ html, text, start, end, expected }) => {
+      const editor = document.createElement("div");
+      editor.innerHTML = html;
+      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node && node.textContent !== text) node = walker.nextNode();
+      const range = document.createRange();
+      range.setStart(node as Text, start);
+      range.setEnd(node as Text, end);
+
+      expect(countRangeCharacters(editor, range)).toBe(expected);
+      range.collapse(true);
+      expect(countRangeCharacters(editor, range)).toBe(0);
+    },
+  );
+
+  it("counts only the selected portions across text nodes and blocks", () => {
+    const editor = document.createElement("div");
+    editor.innerHTML = "<p>ab<b>cd</b>ef</p>\n<pre><code>g  h</code></pre>";
+    const paragraph = editor.querySelector("p") as HTMLParagraphElement;
+    const code = editor.querySelector("code") as HTMLElement;
+    const range = document.createRange();
+    range.setStart(paragraph.firstChild as Text, 1);
+    range.setEnd(code.firstChild as Text, 3);
+    expect(countRangeCharacters(editor, range)).toBe(8);
+
+    range.setStart(paragraph, 1);
+    range.setEnd(paragraph, 2);
+    expect(countRangeCharacters(editor, range)).toBe(2);
+
+    range.selectNodeContents(editor);
+    expect(countRangeCharacters(editor, range)).toBe(countCharacters(editor));
   });
 });
 

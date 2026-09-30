@@ -16,6 +16,8 @@ import {
 import Button from "../button";
 import { attachRef } from "../../hooks/use-form-control";
 import cn from "../../utils/cn";
+import columnRecord from "./column-record";
+import { getRowKey } from "./row-key";
 import logger from "../../utils/logger";
 import useColumnManagement from "./use-column-management";
 import usePendingValue from "./use-pending-value";
@@ -79,6 +81,7 @@ import {
 import { useLocale } from "../../providers/ui-context";
 import type { PluralMessage } from "../../i18n/types";
 import type {
+  CellEditResult,
   Column,
   DataTableColumn,
   DataTableColumnState,
@@ -91,6 +94,7 @@ import type {
 } from "./types";
 
 export type {
+  CellEditResult,
   CellEditorProps,
   Column,
   ColumnEditor,
@@ -118,6 +122,9 @@ function isSameIdSet(a: readonly RowId[], b: readonly RowId[]) {
 
 const MAX_TOGGLED_ROWS = 1000;
 
+// How many reports of all matching rows a late parent may still apply
+const MAX_PENDING_REPORTS = 50;
+
 // How long the refusal of a change stays in the live region - long enough
 // to be announced
 const ANNOUNCEMENT_DURATION = 5000;
@@ -129,7 +136,7 @@ function mergeWidths(
 ) {
   return Object.entries(changes).every(([key, width]) => widths[key] === width)
     ? widths
-    : { ...widths, ...changes };
+    : columnRecord({ ...widths, ...changes });
 }
 
 /** The changes of cells with the change of one cell replaced. */
@@ -158,7 +165,7 @@ function pruneCellStates<T extends { id: RowId }>(
 ) {
   if (states.size === 0) return states;
 
-  const rowsById = new Map(data.map((row) => [String(row.id), row]));
+  const rowsById = new Map(data.map((row) => [getRowKey(row.id), row]));
   const next = new Map(states);
 
   for (const [key, state] of states) {
@@ -270,7 +277,8 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
    * the user sees - the visible columns in their order, the values as the
    * cells show them: all rows matching the filters of a `clientSide` table,
    * the rows `onExport` returns with server data (the loaded ones without
-   * it).
+   * it). Without `onExport`, inline edits and rejected changes follow the
+   * displayed values too, unless a column provides its own `exportValue`.
    */
   enableCsvExport?: boolean;
   /**
@@ -342,14 +350,19 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
    * message of the rejection (of an `Error`, or a generic one), announced
    * once - until the cell is saved again or `data` no longer has the
    * refused value or the one before it (another value, or no such row).
-   * Update `data` with the saved value. Another page, sorting or filter
-   * ends the editing.
+   * Update `data` with the saved value. Return `{ value: savedValue }` to
+   * confirm the server's value explicitly; it takes precedence when the
+   * save finishes, until the next replacement of its row in `data`. This
+   * is needed when normalization returns the original value, which a poll
+   * still holding old data looks like too. Without a result, changed data
+   * wins and unchanged data keeps the draft. Another page, sorting or
+   * filter ends the editing.
    */
   onCellEdit?: (
     row: T,
     columnKey: string,
     value: unknown,
-  ) => void | Promise<void>;
+  ) => void | CellEditResult | Promise<void | CellEditResult>;
   /**
    * Called with the new column settings whenever the user reorders, hides,
    * pins or resizes a column or resets them - also of an uncontrolled table,
@@ -368,9 +381,9 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
   /**
    * Called for a click on a row - not on a control in it (a button, a
    * checkbox, a link, an editable cell) nor at the end of selecting its
-   * text. Without `getRowHref` the rows are one Tab stop: the arrow keys
-   * move between them, Enter on one calls it with the keyboard event. With
-   * `getRowHref` it is called before the link is followed -
+   * text. Rows without a `getRowHref` link are one Tab stop: the arrow keys
+   * move between them, Enter on one calls it with the keyboard event. For
+   * linked rows it is called before the link is followed -
    * `event.preventDefault()` stays on the page.
    */
   onRowClick?: (
@@ -662,7 +675,7 @@ export default function DataTable<T extends { id: RowId }>({
 
   // The rendered widths of the columns by key - for the sticky offsets
   const [measuredWidths, setMeasuredWidths] = useState<Record<string, number>>(
-    {},
+    () => columnRecord(),
   );
   const isDraggingRef = useRef(false);
   const pendingWidthsRef = useRef<Record<string, number> | null>(null);
@@ -672,8 +685,15 @@ export default function DataTable<T extends { id: RowId }>({
   // reported with - a controlled `selectedIds` of other ids ends it
   const [allFilteredSelection, setAllFilteredSelection] = useState<{
     excluded: T[];
-    reportedIds: RowId[];
+    /**
+     * The controlled ids it may be shown with - those it was reported with
+     * last. A parent may apply them later (a transition, the URL of a
+     * router): until it does, the ids it showed before and those reported
+     * on the way come first.
+     */
+    reportedIds: RowId[][];
     scope: string;
+    token: object;
   } | null>(null);
 
   // Full screen covers the page like a dialog, in the overlay stack shared
@@ -737,7 +757,7 @@ export default function DataTable<T extends { id: RowId }>({
   const actionColumnRef = useRef<HTMLTableCellElement>(null);
   const expandColumnRef = useRef<HTMLTableCellElement>(null);
   const selectionColumnRef = useRef<HTMLTableCellElement>(null);
-  const columnRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
+  const columnRefs = useRef(columnRecord<HTMLTableCellElement | null>());
   const tableRef = useRef<HTMLTableElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -763,7 +783,7 @@ export default function DataTable<T extends { id: RowId }>({
   // the loaded rows with server data - where the server gave no value
   const summaryRows = matchingRows ?? rows;
   const summaryData = useMemo(() => {
-    const values: Record<string, unknown> = {};
+    const values = columnRecord<unknown>();
     let hasValues = false;
 
     for (const column of sortedVisibleColumns) {
@@ -889,7 +909,41 @@ export default function DataTable<T extends { id: RowId }>({
   const selectionScopeKey =
     selectionConfig?.scopeKey ??
     JSON.stringify({ filters: query.filters, search: query.search });
+  // Returning to earlier filters starts another selection too. An action
+  // still running for their previous visit must not reset the new one.
+  const [selectionScope, setSelectionScope] = useState(() => ({
+    key: selectionScopeKey,
+  }));
+  if (selectionScope.key !== selectionScopeKey) {
+    setSelectionScope({ key: selectionScopeKey });
+  }
   const selectionTotal = selectionConfig?.total ?? rowsTotal ?? rows.length;
+  const isAllFilteredSelected =
+    !!selectionConfig && allFilteredSelection?.scope === selectionScopeKey;
+  const excludedRows = useMemo(() => {
+    if (!isAllFilteredSelected || !allFilteredSelection) return [];
+    const excluded = allFilteredSelection.excluded;
+    // Only a client-side table knows every matching row. A server page or
+    // a loading placeholder cannot tell whether an exclusion is gone.
+    if (matchingRows === null || loading || excluded.length === 0) {
+      return excluded;
+    }
+    const currentRows = new Map(matchingRows.map((row) => [row.id, row]));
+    const current = excluded.flatMap((row) => currentRows.get(row.id) ?? []);
+    return current.length === excluded.length &&
+      current.every((row, index) => row === excluded[index])
+      ? excluded
+      : current;
+  }, [allFilteredSelection, isAllFilteredSelected, loading, matchingRows]);
+
+  // The ids of a controlled selection among those it was reported with - a
+  // late parent still shows earlier ones
+  const shownReportIndex =
+    isSelectionControlled && allFilteredSelection
+      ? allFilteredSelection.reportedIds.findIndex((ids) =>
+          isSameIdSet(controlledSelectedIds, ids),
+        )
+      : 0;
 
   // "All rows matching the filters" ends with the filters - it does not come
   // back when the user returns to them - and with another controlled
@@ -897,10 +951,26 @@ export default function DataTable<T extends { id: RowId }>({
   if (
     allFilteredSelection !== null &&
     (allFilteredSelection.scope !== selectionScopeKey ||
-      (isSelectionControlled &&
-        !isSameIdSet(controlledSelectedIds, allFilteredSelection.reportedIds)))
+      shownReportIndex === -1)
   ) {
     setAllFilteredSelection(null);
+  } else if (allFilteredSelection && shownReportIndex > 0) {
+    // The parent caught up with one of them - those before are over
+    setAllFilteredSelection({
+      ...allFilteredSelection,
+      reportedIds: allFilteredSelection.reportedIds.slice(shownReportIndex),
+    });
+  } else if (
+    isAllFilteredSelected &&
+    allFilteredSelection &&
+    excludedRows !== allFilteredSelection.excluded
+  ) {
+    // A row that leaves the matching data loses its exclusion for good;
+    // those that remain carry their current values into action payloads.
+    setAllFilteredSelection({
+      ...allFilteredSelection,
+      excluded: excludedRows,
+    });
   }
 
   // Uncontrolled, rows that leave the page (another page, a refetch without
@@ -921,17 +991,6 @@ export default function DataTable<T extends { id: RowId }>({
     resetKey: selectionScopeKey,
     selectedIds: controlledSelectedIds,
   });
-
-  // The selection as the owner last showed it - a group action that ends
-  // later deselects its rows from it
-  const latestSelectedIds = useRef(selectedIdList);
-
-  useEffect(() => {
-    latestSelectedIds.current = selectedIdList;
-  });
-
-  const isAllFilteredSelected =
-    !!selectionConfig && allFilteredSelection?.scope === selectionScopeKey;
 
   // The ids reported last - an uncontrolled selection that drops rows by
   // itself (another page, a refetch, other filters) reports it afterwards
@@ -955,10 +1014,6 @@ export default function DataTable<T extends { id: RowId }>({
       rows: selectedRows,
     });
   });
-  const excludedRows = useMemo(
-    () => (isAllFilteredSelected ? (allFilteredSelection?.excluded ?? []) : []),
-    [allFilteredSelection, isAllFilteredSelected],
-  );
   const excludedIds = useMemo(
     () => new Set(excludedRows.map((row) => row.id)),
     [excludedRows],
@@ -1024,13 +1079,46 @@ export default function DataTable<T extends { id: RowId }>({
       .map((row) => row.id)
       .filter((id) => !excludedSet.has(id));
     reportedIdsRef.current = loadedIds;
+    // A late parent shows the ids before these until it applies them
+    const reportedIds = [
+      ...(!isSelectionControlled
+        ? []
+        : isAllFilteredSelected && allFilteredSelection
+          ? allFilteredSelection.reportedIds
+          : [controlledSelectedIds]),
+      loadedIds,
+    ];
+    // One that ignores the changes must not make the list grow forever -
+    // the ids it shows stay first
+    if (reportedIds.length > MAX_PENDING_REPORTS) reportedIds.splice(1, 1);
     setAllFilteredSelection({
       excluded,
-      reportedIds: loadedIds,
+      reportedIds,
       scope: selectionScopeKey,
+      // Explicitly selecting again replaces the selection an earlier
+      // action used. Refreshing its rows keeps this token.
+      token: {},
     });
     onSelectedIdsChange?.(loadedIds, describeSelection(loadedIds, excluded));
   };
+
+  // A completed action uses the current selection and callbacks, including
+  // current rows and query in the reported metadata after a page or refetch.
+  const latestSelection = useRef({
+    commitSelection,
+    ids: selectedIdList,
+    scope: selectionScope,
+    token: isAllFilteredSelected ? allFilteredSelection?.token : undefined,
+  });
+
+  useLayoutEffect(() => {
+    latestSelection.current = {
+      commitSelection,
+      ids: selectedIdList,
+      scope: selectionScope,
+      token: isAllFilteredSelected ? allFilteredSelection?.token : undefined,
+    };
+  });
 
   const resetAllSelection = () => commitSelection([]);
 
@@ -1092,7 +1180,10 @@ export default function DataTable<T extends { id: RowId }>({
     const actionRows = isAllFilteredSelected
       ? (matchingRows ?? rows).filter((row) => !excludedIds.has(row.id))
       : selectedRows;
-    const actionScope = isAllFilteredSelected ? selectionScopeKey : null;
+    const actionScope = selectionScope;
+    const actionToken = isAllFilteredSelected
+      ? allFilteredSelection?.token
+      : undefined;
     const selection: GroupActionSelection<T> = {
       allFiltered: isAllFilteredSelected,
       count: selectedCount,
@@ -1114,23 +1205,24 @@ export default function DataTable<T extends { id: RowId }>({
     }
 
     if (autoResetSelectedRows && shouldReset !== false) {
-      // Only what the action got - rows selected while it ran stay
-      // selected (a selection of another page is gone already)
-      const actedIds = new Set(selection.ids);
-      if (actionScope !== null) {
-        setAllFilteredSelection((current) =>
-          current?.scope === actionScope ? null : current,
+      const current = latestSelection.current;
+      // Other filters, or an all-filtered selection chosen while the action
+      // ran, belong to a later selection. Do not reset or report them.
+      if (
+        current.scope === actionScope &&
+        (current.token === undefined || current.token === actionToken)
+      ) {
+        // Only what the action got - rows selected while it ran stay. The
+        // all-filtered selection it got is still the selection (a change
+        // gets another token), so all of it goes - `ids` are not its rows,
+        // uncontrolled they are those from before "select all".
+        const actedIds = new Set(selection.ids);
+        current.commitSelection(
+          current.token === undefined
+            ? current.ids.filter((id) => !actedIds.has(id))
+            : [],
         );
       }
-      if (!isSelectionControlled) {
-        setSelectedIds((current) => {
-          const ids = current.filter((id) => !actedIds.has(id));
-          return ids.length === current.length ? current : ids;
-        });
-      }
-      const ids = latestSelectedIds.current.filter((id) => !actedIds.has(id));
-      reportedIdsRef.current = ids;
-      onSelectedIdsChange?.(ids, describeSelection(ids, null));
     }
 
     isActionRunning.current = false;
@@ -1186,7 +1278,7 @@ export default function DataTable<T extends { id: RowId }>({
     const cellKeys = new Map<Element, string>();
 
     const observer = new ResizeObserver((entries) => {
-      const newWidths: Record<string, number> = {};
+      const newWidths = columnRecord<number>();
 
       entries.forEach((entry) => {
         const columnKey = cellKeys.get(entry.target);
@@ -1212,7 +1304,7 @@ export default function DataTable<T extends { id: RowId }>({
       // The first widths under the key - a new observer measures the
       // columns sized by their content as soon as it observes them
       if (contentWidthsKey !== null) {
-        const widths: Record<string, number> = {};
+        const widths = columnRecord<number>();
         for (const [key, cell] of Object.entries(columnRefs.current)) {
           const width = cell?.isConnected && cell.getBoundingClientRect().width;
           if (width) widths[key] = Math.round(width);
@@ -1263,14 +1355,15 @@ export default function DataTable<T extends { id: RowId }>({
       | Record<string, boolean>
       | ((previous: Record<string, boolean>) => Record<string, boolean>),
   ) => {
-    const visibility =
-      typeof update === "function" ? update(columnVisibility) : update;
-    const hidden = columns.filter(
-      (column) =>
-        columnVisibility[column.key] && visibility[column.key] === false,
-    );
-
-    setColumnVisibility(visibility);
+    let hidden: Column<T>[] = [];
+    setColumnVisibility((previous) => {
+      const visibility =
+        typeof update === "function" ? update(previous) : update;
+      hidden = columns.filter(
+        (column) => previous[column.key] && visibility[column.key] === false,
+      );
+      return visibility;
+    });
     if (hidden.length > 0) {
       updateQuery((current) => {
         const next = hidden.reduce(
@@ -1351,6 +1444,17 @@ export default function DataTable<T extends { id: RowId }>({
     width: number;
   } | null>(null);
   const draggedKey = draggedColumn?.key;
+
+  // Activity detaches the ref while keeping the table's state and DOM. A
+  // handle's cleanup cancels without updating a detached parent; attaching
+  // the table again clears the visual width retained from that gesture.
+  const tableRefCallback = useCallback((element: HTMLTableElement | null) => {
+    tableRef.current = element;
+    if (!element) return;
+    element.style.removeProperty(DRAG_WIDTH_VARIABLE);
+    setDraggedColumn(null);
+  }, []);
+
   const canResize = (column: Column<T>) =>
     resizableColumns && column.resizable !== false;
 
@@ -1360,10 +1464,12 @@ export default function DataTable<T extends { id: RowId }>({
     if (width === null) {
       table?.style.removeProperty(DRAG_WIDTH_VARIABLE);
       isDraggingRef.current = false;
-      setDraggedColumn(null);
       // What the columns measured while the drag lasted
       const pending = pendingWidthsRef.current;
       pendingWidthsRef.current = null;
+      // The whole table was unmounted or hidden, not just its handle.
+      if (!table) return;
+      setDraggedColumn(null);
       if (pending) setMeasuredWidths((prev) => mergeWidths(prev, pending));
       return;
     }
@@ -1375,7 +1481,7 @@ export default function DataTable<T extends { id: RowId }>({
     }
   };
 
-  const sizedWidths: Record<string, number> = {};
+  const sizedWidths = columnRecord<number>();
   for (const column of sortedVisibleColumns) {
     const userWidth = canResize(column)
       ? draggedColumn?.key === column.key
@@ -1391,6 +1497,12 @@ export default function DataTable<T extends { id: RowId }>({
       );
     }
   }
+  // The widths the resize handles start from and announce. Copy before
+  // serializing, so the React Compiler can keep the layout memo below.
+  const currentWidths = columnRecord<number | undefined>({
+    ...measuredWidths,
+    ...sizedWidths,
+  });
   const sizedWidthsKey = JSON.stringify(sizedWidths);
   // Every column sized - the table is as wide as they are, not stretched
   const isEverySized =
@@ -1403,7 +1515,9 @@ export default function DataTable<T extends { id: RowId }>({
   // the last of them and the first column pinned to the right (the end) cast
   // a shadow while the table is scrolled under them
   const layout = useMemo(() => {
-    const widths = JSON.parse(sizedWidthsKey) as Record<string, number>;
+    const widths = columnRecord(
+      JSON.parse(sizedWidthsKey) as Record<string, number>,
+    );
     const widthOf = (key: string, fallback: number) =>
       widths[key] ?? measuredWidths[key] ?? fallback;
     const totalWidth = (keys: string[]) =>
@@ -1430,7 +1544,7 @@ export default function DataTable<T extends { id: RowId }>({
     if (!fitsView()) rightPinned = [];
     if (!fitsView()) leftPinned = [];
 
-    const layouts: Record<string, CellLayout> = {};
+    const layouts = columnRecord<CellLayout>();
     for (const key of visibleKeys) {
       if (widths[key] !== undefined) layouts[key] = { width: widths[key] };
     }
@@ -1506,12 +1620,6 @@ export default function DataTable<T extends { id: RowId }>({
     viewWidth,
   ]);
 
-  // The widths the resize handles start from and announce
-  const currentWidths: Record<string, number | undefined> = {
-    ...measuredWidths,
-    ...sizedWidths,
-  };
-
   // Inline editing: the cell being edited, and the changes of cells being
   // saved, saved or refused - kept by cell, whatever the row objects are
   const [editingCell, setEditingCell] = useState<{
@@ -1559,7 +1667,7 @@ export default function DataTable<T extends { id: RowId }>({
   // The rows as they are when a save ends - the current object of its row
   const latestData = useRef(data);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     latestData.current = data;
   });
 
@@ -1750,9 +1858,10 @@ export default function DataTable<T extends { id: RowId }>({
     if (!onCellEdit) return;
 
     const key = getCellKey(row.id, column.key);
+    const originalValue = getColumnValue(row, column);
     // Editing waits for a save of the cell to end - no other can overtake it
     const isThisSave = (state: CellEditState<T> | undefined) =>
-      state?.status === "pending" && state.value === value;
+      state?.status === "pending" && Object.is(state.value, value);
     setCellStates((states) =>
       withCellState(states, key, { status: "pending", value }),
     );
@@ -1760,19 +1869,32 @@ export default function DataTable<T extends { id: RowId }>({
     setEditAnnouncement((current) => (current?.key === key ? null : current));
 
     runCellEdit(onCellEdit, row, column.key, value).then(
-      () => {
-        // The row object of the moment - one the app has updated already
-        // shows its own value from now on
+      (result) => {
+        // A value the app updated while saving (including normalization by
+        // the server) wins. A poll still holding the old value keeps the
+        // saved draft until a later update brings the saved data. An
+        // explicit result also identifies normalization back to the old
+        // value, which cannot be distinguished from a poll by data alone.
         const current = latestData.current.find(
           (candidate) => candidate.id === row.id,
         );
+        const keepDraft =
+          current &&
+          (result !== undefined ||
+            isSameValue(getColumnValue(current, column), originalValue));
         setCellStates((states) =>
           isThisSave(states.get(key))
-            ? withCellState(states, key, {
-                row: current,
-                status: "saved",
-                value,
-              })
+            ? withCellState(
+                states,
+                key,
+                keepDraft
+                  ? {
+                      row: current,
+                      status: "saved",
+                      value: result ? result.value : value,
+                    }
+                  : null,
+              )
             : states,
         );
       },
@@ -1859,7 +1981,25 @@ export default function DataTable<T extends { id: RowId }>({
     if (isExportRunning.current) return;
 
     // What the user sees now - the columns may change while rows load
-    const exportColumns = sortedVisibleColumns;
+    const exportColumns = onExport
+      ? sortedVisibleColumns
+      : sortedVisibleColumns.map((column) =>
+          column.exportValue
+            ? column
+            : {
+                ...column,
+                // The same value as the cell, including a rejected
+                // optimistic update or a save awaiting refreshed data.
+                // Resolve by column: getValue may read a nested value
+                // that cannot be replaced by assigning row[column.key].
+                exportValue: (row: T) =>
+                  getShownValue(
+                    cellStates.get(getCellKey(row.id, column.key)),
+                    row,
+                    getColumnValue(row, column),
+                  ).value,
+              },
+        );
     let exportRows: T[] | null = matchingRows ?? rows;
 
     if (onExport) {
@@ -2168,7 +2308,7 @@ export default function DataTable<T extends { id: RowId }>({
               "relative bg-surface dark:bg-surface-dark",
               isEverySized ? "w-auto" : "w-full",
             )}
-            ref={tableRef}
+            ref={tableRefCallback}
           >
             <TableHead
               actionColumnRef={actionColumnRef}

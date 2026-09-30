@@ -362,6 +362,109 @@ describe("ColorInput", () => {
     expect([...new FormData(getForm())]).toEqual([["read", "#ff0000"]]);
   });
 
+  it.each(["fieldset", "disabled", "readOnly"] as const)(
+    "closes an open picker on %s and keeps it closed when enabled again",
+    async (mode) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const content = (blocked: boolean) => (
+        <fieldset>
+          <ColorInput
+            defaultValue="#ff0000"
+            disabled={mode === "disabled" && blocked}
+            label="Color"
+            onChange={onChange}
+            readOnly={mode === "readOnly" && blocked}
+            swatches={[{ label: "Blue", value: "#0000ff" }]}
+          />
+        </fieldset>
+      );
+      const { container, rerender } = render(content(false));
+      await openPicker(user);
+
+      const setBlocked = async (blocked: boolean) => {
+        if (mode === "fieldset") {
+          await act(async () => {
+            container.querySelector("fieldset")!.disabled = blocked;
+          });
+        } else {
+          rerender(content(blocked));
+        }
+      };
+      await setBlocked(true);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Choose a color" }),
+      ).toBeNull();
+      expect(onChange).not.toHaveBeenCalled();
+
+      await setBlocked(false);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(field()).toHaveValue("#ff0000");
+      const dialog = await openPicker(user);
+      await user.click(within(dialog).getByRole("radio", { name: "Blue" }));
+      expect(onChange).toHaveBeenCalledExactlyOnceWith("#0000ff");
+    },
+  );
+
+  it("leaves only the first legend's color field enabled", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <fieldset disabled>
+        <legend>
+          <ColorInput
+            defaultValue="#ff0000"
+            label="Color"
+            onChange={onChange}
+            swatches={[{ label: "Blue", value: "#0000ff" }]}
+          />
+        </legend>
+        <legend>
+          <ColorInput label="Blocked" />
+        </legend>
+      </fieldset>,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Color:" })).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "Blocked:" })).toBeDisabled();
+    const dialog = await openPicker(user);
+    await user.click(within(dialog).getByRole("radio", { name: "Blue" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("#0000ff");
+  });
+
+  it("ignores a screen color returned after its fieldset was disabled", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    let finish!: (color: { sRGBHex: string }) => void;
+    vi.stubGlobal(
+      "EyeDropper",
+      class {
+        open = () =>
+          new Promise<{ sRGBHex: string }>((resolve) => {
+            finish = resolve;
+          });
+      },
+    );
+    const { container } = render(
+      <fieldset>
+        <ColorInput defaultValue="#ff0000" label="Color" onChange={onChange} />
+      </fieldset>,
+    );
+    const dialog = await openPicker(user);
+    await user.click(
+      within(dialog).getByRole("button", {
+        name: "Pick a color from the screen",
+      }),
+    );
+    await act(async () => {
+      container.querySelector("fieldset")!.disabled = true;
+    });
+    await act(async () => finish({ sRGBHex: "#0000ff" }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(field()).toHaveValue("#ff0000");
+  });
+
   it("submits its color and brings back the default on a form reset", async () => {
     const user = userEvent.setup();
     render(

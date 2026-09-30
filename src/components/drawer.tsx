@@ -316,6 +316,24 @@ export default function Drawer({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isOverlaid, layerId, toggleOpen]);
 
+  // A menu above the drawer closes as the press begins. That same gesture
+  // must not close the drawer too once the menu has left the overlay stack.
+  const wasTopmostOnPressRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOverlaid) return;
+
+    const handlePointerDown = () => {
+      wasTopmostOnPressRef.current = isTopmostOverlay(layerId, {
+        press: true,
+      });
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [isOverlaid, layerId]);
+
   // Slid in: the focus moves in and the page stops scrolling. Slid out, the
   // focus goes back to what had it (the toggle of the Navbar - also the one
   // Safari did not focus when it was clicked) instead of being lost in the
@@ -377,7 +395,17 @@ export default function Drawer({
       {isOverlaid && (
         <Overlay
           aria-label={messages.common.close}
-          onClick={toggleOpen}
+          onClick={(event) => {
+            // Assistive technology can activate the backdrop without a
+            // pointer press. In that case the current stack decides.
+            if (
+              event.detail === 0
+                ? isTopmostOverlay(layerId, { press: true })
+                : wasTopmostOnPressRef.current
+            ) {
+              toggleOpen();
+            }
+          }}
           portal={false}
           ref={backdropRef}
           role="button"
@@ -390,7 +418,7 @@ export default function Drawer({
         {...props}
         aria-hidden={!isOpen}
         className={cn(
-          "cui-drawer fixed inset-y-0 start-0 z-40 flex flex-col border-e border-neutral-100 bg-surface shadow-lg transition-all duration-300 motion-reduce:transition-none dark:border-neutral-900 dark:bg-surface-dark",
+          "cui-drawer fixed inset-y-0 inset-s-0 z-40 flex flex-col border-e border-neutral-100 bg-surface shadow-lg transition-all duration-300 motion-reduce:transition-none dark:border-neutral-900 dark:bg-surface-dark",
           isCollapsed ? "cui-drawer-collapsed" : "",
           // Out over the start edge - the right one right to left
           isOpen
@@ -714,7 +742,7 @@ function DrawerMenuItem({
       {icon}
       {/* Collapsed, the name is only read - a tooltip or the popover of the
           group shows it */}
-      <span className={iconOnly ? "sr-only" : "min-w-0 flex-1 break-words"}>
+      <span className={iconOnly ? "sr-only" : "min-w-0 flex-1 wrap-break-word"}>
         {item.label}
       </span>
       {hasBadge && (
@@ -724,7 +752,7 @@ function DrawerMenuItem({
             <>
               <span
                 aria-hidden="true"
-                className="absolute end-3 top-1.5 size-2 rounded-full bg-primary-600 ring-2 ring-surface dark:bg-primary-400 dark:ring-surface-dark forced-colors:bg-[CanvasText]"
+                className="absolute inset-e-3 top-1.5 size-2 rounded-full bg-primary-600 ring-2 ring-surface dark:bg-primary-400 dark:ring-surface-dark forced-colors:bg-[CanvasText]"
               />
               <span className="sr-only">{item.badge}</span>
             </>
@@ -758,7 +786,7 @@ function DrawerMenuItem({
     // Of a nested item, the part of the guide line beside it
     isActive &&
       level > 0 &&
-      "before:absolute before:inset-y-1.5 before:-start-2.5 before:w-0.5 before:rounded-full before:bg-primary-600 dark:before:bg-primary-400 forced-colors:before:bg-[Highlight]",
+      "before:absolute before:inset-y-1.5 before:-inset-s-2.5 before:w-0.5 before:rounded-full before:bg-primary-600 dark:before:bg-primary-400 forced-colors:before:bg-[Highlight]",
     iconOnly && "justify-center",
   );
 

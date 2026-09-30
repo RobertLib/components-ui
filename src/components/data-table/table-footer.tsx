@@ -4,7 +4,13 @@ import Pagination, {
 } from "../pagination";
 import Select from "../select";
 import { formatMessage } from "../../i18n/format";
-import { isSameFilters, resetPagination, type DataTableQuery } from "./query";
+import {
+  getQuerySort,
+  isSameFilters,
+  isSameSort,
+  resetPagination,
+  type DataTableQuery,
+} from "./query";
 import { useId } from "react";
 import { useMessages } from "../../providers/ui-context";
 
@@ -83,6 +89,15 @@ export function TableFooter({
     direction: PaginationDirection,
     cursor?: string,
   ) => {
+    // A pending filter, search, sort or page-size change already reset the
+    // query, but a slow owner may still show the old connection. Its cursors
+    // cannot continue the new query; wait for that connection to arrive.
+    const isSameConnection = (current: DataTableQuery) =>
+      current.pageSize === query.pageSize &&
+      current.search === query.search &&
+      isSameFilters(current.filters, query.filters) &&
+      isSameSort(getQuerySort(current), getQuerySort(query));
+
     // Where a move starts from - the latest query, which a slow router or a
     // filter change on the way may not show yet. The shown `page` while that
     // is the page of `query` (client-side it is clamped to the rows), and
@@ -118,6 +133,7 @@ export function TableFooter({
         break;
       case "prev":
         updateQuery((current) => {
+          if (cursor && !isSameConnection(current)) return current;
           const { from, last } = startOf(current);
 
           return {
@@ -131,6 +147,7 @@ export function TableFooter({
         break;
       case "next":
         updateQuery((current) => {
+          if (cursor && !isSameConnection(current)) return current;
           const { from, last } = startOf(current);
 
           return {
@@ -146,12 +163,22 @@ export function TableFooter({
         });
         break;
       case "last":
-        updateQuery((current) => ({
-          ...current,
-          after: null,
-          before: null,
-          page: lastPage ?? 1,
-        }));
+        updateQuery((current) => {
+          // The total still counts the same rows after a page-size change,
+          // but a pending search or filter needs its own total first.
+          if (
+            current.search !== query.search ||
+            !isSameFilters(current.filters, query.filters)
+          ) {
+            return current;
+          }
+          return {
+            ...current,
+            after: null,
+            before: null,
+            page: Math.max(1, Math.ceil((total ?? 0) / current.pageSize)),
+          };
+        });
         break;
     }
   };

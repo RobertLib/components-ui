@@ -1,0 +1,13 @@
+@import "tailwindcss";
+@import "../../src/styles.css";
+
+body {
+  margin: 0;
+  padding: 1rem;
+  font-family: sans-serif;
+}
+
+main {
+  max-width: 60rem;
+  margin-inline: auto;
+}

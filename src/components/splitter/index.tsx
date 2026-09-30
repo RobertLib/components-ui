@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -108,6 +109,8 @@ interface Drag {
   available: number;
   /** -1 where the pointer moves the other way: right-to-left side by side. */
   direction: number;
+  /** The handle that captured the pointer, also if panes change meanwhile. */
+  element: HTMLElement;
   handle: number;
   /** The sizes the drag has come to. */
   latest: number[];
@@ -342,12 +345,28 @@ export default function Splitter({
     if (!isControlled && storageKey) saveSizes(storageKey, next);
   };
 
-  const endDrag = () => {
+  const endDrag = useCallback(() => {
     dragRef.current = null;
     setDraggedHandle(null);
     restoreDocumentRef.current?.();
     restoreDocumentRef.current = null;
-  };
+  }, []);
+
+  // Limits are compared by value: inline arrays and the size updates of a
+  // drag must not cancel it. Changed settings invalidate its starting sizes
+  // and geometry. Activity hiding also drops the gesture and its capture.
+  const dragSettingsKey = JSON.stringify(limits);
+  useLayoutEffect(
+    () => () => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      // Clear the gesture before releasing capture: lostpointercapture
+      // must not save sizes belonging to the canceled drag.
+      endDrag();
+      releasePointer(drag.element, drag.pointerId);
+    },
+    [dragSettingsKey, endDrag, horizontal, isControlled, stacks],
+  );
 
   // Escape cancels a drag - and nothing else, not a Dialog around
   useEffect(() => {
@@ -360,12 +379,8 @@ export default function Splitter({
       event.preventDefault();
       event.stopPropagation();
 
-      const handleElement = rootRef.current?.querySelectorAll(
-        ":scope > [data-splitter-handle]",
-      )[drag.handle];
-      if (handleElement) releasePointer(handleElement, drag.pointerId);
-
       endDrag();
+      releasePointer(drag.element, drag.pointerId);
       changeSizes(drag.startSizes);
     };
 
@@ -373,15 +388,6 @@ export default function Splitter({
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   });
-
-  // A splitter unmounted during a drag leaves the page as it was
-  useEffect(
-    () => () => {
-      restoreDocumentRef.current?.();
-      restoreDocumentRef.current = null;
-    },
-    [],
-  );
 
   // The panes that scroll with nothing to focus in them - they get a Tab
   // stop, so that the keyboard can scroll them in every browser
@@ -448,6 +454,7 @@ export default function Splitter({
       available,
       // The first pane is on the right side of a right-to-left page
       direction: horizontal && isRtl(root) ? -1 : 1,
+      element: event.currentTarget,
       handle,
       latest: sizes,
       pointerId: event.pointerId,

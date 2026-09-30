@@ -203,10 +203,10 @@ export default function Progress({
             className={cn(
               // From the start to the end - mirrored right to left, where
               // it runs from the right
-              "absolute inset-y-0 start-0 w-2/5 animate-[progress-indeterminate_1.5s_ease-in-out_infinite] rounded-full rtl:-scale-x-100",
+              "absolute inset-y-0 inset-s-0 w-2/5 animate-[progress-indeterminate_1.5s_ease-in-out_infinite] rounded-full rtl:-scale-x-100",
               // No motion across the screen - it fades in the middle, where
               // no value would start
-              "motion-reduce:start-[30%] motion-reduce:animate-[progress-fade_2s_ease-in-out_infinite]",
+              "motion-reduce:inset-s-[30%] motion-reduce:animate-[progress-fade_2s_ease-in-out_infinite]",
               barColorClasses[color],
               BAR_FORCED_COLORS,
             )}

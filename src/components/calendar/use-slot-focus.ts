@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 interface UseSlotFocusOptions {
   /** Number of day columns. */
   days: number;
+  /** The days, resources, hours and availability the selection belongs to. */
+  geometryKey: string;
   /** The element holding the slots. */
   gridRef: React.RefObject<HTMLElement | null>;
   /** The column that has the tab stop at first, e.g. the selected day. */
@@ -63,6 +65,7 @@ const isRtl = (element: Element) =>
  */
 export default function useSlotFocus({
   days,
+  geometryKey,
   gridRef,
   initialDay,
   onActivate,
@@ -73,6 +76,29 @@ export default function useSlotFocus({
   const [focused, setFocused] = useState({ day: initialDay, slot: 0 });
   // The slot a Shift + arrow selection started at
   const [anchor, setAnchor] = useState<SlotPosition | null>(null);
+  const rangeSelectable = !!onSelectRange;
+  const [grid, setGrid] = useState({
+    days,
+    geometryKey,
+    orientation,
+    rangeSelectable,
+    slots,
+  });
+  const gridChanged =
+    grid.days !== days ||
+    grid.geometryKey !== geometryKey ||
+    grid.orientation !== orientation ||
+    grid.rangeSelectable !== rangeSelectable ||
+    grid.slots !== slots;
+
+  // A selection belongs to the grid it started in. Drop it before the
+  // caller renders it: the same indices may now mean another date, resource
+  // or time, or the range may no longer be available.
+  if (gridChanged) {
+    setGrid({ days, geometryKey, orientation, rangeSelectable, slots });
+    setAnchor(null);
+  }
+
   // Moved by a key - the slot takes the focus once it is rendered as such
   const moveFocusRef = useRef(false);
 
@@ -231,13 +257,14 @@ export default function useSlotFocus({
      * The slots selected with Shift + arrow keys, from `first` to `last` -
      * from the slot at `anchor`.
      */
-    selection: anchor
-      ? {
-          anchor: anchor.slot,
-          day: anchor.day,
-          first: Math.min(anchor.slot, slot),
-          last: Math.max(anchor.slot, slot),
-        }
-      : null,
+    selection:
+      anchor && !gridChanged
+        ? {
+            anchor: anchor.slot,
+            day: anchor.day,
+            first: Math.min(anchor.slot, slot),
+            last: Math.max(anchor.slot, slot),
+          }
+        : null,
   };
 }

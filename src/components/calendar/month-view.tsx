@@ -122,6 +122,15 @@ export default function MonthView({
     announce,
     describe: (event, display) =>
       timeLabel({ allDay: event.allDay, ...display }),
+    events,
+    geometryKey: JSON.stringify([
+      currentDate.getFullYear(),
+      currentDate.getMonth(),
+      locale.weekStartsOn,
+      shownColumns,
+      minDate,
+      maxDate,
+    ]),
     onEventDrop,
     scrollRef,
   });
@@ -228,14 +237,16 @@ export default function MonthView({
   // A hidden day has no button - the next day shown has the tab stop
   const tabStopDate = skipHiddenDays(focusedDate, hiddenDays);
 
+  // The tab stop takes the focus - also after Page Up / Down onto a hidden
+  // day, where the button in its place of the grid shows another day
   useEffect(() => {
     if (!moveFocusRef.current) return;
     moveFocusRef.current = false;
 
     gridRef.current
-      ?.querySelector<HTMLElement>(`[data-day="${toISODate(focusedDate)}"]`)
+      ?.querySelector<HTMLElement>(`[data-day="${toISODate(tabStopDate)}"]`)
       ?.focus();
-  }, [focusedDate]);
+  }, [tabStopDate]);
 
   // A day button focused by a click or a screen reader - the tab stop and
   // the arrow keys go on from it. One focused by the keyboard shows below
@@ -335,6 +346,8 @@ export default function MonthView({
       grid: gridRef.current,
       hasResources: false,
       index,
+      maxDate,
+      minDate,
       rtl: isRtl(scrollRef.current),
     });
 

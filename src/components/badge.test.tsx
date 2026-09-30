@@ -143,9 +143,10 @@ describe("Badge", () => {
         );
         const badge = badgeOf(container);
         const [vertical, horizontal] = placement.split("-");
+        const insetSide = horizontal === "start" ? "s" : "e";
         expect(badge.parentElement).toHaveClass("relative");
         expect(badge.className).toMatch(
-          new RegExp(`(^| )${horizontal}-(0|\\[14%\\])( |$)`),
+          new RegExp(`(^| )inset-${insetSide}-(0|\\[14%\\])( |$)`),
         );
         expect(badge.className).toMatch(
           new RegExp(`(^| )${vertical}-(0|\\[14%\\])( |$)`),

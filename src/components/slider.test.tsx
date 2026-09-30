@@ -1,6 +1,12 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef, useState } from "react";
+import { Activity, createRef, StrictMode, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -152,6 +158,54 @@ describe("Slider", () => {
     expect(onChange).toHaveBeenLastCalledWith(0.3);
   });
 
+  it("steps onto zero, not onto -0, from below it", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <form aria-label="Camera">
+        <Slider
+          aria-label="Tilt"
+          defaultValue={-0.3}
+          max={0.9}
+          min={-0.9}
+          name="tilt"
+          onChange={onChange}
+          showValue
+          step={0.3}
+        />
+      </form>,
+    );
+
+    // -0.9 + 3 × 0.3 is a little below zero
+    await user.tab();
+    await user.keyboard("{ArrowRight}");
+
+    expect(Object.is(onChange.mock.lastCall?.[0], 0)).toBe(true);
+    expect(screen.getByRole("slider")).toHaveAttribute("aria-valuetext", "0");
+    expect(new FormData(getForm()).get("tilt")).toBe("0");
+  });
+
+  it("shows and submits a -0 of the parent as 0", () => {
+    render(
+      <form aria-label="Camera">
+        <Slider
+          aria-label="Tilt"
+          max={1}
+          min={-1}
+          name="tilt"
+          onChange={() => {}}
+          showValue
+          step={0.5}
+          value={-0}
+        />
+      </form>,
+    );
+
+    expect(screen.getByRole("slider")).toHaveAttribute("aria-valuetext", "0");
+    expect(screen.getByRole("slider")).toHaveAttribute("aria-valuenow", "0");
+    expect(new FormData(getForm()).get("tilt")).toBe("0");
+  });
+
   it("moves a value off the steps onto them", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -255,6 +309,106 @@ describe("Slider", () => {
       expect(onChange).toHaveBeenLastCalledWith([50, 60]);
       expect(onChange).toHaveBeenCalledTimes(2);
     });
+
+    it("keeps the thumbs apart at zero, not at -0", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <Slider
+          aria-label="Tilt"
+          defaultValue={[-0.3, 0.3]}
+          max={0.9}
+          min={-0.9}
+          minDistance={0.3}
+          onChange={onChange}
+          step={0.3}
+        />,
+      );
+
+      // The lowest the end may go, -0.3 + 0.3, is a step a little below zero
+      screen.getByRole("slider", { name: "Tilt maximum" }).focus();
+      await user.keyboard("{Home}");
+
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(Object.is(onChange.mock.lastCall?.[0][1], 0)).toBe(true);
+    });
+
+    it.each([
+      {
+        values: [0, 9],
+        min: 0,
+        max: 12,
+        step: 3,
+        distance: 2,
+        index: 0,
+        key: "End",
+        expected: [6, 9],
+      },
+      {
+        values: [3, 12],
+        min: 0,
+        max: 12,
+        step: 3,
+        distance: 2,
+        index: 1,
+        key: "Home",
+        expected: [3, 6],
+      },
+      {
+        values: [0.1, 0.7],
+        min: 0.1,
+        max: 0.9,
+        step: 0.2,
+        distance: 0.3,
+        index: 0,
+        key: "End",
+        expected: [0.3, 0.7],
+      },
+      {
+        values: [0.1, 0.7],
+        min: 0.1,
+        max: 0.9,
+        step: 0.2,
+        distance: 0.3,
+        index: 1,
+        key: "Home",
+        expected: [0.1, 0.5],
+      },
+      {
+        values: [0.1, 0.3],
+        min: 0,
+        max: 1,
+        step: 0.1,
+        distance: 0.1,
+        index: 0,
+        key: "End",
+        expected: [0.2, 0.3],
+      },
+    ])(
+      "keeps thumb $index on steps of $step at the distance bound",
+      ({ values, min, max, step, distance, index, key, expected }) => {
+        const onChange = vi.fn();
+        render(
+          <form aria-label="Filter">
+            <Slider
+              aria-label="Price"
+              defaultValue={values as [number, number]}
+              min={min}
+              max={max}
+              step={step}
+              minDistance={distance}
+              name="price"
+              onChange={onChange}
+            />
+          </form>,
+        );
+        fireEvent.keyDown(screen.getAllByRole("slider")[index], { key });
+        expect(onChange).toHaveBeenLastCalledWith(expected);
+        expect(new FormData(getForm()).getAll("price")).toEqual(
+          expected.map(String),
+        );
+      },
+    );
 
     it("never moves a thumb closer than minDistance the wrong way", async () => {
       const user = userEvent.setup();
@@ -412,6 +566,169 @@ describe("Slider", () => {
       // A Dialog around stays open
       expect(onDialogKeyDown).not.toHaveBeenCalled();
       document.removeEventListener("keydown", onDialogKeyDown);
+    });
+
+    it.each([
+      ["minimum", { min: 80 }, 80, 90],
+      ["maximum", { max: 20 }, 20, 10],
+      ["larger maximum", { max: 200 }, 75, 100],
+    ] as const)(
+      "cancels a drag when its %s changes, then uses the new bounds",
+      (_, bounds, shown, next) => {
+        const onChange = vi.fn();
+        const onChangeEnd = vi.fn();
+        const view = (changed: boolean) => (
+          <Slider
+            aria-label="Volume"
+            defaultValue={50}
+            onChange={onChange}
+            onChangeEnd={onChangeEnd}
+            {...(changed ? bounds : {})}
+          />
+        );
+        const { rerender } = render(view(false));
+        const thumb = screen.getByRole("slider");
+        layOutTrack(thumb);
+
+        fireEvent.pointerDown(thumb, { ...press, clientX: 100 });
+        fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 150 });
+        expect(onChange).toHaveBeenLastCalledWith(75);
+
+        rerender(view(true));
+        expect(thumb).toHaveAttribute("aria-valuenow", String(shown));
+        fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 160 });
+        fireEvent.pointerUp(document, { ...press, clientX: 160 });
+        expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(true);
+        expect(onChange).toHaveBeenCalledTimes(1);
+        expect(onChangeEnd).not.toHaveBeenCalled();
+        expect(thumb.querySelector("span")).toHaveClass("opacity-0");
+
+        // A new gesture uses the updated scale.
+        fireEvent.pointerDown(thumb, { ...press, clientX: 150 });
+        fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 100 });
+        fireEvent.pointerUp(document, { ...press, clientX: 100 });
+        expect(onChange).toHaveBeenLastCalledWith(next);
+        expect(onChangeEnd).toHaveBeenCalledExactlyOnceWith(next);
+      },
+    );
+
+    it.each([
+      ["step", { step: 10 }],
+      ["orientation", { orientation: "vertical" }],
+      ["minimum distance", { minDistance: 50 }],
+    ] as const)("cancels a range drag when its %s changes", (_, changed) => {
+      const onChange = vi.fn();
+      const onChangeEnd = vi.fn();
+      const view = (updated: boolean) => (
+        <Slider
+          aria-label="Price"
+          defaultValue={[20, 80]}
+          onChange={onChange}
+          onChangeEnd={onChangeEnd}
+          {...(updated ? changed : {})}
+        />
+      );
+      const { rerender } = render(view(false));
+      const thumb = screen.getByRole("slider", { name: "Price minimum" });
+      layOutTrack(thumb);
+
+      fireEvent.pointerDown(thumb, { ...press, clientX: 40 });
+      fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 60 });
+      expect(onChange).toHaveBeenLastCalledWith([30, 80]);
+      rerender(view(true));
+      fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 100 });
+      fireEvent.pointerUp(document, { ...press, clientX: 100 });
+      expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(true);
+
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChangeEnd).not.toHaveBeenCalled();
+      expect(thumb).toHaveAttribute("aria-valuenow", "30");
+      expect(thumb.querySelector("span")).toHaveClass("opacity-0");
+    });
+
+    it.each(["disabled", "readOnly", "fieldset"] as const)(
+      "ends a drag without changing the value when %s locks the slider",
+      async (lock) => {
+        const onChange = vi.fn();
+        const onChangeEnd = vi.fn();
+        const view = (locked: boolean) => (
+          <fieldset disabled={locked && lock === "fieldset"}>
+            <Slider
+              aria-label="Volume"
+              defaultValue={50}
+              disabled={locked && lock === "disabled"}
+              onChange={onChange}
+              onChangeEnd={onChangeEnd}
+              readOnly={locked && lock === "readOnly"}
+            />
+          </fieldset>
+        );
+        const { rerender } = render(view(false));
+        const thumb = screen.getByRole("slider");
+        layOutTrack(thumb);
+
+        fireEvent.pointerDown(thumb, { ...press, clientX: 100 });
+        fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 20 });
+        expect(onChange).toHaveBeenLastCalledWith(10);
+        await act(async () => rerender(view(true)));
+        expect(thumb.querySelector("span")).toHaveClass("opacity-0");
+
+        expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(true);
+        fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 180 });
+        fireEvent.pointerUp(document, { ...press, clientX: 180 });
+        expect(onChange).toHaveBeenCalledExactlyOnceWith(10);
+        expect(onChangeEnd).not.toHaveBeenCalled();
+        expect(thumb).toHaveAttribute("aria-valuenow", "10");
+
+        await act(async () => rerender(view(false)));
+        fireEvent.pointerDown(thumb, { ...press, clientX: 20 });
+        fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 120 });
+        fireEvent.pointerUp(document, { ...press, clientX: 120 });
+        expect(onChange).toHaveBeenLastCalledWith(60);
+        expect(onChangeEnd).toHaveBeenCalledExactlyOnceWith(60);
+      },
+    );
+
+    it("clears a drag across Activity hiding and permits a new gesture", () => {
+      const onChange = vi.fn();
+      const onChangeEnd = vi.fn();
+      const view = (mode: "visible" | "hidden") => (
+        <StrictMode>
+          <Activity mode={mode}>
+            <Slider
+              aria-label="Volume"
+              defaultValue={50}
+              onChange={onChange}
+              onChangeEnd={onChangeEnd}
+            />
+          </Activity>
+        </StrictMode>
+      );
+      const { rerender } = render(view("visible"));
+      const thumb = screen.getByRole("slider");
+      layOutTrack(thumb);
+      const bubble = thumb.querySelector("span")!;
+
+      fireEvent.pointerDown(thumb, { ...press, clientX: 100 });
+      fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 150 });
+      expect(bubble).toHaveClass("opacity-100");
+      rerender(view("hidden"));
+      fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 180 });
+      fireEvent.pointerUp(document, { ...press, clientX: 180 });
+      rerender(view("visible"));
+
+      expect(bubble).toHaveClass("opacity-0");
+      expect(thumb).toHaveAttribute("aria-valuenow", "75");
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(75);
+      expect(onChangeEnd).not.toHaveBeenCalled();
+      expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(true);
+
+      fireEvent.pointerDown(thumb, { ...press, clientX: 150 });
+      fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 120 });
+      fireEvent.pointerUp(document, { ...press, clientX: 120 });
+      expect(onChange).toHaveBeenLastCalledWith(60);
+      expect(onChangeEnd).toHaveBeenCalledExactlyOnceWith(60);
+      expect(bubble).toHaveClass("opacity-0");
     });
 
     it("waits for a finger on the track to tap or move sideways", () => {
@@ -632,7 +949,9 @@ describe("Slider", () => {
     expect(new FormData(getForm()).get("volume")).toBe("31");
 
     act(() => getForm().reset());
-    expect(screen.getByRole("slider")).toHaveAttribute("aria-valuenow", "30");
+    await waitFor(() =>
+      expect(screen.getByRole("slider")).toHaveAttribute("aria-valuenow", "30"),
+    );
     expect(new FormData(getForm()).get("volume")).toBe("30");
   });
 

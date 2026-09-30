@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import type { RowId } from "./types";
+import { getRowKey } from "./row-key";
 
 // Rows rendered before the table is measured - also by the server
 const INITIAL_ROWS = 30;
@@ -19,7 +20,7 @@ const SUB_ROW = "\u0000sub";
 
 /** The `data-measure-key` of a row, or of its detail row. */
 export const getMeasureKey = (id: RowId, isSubRow: boolean) =>
-  isSubRow ? String(id) + SUB_ROW : String(id);
+  getRowKey(id) + (isSubRow ? SUB_ROW : "");
 
 /** A part of the rendered body: a row, or the room of the rows left out. */
 export type VirtualSegment =
@@ -73,9 +74,11 @@ function readHeights(elements: Iterable<Element>) {
 
   for (const element of elements) {
     const key = (element as HTMLElement).dataset.measureKey;
-    // A row on its way out of the page measures 0
     if (key === undefined || !element.isConnected) continue;
-    heights.push([key, element.getBoundingClientRect().height]);
+    const height = element.getBoundingClientRect().height;
+    // A hidden tab panel still has connected rows, but no layout. Keep
+    // their last measurements (or estimates) until they are visible again.
+    if (height > 0) heights.push([key, height]);
   }
 
   return heights;
@@ -138,7 +141,7 @@ function pruneHeights<T extends { id: RowId }>(
   heights: ReadonlyMap<string, number>,
   data: T[],
 ) {
-  const ids = new Set(data.map((row) => String(row.id)));
+  const ids = new Set(data.map((row) => getRowKey(row.id)));
   const next = new Map(
     [...heights].filter(([key]) =>
       ids.has(key.endsWith(SUB_ROW) ? key.slice(0, -SUB_ROW.length) : key),
@@ -270,7 +273,7 @@ export default function useVirtualRows<T extends { id: RowId }>({
 
     for (let index = 0; index < count; index++) {
       const { id } = data[index];
-      const key = String(id);
+      const key = getRowKey(id);
       const isExpanded = hasSubRows && expandedRows.has(id);
 
       rowHeights[index] = heights.get(key) ?? rowEstimate;

@@ -11,7 +11,12 @@ import { createPortal } from "react-dom";
 import cn from "../../utils/cn";
 import logger from "../../utils/logger";
 import Spinner from "../spinner";
-import { attachRef, useFormReset } from "../../hooks/use-form-control";
+import { getActiveElement, getElementByIdAt } from "../overlay-stack";
+import {
+  attachRef,
+  useFieldsetDisabled,
+  useFormReset,
+} from "../../hooks/use-form-control";
 import useMediaQuery from "../../hooks/use-media-query";
 import type { LinkComponent } from "../../providers/router";
 import {
@@ -47,6 +52,7 @@ import {
   indexTree,
   toggleCheck,
   toggleIndependentCheck,
+  TYPEAHEAD_TIMEOUT,
   type CheckState,
   type TreeRow,
 } from "./tree-model";
@@ -113,7 +119,8 @@ export interface TreeViewProps<T extends TreeItem = TreeItem> extends Omit<
   defaultSelected?: T["id"][];
   /**
    * Nothing can be selected, checked, followed or moved - the tree can
-   * still be browsed, and a form does not submit its value.
+   * still be browsed, and a form does not submit its value. A disabled
+   * fieldset around the tree disables it too, except in its first legend.
    */
   disabled?: boolean;
   /**
@@ -223,9 +230,6 @@ export interface TreeViewProps<T extends TreeItem = TreeItem> extends Omit<
   virtualized?: boolean;
 }
 
-/** Letters typed within this time of each other are one typeahead search. */
-const TYPEAHEAD_TIMEOUT = 500;
-
 /** Rows rendered above and below the view of a virtualized tree. */
 const DEFAULT_OVERSCAN = 8;
 
@@ -319,7 +323,7 @@ export default function TreeView<T extends TreeItem>({
   defaultChecked,
   defaultExpanded,
   defaultSelected,
-  disabled = false,
+  disabled: disabledProp = false,
   emptyMessage,
   expanded: expandedProp,
   filter,
@@ -349,6 +353,10 @@ export default function TreeView<T extends TreeItem>({
   const { Link, pathname, search } = useRouter();
   const baseId = useId();
   const movingDescriptionId = `${baseId}-moving`;
+
+  // Tree items are not native fields: a fieldset leaves their events alone.
+  const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();
+  const disabled = disabledProp || fieldsetDisabled;
 
   const { forgetError, forgetErrors, load, loads } =
     useLazyChildren(loadChildren);
@@ -520,6 +528,7 @@ export default function TreeView<T extends TreeItem>({
       treeRef.current = element;
       const detachRef = attachRef(ref, element);
       const detachContainer = containerRef(element);
+      const detachFieldset = fieldsetRef(element);
 
       // The pointer left the tree - a native listener: the leave events of
       // React are made of `pointerout`, which also comes when the pointer
@@ -529,12 +538,13 @@ export default function TreeView<T extends TreeItem>({
 
       return () => {
         element?.removeEventListener("pointerleave", handlePointerLeave);
+        detachFieldset?.();
         detachContainer?.();
         treeRef.current = null;
         detachRef();
       };
     },
-    [containerRef, ref],
+    [containerRef, fieldsetRef, ref],
   );
 
   // Development hints
@@ -575,9 +585,9 @@ export default function TreeView<T extends TreeItem>({
   /** The element of the row of the item `id` - `null` while not rendered. */
   const getRowElement = (id: TreeItemId) => {
     const tree = treeRef.current;
-    const element = tree?.ownerDocument.getElementById(
-      `${baseId}-${encodeId(id)}`,
-    );
+    const element = tree
+      ? getElementByIdAt(tree, `${baseId}-${encodeId(id)}`)
+      : null;
     return element && tree?.contains(element) ? element : null;
   };
 
@@ -589,12 +599,22 @@ export default function TreeView<T extends TreeItem>({
       : undefined;
   };
 
-  /** Scrolls the row at `rowIndex` into view - a virtualized one also renders it. */
-  const revealRow = (rowIndex: number) => {
+  /**
+   * Scrolls the row at `rowIndex` into view - a virtualized one also renders
+   * it. With `status`, the row under it saying its children load too.
+   */
+  const revealRow = (rowIndex: number, status = false) => {
     const row = rows[rowIndex];
     if (!row) return;
-    if (flatRows) scrollToIndex(flatRows.entryOfRow[rowIndex]);
-    else getRowElement(row.id)?.scrollIntoView({ block: "nearest" });
+    if (flatRows) {
+      scrollToIndex(flatRows.entryOfRow[rowIndex] + (status ? 1 : 0));
+      return;
+    }
+    const element = getRowElement(row.id);
+    // Its `<li>` holds its group too - with the status row in it
+    (status ? element?.parentElement : element)?.scrollIntoView({
+      block: "nearest",
+    });
   };
 
   /**
@@ -648,14 +668,12 @@ export default function TreeView<T extends TreeItem>({
     const tree = treeRef.current;
     if (!hasFocus || !tree) return;
 
-    const active = tree.ownerDocument.activeElement;
+    const active = getActiveElement(tree.ownerDocument);
     if (active && active !== tree.ownerDocument.body) return;
 
     const row = rows[focusIndex];
     if (!row) return;
-    const element = tree.ownerDocument.getElementById(
-      `${baseId}-${encodeId(row.id)}`,
-    );
+    const element = getElementByIdAt(tree, `${baseId}-${encodeId(row.id)}`);
     if (element && tree.contains(element)) {
       element.focus({ preventScroll: virtualized });
     } else {
@@ -681,9 +699,7 @@ export default function TreeView<T extends TreeItem>({
     const tree = treeRef.current;
     if (pending === null || !tree) return;
 
-    const element = tree.ownerDocument.getElementById(
-      `${baseId}-${encodeId(pending)}`,
-    );
+    const element = getElementByIdAt(tree, `${baseId}-${encodeId(pending)}`);
     if (element && tree.contains(element)) {
       pendingFocusRef.current = null;
       element.focus({ preventScroll: true });
@@ -844,9 +860,28 @@ export default function TreeView<T extends TreeItem>({
     onItemClick?.(item);
   };
 
-  /** Follows the link of a row - through a click, which the router handles. */
-  const followLink = (rowElement: HTMLElement) => {
-    rowElement.querySelector<HTMLElement>(`[${LINK_ATTRIBUTE}]`)?.click();
+  /** Follows the link of a row, keeping the keys held during a pointer click. */
+  const followLink = (
+    rowElement: HTMLElement,
+    event?: React.MouseEvent<HTMLElement>,
+  ) => {
+    const link = rowElement.querySelector<HTMLElement>(`[${LINK_ATTRIBUTE}]`);
+    if (!event) {
+      link?.click();
+      return;
+    }
+
+    link?.dispatchEvent(
+      new MouseEvent("click", {
+        altKey: event.altKey,
+        bubbles: true,
+        button: event.button,
+        cancelable: true,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+      }),
+    );
   };
 
   const isTypeaheadActive = (time: number) =>
@@ -892,7 +927,7 @@ export default function TreeView<T extends TreeItem>({
       if (onLink && isModifiedClick(event)) return;
       // Beside the link - the row follows it as a whole
       if (!onLink) {
-        followLink(event.currentTarget);
+        followLink(event.currentTarget, event);
         return;
       }
     }
@@ -1297,7 +1332,8 @@ function renderRow<T extends TreeItem>(
   const isDisabled = context.disabledSet.has(row.id);
   const isSelected = context.selectedSet.has(row.id);
   const isMoving = context.movedIds.has(row.id);
-  const hasIndicator = dropIndicator?.rowIndex === rowIndex;
+  const hasIndicator =
+    dropIndicator?.rowIndex === rowIndex && !dropIndicator.status;
 
   return (
     <TreeRowView
@@ -1343,6 +1379,19 @@ function renderRow<T extends TreeItem>(
 }
 
 /**
+ * The level of the line at the bottom of the status row of the row at
+ * `rowIndex` - while dragged items would land after it.
+ */
+function getStatusDropLevel<T extends TreeItem>(
+  { dropIndicator }: RenderContext<T>,
+  rowIndex: number,
+) {
+  return dropIndicator?.status && dropIndicator.rowIndex === rowIndex
+    ? dropIndicator.level
+    : undefined;
+}
+
+/**
  * The rows from `start` to `end` as nested lists - the children of a row in
  * a group next to it, which its row owns (`aria-owns`), so the focus ring
  * and the name of an item stay on its own row.
@@ -1370,6 +1419,7 @@ function renderRows<T extends TreeItem>(
             {row.loadStatus && (
               <li role="none">
                 <StatusRow
+                  dropLevel={getStatusDropLevel(context, rowIndex)}
                   kind={row.loadStatus}
                   level={row.level + 1}
                   loadError={context.loadError}
@@ -1432,6 +1482,7 @@ function renderFlatRows<T extends TreeItem>(
       ) : (
         <li key={`${key}-status`} role="none">
           <StatusRow
+            dropLevel={getStatusDropLevel(context, rowIndex)}
             height={rowHeight}
             kind={kind}
             level={row.level + 1}
@@ -1478,7 +1529,33 @@ function DragBadge({ attach, text }: DragBadgeProps) {
   );
 }
 
+interface DropLineProps {
+  edge: "bottom" | "top";
+  /** The level it is indented to. */
+  level: number;
+}
+
+/** The line where dragged items would land - at the level they would land at. */
+function DropLine({ edge, level }: DropLineProps) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "pointer-events-none absolute inset-e-0 z-10 h-0.5 rounded-full bg-primary-500 dark:bg-primary-400 forced-colors:bg-[Highlight]",
+        "before:absolute before:-inset-s-1 before:-top-0.75 before:size-2 before:rounded-full before:border-2 before:border-primary-500 before:bg-surface dark:before:border-primary-400 dark:before:bg-surface-dark forced-colors:before:border-[Highlight]",
+        edge === "top" ? "-top-px" : "-bottom-px",
+      )}
+      style={{ insetInlineStart: indent(level) }}
+    />
+  );
+}
+
 interface StatusRowProps {
+  /**
+   * The level of the line at its bottom, where dragged items would land -
+   * after the item whose children it stands for.
+   */
+  dropLevel?: number;
   /** Fixed height, in pixels - in a virtualized tree. */
   height?: number;
   kind: "error" | "loading";
@@ -1492,6 +1569,7 @@ interface StatusRowProps {
 
 /** The row in place of children that are loading, or failed to load. */
 function StatusRow({
+  dropLevel,
   height,
   kind,
   level,
@@ -1501,14 +1579,19 @@ function StatusRow({
   retry,
 }: StatusRowProps) {
   const style = { height, paddingInlineStart: indent(level) };
+  const dropEdge = dropLevel === undefined ? undefined : "bottom";
+  const dropLine = dropLevel !== undefined && (
+    <DropLine edge="bottom" level={dropLevel} />
+  );
 
   if (kind === "loading") {
     return (
       <div
         className={cn(
-          "flex items-center gap-1.5 py-1 pe-2 text-neutral-500 dark:text-neutral-400",
+          "relative flex items-center gap-1.5 py-1 pe-2 text-neutral-500 dark:text-neutral-400",
           height === undefined && "min-h-8",
         )}
+        data-drop-edge={dropEdge}
         role="status"
         style={style}
       >
@@ -1521,6 +1604,7 @@ function StatusRow({
           size="sm"
         />
         <span className="truncate">{loading}</span>
+        {dropLine}
       </div>
     );
   }
@@ -1528,9 +1612,11 @@ function StatusRow({
   return (
     <div
       className={cn(
-        "flex items-center gap-x-2 gap-y-1 py-1 pe-2",
-        height === undefined ? "min-h-8 flex-wrap" : "overflow-hidden",
+        "relative flex items-center gap-x-2 gap-y-1 py-1 pe-2",
+        // Clipped across only - the line below it shows
+        height === undefined ? "min-h-8 flex-wrap" : "overflow-x-clip",
       )}
+      data-drop-edge={dropEdge}
       style={style}
     >
       <span
@@ -1549,6 +1635,7 @@ function StatusRow({
       >
         {retry}
       </button>
+      {dropLine}
     </div>
   );
 }
@@ -1653,7 +1740,7 @@ function TreeRowView<T extends TreeItem>({
         </span>
       )}
       <span
-        className={cn("min-w-0", isFixed ? "truncate" : "break-words")}
+        className={cn("min-w-0", isFixed ? "truncate" : "wrap-break-word")}
         id={labelId}
       >
         {renderLabel ? renderLabel(item, state) : label}
@@ -1724,15 +1811,7 @@ function TreeRowView<T extends TreeItem>({
       {/* The line where dragged items would land - at the level they would
           land at */}
       {(dropEdge === "top" || dropEdge === "bottom") && (
-        <span
-          aria-hidden="true"
-          className={cn(
-            "pointer-events-none absolute end-0 z-10 h-0.5 rounded-full bg-primary-500 dark:bg-primary-400 forced-colors:bg-[Highlight]",
-            "before:absolute before:-start-1 before:-top-0.75 before:size-2 before:rounded-full before:border-2 before:border-primary-500 before:bg-surface dark:before:border-primary-400 dark:before:bg-surface-dark forced-colors:before:border-[Highlight]",
-            dropEdge === "top" ? "-top-px" : "-bottom-px",
-          )}
-          style={{ insetInlineStart: indent(dropLevel ?? level) }}
-        />
+        <DropLine edge={dropEdge} level={dropLevel ?? level} />
       )}
 
       {/* The pointer's toggle - the keyboard uses the arrow keys */}

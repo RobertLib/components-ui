@@ -14,6 +14,61 @@ const auxClick = (element: Element) =>
   );
 
 describe("Button as a link", () => {
+  it.each(["Button", "IconButton"])(
+    "%s stops clicks reaching its container while disabled",
+    async (kind) => {
+      const user = userEvent.setup();
+      const onRowClick = vi.fn();
+      const onRowAuxClick = vi.fn();
+      const onClick = vi.fn((event: React.MouseEvent) =>
+        event.preventDefault(),
+      );
+      const onAuxClick = vi.fn((event: React.MouseEvent) =>
+        event.preventDefault(),
+      );
+      const view = (disabled: boolean) => (
+        <div onAuxClick={onRowAuxClick} onClick={onRowClick}>
+          {kind === "Button" ? (
+            <Button
+              disabled={disabled}
+              link="/edit"
+              onAuxClick={onAuxClick}
+              onClick={onClick}
+            >
+              <span>Edit</span>
+            </Button>
+          ) : (
+            <IconButton
+              aria-label="Edit"
+              disabled={disabled}
+              href="/edit"
+              onAuxClick={onAuxClick}
+              onClick={onClick}
+            >
+              <svg />
+            </IconButton>
+          )}
+        </div>
+      );
+      const { rerender } = render(view(true));
+      const link = screen.getByRole("link", { name: "Edit" });
+      await user.click(link.firstElementChild!);
+      expect(auxClick(link.firstElementChild!)).toBe(false);
+      expect(onClick).not.toHaveBeenCalled();
+      expect(onAuxClick).not.toHaveBeenCalled();
+      expect(onRowClick).not.toHaveBeenCalled();
+      expect(onRowAuxClick).not.toHaveBeenCalled();
+
+      rerender(view(false));
+      await user.click(screen.getByRole("link", { name: "Edit" }));
+      auxClick(screen.getByRole("link", { name: "Edit" }));
+      expect(onClick).toHaveBeenCalledTimes(1);
+      expect(onAuxClick).toHaveBeenCalledTimes(1);
+      expect(onRowClick).toHaveBeenCalledTimes(1);
+      expect(onRowAuxClick).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("cannot be opened in a new tab while disabled", () => {
     const onAuxClick = vi.fn();
     render(

@@ -523,6 +523,9 @@ export function getRangeIds<T>(
     .map((row) => row.id);
 }
 
+/** Letters typed within this time (ms) of each other are one typeahead search. */
+export const TYPEAHEAD_TIMEOUT = 500;
+
 /**
  * The index of the row whose label starts with `text` - searched from the
  * row after `from` (from `from` itself when the text grows, so it stays on

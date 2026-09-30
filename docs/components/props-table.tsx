@@ -28,7 +28,7 @@ export default function PropsTable({ of, title }: PropsTableProps) {
         </h3>
       )}
       <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
-        <table className="w-full min-w-[640px] text-left text-sm">
+        <table className="w-full min-w-160 text-left text-sm">
           <thead className="bg-neutral-50 text-xs tracking-wide text-neutral-500 uppercase dark:bg-neutral-900 dark:text-neutral-400">
             <tr>
               <th className="px-3 py-2 font-semibold">Prop</th>
@@ -51,7 +51,7 @@ export default function PropsTable({ of, title }: PropsTableProps) {
                     </span>
                   )}
                 </td>
-                <td className="max-w-72 px-3 py-2 font-mono text-[12px] break-words text-primary-700 dark:text-primary-300">
+                <td className="max-w-72 px-3 py-2 font-mono text-[12px] wrap-break-word text-primary-700 dark:text-primary-300">
                   {prop.type}
                 </td>
                 <td className="px-3 py-2 font-mono text-[12px] whitespace-nowrap text-neutral-600 dark:text-neutral-400">

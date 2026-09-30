@@ -124,10 +124,11 @@ export default function CalendarField({
     [ref],
   );
 
-  // The browser blocks a submit with the message, as for a native field
+  // The browser blocks a submit with the message, as for a native field.
+  // Leaving read-only mode mounts a new input even when the message stays.
   useLayoutEffect(() => {
     validationRef.current?.setCustomValidity(validityMessage);
-  }, [validityMessage]);
+  }, [readOnly, validityMessage]);
 
   const isOwnElement = (node: EventTarget | null) =>
     node instanceof Node && !!groupRef.current?.contains(node);

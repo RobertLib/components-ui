@@ -95,6 +95,43 @@ function EditableTable({
 }
 
 describe("DataTable inline editing", () => {
+  it("keeps edits and row identity separate for number and string ids", async () => {
+    const user = userEvent.setup();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const data = [
+      { id: 1, name: "Number" },
+      { id: "1", name: "String" },
+    ];
+    const finishes: (() => void)[] = [];
+    const props = {
+      columns: [{ key: "name", label: "Name", editable: true }],
+      data,
+      onCellEdit: () => new Promise<void>((resolve) => finishes.push(resolve)),
+    };
+    const { rerender } = render(<DataTable {...props} />);
+
+    await user.dblClick(cell(0, 0));
+    await user.keyboard("{Control>}a{/Control}New Number{Enter}");
+    expect(cell(0, 0)).toHaveTextContent("New Number");
+    expect(cell(1, 0)).toHaveTextContent("String");
+    expect(cell(1, 0)).not.toHaveAttribute("aria-busy");
+
+    await user.dblClick(cell(1, 0));
+    await user.keyboard("{Control>}a{/Control}New String{Enter}");
+    expect(cell(0, 0)).toHaveTextContent("New Number");
+    expect(cell(1, 0)).toHaveTextContent("New String");
+    await act(async () => finishes[0]());
+    expect(cell(0, 0)).not.toHaveAttribute("aria-busy");
+    expect(cell(1, 0)).toHaveAttribute("aria-busy", "true");
+    await act(async () => finishes[1]());
+
+    // Both saved drafts survive reconciling the same row objects in a new order.
+    rerender(<DataTable {...props} data={[data[1], data[0]]} />);
+    expect(cell(0, 0)).toHaveTextContent("New String");
+    expect(cell(1, 0)).toHaveTextContent("New Number");
+    expect(errors).not.toHaveBeenCalled();
+  });
+
   it("edits a cell from the keyboard - Enter starts, Enter saves", async () => {
     const user = userEvent.setup();
     const onCellEdit = vi.fn();
@@ -433,6 +470,109 @@ describe("DataTable inline editing", () => {
     );
     expect(cell(0, 0)).toHaveTextContent("Eva");
   });
+
+  it.each(["before", "after"] as const)(
+    "keeps the server's normalized value when data arrives %s the save resolves",
+    async (timing) => {
+      const user = userEvent.setup();
+      let finish!: () => void;
+      const onCellEdit = () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      const { rerender } = render(
+        <DataTable columns={columns} data={rows} onCellEdit={onCellEdit} />,
+      );
+
+      await user.dblClick(cell(0, 0));
+      await user.keyboard("{Control>}a{/Control}eva{Enter}");
+      const receiveSavedRows = () =>
+        rerender(
+          <DataTable
+            columns={columns}
+            data={[{ ...rows[0], name: "Eva" }, rows[1]]}
+            onCellEdit={onCellEdit}
+          />,
+        );
+
+      if (timing === "before") receiveSavedRows();
+      await act(async () => finish());
+      if (timing === "after") receiveSavedRows();
+
+      expect(cell(0, 0)).not.toHaveAttribute("aria-busy");
+      expect(cell(0, 0)).toHaveTextContent(/^Eva$/);
+      await user.dblClick(cell(0, 0));
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Eva");
+    },
+  );
+
+  it.each(["before", "after", "without"] as const)(
+    "uses the confirmed save value with data arriving %s the save resolves",
+    async (timing) => {
+      const user = userEvent.setup();
+      let finish!: (result: { value: unknown }) => void;
+      const onCellEdit = () =>
+        new Promise<{ value: unknown }>((resolve) => {
+          finish = resolve;
+        });
+      const { rerender } = render(
+        <DataTable columns={columns} data={rows} onCellEdit={onCellEdit} />,
+      );
+
+      await user.dblClick(cell(0, 0));
+      await user.keyboard("{Control>}a{/Control}adam{Enter}");
+      const receiveSavedRows = () =>
+        rerender(
+          <DataTable
+            columns={columns}
+            data={[{ ...rows[0], name: "Adam" }, rows[1]]}
+            onCellEdit={onCellEdit}
+          />,
+        );
+
+      if (timing === "before") receiveSavedRows();
+      // The server capitalizes the name back to its original value. Its
+      // result tells this apart from a poll still holding the old name.
+      await act(async () => finish({ value: "Adam" }));
+      if (timing === "after") receiveSavedRows();
+
+      expect(cell(0, 0)).not.toHaveAttribute("aria-busy");
+      expect(cell(0, 0)).toHaveTextContent(/^Adam$/);
+      await user.dblClick(cell(0, 0));
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Adam");
+    },
+  );
+
+  it.each([null, undefined, "", 0, false])(
+    "accepts a synchronous confirmed value of %s",
+    async (value) => {
+      const user = userEvent.setup();
+      render(
+        <DataTable
+          columns={columns}
+          data={rows}
+          onCellEdit={() => ({ value })}
+        />,
+      );
+      await user.dblClick(cell(0, 0));
+      await user.keyboard("{Control>}a{/Control}Eva{Enter}");
+      expect(cell(0, 0)).not.toHaveAttribute("aria-busy");
+      await user.dblClick(cell(0, 0));
+      if (typeof value === "boolean") {
+        expect(
+          screen.getByRole("checkbox", { name: "Name" }),
+        ).not.toBeChecked();
+      } else if (typeof value === "number") {
+        expect(screen.getByRole("spinbutton", { name: "Name" })).toHaveValue(
+          value,
+        );
+      } else {
+        expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(
+          value ?? "",
+        );
+      }
+    },
+  );
 
   it("keeps an edited row in place while its next cell is edited", async () => {
     const user = userEvent.setup();
@@ -908,4 +1048,46 @@ describe("DataTable inline editing", () => {
     await user.click(screen.getByRole("button", { name: "Team C" }));
     expect(onCellEdit).toHaveBeenCalledWith(rows[0], "team", "C");
   });
+
+  it.each(["saved", "failed"] as const)(
+    "finishes a %s save when a custom editor supplies NaN",
+    async (result) => {
+      const user = userEvent.setup();
+      const onCellEdit = vi.fn(() =>
+        result === "saved"
+          ? Promise.resolve({ value: 42 })
+          : Promise.reject(new Error("Enter a number.")),
+      );
+      render(
+        <DataTable
+          columns={[
+            {
+              editable: true,
+              key: "age",
+              label: "Age",
+              renderEditor: ({ commit }) => (
+                <button onClick={() => commit(NaN)} type="button">
+                  Save number
+                </button>
+              ),
+            },
+          ]}
+          data={rows}
+          onCellEdit={onCellEdit}
+        />,
+      );
+
+      await user.dblClick(cell(0, 0));
+      await user.click(screen.getByRole("button", { name: "Save number" }));
+
+      expect(onCellEdit).toHaveBeenCalledExactlyOnceWith(rows[0], "age", NaN);
+      await waitFor(() => expect(cell(0, 0)).not.toHaveAttribute("aria-busy"));
+      expect(cell(0, 0)).toHaveTextContent(
+        result === "saved" ? "42" : "30Enter a number.",
+      );
+      // A completed request, also a rejection, leaves the cell editable.
+      await user.dblClick(cell(0, 0));
+      expect(screen.getByRole("button", { name: "Save number" })).toHaveFocus();
+    },
+  );
 });

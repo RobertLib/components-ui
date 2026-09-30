@@ -411,6 +411,8 @@ export const cs: Locale = {
         other: "Nahrává se {count} souborů…",
       },
       validationFailed: "Soubor se nepodařilo zkontrolovat.",
+      waitForUpload: "Počkejte na dokončení nahrávání souborů.",
+      waitForValidation: "Počkejte na dokončení kontroly souborů.",
     },
     form: {
       labelSuffix: ":",
@@ -435,6 +437,7 @@ export const cs: Locale = {
     numberInput: {
       decrement: "Snížit",
       increment: "Zvýšit",
+      invalidNumber: "Zadejte číslo.",
       rangeOverflow: "Zadejte hodnotu {max} nebo nižší.",
       rangeUnderflow: "Zadejte hodnotu {min} nebo vyšší.",
     },

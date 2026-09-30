@@ -21,9 +21,19 @@ export interface UIContextValue {
   locale: Locale;
   portalContainer?: PortalContainer;
   router?: Partial<RouterAdapter>;
+  /** Stable identity of the provider that configures navigation or location. */
+  routerScope?: object;
 }
 
 export const UIContext = createContext<UIContextValue | null>(null);
+
+// Without a custom router, every hook uses the same browser history.
+const browserRouterScope = {};
+
+/** Internal identity for state shared by the hooks of one router. */
+export function useRouterScope(): object {
+  return use(UIContext)?.routerScope ?? browserRouterScope;
+}
 
 /** The active locale (texts, formats, first day of the week). */
 export function useLocale(): Locale {

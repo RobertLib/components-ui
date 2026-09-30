@@ -4,6 +4,9 @@ import { createLocale } from "../../i18n/format";
 import { cs } from "../../i18n/cs";
 import { en } from "../../i18n/en";
 import {
+  createDateTimeFormat,
+  createDayFormat,
+  createTimeTextFormatter,
   formatEventLabel,
   formatTimeRange,
   getVisibleMinutes,
@@ -162,6 +165,29 @@ describe("sortEvents", () => {
 });
 
 describe("formatEventLabel", () => {
+  it.each(["en-US-u-ca-persian", "en-US-u-ca-buddhist"])(
+    "keeps dates added to an overnight time range Gregorian for %s",
+    (code) => {
+      const format = createTimeTextFormatter(createLocale(en, { code }));
+      const text = format(event("Overnight", d(24, 23), d(25, 1)));
+      expect(text).toContain("9/24/2026");
+      expect(text).toContain("9/25/2026");
+    },
+  );
+
+  it.each(["en-US-u-ca-persian", "en-US-u-ca-buddhist"])(
+    "names days and timed slots in the grid's Gregorian calendar for %s",
+    (code) => {
+      const locale = createLocale(en, { code });
+      expect(createDayFormat(locale).format(d(24))).toBe(
+        "Thursday, September 24, 2026",
+      );
+      expect(createDateTimeFormat(locale).format(d(24, 9))).toMatch(
+        /^Thursday, September 24, 2026,? (?:at )?9:00\sAM$/,
+      );
+    },
+  );
+
   it("names an event by its title, day and times on the locale's clock", () => {
     const standup = event("Standup", d(24, 9), d(24, 10));
 

@@ -58,7 +58,7 @@ export default function CustomOverlay() {
             <div
               aria-labelledby={titleId}
               aria-modal="true"
-              className="fixed inset-y-0 end-0 z-50 flex w-80 max-w-full flex-col gap-4 border-s border-neutral-200 bg-surface p-6 shadow-lg focus:outline-hidden dark:border-neutral-800 dark:bg-surface-dark"
+              className="fixed inset-y-0 inset-e-0 z-50 flex w-80 max-w-full flex-col gap-4 border-s border-neutral-200 bg-surface p-6 shadow-lg focus:outline-hidden dark:border-neutral-800 dark:bg-surface-dark"
               ref={panelRef}
               role="dialog"
               tabIndex={-1}

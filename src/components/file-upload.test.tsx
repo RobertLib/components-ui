@@ -4,10 +4,11 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRequire } from "node:module";
-import { useState } from "react";
+import { Activity, StrictMode, Suspense, use, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -109,6 +110,354 @@ function stubDataTransfer() {
 }
 
 describe("FileUpload", () => {
+  it.each([false, true])(
+    "unblocks its external form when hidden validation and upload finish, required=%s",
+    async (required) => {
+      const { pending, upload } = controllableUpload();
+      let pass = () => {};
+      const validate = () =>
+        new Promise<undefined>((resolve) => {
+          pass = () => resolve(undefined);
+        });
+      const onSubmit = vi.fn((event: React.FormEvent) =>
+        event.preventDefault(),
+      );
+      const view = (mode: "hidden" | "visible") => (
+        <StrictMode>
+          <form aria-label="Order" id="hidden-upload-order" onSubmit={onSubmit}>
+            <button type="submit">Save</button>
+          </form>
+          <Activity mode={mode}>
+            <FileUpload
+              form="hidden-upload-order"
+              name="file"
+              required={required}
+              upload={upload}
+              validate={validate}
+            />
+          </Activity>
+        </StrictMode>
+      );
+      const { rerender } = render(view("visible"));
+      const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+      drop(screen.getByRole("group"), [file("a.pdf")]);
+      expect(form.checkValidity()).toBe(false);
+
+      rerender(view("hidden"));
+      expect(form.checkValidity()).toBe(false);
+      await act(async () => pass());
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(form.checkValidity()).toBe(false);
+      act(() => form.requestSubmit());
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      await act(async () => pending[0].resolve({ value: "a" }));
+      expect(submitted(form, "file")).toEqual(["a"]);
+      expect(form.checkValidity()).toBe(true);
+      act(() => form.requestSubmit());
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+
+      rerender(view("visible"));
+      expect(form.checkValidity()).toBe(true);
+      expect(submitted(form, "file")).toEqual(["a"]);
+    },
+  );
+
+  it.each([false, true])(
+    "keeps parent state from uploads finishing while hidden, together=%s",
+    async (together) => {
+      const { pending, upload } = controllableUpload();
+      function Order({ mode }: { mode: "hidden" | "visible" }) {
+        const [stored, setStored] = useState<string[]>([]);
+        return (
+          <StrictMode>
+            <output aria-label="Stored files">{stored.join(",")}</output>
+            <Activity mode={mode}>
+              <FileUpload
+                multiple
+                onUpload={(result) => setStored([...stored, result.value!])}
+                upload={upload}
+              />
+            </Activity>
+          </StrictMode>
+        );
+      }
+      const { rerender } = render(<Order mode="visible" />);
+      drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+      expect(upload).toHaveBeenCalledTimes(2);
+
+      rerender(<Order mode="hidden" />);
+      if (together) {
+        await act(async () => {
+          pending[0].resolve({ value: "a" });
+          pending[1].resolve({ value: "b" });
+        });
+      } else {
+        await act(async () => pending[0].resolve({ value: "a" }));
+        expect(
+          screen.getByRole("status", { name: "Stored files" }),
+        ).toHaveTextContent("a");
+        await act(async () => pending[1].resolve({ value: "b" }));
+      }
+      expect(
+        screen.getByRole("status", { name: "Stored files" }),
+      ).toHaveTextContent("a,b");
+      rerender(<Order mode="visible" />);
+      expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    },
+  );
+
+  it("calls the new callbacks when a hidden upload finishes", async () => {
+    const { pending, upload } = controllableUpload();
+    const previous = vi.fn();
+    const current = vi.fn();
+    const view = (mode: "hidden" | "visible", onUpload: typeof current) => (
+      <StrictMode>
+        <Activity mode={mode}>
+          <FileUpload data-mode={mode} onUpload={onUpload} upload={upload} />
+        </Activity>
+      </StrictMode>
+    );
+    const { rerender } = render(view("visible", previous));
+    const group = screen.getByRole("group");
+    drop(group, [file("a.pdf")]);
+    rerender(view("hidden", current));
+    await act(async () => {});
+    expect(group).toHaveAttribute("data-mode", "hidden");
+
+    await act(async () => pending[0].resolve({ value: "a" }));
+    expect(current).toHaveBeenCalledExactlyOnceWith({ value: "a" });
+    expect(previous).not.toHaveBeenCalled();
+  });
+
+  it.each(["reset", "canceled reset", "unmount"])(
+    "handles %s before a hidden upload callback can receive fresh parent state",
+    async (action) => {
+      const { pending, upload } = controllableUpload();
+      const onUpload = vi.fn();
+      let resume = () => {};
+      const ready = new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      function WaitingContent({ wait }: { wait: boolean }) {
+        if (wait) use(ready);
+        return null;
+      }
+      function Order({ mode }: { mode: "hidden" | "visible" }) {
+        const [stored, setStored] = useState<string[]>([]);
+        return (
+          <StrictMode>
+            <form
+              aria-label="Order"
+              id="suspended-upload-order"
+              onReset={
+                action === "canceled reset"
+                  ? (event) => event.preventDefault()
+                  : undefined
+              }
+            />
+            <Activity mode={mode}>
+              <Suspense fallback={null}>
+                <WaitingContent wait={stored.length > 0} />
+                <FileUpload
+                  defaultAttachments={[{ value: "default-file" }]}
+                  form="suspended-upload-order"
+                  multiple
+                  name="files"
+                  onUpload={(result) => {
+                    onUpload(result);
+                    setStored([...stored, result.value!]);
+                  }}
+                  upload={upload}
+                />
+              </Suspense>
+            </Activity>
+          </StrictMode>
+        );
+      }
+      const { rerender, unmount } = render(<Order mode="visible" />);
+      const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+      drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+      rerender(<Order mode="hidden" />);
+      await act(async () => {
+        pending[0].resolve({ value: "a" });
+        pending[1].resolve({ value: "b" });
+      });
+      expect(onUpload).toHaveBeenCalledTimes(1);
+
+      if (action === "unmount") unmount();
+      else {
+        act(() => form.reset());
+        await act(() => new Promise((resolve) => setTimeout(resolve)));
+      }
+      await act(async () => resume());
+      expect(onUpload).toHaveBeenCalledTimes(
+        action === "canceled reset" ? 2 : 1,
+      );
+      if (action === "reset") {
+        expect(submitted(form, "files")).toEqual(["default-file"]);
+      }
+    },
+  );
+
+  it("finishes asynchronous validation while hidden by Activity", async () => {
+    const { pending, upload } = controllableUpload();
+    let pass = () => {};
+    const validate = () =>
+      new Promise<undefined>((resolve) => {
+        pass = () => resolve(undefined);
+      });
+    const view = (mode: "hidden" | "visible") => (
+      <StrictMode>
+        <Activity mode={mode}>
+          <form aria-label="Order">
+            <FileUpload name="file" upload={upload} validate={validate} />
+          </form>
+        </Activity>
+      </StrictMode>
+    );
+    const { rerender } = render(view("visible"));
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    expect(form.checkValidity()).toBe(false);
+
+    rerender(view("hidden"));
+    await act(async () => pass());
+    expect(upload).toHaveBeenCalledTimes(1);
+    await act(async () => pending[0].resolve({ value: "a" }));
+    rerender(view("visible"));
+
+    expect(form.checkValidity()).toBe(true);
+    expect(submitted(form, "file")).toEqual(["a"]);
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it.each([false, true])(
+    "blocks its external form until all uploads settle, with required=%s",
+    async (required) => {
+      const { pending, upload } = controllableUpload();
+      const onSubmit = vi.fn((event: React.FormEvent) =>
+        event.preventDefault(),
+      );
+      render(
+        <>
+          <form aria-label="Order" id="order" onSubmit={onSubmit}>
+            <button type="submit">Save</button>
+          </form>
+          <form aria-label="Other">
+            <FileUpload
+              concurrency={1}
+              defaultAttachments={[{ value: "old-file" }]}
+              form="order"
+              multiple
+              name="files"
+              required={required}
+              upload={upload}
+            />
+          </form>
+        </>,
+      );
+      const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+      expect(form.checkValidity()).toBe(true);
+      drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+      expect(form.checkValidity()).toBe(false);
+      expect(
+        screen
+          .getByRole<HTMLFormElement>("form", { name: "Other" })
+          .checkValidity(),
+      ).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      await act(async () => pending[0].resolve({ value: "a" }));
+      expect(pending).toHaveLength(2);
+      expect(form.checkValidity()).toBe(false);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Cancel uploading b.pdf" }),
+      );
+      expect(form.checkValidity()).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+      expect(submitted(form, "files")).toEqual(["old-file", "a"]);
+    },
+  );
+
+  it("releases an optional form after an upload fails or finishes", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { pending, upload } = controllableUpload();
+    render(
+      <form aria-label="Order">
+        <FileUpload name="file" upload={upload} />
+      </form>,
+    );
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    expect(form.checkValidity()).toBe(false);
+    await act(async () => pending[0].reject(new Error("Upload failed")));
+    expect(form.checkValidity()).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Retry uploading a.pdf" }),
+    );
+    expect(form.checkValidity()).toBe(false);
+    await act(async () => pending[1].resolve({ value: "a" }));
+    expect(form.checkValidity()).toBe(true);
+    expect(submitted(form, "file")).toEqual(["a"]);
+  });
+
+  it.each(["disabled", "readOnly", "fieldset"])(
+    "ignores pending work while %s, and clears it on reset",
+    async (mode) => {
+      const { pending, upload } = controllableUpload();
+      let pass = () => {};
+      const validate = () =>
+        new Promise<undefined>((resolve) => {
+          pass = () => resolve(undefined);
+        });
+      const view = (locked: boolean) => (
+        <UIProvider locale={cs}>
+          <form aria-label="Order">
+            <fieldset disabled={mode === "fieldset" && locked}>
+              <FileUpload
+                disabled={mode === "disabled" && locked}
+                label="Files"
+                name="file"
+                readOnly={mode === "readOnly" && locked}
+                upload={upload}
+                validate={validate}
+              />
+            </fieldset>
+          </form>
+        </UIProvider>
+      );
+      const { rerender } = render(view(false));
+      const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+      drop(screen.getByRole("group", { name: "Files:" }), [file("a.pdf")]);
+      expect(form.checkValidity()).toBe(false);
+      expect(
+        form.querySelector<HTMLInputElement>("input[type=text]")
+          ?.validationMessage,
+      ).toBe(cs.messages.fileUpload.waitForValidation);
+      rerender(view(true));
+      expect(form.checkValidity()).toBe(true);
+      rerender(view(false));
+      expect(form.checkValidity()).toBe(false);
+
+      await act(async () => pass());
+      expect(
+        form.querySelector<HTMLInputElement>("input[type=text]")
+          ?.validationMessage,
+      ).toBe(cs.messages.fileUpload.waitForUpload);
+      rerender(view(true));
+      expect(form.checkValidity()).toBe(true);
+      rerender(view(false));
+      expect(form.checkValidity()).toBe(false);
+      act(() => form.reset());
+      await act(() => new Promise((resolve) => setTimeout(resolve)));
+      expect(form.checkValidity()).toBe(true);
+      expect(pending[0].signal.aborted).toBe(true);
+    },
+  );
+
   it("uploads dropped files side by side", async () => {
     const { pending, upload } = controllableUpload();
     render(
@@ -135,6 +484,34 @@ describe("FileUpload", () => {
       ),
     ).toEqual(["blob-a", "blob-b"]);
   });
+
+  it.each([false, true])(
+    "respects the caller's drop handler with preventDefault=%s",
+    (preventDefault) => {
+      const { upload } = controllableUpload();
+      const onDrop = vi.fn((event: React.DragEvent<HTMLDivElement>) => {
+        expect(upload).not.toHaveBeenCalled();
+        if (preventDefault) event.preventDefault();
+      });
+      render(<FileUpload onDrop={onDrop} upload={upload} />);
+      const group = screen.getByRole("group");
+      const dataTransfer = {
+        files: [file("a.pdf")],
+        types: ["Files"],
+      };
+
+      fireEvent.dragOver(group, { dataTransfer });
+      expect(group).toHaveClass("ring-2");
+      fireEvent.drop(group, { dataTransfer });
+
+      expect(onDrop).toHaveBeenCalledTimes(1);
+      expect(upload).toHaveBeenCalledTimes(preventDefault ? 0 : 1);
+      expect(screen.queryAllByRole("listitem")).toHaveLength(
+        preventDefault ? 0 : 1,
+      );
+      expect(group).not.toHaveClass("ring-2");
+    },
+  );
 
   it("uploads one after another with a concurrency of 1", async () => {
     const { pending, upload } = controllableUpload();
@@ -167,8 +544,36 @@ describe("FileUpload", () => {
     expect(screen.getByRole("button", { name: /Upload/ })).toBeInTheDocument();
 
     drop(screen.getByRole("group"), [file("b.pdf")]);
-    unmount();
+    await act(async () => unmount());
     expect(pending[1].signal.aborted).toBe(true);
+  });
+
+  it("lets abort listeners update their owner after the field unmounts", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { upload } = controllableUpload();
+    function Page({ visible }: { visible: boolean }) {
+      const [aborted, setAborted] = useState(false);
+      return (
+        <>
+          {visible && (
+            <FileUpload
+              upload={(file, options) => {
+                options.signal.addEventListener("abort", () =>
+                  setAborted(true),
+                );
+                return upload(file, options);
+              }}
+            />
+          )}
+          <output>{aborted ? "Cancelled" : "Pending"}</output>
+        </>
+      );
+    }
+    const { rerender } = render(<Page visible />);
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    await act(async () => rerender(<Page visible={false} />));
+    expect(screen.getByRole("status")).toHaveTextContent("Cancelled");
+    expect(error).not.toHaveBeenCalled();
   });
 
   it("rejects dropped files it does not accept", () => {
@@ -607,6 +1012,49 @@ describe("FileUpload", () => {
     await act(async () => pending[0].resolve({ value: "blob-a" }));
     expect(screen.getByRole("button", { name: "Remove a.pdf" })).toHaveFocus();
   });
+
+  it.each([false, true])(
+    "keeps focus after removing files from the list, shadow root=%s",
+    (inShadowRoot) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = inShadowRoot
+        ? host.attachShadow({ mode: "open" })
+        : document;
+      const container = inShadowRoot
+        ? root.appendChild(document.createElement("div"))
+        : host;
+      const { unmount } = render(
+        <FileUpload
+          defaultAttachments={[
+            { filename: "a.pdf", id: "a" },
+            { filename: "b.pdf", id: "b" },
+            { filename: "c.pdf", id: "c" },
+          ]}
+          multiple
+        />,
+        { container },
+      );
+      const field = within(container);
+      const remove = (filename: string) =>
+        field.getByRole("button", { name: `Remove ${filename}` });
+
+      try {
+        act(() => remove("b.pdf").focus());
+        fireEvent.click(remove("b.pdf"));
+        expect(root.activeElement).toBe(remove("c.pdf"));
+        fireEvent.click(remove("c.pdf"));
+        expect(root.activeElement).toBe(remove("a.pdf"));
+        fireEvent.click(remove("a.pdf"));
+        expect(root.activeElement).toBe(
+          field.getByRole("button", { name: /Upload/ }),
+        );
+      } finally {
+        unmount();
+        host.remove();
+      }
+    },
+  );
 
   it("moves the focus to the next file when one is removed", async () => {
     const user = userEvent.setup();
@@ -1097,6 +1545,100 @@ describe("FileUpload without upload", () => {
   beforeEach(stubDataTransfer);
   afterEach(() => vi.unstubAllGlobals());
 
+  it("submits files whose asynchronous validation finished while hidden", async () => {
+    let pass = () => {};
+    const validate = () =>
+      new Promise<undefined>((resolve) => {
+        pass = () => resolve(undefined);
+      });
+    const onFilesChange = vi.fn();
+    const view = (mode: "hidden" | "visible") => (
+      <StrictMode>
+        <form aria-label="Order" id="hidden-native-order" />
+        <Activity mode={mode}>
+          <FileUpload
+            form="hidden-native-order"
+            name="file"
+            onFilesChange={onFilesChange}
+            required
+            validate={validate}
+          />
+        </Activity>
+      </StrictMode>
+    );
+    const { rerender } = render(view("visible"));
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    expect(form.checkValidity()).toBe(false);
+    rerender(view("hidden"));
+    await act(async () => pass());
+
+    expect(onFilesChange).toHaveBeenCalledTimes(1);
+    expect(form.checkValidity()).toBe(true);
+    expect(submitted(form, "file")).toEqual(["a.pdf"]);
+  });
+
+  it("waits for every independent file check before submitting", async () => {
+    const checks: ((message?: string) => void)[] = [];
+    render(
+      <form aria-label="Order">
+        <FileUpload
+          multiple
+          name="files"
+          validate={() =>
+            new Promise<string | undefined>((resolve) => checks.push(resolve))
+          }
+        />
+      </form>,
+    );
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    drop(screen.getByRole("group"), [file("b.pdf")]);
+    expect(form.checkValidity()).toBe(false);
+    await act(async () => checks[1]());
+    expect(form.checkValidity()).toBe(false);
+    await act(async () => checks[0]("File refused"));
+    expect(form.checkValidity()).toBe(true);
+    expect(submitted(form, "files")).toEqual(["b.pdf"]);
+  });
+
+  it.each(["replacement", "reset"])(
+    "does not wait for a file check superseded by %s",
+    async (action) => {
+      const checks: ((message?: string) => void)[] = [];
+      render(
+        <form aria-label="Order">
+          <FileUpload
+            name="file"
+            validate={(picked) =>
+              picked.name === "old.pdf"
+                ? new Promise<string | undefined>((resolve) =>
+                    checks.push(resolve),
+                  )
+                : undefined
+            }
+          />
+        </form>,
+      );
+      const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+      drop(screen.getByRole("group"), [file("old.pdf")]);
+      expect(form.checkValidity()).toBe(false);
+      if (action === "reset") {
+        act(() => form.reset());
+        await act(() => new Promise((resolve) => setTimeout(resolve)));
+      } else {
+        drop(screen.getByRole("group"), [file("new.pdf")]);
+      }
+      expect(form.checkValidity()).toBe(true);
+      // Another pending check must stay blocked when the superseded one settles.
+      drop(screen.getByRole("group"), [file("old.pdf")]);
+      await act(async () => checks[0]());
+      expect(form.checkValidity()).toBe(false);
+      await act(async () => checks[1]());
+      expect(form.checkValidity()).toBe(true);
+    },
+  );
+
   it("submits the picked, dropped and pasted files with the form", async () => {
     const user = userEvent.setup();
     const onFilesChange = vi.fn();
@@ -1319,6 +1861,67 @@ describe("FileUpload without upload", () => {
 });
 
 describe("FileUpload without DataTransfer", () => {
+  it.each([undefined, "File refused"])(
+    "blocks submission during native picker validation ending with %s",
+    async (message) => {
+      const checks: ((message?: string) => void)[] = [];
+      const onSubmit = vi.fn((event: React.FormEvent) =>
+        event.preventDefault(),
+      );
+      render(
+        <form aria-label="Order" onSubmit={onSubmit}>
+          <FileUpload
+            name="file"
+            validate={() =>
+              new Promise<string | undefined>((resolve) => checks.push(resolve))
+            }
+          />
+          <button type="submit">Save</button>
+        </form>,
+      );
+      const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+      pick([file("a.pdf")]);
+      expect(form.checkValidity()).toBe(false);
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(onSubmit).not.toHaveBeenCalled();
+      await act(async () => checks[0](message));
+      expect(form.checkValidity()).toBe(true);
+      expect(screen.queryByText("a.pdf") !== null).toBe(message === undefined);
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("keeps the newest native pick when an earlier validation finishes late", async () => {
+    const onFilesChange = vi.fn();
+    const checks: ((message?: string) => void)[] = [];
+    render(
+      <FileUpload
+        multiple
+        name="documents"
+        onFilesChange={onFilesChange}
+        validate={() =>
+          new Promise<string | undefined>((resolve) => checks.push(resolve))
+        }
+      />,
+    );
+
+    pick([file("older.pdf")]);
+    pick([file("newer.pdf")]);
+    await act(async () => checks[1]());
+    expect(onFilesChange).toHaveBeenCalledExactlyOnceWith([
+      expect.objectContaining({ name: "newer.pdf" }),
+    ]);
+
+    // A stale refusal must not clear the input holding the newer pick.
+    await act(async () => checks[0]("The old file is invalid."));
+    expect(picker().files?.[0].name).toBe("newer.pdf");
+    expect(screen.getByText("newer.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("older.pdf")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(onFilesChange).toHaveBeenCalledTimes(1);
+  });
+
   it("submits what the native picker put in its input", () => {
     const onFilesChange = vi.fn();
     render(
@@ -1392,6 +1995,92 @@ describe("FileUpload without DataTransfer", () => {
 });
 
 describe("FileUpload validation", () => {
+  it.each([undefined, "The old file is invalid."])(
+    "ignores a superseded single-file validation returning %s",
+    async (message) => {
+      const { pending, upload } = controllableUpload();
+      const onError = vi.fn();
+      const checks: ((message?: string) => void)[] = [];
+      render(
+        <FileUpload
+          onError={onError}
+          upload={upload}
+          validate={() =>
+            new Promise<string | undefined>((resolve) => checks.push(resolve))
+          }
+        />,
+      );
+
+      drop(screen.getByRole("group"), [file("older.pdf")]);
+      drop(screen.getByRole("group"), [file("newer.pdf")]);
+      await act(async () => checks[1]());
+      expect(upload).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ name: "newer.pdf" }),
+        expect.anything(),
+      );
+
+      await act(async () => checks[0](message));
+      expect(pending[0].signal.aborted).toBe(false);
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(onError).not.toHaveBeenCalled();
+      expect(screen.getByText("newer.pdf")).toBeInTheDocument();
+      expect(screen.queryByText("older.pdf")).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull();
+    },
+  );
+
+  it("supersedes an async check with a synchronously validated single-file pick", async () => {
+    const { pending, upload } = controllableUpload();
+    let pass = () => {};
+    render(
+      <FileUpload
+        upload={upload}
+        validate={(checked) =>
+          checked.name === "older.pdf"
+            ? new Promise<undefined>((resolve) => {
+                pass = () => resolve(undefined);
+              })
+            : undefined
+        }
+      />,
+    );
+
+    drop(screen.getByRole("group"), [file("older.pdf")]);
+    drop(screen.getByRole("group"), [file("newer.pdf")]);
+    await act(async () => pass());
+
+    expect(upload).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: "newer.pdf" }),
+      expect.anything(),
+    );
+    expect(pending[0].signal.aborted).toBe(false);
+    expect(screen.queryByText("older.pdf")).toBeNull();
+  });
+
+  it("keeps independently validated picks with multiple when they finish out of order", async () => {
+    const { pending, upload } = controllableUpload();
+    const checks: ((message?: string) => void)[] = [];
+    render(
+      <FileUpload
+        multiple
+        upload={upload}
+        validate={() =>
+          new Promise<string | undefined>((resolve) => checks.push(resolve))
+        }
+      />,
+    );
+
+    drop(screen.getByRole("group"), [file("older.pdf")]);
+    drop(screen.getByRole("group"), [file("newer.pdf")]);
+    await act(async () => checks[1]());
+    await act(async () => checks[0]());
+
+    expect(upload).toHaveBeenCalledTimes(2);
+    expect(pending.every(({ signal }) => !signal.aborted)).toBe(true);
+    expect(screen.getByText("older.pdf")).toBeInTheDocument();
+    expect(screen.getByText("newer.pdf")).toBeInTheDocument();
+  });
+
   it("refuses a file its validate refuses - with the name of the file", () => {
     const { upload } = controllableUpload();
     const onError = vi.fn();
@@ -1561,6 +2250,28 @@ describe("FileUpload paste", () => {
       "notes.txt: Files of this type cannot be uploaded here.",
     );
   });
+
+  it.each([false, true])(
+    "respects the caller's paste handler with preventDefault=%s",
+    (preventDefault) => {
+      const { upload } = controllableUpload();
+      const onPaste = vi.fn((event: React.ClipboardEvent<HTMLDivElement>) => {
+        expect(upload).not.toHaveBeenCalled();
+        if (preventDefault) event.preventDefault();
+      });
+      render(<FileUpload onPaste={onPaste} upload={upload} />);
+      const button = screen.getByRole("button", { name: /Upload/ });
+      act(() => button.focus());
+
+      paste(button, [file("a.pdf")]);
+
+      expect(onPaste).toHaveBeenCalledTimes(1);
+      expect(upload).toHaveBeenCalledTimes(preventDefault ? 0 : 1);
+      expect(screen.queryAllByRole("listitem")).toHaveLength(
+        preventDefault ? 0 : 1,
+      );
+    },
+  );
 
   // Safari fires it at the body while a button has the focus - and pastes
   // at all only when `beforepaste` is canceled
@@ -1742,6 +2453,74 @@ describe("FileUpload with preview", () => {
       img.getAttribute("src"),
     );
 
+  it.each([false, true])(
+    "keeps uploads and previews across Activity hiding (finish hidden: %s)",
+    async (finishHidden) => {
+      const { revoke } = stubObjectUrls();
+      const { pending, upload } = controllableUpload();
+      const onUpload = vi.fn();
+      const view = (mode: "hidden" | "visible") => (
+        <StrictMode>
+          <Activity mode={mode}>
+            <form aria-label="Order">
+              <FileUpload
+                concurrency={1}
+                multiple
+                name="files"
+                onUpload={onUpload}
+                preview
+                upload={upload}
+              />
+            </form>
+          </Activity>
+        </StrictMode>
+      );
+      const { rerender } = render(view("visible"));
+      const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+      drop(screen.getByRole("group"), [
+        file("a.png", "image/png"),
+        file("b.png", "image/png"),
+      ]);
+      expect(thumbnails()).toEqual(["blob:preview-1", "blob:preview-2"]);
+      expect(form.checkValidity()).toBe(false);
+
+      rerender(view("hidden"));
+      expect(pending[0].signal.aborted).toBe(false);
+      expect(revoke).not.toHaveBeenCalled();
+      if (!finishHidden) rerender(view("visible"));
+      await act(async () => pending[0].resolve({ url: "/a.png", value: "a" }));
+      expect(upload).toHaveBeenCalledTimes(2);
+      await act(async () => pending[1].resolve({ url: "/b.png", value: "b" }));
+      if (finishHidden) rerender(view("visible"));
+
+      expect(form.checkValidity()).toBe(true);
+      expect(submitted(form, "files")).toEqual(["a", "b"]);
+      expect(thumbnails()).toEqual(["/a.png", "/b.png"]);
+      expect(onUpload).toHaveBeenCalledTimes(2);
+      expect(revoke).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole("progressbar")).toBeNull();
+    },
+  );
+
+  it("aborts uploads and releases previews when a hidden Activity unmounts", async () => {
+    const { revoke } = stubObjectUrls();
+    const { pending, upload } = controllableUpload();
+    const view = (mode: "hidden" | "visible") => (
+      <Activity mode={mode}>
+        <FileUpload preview upload={upload} />
+      </Activity>
+    );
+    const { rerender, unmount } = render(view("visible"));
+    drop(screen.getByRole("group"), [file("a.png", "image/png")]);
+    rerender(view("hidden"));
+    expect(pending[0].signal.aborted).toBe(false);
+    expect(revoke).not.toHaveBeenCalled();
+
+    await act(async () => unmount());
+    expect(pending[0].signal.aborted).toBe(true);
+    expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:preview-1");
+  });
+
   it("shows the picked image while it uploads, then the stored one", async () => {
     const { create, revoke } = stubObjectUrls();
     const { pending, upload } = controllableUpload();
@@ -1774,7 +2553,7 @@ describe("FileUpload with preview", () => {
     expect(revoke).toHaveBeenLastCalledWith("blob:preview-1");
 
     drop(screen.getByRole("group"), [file("b.jpg", "image/jpeg")]);
-    unmount();
+    await act(async () => unmount());
     expect(revoke).toHaveBeenLastCalledWith("blob:preview-2");
   });
 

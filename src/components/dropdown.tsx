@@ -136,6 +136,12 @@ export default function Dropdown({
     // The keys of the menu (a portal outside the trigger) reach here too,
     // also those of its submenus
     const onTrigger = event.currentTarget.contains(event.target as Node);
+    // A dialog or another panel in custom content is a portal too. Its
+    // keys belong to that overlay, not to the menu it was opened from.
+    const sourceMenu = (event.target as Element).closest("[data-menu-tree]");
+    if (!onTrigger && sourceMenu?.getAttribute("data-menu-tree") !== menuId) {
+      return;
+    }
 
     if (event.key === "Tab") {
       // The focus moves on from the trigger, not from the menu at the end

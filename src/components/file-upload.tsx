@@ -3,12 +3,14 @@ import {
   useCallback,
   useEffect,
   useId,
+  useInsertionEffect,
   useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
+import { getActiveElement } from "./overlay-stack";
 import Button from "./button";
 import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
@@ -48,6 +50,34 @@ const hiddenValidationStyle: React.CSSProperties = {
   width: 1,
   height: 1,
 };
+
+/** An input still belongs to its form while Activity hides its field. */
+function useRetainedInputRef() {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const fieldRef = useCallback((element: HTMLInputElement | null) => {
+    if (!element) return;
+    inputRef.current = element;
+
+    return () => {
+      // The same input can detach and reattach in one commit. An Activity
+      // hide detaches it too, but its connected DOM node still submits.
+      queueMicrotask(() => {
+        if (inputRef.current === element && !element.isConnected) {
+          inputRef.current = null;
+        }
+      });
+    };
+  }, []);
+
+  useInsertionEffect(
+    () => () => {
+      inputRef.current = null;
+    },
+    [],
+  );
+
+  return [inputRef, fieldRef] as const;
+}
 
 // The button of the `button` variant has the height of an `Input` of the
 // same `dim` - its padding, text and a border as wide as the field's
@@ -134,7 +164,10 @@ const toListedFiles = (attachments: UploadedFile[]): ListedFile[] =>
       filename: attachment.filename || "...",
       id,
       isImage: isImageFile(attachment.filename ?? "", ""),
-      key: id,
+      // A server id such as "file-1" can also be a generated local id.
+      // Keep supplied ids in their own namespace without changing what
+      // onRemove reports, or the row's identity when its metadata changes.
+      key: attachment.id ? `attachment:${id}` : id,
       status: "done",
       thumbnailUrl: attachment.thumbnailUrl || undefined,
       url: attachment.url || undefined,
@@ -347,7 +380,7 @@ function watchPastesAround(
   getHandler: () => ((event: PasteEvent) => void) | null,
 ) {
   const document = element.ownerDocument;
-  const hasFocus = () => element.contains(document.activeElement);
+  const hasFocus = () => element.contains(getActiveElement(document));
 
   const handleBeforePaste = (event: Event) => {
     if (getHandler() && hasFocus()) event.preventDefault();
@@ -758,6 +791,8 @@ export interface FileUploadProps<
    * `onProgress`, and pass `signal` on to the request (`uploadWithProgress`,
    * `fetch`) - it aborts when the user cancels the upload or the field goes
    * away. What `upload` resolves with after that is ignored.
+   * The form cannot be submitted while files are queued or uploading,
+   * also when the field is optional or already has an attachment.
    *
    * Without it the field uploads nothing: the picked files stay files, and
    * the form submits them in a file input named `name` - `formData` of a
@@ -773,6 +808,7 @@ export interface FileUploadProps<
    * dimensions of an image. The message is shown under the field after the
    * name of the file (leave the name out of it), and `onError` gets it as an
    * `Error`. A refused file takes no room of `maxFiles`.
+   * The form cannot be submitted while an async check is pending.
    */
   validate?: (
     file: File,
@@ -862,6 +898,9 @@ export default function FileUpload<
   const [files, setFiles] = useState<ListedFile[]>(() =>
     toListedFiles(defaultAttachments),
   );
+  // Independent picks with `multiple` may still be checked after another
+  // pick has finished. Every current check must settle before submitting.
+  const [checkingPicks, setCheckingPicks] = useState(0);
   // The user added or removed a file - later `defaultAttachments` no longer
   // replace the list
   const [interacted, setInteracted] = useState(false);
@@ -893,11 +932,17 @@ export default function FileUpload<
     upload,
     validate,
   });
+  const [reportVersion, setReportVersion] = useState(0);
+  const reports = useRef({
+    committed: 0,
+    pending: 0,
+    queue: [] as ((callbacks: typeof latest.current) => void)[],
+  });
 
-  // In a layout effect - a render forced by `flushSync` updates them at once
-  useLayoutEffect(() => {
+  // Insertion effects also run for the commits of a hidden Activity.
+  // Uploads finishing there must see the parent's latest callbacks too.
+  useInsertionEffect(() => {
     filesRef.current = files;
-    shownFiles.current = files;
     latest.current = {
       concurrency,
       onError,
@@ -909,8 +954,13 @@ export default function FileUpload<
     };
   });
 
+  useLayoutEffect(() => {
+    shownFiles.current = files;
+  });
+
   const inputRef = useRef<HTMLInputElement>(null);
-  const storeRef = useRef<HTMLInputElement>(null);
+  const [storeRef, retainStoreRef] = useRetainedInputRef();
+  const [validationRef, retainValidationRef] = useRetainedInputRef();
   const listRef = useRef<HTMLUListElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   // Abort the running uploads, by the key of their row
@@ -922,16 +972,20 @@ export default function FileUpload<
     index: number;
     key: string;
   } | null>(null);
-  // Whether the field is on the page - a callback may take it away (an
-  // `onUpload` closing its dialog), and the files still waiting stay then
+  // Whether the field is still alive, also while Activity hides it. A
+  // callback may remove it (an `onUpload` closing its dialog).
   const mounted = useRef(false);
-  // Counts the resets - a check of `validate` from before one is dropped
+  // Invalidates pending checks on a reset, unmount or a pick that replaces
+  // the previous one (a single file, or the native picker of the fallback)
   const generation = useRef(0);
   // The uploads that ended since the field last had none running - said
   // together once all have ended
   const session = useRef({ failed: 0, uploaded: 0 });
 
-  useEffect(() => {
+  // Insertion effects follow the actual lifetime, unlike effects replayed
+  // by Activity and StrictMode. Hidden fields keep their uploads, pending
+  // validation and previews until they finish or the field unmounts.
+  useInsertionEffect(() => {
     mounted.current = true;
     const running = controllers.current;
     // The list and the count as they are when the field goes away
@@ -940,15 +994,32 @@ export default function FileUpload<
 
     return () => {
       mounted.current = false;
+      reports.current.queue = [];
       rounds.current++;
-      running.forEach((controller) => controller.abort());
+      const pending = [...running.values()];
+      const remaining = listed.current;
       running.clear();
-      listed.current.forEach((file) => revokeLocalUrl(file.localUrl));
+      // Abort listeners may update their owner's state, which insertion
+      // effects cannot do. Ignore late results now and notify after commit.
+      queueMicrotask(() => {
+        pending.forEach((controller) => controller.abort());
+        remaining.forEach((file) => revokeLocalUrl(file.localUrl));
+      });
     };
   }, []);
 
-  // The form submits the picked files from this input
-  useLayoutEffect(() => {
+  // The form submits the picked files from this input, including a pick
+  // whose asynchronous validation finishes in a hidden Activity.
+  const storeFieldRef = useCallback(
+    (element: HTMLInputElement | null) => {
+      const detach = retainStoreRef(element);
+      if (element) writeFileList(element, pickedFiles(filesRef.current));
+      return detach;
+    },
+    [retainStoreRef],
+  );
+
+  useInsertionEffect(() => {
     if (storeRef.current) writeFileList(storeRef.current, pickedFiles(files));
   }, [files, isFallback, name]);
 
@@ -976,17 +1047,42 @@ export default function FileUpload<
   const announce = (text: string) =>
     setAnnouncement((prev) => ({ id: (prev?.id ?? 0) + 1, text }));
 
-  // Renders a change - the field's and what the callbacks change in the
-  // parent - before the next one: of files told one right after another (an
-  // `upload` that settles at once, several refused ones), the later ones
-  // would go to the callbacks of the state before
-  const report = (change: (callbacks: typeof latest.current) => void) =>
-    flushSync(() => change(latest.current));
+  // A hidden Activity renders in the background even inside flushSync.
+  // Report one change per commit, so callbacks for simultaneous uploads
+  // receive the parent state produced by the previous upload.
+  const report = useCallback(
+    (change?: (callbacks: typeof latest.current) => void) => {
+      const state = reports.current;
+      if (change) state.queue.push(change);
+      if (state.pending !== state.committed) return;
+
+      const next = state.queue.shift();
+      if (!next) return;
+
+      const version = ++state.pending;
+      flushSync(() => {
+        setReportVersion(version);
+        next(latest.current);
+      });
+    },
+    [],
+  );
+
+  useInsertionEffect(() => {
+    const state = reports.current;
+    state.committed = reportVersion;
+    if (state.pending !== reportVersion || state.queue.length === 0) return;
+
+    // Insertion effects cannot call a callback that updates parent state.
+    queueMicrotask(() => {
+      if (mounted.current) report();
+    });
+  }, [report, reportVersion]);
 
   // Notes the focused element of a row before the list changes
   const rememberFocus = () => {
     const list = listRef.current;
-    const active = document.activeElement;
+    const active = getActiveElement();
     if (pendingFocus.current || !list || !active || !list.contains(active)) {
       return;
     }
@@ -1132,7 +1228,9 @@ export default function FileUpload<
         send(file, {
           onProgress: (progress) => {
             // A cancelled upload that goes on reports nothing
-            if (!controller.signal.aborted) update(entry.key, { progress });
+            if (mounted.current && !controller.signal.aborted) {
+              update(entry.key, { progress });
+            }
           },
           signal: controller.signal,
         }),
@@ -1300,18 +1398,35 @@ export default function FileUpload<
   const addFiles = (picked: File[], pickerInput?: HTMLInputElement) => {
     setRefused([]);
 
+    // Additive picks keep their checks; a replacement makes the previous
+    // pick obsolete even when its validation finishes after this one's.
+    if (!multiple || pickerInput) {
+      generation.current++;
+      reports.current.queue = [];
+      setCheckingPicks(0);
+    }
     const taken = multiple ? picked : picked.slice(0, 1);
     const round = generation.current;
     const results = taken.map(checkFile);
 
     // A check of `validate` that takes time - the files are added once all
-    // are checked, unless the form was reset or the field went away
+    // are checked, unless this pick was superseded, the form was reset or
+    // the field went away
     if (results.some((result) => isPromiseLike(result))) {
-      void Promise.all(results).then((settled) => {
-        if (round === generation.current) {
-          addChecked(taken, settled, pickerInput);
-        }
-      });
+      setCheckingPicks((count) => count + 1);
+      void Promise.all(results)
+        .then((settled) => {
+          if (round === generation.current) {
+            addChecked(taken, settled, pickerInput);
+          }
+        })
+        .finally(() => {
+          // A reset, unmount or replacing pick has already forgotten this
+          // check. It must not release a newer one still on its way.
+          if (round === generation.current) {
+            setCheckingPicks((count) => count - 1);
+          }
+        });
     } else {
       addChecked(taken, results as (Refusal | null)[], pickerInput);
     }
@@ -1321,6 +1436,8 @@ export default function FileUpload<
   // the `defaultAttachments` and drops the uploads and the picked files
   const formResetRef = useFormReset(() => {
     generation.current++;
+    reports.current.queue = [];
+    setCheckingPicks(0);
     const current = filesRef.current;
     current.forEach(release);
     session.current = { failed: 0, uploaded: 0 };
@@ -1380,7 +1497,7 @@ export default function FileUpload<
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     setIsDragOver(false);
-    if (!hasFiles(event)) return;
+    if (event.defaultPrevented || !hasFiles(event)) return;
 
     event.preventDefault();
     if (!canDrop) return;
@@ -1439,6 +1556,29 @@ export default function FileUpload<
   const hasRequiredFile = files.some(
     (file) => file.status === "done" && (!name || !!file.value || !!file.file),
   );
+  const validationMessage =
+    checkingPicks > 0
+      ? messages.fileUpload.waitForValidation
+      : files.some(isPending)
+        ? messages.fileUpload.waitForUpload
+        : "";
+  const validates = !!required || !!validationMessage;
+
+  // Retained inputs are available in hidden commits. A newly mounted one
+  // gets its validity in the ref callback, after insertion effects finish.
+  const validationFieldRef = useCallback(
+    (element: HTMLInputElement | null) => {
+      const detach = retainValidationRef(element);
+      element?.setCustomValidity(validationMessage);
+      return detach;
+    },
+    [retainValidationRef, validationMessage],
+  );
+
+  useInsertionEffect(() => {
+    validationRef.current?.setCustomValidity(validationMessage);
+  }, [validationMessage]);
+
   const picked = pickedFiles(files);
   // The input of the fallback cannot lose one of several files
   const canRemovePicked = !isFallback || picked.length <= 1;
@@ -1525,7 +1665,7 @@ export default function FileUpload<
       }}
       onPaste={(event) => {
         props.onPaste?.(event);
-        handlePaste(event);
+        if (!event.defaultPrevented) handlePaste(event);
       }}
       ref={groupRef}
       role="group"
@@ -1613,16 +1753,17 @@ export default function FileUpload<
           form={form}
           multiple={multiple}
           name={name}
-          ref={storeRef}
+          ref={storeFieldRef}
           style={{ display: "none" }}
           tabIndex={-1}
           type="file"
         />
       )}
 
-      {/* Lets the browser enforce `required` - it leads the user to the
-          button. Read-only, it is not validated, like a native field. */}
-      {required && (
+      {/* Lets the browser enforce `required` and wait for checks and uploads
+          before submitting, even with an attachment already present. It
+          leads the user to the button. Read-only, it is not validated. */}
+      {validates && (
         <input
           aria-hidden="true"
           disabled={disabled}
@@ -1630,7 +1771,8 @@ export default function FileUpload<
           onChange={() => {}}
           onFocus={() => buttonRef.current?.focus()}
           readOnly={readOnly}
-          required
+          ref={validationFieldRef}
+          required={required}
           style={hiddenValidationStyle}
           tabIndex={-1}
           type="text"

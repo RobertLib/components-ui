@@ -136,6 +136,23 @@ describe("names from Intl", () => {
     expect(getWeekdayNames("cs-CZ", 1)[0]).toBe("Po");
     expect(getWeekdayNames("en-US", 0)[0]).toBe("Sun");
   });
+
+  it.each([
+    ["fa-IR", "ژانویه", "سپتامبر"],
+    ["en-US-u-ca-persian", "January", "September"],
+  ])("keeps the Gregorian month order for %s", (code, january, september) => {
+    const names = getMonthNames(code);
+    expect(names).toHaveLength(12);
+    expect(names[0]).toBe(january);
+    expect(names[8]).toBe(september);
+  });
+
+  it.each([
+    ["th-TH", "กันยายน 2026"],
+    ["en-US-u-ca-buddhist", "September 2026"],
+  ])("names the same Gregorian year the grid shows for %s", (code, title) => {
+    expect(formatMonthYear(new Date(2026, 8, 1), code)).toBe(title);
+  });
 });
 
 describe("parsePattern", () => {

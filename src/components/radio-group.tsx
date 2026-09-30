@@ -2,6 +2,7 @@ import {
   attachRef,
   checkedState,
   useFormControl,
+  useOmitFormValue,
 } from "../hooks/use-form-control";
 import { useCallback, useId, useRef } from "react";
 import cn, { joinTokens } from "../utils/cn";
@@ -172,8 +173,9 @@ export default function RadioGroup({
   ...props
 }: RadioGroupProps) {
   const messages = useMessages();
-  const { fieldRef, handleChange, value } = useFormControl({
+  const { fieldRef, handleChange, hasValue, value } = useFormControl({
     defaultValue,
+    form,
     onChange,
     value: controlledValue,
   });
@@ -204,25 +206,9 @@ export default function RadioGroup({
   // The generated name only groups the radios - the form leaves it out of
   // its data, as it leaves out radios without a name. The form of the
   // radios: the one `form` names, or the one around them.
-  const groupRef = useCallback(
-    (element: HTMLElement | null) => {
-      const formElement = !element
-        ? null
-        : form
-          ? element.ownerDocument.getElementById(form)
-          : element.closest("form");
-      if (!(formElement instanceof HTMLFormElement) || name !== undefined) {
-        return;
-      }
-
-      const dropGeneratedName = (event: FormDataEvent) =>
-        event.formData.delete(generatedName);
-      formElement.addEventListener("formdata", dropGeneratedName);
-
-      return () =>
-        formElement.removeEventListener("formdata", dropGeneratedName);
-    },
-    [form, generatedName, name],
+  const groupRef = useOmitFormValue(
+    name === undefined ? generatedName : undefined,
+    form,
   );
 
   const optionList = (
@@ -240,13 +226,12 @@ export default function RadioGroup({
         // A described option - and every card, which holds its description
         // too - is named by its label alone
         const optionId = `${idBase}-option-${index}`;
-        const described =
-          option.description !== undefined &&
-          option.description !== null &&
-          option.description !== "";
+        // Only a description that renders - not the `false` of `isPro &&
+        // "Pro only"`, as in a CheckboxGroup
+        const described = Boolean(option.description);
         const namedByLabel = described || card;
 
-        const checked = String(value) === String(option.value);
+        const checked = hasValue && String(value) === String(option.value);
         const input = (
           <input
             className={cn(

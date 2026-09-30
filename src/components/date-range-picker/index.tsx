@@ -19,6 +19,7 @@ import {
   encodeRange,
   findUnavailableDay,
   formatRange,
+  getRangeLengthMessage,
   isAllowedRange,
   RANGE_SEPARATOR,
   toDateRange,
@@ -119,7 +120,10 @@ export interface DateRangePickerProps extends Omit<
    * it makes the field invalid, like a native input (a submit is blocked).
    */
   max?: string;
-  /** The most days a range may have - a week is 7 days. */
+  /**
+   * The most days a range may have - a week is 7 days. A longer value,
+   * including a default or controlled one, keeps the form from being submitted.
+   */
   maxDays?: number;
   /**
    * The earliest day that can be picked, `YYYY-MM-DD` - a range starting
@@ -128,7 +132,7 @@ export interface DateRangePickerProps extends Omit<
   min?: string;
   /**
    * The fewest days a range may have - e.g. 2 for a stay of at least one
-   * night.
+   * night. A shorter value keeps the form from being submitted.
    */
   minDays?: number;
   /**
@@ -219,6 +223,7 @@ export default function DateRangePicker({
   // field of the pickers work with
   const { fieldRef, handleChange, value } = useFormControl({
     defaultValue: encodeRange(defaultValue),
+    form: inputProps.form,
     onChange: (event) => onChange?.(decodeRange(event.target.value)),
     ref,
     value: valueProp === undefined ? undefined : encodeRange(valueProp),
@@ -282,7 +287,14 @@ export default function DateRangePicker({
     return date ? formatDate(date, pattern) : day;
   };
   // So does a range over a disabled day - one typed too, which is kept
-  const unavailableDay = range && findUnavailableDay(range, limits);
+  const getUnavailableMessage = (range: DayRange | null) => {
+    const unavailableDay = range && findUnavailableDay(range, limits);
+    return unavailableDay
+      ? formatMessage(messages.unavailableInRange, {
+          date: formatDate(unavailableDay, pattern),
+        })
+      : "";
+  };
   const validityMessage =
     getRangeMessage(
       locale.messages.dateTimePicker,
@@ -296,11 +308,13 @@ export default function DateRangePicker({
       { max: dayLimit(limits.max) },
       formatDay,
     ) ||
-    (unavailableDay
-      ? formatMessage(messages.unavailableInRange, {
-          date: formatDate(unavailableDay, pattern),
-        })
-      : "");
+    getRangeLengthMessage(
+      range,
+      limits,
+      pattern,
+      locale.messages.dateTimePicker.outOfRangeText,
+    ) ||
+    getUnavailableMessage(range);
 
   return (
     <PickerField
@@ -318,8 +332,8 @@ export default function DateRangePicker({
       fieldRef={fieldRef}
       format={rangePlaceholder}
       hiddenFields={[
-        { name: startName, value: days?.start ?? "" },
-        { name: endName, value: days?.end ?? "" },
+        { name: startName, value: (value) => decodeRange(value)?.start ?? "" },
+        { name: endName, value: (value) => decodeRange(value)?.end ?? "" },
       ]}
       icon="calendar"
       inputId={inputId}
@@ -339,7 +353,10 @@ export default function DateRangePicker({
         const typed = toDayRange(parseDisplayRange(text, pattern));
         if (!typed) return { error: "format" };
         return isAllowedRange(typed, limits)
-          ? { value: encodeRange(toDateRange(typed)) }
+          ? {
+              value: encodeRange(toDateRange(typed)),
+              validityMessage: getUnavailableMessage(typed),
+            }
           : { error: "range" };
       }}
       pickCount={pickCount}

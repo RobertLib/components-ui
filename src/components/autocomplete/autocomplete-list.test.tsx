@@ -7,10 +7,12 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import Autocomplete, { type AutocompleteOption } from ".";
 import { defaultFilterOptions } from "./filter-options";
 import type { LoadOptionsParams } from "./load-options";
+import UIProvider from "../../providers/ui-provider";
+import { getActiveElement } from "../overlay-stack";
 
 const places = [
   { group: "Czechia", label: "Praha", value: "praha" },
@@ -455,6 +457,72 @@ describe("Autocomplete virtualization", () => {
 });
 
 describe("Autocomplete PageUp / PageDown", () => {
+  it.each([false, true])(
+    "reveals and pages through options in a shadow root (asSelect: %s)",
+    async (asSelect) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      onTestFinished(() => host.remove());
+      const shadow = host.attachShadow({ mode: "open" });
+      const container = document.createElement("div");
+      const portalRoot = document.createElement("div");
+      shadow.append(container, portalRoot);
+      const options = Array.from({ length: 25 }, (_, index) => ({
+        label: `City ${index + 1}`,
+        value: index + 1,
+      }));
+      const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+      render(
+        <UIProvider portalContainer={portalRoot}>
+          <Autocomplete
+            asSelect={asSelect}
+            defaultValue={20}
+            label="City"
+            options={options}
+          />
+        </UIProvider>,
+        { container },
+      );
+      const app = within(container);
+      const popup = within(portalRoot);
+      const input = app.getByRole("combobox");
+      act(() => input.focus());
+      if (asSelect) {
+        fireEvent.keyDown(input, { composed: true, key: "ArrowDown" });
+        const selected = popup.getByRole("option", { name: "City 20" });
+        await waitFor(() =>
+          expect(scrollIntoView.mock.contexts).toContain(selected),
+        );
+      }
+
+      scrollIntoView.mockClear();
+      fireEvent.keyDown(input, { composed: true, key: "ArrowDown" });
+      const highlighted = popup.getByRole("option", {
+        name: asSelect ? "City 21" : "City 1",
+      });
+      expect(scrollIntoView.mock.contexts).toContain(highlighted);
+      const panel = popup.getByRole("listbox").parentElement!;
+      Object.defineProperty(panel, "clientHeight", { value: 160 });
+      vi.spyOn(highlighted, "getBoundingClientRect").mockReturnValue({
+        height: 32,
+      } as DOMRect);
+      fireEvent.keyDown(input, { composed: true, key: "PageDown" });
+      const paged = popup.getByRole("option", {
+        name: asSelect ? "City 25" : "City 5",
+      });
+      expect(input).toHaveAttribute("aria-activedescendant", paged.id);
+      expect(scrollIntoView.mock.contexts).toContain(paged);
+
+      if (!asSelect) {
+        // The clear button disappears; its keyboard focus returns to the input.
+        const clear = app.getByRole("button", { name: "Clear" });
+        act(() => clear.focus());
+        fireEvent.click(clear);
+        expect(getActiveElement(shadow)).toBe(input);
+      }
+    },
+  );
+
   it("moves the highlight by a page, to the ends at most", async () => {
     const user = userEvent.setup();
     const cities = Array.from({ length: 25 }, (_, index) => ({

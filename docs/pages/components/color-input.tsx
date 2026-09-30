@@ -67,6 +67,11 @@ export default function ColorInputPage() {
             <code>format</code>. A text that is no color is dropped, and a
             message under the field says why; Escape drops the typing.
           </p>
+          <p>
+            A form submits the parsed color even before the field loses focus;
+            an invalid draft blocks submission. Typing still calls{" "}
+            <code>onChange</code> only on Enter or blur.
+          </p>
         </Prose>
         <CodeBlock code={typed} plain />
       </Section>

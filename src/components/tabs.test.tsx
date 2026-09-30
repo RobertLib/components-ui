@@ -1,4 +1,11 @@
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
@@ -693,6 +700,44 @@ describe("Tabs wider than their container", () => {
 
     rerender(<Tabs items={[...items]} value="Overdue" />);
     expect(scrollTo).toHaveBeenCalledOnce();
+  });
+
+  it("keeps fading the scrolled edges after panels finish loading", () => {
+    mockLayout();
+    const setMask = vi.spyOn(
+      Object.getPrototypeOf(document.body.style),
+      "maskImage",
+      "set",
+    );
+    const items = labels.map((label) => ({
+      content: `${label} panel`,
+      label,
+      value: label,
+    }));
+    const { container, rerender } = render(
+      <Tabs items={items} loading value="All" />,
+    );
+
+    // The panels add a wrapper around the bar. Loading again removes it;
+    // both transitions must track the current scrolling element.
+    for (const loading of [false, true, false]) {
+      rerender(<Tabs items={items} loading={loading} value="All" />);
+      const scroller =
+        container.querySelector<HTMLElement>(".overflow-x-auto")!;
+      setMask.mockClear();
+      scroller.scrollLeft = 308;
+      fireEvent.scroll(scroller);
+      expect(setMask).toHaveBeenCalledWith(
+        "linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), #000)",
+      );
+
+      setMask.mockClear();
+      scroller.scrollLeft = 0;
+      fireEvent.scroll(scroller);
+      expect(setMask).toHaveBeenCalledWith(
+        "linear-gradient(to right, #000, #000 24px, #000 calc(100% - 24px), transparent)",
+      );
+    }
   });
 
   it("does not scroll a vertical list", () => {

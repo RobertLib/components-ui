@@ -555,13 +555,18 @@ function cachedNames(key: string, build: () => string[]) {
   return names;
 }
 
-/** Month names in the nominative ("Leden", "January"), January first. */
+/**
+ * Gregorian month names in the nominative ("Leden", "January"), January
+ * first - the calendar of Date's month indexes, even in a language whose
+ * default calendar is Persian or Buddhist.
+ */
 export function getMonthNames(
   localeCode: string,
   width: "long" | "short" = "long",
 ) {
   return cachedNames(`month:${localeCode}:${width}`, () => {
     const format = new Intl.DateTimeFormat(toIntlLocale(localeCode), {
+      calendar: "gregory",
       month: width,
     });
     return Array.from({ length: 12 }, (_, month) =>
@@ -612,6 +617,7 @@ export function getDayPeriods(localeCode: string): DayPeriods {
 export const formatMonthYear = (date: Date, localeCode: string) =>
   capitalize(
     new Intl.DateTimeFormat(toIntlLocale(localeCode), {
+      calendar: "gregory",
       month: "long",
       year: "numeric",
     }).format(date),

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useInsertionEffect, useRef, useState } from "react";
 import ConfirmDialog from "../components/confirm-dialog";
 import logger from "../utils/logger";
 import {
@@ -91,7 +91,7 @@ export default function ConfirmProvider({
   const runningRef = useRef(new Set<ConfirmRequest>());
   const lastIdRef = useRef(0);
   const mountedRef = useRef(false);
-  // Unmounted for good - not only for the unmount StrictMode simulates
+  // Unmounted for good - hiding with Activity keeps the provider alive
   const goneRef = useRef(false);
 
   const confirm = useCallback<ConfirmFunction>(
@@ -117,9 +117,11 @@ export default function ConfirmProvider({
 
   // Unmounted - nobody can answer the questions any more: they resolve
   // `false`, those whose `onConfirm` runs with its outcome, and so do the
-  // questions asked from then on. Not on the unmount StrictMode simulates,
-  // after which the provider is back.
-  useEffect(() => {
+  // questions asked from then on. Insertion effects follow the actual
+  // lifetime: Activity keeps them while hiding the page, and StrictMode
+  // does not replay them. Pending questions stay with the hidden page and
+  // can be answered when it is shown again.
+  useInsertionEffect(() => {
     mountedRef.current = true;
     const pending = pendingRef.current;
     const runningRequests = runningRef.current;

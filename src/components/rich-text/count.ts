@@ -31,15 +31,15 @@ function isInCode(node: Node, root: Node) {
 }
 
 /** The text of a text node as it shows - its whitespace collapsed. */
-function shownText(text: Text, root: Node) {
-  if (isInCode(text, root)) return text.data;
+function shownText(text: Text, root: Node, data = text.data) {
+  if (isInCode(text, root)) return data;
 
   const parent = text.parentNode;
   const isBetweenBlocks =
     !parent || parent === root || BLOCK_CONTAINERS.has(parent.nodeName);
   if (isBetweenBlocks && BLANK.test(text.data)) return "";
 
-  return text.data.replace(WHITESPACE, " ");
+  return data.replace(WHITESPACE, " ");
 }
 
 function textNodesOf(root: Node) {
@@ -56,6 +56,24 @@ function textNodesOf(root: Node) {
 export function countCharacters(root: Node) {
   let count = 0;
   for (const text of textNodesOf(root)) count += shownText(text, root).length;
+  return count;
+}
+
+/**
+ * The characters of a selection in its original context. Cloning the range
+ * would lose its surrounding paragraph or code block, changing how its
+ * whitespace is counted.
+ */
+export function countRangeCharacters(root: Node, range: Range) {
+  if (range.collapsed) return 0;
+
+  let count = 0;
+  for (const text of textNodesOf(root)) {
+    if (!range.intersectsNode(text)) continue;
+    const start = text === range.startContainer ? range.startOffset : 0;
+    const end = text === range.endContainer ? range.endOffset : text.length;
+    count += shownText(text, root, text.data.slice(start, end)).length;
+  }
   return count;
 }
 

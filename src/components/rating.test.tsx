@@ -290,6 +290,56 @@ describe("Rating", () => {
     expect([...new FormData(getForm()).keys()]).toEqual([]);
   });
 
+  it.each(["insert", "reorder"])(
+    "follows the first legend when legends %s without remounting the field",
+    async (change) => {
+      const onChange = vi.fn();
+      const view = (otherFirst: boolean) => (
+        <form aria-label="Review">
+          <fieldset disabled>
+            {otherFirst && <legend key="other">Other legend</legend>}
+            <legend key="rating">
+              <input aria-label="Native" />
+              <Rating
+                aria-label="Quality"
+                defaultValue={2}
+                name="quality"
+                onChange={onChange}
+              />
+            </legend>
+            {!otherFirst && change === "reorder" && (
+              <legend key="other">Other legend</legend>
+            )}
+          </fieldset>
+        </form>
+      );
+      const { rerender } = render(view(false));
+      const rating = slider();
+      expect(rating).not.toHaveAttribute("aria-disabled");
+      expect(screen.getByRole("textbox")).not.toBeDisabled();
+      expect(new FormData(getForm()).get("quality")).toBe("2");
+
+      await act(async () => rerender(view(true)));
+      expect(slider()).toBe(rating);
+      expect(screen.getByRole("textbox")).toBeDisabled();
+      expect(rating).toHaveAttribute("aria-disabled", "true");
+      expect(rating).not.toHaveAttribute("tabindex");
+      fireEvent.keyDown(rating, { key: "ArrowRight" });
+      fireEvent.click(layOutIcons(rating)[4]);
+      expect(onChange).not.toHaveBeenCalled();
+      expect(rating).toHaveAttribute("aria-valuenow", "2");
+      expect(new FormData(getForm()).has("quality")).toBe(false);
+
+      await act(async () => rerender(view(false)));
+      expect(slider()).toBe(rating);
+      expect(rating).not.toHaveAttribute("aria-disabled");
+      expect(screen.getByRole("textbox")).not.toBeDisabled();
+      fireEvent.keyDown(rating, { key: "ArrowRight" });
+      expect(onChange).toHaveBeenLastCalledWith(3);
+      expect(new FormData(getForm()).get("quality")).toBe("3");
+    },
+  );
+
   it("submits its value - nothing picked as an empty one - and brings back the default on a reset", async () => {
     const user = userEvent.setup();
     render(

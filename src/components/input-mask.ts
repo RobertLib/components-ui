@@ -75,6 +75,8 @@ interface Fill {
   consumed: number;
   /** Characters that fit nowhere. */
   dropped: number;
+  /** The token after the last character taken. */
+  end: number;
 }
 
 /** The value and the selection of the field after an edit. */
@@ -92,7 +94,7 @@ export interface MaskEdit {
 const DIGIT_ZEROS = [0x30, 0x660, 0x6f0, 0x966, 0xff10];
 
 /** The Latin digit of a decimal digit of any of `DIGIT_ZEROS`. */
-function toLatinDigit(char: string) {
+export function toLatinDigit(char: string) {
   const code = char.codePointAt(0) ?? -1;
   for (const zero of DIGIT_ZEROS) {
     if (code >= zero && code <= zero + 9) return String(code - zero);
@@ -160,11 +162,21 @@ export function parseMask(mask: string, tokens?: MaskTokens): ParsedMask {
  * Lays raw characters into the placeholders. The literals before a
  * placeholder show once it is filled, those after the last one once the
  * value is complete - so that Backspace at the end deletes what was typed.
+ * Without raw characters the literals of the first `typed` tokens show -
+ * those the user typed in front of the placeholders, the `+42` of `+420`.
  */
-function layout(mask: ParsedMask, raw: readonly string[]): Layout {
+function layout(mask: ParsedMask, raw: readonly string[], typed = 0): Layout {
   const result: Layout = { ends: [], starts: [], text: "" };
   let pending = "";
   let placed = 0;
+
+  // Only the literals typed - a mask without placeholders takes none
+  if (raw.length === 0 && mask.slots.length > 0) {
+    for (const token of mask.tokens.slice(0, typed)) {
+      if (token.kind === "literal") result.text += token.char;
+    }
+    return result;
+  }
 
   for (const token of mask.tokens) {
     if (token.kind === "literal") {
@@ -202,19 +214,18 @@ function fill(
   capacity: number,
   matchLiterals: boolean,
 ): Fill {
-  const result: Fill = { chars: [], consumed: 0, dropped: 0 };
-  let next = start;
+  const result: Fill = { chars: [], consumed: 0, dropped: 0, end: start };
 
   for (const char of Array.from(text)) {
     let taken = false;
 
-    for (let index = next; index < mask.tokens.length; index++) {
+    for (let index = result.end; index < mask.tokens.length; index++) {
       const token = mask.tokens[index];
 
       if (token.kind === "literal") {
         if (matchLiterals && sameChar(token.char, char)) {
           result.consumed++;
-          next = index + 1;
+          result.end = index + 1;
           taken = true;
           break;
         }
@@ -226,7 +237,7 @@ function fill(
       const kept = result.chars.length < capacity ? token.accept(char) : null;
       if (kept !== null) {
         result.chars.push(kept);
-        next = index + 1;
+        result.end = index + 1;
         taken = true;
       }
       // A character this placeholder refuses fits no later one either
@@ -244,7 +255,10 @@ function fill(
  * The better reading of inserted text: the one that drops fewer of its
  * characters, then the one placing more. A pasted `+420 777 123 456` keeps
  * the literals it repeats out of the value; a typed `4` in front of the
- * literal `+420` is a digit of the number, not that literal.
+ * literal `+420` is a digit of the number, not that literal. Text as the
+ * mask writes it - each literal in its place - is read so, also where a
+ * placeholder would take the literals: `071` of `07### ######` is the 1 the
+ * field shows, not 0, 7 and 1.
  */
 function fillBest(
   mask: ParsedMask,
@@ -253,6 +267,15 @@ function fillBest(
   capacity: number,
 ) {
   const literal = fill(mask, text, start, capacity, true);
+  // Each token up to the last character taken took one - no literal skipped
+  if (
+    literal.chars.length > 0 &&
+    literal.dropped === 0 &&
+    literal.consumed + literal.chars.length === literal.end - start
+  ) {
+    return literal;
+  }
+
   const plain = fill(mask, text, start, capacity, false);
 
   return plain.dropped < literal.dropped ||
@@ -281,15 +304,15 @@ function relay(mask: ParsedMask, chars: string[], following: string[]) {
   return result;
 }
 
-/** The raw characters `text` stands for - read as if it were pasted. */
+/** What `text` stands for - read as if it were pasted. */
 function readRaw(mask: ParsedMask, text: string) {
-  return fillBest(mask, text, 0, mask.slots.length).chars;
+  return fillBest(mask, text, 0, mask.slots.length);
 }
 
-const toValue = (mask: ParsedMask, raw: readonly string[]): MaskedValue => ({
-  complete: mask.slots.length > 0 && raw.length === mask.slots.length,
-  formatted: layout(mask, raw).text,
-  raw: raw.join(""),
+const toValue = (mask: ParsedMask, read: Fill): MaskedValue => ({
+  complete: mask.slots.length > 0 && read.chars.length === mask.slots.length,
+  formatted: layout(mask, read.chars, read.end).text,
+  raw: read.chars.join(""),
 });
 
 /** `text` laid into the mask - also a value written without its literals. */
@@ -360,12 +383,14 @@ export function editMasked(
   caret: number,
   inputType = "",
 ): MaskEdit {
-  const raw = readRaw(mask, previous);
+  const raw = readRaw(mask, previous).chars;
   const before = layout(mask, raw);
 
-  // A value the field did not show - written past it: taken as a whole
+  // A value the field did not show - written past it - or literals typed in
+  // front of the placeholders: taken as a whole, so that the typed `+4` of
+  // `+420` makes the next 2 that literal too
   if (before.text !== previous) {
-    const text = layout(mask, readRaw(mask, next)).text;
+    const text = conformToMask(mask, next).formatted;
     return {
       changed: text !== previous,
       selectionEnd: text.length,
@@ -421,6 +446,8 @@ export function editMasked(
     return keep(previous, prefix, removedEnd);
   }
 
+  // Literals typed in front of the placeholders show - the `+` of `+420`,
+  // which the next keys go on with
   const after = layout(
     mask,
     relay(
@@ -428,6 +455,7 @@ export function editMasked(
       [...raw.slice(0, rawStart), ...insertion.chars],
       raw.slice(rawEnd),
     ),
+    insertion.end,
   );
   const [low, high] = caretRange(after, rawStart + insertion.chars.length);
   // Typing moves on past the literals that follow; a deletion leaves the

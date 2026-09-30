@@ -11,14 +11,7 @@ import {
   type MaskedValue,
   type MaskTokens,
 } from "./input-mask";
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Button from "./button";
 import cn, { joinTokens } from "../utils/cn";
 import { formatMessage } from "../i18n/format";
@@ -27,6 +20,7 @@ import FormError from "./form-error";
 import { getPasswordStrength } from "./password-strength";
 import RequiredMark from "./required-mark";
 import { useMessages } from "../providers/ui-context";
+import useCustomValidity from "../hooks/use-custom-validity";
 
 // Types the browser draws a format hint in (dd.mm.yyyy, --:--) while empty -
 // a floating label must not cover it
@@ -134,6 +128,24 @@ function setNativeValue(input: HTMLInputElement, value: string) {
     HTMLInputElement.prototype,
     "value",
   )?.set?.call(input, value);
+}
+
+/**
+ * React clears `currentTarget` after dispatch. An IME change reported later
+ * needs the input bound again for its handler, like a regular change.
+ */
+function reportMaskedChange(
+  input: HTMLInputElement,
+  event: React.ChangeEvent<HTMLInputElement>,
+  onChange: (event: React.ChangeEvent<HTMLInputElement>) => void,
+) {
+  const currentTarget = event.currentTarget;
+  event.currentTarget = input;
+  try {
+    onChange(event);
+  } finally {
+    event.currentTarget = currentTarget;
+  }
 }
 
 export interface InputProps extends Omit<
@@ -306,7 +318,22 @@ export function InputBase({
     mask !== undefined && MASKABLE_TYPES.has(type)
       ? parseMask(mask, maskTokens)
       : null;
-  const masked = parsedMask ? conformToMask(parsedMask, String(value)) : null;
+  // The value the field reported last, while a parent that keeps the raw
+  // characters gives them back: they need not read as what was typed - the
+  // raw "070" of `07### ######` is also its own text "070", and the typed
+  // "+42" of `+420` has none. Given the formatted text, or another value,
+  // the field reads it again.
+  const [reported, setReported] = useState<MaskedValue | null>(null);
+  const text = String(value);
+  const keepsReported =
+    !!reported && text === reported.raw && text !== reported.formatted;
+  if (reported && !keepsReported) setReported(null);
+  const masked = parsedMask
+    ? keepsReported &&
+      conformToMask(parsedMask, reported.formatted).raw === reported.raw
+      ? reported
+      : conformToMask(parsedMask, text)
+    : null;
   // The text an input method (IME) is composing - the mask waits for it
   const [composingText, setComposingText] = useState<string | null>(null);
   // The last change event of the composition - reported once it ends
@@ -348,27 +375,14 @@ export function InputBase({
   // The star is for the eye - `required` tells assistive technology
   const requiredMark = required && <RequiredMark />;
 
-  // A value filled in part is invalid, as one that misses a `pattern` - the
-  // message the field set last is taken back, one the page set stays
+  // A value filled in part - also literals typed alone, the `+42` of `+420` -
+  // is invalid, as one that misses a `pattern`: the message the field set
+  // last is taken back, one the page set stays
   const maskMessage =
-    masked && masked.raw !== "" && !masked.complete
+    masked && masked.formatted !== "" && !masked.complete
       ? messages.input.maskIncomplete
       : "";
-  const maskMessageRef = useRef("");
-
-  useLayoutEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-
-    if (maskMessage) input.setCustomValidity(maskMessage);
-    else if (
-      maskMessageRef.current &&
-      input.validationMessage === maskMessageRef.current
-    ) {
-      input.setCustomValidity("");
-    }
-    maskMessageRef.current = maskMessage;
-  }, [maskMessage]);
+  useCustomValidity(inputRef, maskMessage);
 
   /**
    * Makes what the browser did to a masked field - `input.value` with the
@@ -397,8 +411,16 @@ export function InputBase({
     }
     if (!edit.changed) return;
 
-    handleChange(event);
-    onMaskChange?.(conformToMask(parsedMask, edit.value));
+    const editedValue = conformToMask(parsedMask, edit.value);
+    // Only a parent can give the raw characters back
+    if (
+      props.value !== undefined &&
+      editedValue.raw !== editedValue.formatted
+    ) {
+      setReported(editedValue);
+    }
+    reportMaskedChange(input, event, handleChange);
+    onMaskChange?.(editedValue);
   };
 
   // How strong the password is - while there is one
@@ -454,7 +476,7 @@ export function InputBase({
         // At the corner of the border - inside a frame it would sit where
         // the flex layout puts it. On the start side, moved in by a margin
         // - the right side of a right-to-left page.
-        isFramed ? "-start-px -top-px" : "start-0 top-0",
+        isFramed ? "-inset-s-px -top-px" : "inset-s-0 top-0",
         isLabelFloating
           ? "ms-1 translate-y-[-0.7rem] bg-surface px-1 text-xs dark:bg-surface-dark"
           : "ms-2 translate-y-[0.4rem] [&:has(~input:autofill)]:ms-1 [&:has(~input:autofill)]:translate-y-[-0.7rem] [&:has(~input:autofill)]:bg-surface [&:has(~input:autofill)]:px-1 [&:has(~input:autofill)]:text-xs dark:[&:has(~input:autofill)]:bg-surface-dark",

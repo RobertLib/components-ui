@@ -91,13 +91,13 @@ const sideClasses: Record<SheetSide, { closed: string; panel: string }> = {
     closed:
       "-translate-x-full motion-reduce:translate-x-0 motion-reduce:opacity-0 rtl:translate-x-full motion-reduce:rtl:translate-x-0",
     panel:
-      "inset-y-0 start-0 w-full [--cui-safe-bottom:env(safe-area-inset-bottom)] [--cui-safe-top:env(safe-area-inset-top)] sm:border-e",
+      "inset-y-0 inset-s-0 w-full [--cui-safe-bottom:env(safe-area-inset-bottom)] [--cui-safe-top:env(safe-area-inset-top)] sm:border-e",
   },
   end: {
     closed:
       "translate-x-full motion-reduce:translate-x-0 motion-reduce:opacity-0 rtl:-translate-x-full motion-reduce:rtl:translate-x-0",
     panel:
-      "inset-y-0 end-0 w-full [--cui-safe-bottom:env(safe-area-inset-bottom)] [--cui-safe-top:env(safe-area-inset-top)] sm:border-s",
+      "inset-y-0 inset-e-0 w-full [--cui-safe-bottom:env(safe-area-inset-bottom)] [--cui-safe-top:env(safe-area-inset-top)] sm:border-s",
   },
   top: {
     closed:

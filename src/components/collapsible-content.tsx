@@ -58,16 +58,19 @@ export default function CollapsibleContent({
   const contentRef = useRef<HTMLDivElement>(null);
   // Content rendered open is shown as it is - only changes animate
   const animatedOpen = useRef(isOpen);
+  const isAnimating = useRef(false);
 
   // Before the browser paints - opened content would show at its full
   // height for a frame before the animation starts from none
   useLayoutEffect(() => {
     const element = contentRef.current;
-    if (!element || animatedOpen.current === isOpen) return;
+    const stateChanged = animatedOpen.current !== isOpen;
+    if (!element || (!stateChanged && !isAnimating.current)) return;
 
     animatedOpen.current = isOpen;
 
     if (prefersReducedMotion()) {
+      isAnimating.current = false;
       element.style.height = "";
       element.style.overflow = "";
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -76,6 +79,7 @@ export default function CollapsibleContent({
     }
 
     const timers: ReturnType<typeof setTimeout>[] = [];
+    isAnimating.current = true;
 
     // What is outside of the animated height is cut off - until it is open
     element.style.overflow = "hidden";
@@ -88,8 +92,9 @@ export default function CollapsibleContent({
       // Measure actual content height
       const scrollHeight = element.scrollHeight;
 
-      // Set height from 0 to actual height
-      element.style.height = "0px";
+      // A new opening starts at zero. A duration change keeps its height
+      // and replaces the timers that the effect cleanup cancelled.
+      if (stateChanged) element.style.height = "0px";
       timers.push(
         setTimeout(() => {
           element.style.height = `${scrollHeight}px`;
@@ -102,6 +107,7 @@ export default function CollapsibleContent({
       timers.push(
         setTimeout(
           () => {
+            isAnimating.current = false;
             element.style.height = "auto";
             element.style.overflow = "";
           },
@@ -126,7 +132,12 @@ export default function CollapsibleContent({
       );
 
       // After animation completes, hide element
-      timers.push(setTimeout(() => setIsVisible(false), duration));
+      timers.push(
+        setTimeout(() => {
+          isAnimating.current = false;
+          setIsVisible(false);
+        }, duration),
+      );
     }
 
     // A toggle in the middle of the animation starts over from here

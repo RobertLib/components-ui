@@ -43,6 +43,36 @@ const columns: Column<Task>[] = [
 const lines = (csv: string) => csv.split("\r\n");
 
 describe("createCsv", () => {
+  it.each([en, cs])(
+    "preserves finite numbers at every magnitude in $code",
+    (locale) => {
+      const values = [
+        1e-21,
+        -1e-21,
+        1.23e-20,
+        1.2345678901234568e-10,
+        Number.MIN_VALUE,
+        -Number.MIN_VALUE,
+        Number.MAX_VALUE,
+        Number.EPSILON,
+        Number.MAX_SAFE_INTEGER,
+        1234.5,
+        0,
+        -0,
+      ];
+      const csv = createCsv(
+        values.map((value) => ({ value })),
+        [{ key: "value", label: "Value" }],
+        { locale },
+      );
+      expect(
+        lines(csv)
+          .slice(1)
+          .map((text) => Number(text.replace(",", "."))),
+      ).toEqual(values);
+    },
+  );
+
   it("writes a header and a line per row in the order of the columns", () => {
     const csv = createCsv(tasks, columns, { locale: en });
 

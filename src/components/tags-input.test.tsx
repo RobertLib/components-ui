@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
@@ -57,6 +64,90 @@ describe("TagsInput", () => {
       "b@example.com",
     ]);
     expect(input()).toHaveValue("c,d");
+  });
+
+  it.each([
+    { finalInput: "before", allowDuplicates: false },
+    { finalInput: "after", allowDuplicates: false },
+    { finalInput: "before", allowDuplicates: true },
+    { finalInput: "after", allowDuplicates: true },
+  ])(
+    "waits for IME composition with final input $finalInput compositionend (duplicates: $allowDuplicates)",
+    async ({ finalInput, allowDuplicates }) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const onCompositionStart = vi.fn();
+      const onCompositionEnd = vi.fn();
+      render(
+        <TagsInput
+          allowDuplicates={allowDuplicates}
+          onChange={onChange}
+          onCompositionEnd={onCompositionEnd}
+          onCompositionStart={onCompositionStart}
+          separators={[" "]}
+        />,
+      );
+      const field = input();
+      await user.click(field);
+      fireEvent.compositionStart(field);
+      fireEvent.input(field, {
+        inputType: "insertCompositionText",
+        isComposing: true,
+        target: { value: "ni hao" },
+      });
+      expect(field).toHaveValue("ni hao");
+      expect(onChange).not.toHaveBeenCalled();
+      expect(shownTags()).toEqual([]);
+
+      // Some browsers clear isComposing before dispatching compositionend;
+      // others dispatch the final input only after that event.
+      const finalInputEvent = () =>
+        fireEvent.input(field, {
+          inputType: "insertText",
+          isComposing: false,
+          target: { value: "你 好" },
+        });
+      if (finalInput === "before") {
+        finalInputEvent();
+        expect(onChange).not.toHaveBeenCalled();
+      }
+      fireEvent.compositionEnd(field, {
+        data: "你 好",
+        target: { value: "你 好" },
+      });
+      if (finalInput === "after") finalInputEvent();
+
+      expect(onCompositionStart).toHaveBeenCalledTimes(1);
+      expect(onCompositionEnd).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(["你"]);
+      expect(shownTags()).toEqual(["你"]);
+      expect(field).toHaveValue("好");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+      await user.keyboard(" ");
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(onChange).toHaveBeenLastCalledWith(["你", "好"]);
+      expect(field).toHaveValue("");
+    },
+  );
+
+  it("can paste the same text again after a composition", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<TagsInput allowDuplicates onChange={onChange} />);
+    const field = input();
+    await user.click(field);
+    fireEvent.compositionStart(field);
+    fireEvent.input(field, {
+      isComposing: true,
+      target: { value: "one," },
+    });
+    fireEvent.compositionEnd(field, { data: "one," });
+
+    await user.paste("one,");
+    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenLastCalledWith(["one", "one"]);
+    expect(field).toHaveValue("");
   });
 
   it("leaves Enter in an empty input to the form", async () => {
@@ -194,6 +285,45 @@ describe("TagsInput", () => {
     expect(input()).toHaveFocus();
   });
 
+  it.each([false, true])(
+    "keeps focus while removing values with the keyboard, shadow root=%s",
+    (inShadowRoot) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = inShadowRoot
+        ? host.attachShadow({ mode: "open" })
+        : document;
+      const container = inShadowRoot
+        ? root.appendChild(document.createElement("div"))
+        : host;
+      const { unmount } = render(
+        <TagsInput aria-label="Keywords" defaultValue={["a", "b", "c"]} />,
+        { container },
+      );
+      const field = within(container);
+      const input = field.getByRole("textbox", { name: "Keywords" });
+      const remove = (tag: string) =>
+        field.getByRole("button", { name: `Remove ${tag}` });
+
+      try {
+        act(() => input.focus());
+        fireEvent.keyDown(input, { key: "Backspace" });
+        expect(root.activeElement).toBe(remove("c"));
+        fireEvent.keyDown(remove("c"), { key: "Backspace" });
+        expect(field.queryByRole("button", { name: "Remove c" })).toBeNull();
+        expect(root.activeElement).toBe(remove("b"));
+        fireEvent.keyDown(remove("b"), { key: "ArrowLeft" });
+        fireEvent.keyDown(remove("a"), { key: "Delete" });
+        expect(root.activeElement).toBe(remove("b"));
+        fireEvent.keyDown(remove("b"), { key: "Backspace" });
+        expect(root.activeElement).toBe(input);
+      } finally {
+        unmount();
+        host.remove();
+      }
+    },
+  );
+
   it("moves to the last value with Backspace, and removes it with the next", async () => {
     const user = userEvent.setup();
     render(<TagsInput aria-label="Keywords" defaultValue={["a", "b", "c"]} />);
@@ -294,6 +424,177 @@ describe("TagsInput", () => {
     ]);
   });
 
+  it.each([false, true])(
+    "submits the pending text after leaving a remove button (controlled: %s)",
+    async (controlled) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const onBlur = vi.fn((event: React.FocusEvent<HTMLInputElement>) => ({
+        currentTarget: event.currentTarget,
+        relatedTarget: event.relatedTarget,
+      }));
+      const onSubmit = vi.fn((event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        return new FormData(event.currentTarget).getAll("tags");
+      });
+      function Form() {
+        const [tags, setTags] = useState(["first", "second"]);
+        return (
+          <form aria-label="Tags" onSubmit={onSubmit}>
+            <TagsInput
+              addOnBlur
+              defaultValue={controlled ? undefined : tags}
+              name="tags"
+              onBlur={onBlur}
+              onChange={(next) => {
+                onChange(next);
+                if (controlled) setTags(next);
+              }}
+              value={controlled ? tags : undefined}
+            />
+            <button type="submit">Save</button>
+          </form>
+        );
+      }
+      render(<Form />);
+
+      await user.type(input(), "draft");
+      await user.keyboard("{Home}{ArrowLeft}");
+      expect(removeButton("second")).toHaveFocus();
+      expect(onChange).not.toHaveBeenCalled();
+      expect(onBlur).toHaveBeenCalledTimes(1);
+      expect(onBlur.mock.results[0].value).toEqual({
+        currentTarget: input(),
+        relatedTarget: removeButton("second"),
+      });
+
+      await user.keyboard("{ArrowLeft}{ArrowRight}{ArrowRight}");
+      expect(input()).toHaveFocus();
+      expect(input()).toHaveValue("draft");
+      expect(onChange).not.toHaveBeenCalled();
+      expect(onBlur).toHaveBeenCalledTimes(1);
+
+      await user.keyboard("{ArrowLeft}");
+      expect(removeButton("second")).toHaveFocus();
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(onChange).toHaveBeenCalledExactlyOnceWith([
+        "first",
+        "second",
+        "draft",
+      ]);
+      expect(input()).toHaveValue("");
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+      expect(onSubmit.mock.results[0].value).toEqual([
+        "first",
+        "second",
+        "draft",
+      ]);
+      // The consumer's handler still describes input blur, not button blur.
+      expect(onBlur).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("refuses an invalid draft before submitting from a remove button", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn((event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return new FormData(event.currentTarget).getAll("to");
+    });
+    render(
+      <form aria-label="Mail" onSubmit={onSubmit}>
+        <TagsInput
+          addOnBlur
+          defaultValue={["anna@example.com"]}
+          name="to"
+          validate={(tag) =>
+            tag.includes("@") ? undefined : `${tag} is not an e-mail address.`
+          }
+        />
+        <button type="submit">Send</button>
+      </form>,
+    );
+
+    await user.type(input(), "bob");
+    await user.keyboard("{Home}{ArrowLeft}");
+    expect(removeButton("anna@example.com")).toHaveFocus();
+    expect(input()).toBeValid();
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(input()).toHaveValue("bob");
+    expect(input()).toBeInvalid();
+    expect(input().validationMessage).toBe("bob is not an e-mail address.");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.click(input());
+    await user.keyboard("{End}@example.com{Home}{ArrowLeft}");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(input()).toHaveValue("");
+    expect(input()).toBeValid();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.results[0].value).toEqual([
+      "anna@example.com",
+      "bob@example.com",
+    ]);
+  });
+
+  it("preserves an application validation error on an unrelated render", () => {
+    const ref = createRef<HTMLInputElement>();
+    const { rerender } = render(
+      <form aria-label="Mail">
+        <TagsInput defaultValue={["anna"]} label="To" ref={ref} />
+      </form>,
+    );
+
+    ref.current!.setCustomValidity("Rejected by the server");
+    expect(getForm().checkValidity()).toBe(false);
+
+    rerender(
+      <form aria-label="Mail">
+        <TagsInput
+          defaultValue={["anna"]}
+          description="Recipients of this message"
+          label="To"
+          ref={ref}
+        />
+      </form>,
+    );
+
+    expect(ref.current!.validationMessage).toBe("Rejected by the server");
+    expect(getForm().checkValidity()).toBe(false);
+  });
+
+  it("preserves an application error while required and draft errors change", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Mail">
+        <TagsInput label="To" required />
+      </form>,
+    );
+
+    expect(input()).toBeInvalid();
+    input().setCustomValidity("Rejected by the server");
+
+    // Satisfying required must not clear the error the app set over it.
+    await user.type(input(), "anna{Enter}");
+    expect(input().validationMessage).toBe("Rejected by the server");
+    expect(getForm().checkValidity()).toBe(false);
+
+    // A duplicate creates a temporary error, and fixing it clears only
+    // that error, leaving the app's message in charge of form validity.
+    await user.type(input(), "anna{Enter}");
+    expect(input().validationMessage).toBe("Rejected by the server");
+    await user.clear(input());
+    await user.type(input(), "bob{Enter}");
+    expect(shownTags()).toEqual(["anna", "bob"]);
+    expect(input().validationMessage).toBe("Rejected by the server");
+    expect(getForm().checkValidity()).toBe(false);
+
+    input().setCustomValidity("");
+    expect(getForm().checkValidity()).toBe(true);
+  });
+
   it("shows the value of a controlled field only", async () => {
     const user = userEvent.setup();
 
@@ -327,7 +628,7 @@ describe("TagsInput", () => {
     expect(new FormData(getForm()).getAll("to")).toEqual(["anna", "petr"]);
 
     act(() => getForm().reset());
-    expect(shownTags()).toEqual(["anna"]);
+    await waitFor(() => expect(shownTags()).toEqual(["anna"]));
     expect(input()).toHaveValue("");
     expect(new FormData(getForm()).getAll("to")).toEqual(["anna"]);
   });
@@ -351,25 +652,30 @@ describe("TagsInput", () => {
     expect(getForm().checkValidity()).toBe(true);
   });
 
-  it("neither submits nor validates a disabled field", () => {
-    render(
-      <form aria-label="Mail">
-        <TagsInput
-          aria-label="To"
-          defaultValue={["anna"]}
-          disabled
-          name="to"
-          required
-        />
-      </form>,
-    );
+  it.each(["prop", "fieldset"])(
+    "neither submits nor validates a field disabled by %s",
+    (mode) => {
+      render(
+        <form aria-label="Mail">
+          <fieldset disabled={mode === "fieldset"}>
+            <TagsInput
+              aria-label="To"
+              defaultValue={["anna"]}
+              disabled={mode === "prop"}
+              name="to"
+              required
+            />
+          </fieldset>
+        </form>,
+      );
 
-    expect(input()).toBeDisabled();
-    expect(shownTags()).toEqual([]);
-    expect(screen.getByText("anna")).toBeInTheDocument();
-    expect(getForm().checkValidity()).toBe(true);
-    expect(new FormData(getForm()).has("to")).toBe(false);
-  });
+      expect(input()).toBeDisabled();
+      expect(shownTags()).toEqual([]);
+      expect(screen.getByText("anna")).toBeInTheDocument();
+      expect(getForm().checkValidity()).toBe(true);
+      expect(new FormData(getForm()).has("to")).toBe(false);
+    },
+  );
 
   it("names the remove buttons in the language of the locale", () => {
     render(
@@ -385,6 +691,94 @@ describe("TagsInput", () => {
 
   describe("suggestions", () => {
     const skills = ["React", "TypeScript", "GraphQL", "Čeština"];
+
+    it.each(["fieldset", "disabled", "readOnly"] as const)(
+      "closes its suggestions on %s and keeps them closed when enabled again",
+      async (mode) => {
+        const user = userEvent.setup();
+        const onChange = vi.fn();
+        const content = (blocked: boolean) => (
+          <fieldset>
+            <TagsInput
+              addOnBlur
+              defaultValue={["React"]}
+              disabled={mode === "disabled" && blocked}
+              label="Skills"
+              onChange={onChange}
+              readOnly={mode === "readOnly" && blocked}
+              suggestions={skills}
+            />
+          </fieldset>
+        );
+        const { container, rerender } = render(content(false));
+        const combobox = screen.getByRole("combobox");
+        await user.type(combobox, "Type");
+        await user.keyboard("{ArrowDown}");
+        expect(
+          screen.getByRole("option", { name: "TypeScript" }),
+        ).toBeVisible();
+
+        const setBlocked = async (blocked: boolean) => {
+          if (mode === "fieldset") {
+            await act(async () => {
+              container.querySelector("fieldset")!.disabled = blocked;
+            });
+          } else {
+            rerender(content(blocked));
+          }
+        };
+        await setBlocked(true);
+        expect(screen.queryByRole("listbox")).toBeNull();
+        expect(combobox).toHaveAttribute("aria-expanded", "false");
+        expect(combobox).not.toHaveAttribute("aria-activedescendant");
+        if (mode !== "readOnly") expect(combobox).toBeDisabled();
+        fireEvent.blur(combobox);
+        expect(onChange).not.toHaveBeenCalled();
+
+        await setBlocked(false);
+        expect(screen.queryByRole("listbox")).toBeNull();
+        expect(combobox).toHaveValue("Type");
+        expect(shownTags()).toEqual(["React"]);
+        await user.click(combobox);
+        await user.keyboard("{ArrowDown}{Enter}");
+        expect(onChange).toHaveBeenCalledExactlyOnceWith([
+          "React",
+          "TypeScript",
+        ]);
+      },
+    );
+
+    it("leaves only the first legend's field enabled", () => {
+      const onChange = vi.fn();
+      render(
+        <fieldset disabled>
+          <legend>
+            <TagsInput
+              label="Allowed"
+              onChange={onChange}
+              suggestions={skills}
+            />
+          </legend>
+          <legend>
+            <TagsInput
+              defaultValue={["GraphQL"]}
+              label="Blocked"
+              suggestions={skills}
+            />
+          </legend>
+        </fieldset>,
+      );
+
+      const allowed = screen.getByRole("combobox", { name: "Allowed:" });
+      expect(allowed).toBeEnabled();
+      expect(screen.getByRole("combobox", { name: "Blocked:" })).toBeDisabled();
+      expect(
+        screen.queryByRole("button", { name: "Remove GraphQL" }),
+      ).toBeNull();
+      fireEvent.keyDown(allowed, { key: "ArrowDown" });
+      fireEvent.click(screen.getByRole("option", { name: "React" }));
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(["React"]);
+    });
 
     it("offers the matching suggestions as the user types", async () => {
       const user = userEvent.setup();

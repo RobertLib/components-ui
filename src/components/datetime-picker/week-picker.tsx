@@ -1,7 +1,12 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import cn from "../../utils/cn";
-import { getRangeMessage, isInRange, parseDisplayValue } from "./parse";
+import {
+  getRangeMessage,
+  isInRange,
+  parseDisplayValue,
+  parseWeek,
+} from "./parse";
 import PickerField from "./picker-field";
 import usePickerPopup from "./use-picker-popup";
 import {
@@ -22,12 +27,6 @@ import {
 } from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
-
-/** Splits `YYYY-Www` (ISO week) into numbers. */
-const parseWeek = (value: string | undefined) => {
-  const match = value?.match(/^(\d{4})-W(\d{2})$/);
-  return match ? { week: Number(match[2]), year: Number(match[1]) } : null;
-};
 
 type ParsedWeek = ReturnType<typeof parseWeek>;
 
@@ -365,6 +364,15 @@ export default function WeekPicker({
     return parts ? formatPattern(locale.formats.week, parts) : week;
   };
 
+  const getUnavailableMessage = (value: string) => {
+    const week = parseWeek(value);
+    return week &&
+      isDateDisabled &&
+      isWeekUnavailable(isoWeekStart(week.year, week.week), isDateDisabled)
+      ? formatMessage(messages.unavailable, { value: formatValue(value) })
+      : "";
+  };
+
   return (
     <PickerField
       {...props}
@@ -386,7 +394,7 @@ export default function WeekPicker({
         const typed = parseDisplayValue(text, locale.formats.week, "week");
         if (!typed) return { error: "format" };
         return isInRange(typed, min, max)
-          ? { value: typed }
+          ? { value: typed, validityMessage: getUnavailableMessage(typed) }
           : { error: "range" };
       }}
       pickCount={pickCount}
@@ -403,14 +411,7 @@ export default function WeekPicker({
         ) ||
         // A week with no day left - one typed too, which is kept (the form
         // cannot be submitted with it)
-        (selected &&
-        isDateDisabled &&
-        isWeekUnavailable(
-          isoWeekStart(selected.year, selected.week),
-          isDateDisabled,
-        )
-          ? formatMessage(messages.unavailable, { value: formatValue(value) })
-          : "")
+        getUnavailableMessage(value)
       }
       value={value}
     >

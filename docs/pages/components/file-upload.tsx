@@ -202,6 +202,12 @@ export default function FileUploadPage() {
       <Section title="Forms">
         <Prose>
           <p>
+            The form cannot be submitted while files are being checked by an
+            async <code>validate</code>, queued or uploading - also when the
+            field is optional or already has an attachment. A disabled or
+            read-only field does not block submission.
+          </p>
+          <p>
             With a <code>name</code>, <code>required</code> counts the files the
             form submits - those with a <code>value</code>, or the picked files
             without <code>upload</code>; without a name, any attached file will

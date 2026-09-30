@@ -1460,6 +1460,8 @@ describe("DataTable paging with an asynchronous router", () => {
         clientSide
         columns={columns}
         data={rows}
+        defaultSearchOpen
+        enableGlobalSearch
         onQueryChange={setQuery}
         query={query}
       />
@@ -1549,6 +1551,64 @@ describe("DataTable paging with an asynchronous router", () => {
     expect(navigate).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenLastCalledWith("/people?page=4");
   });
+
+  it("uses the pending page size when moving to the last page", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    render(<App initialSearch="?pageSize=2" navigate={navigate} />);
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Rows per page" }),
+      "1",
+    );
+    await user.click(screen.getByRole("button", { name: "Last page" }));
+    expect(navigate).toHaveBeenLastCalledWith("/people?page=4");
+
+    await user.click(screen.getByRole("button", { name: "Finish navigation" }));
+    expect(
+      screen.getByRole("cell", { name: rows[3].name }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the total valid during a pending sort", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    render(<App navigate={navigate} />);
+
+    await user.click(screen.getByRole("button", { name: "Name" }));
+    await user.click(screen.getByRole("button", { name: "Last page" }));
+    const next = new URL(navigate.mock.lastCall![0], "https://example.test");
+    expect(next.searchParams.get("sortBy")).toBe("name");
+    expect(next.searchParams.get("page")).toBe("4");
+  });
+
+  it.each(["filter", "search"])(
+    "waits for the total of a pending %s before moving to the last page",
+    async (change) => {
+      const user = userEvent.setup();
+      const navigate = vi.fn();
+      render(<App navigate={navigate} />);
+
+      if (change === "filter") {
+        await user.type(
+          screen.getByRole("searchbox", { name: "Filter Name" }),
+          "e",
+        );
+      } else {
+        await user.type(screen.getByRole("textbox", { name: "Search" }), "e");
+      }
+      await waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
+      await user.click(screen.getByRole("button", { name: "Last page" }));
+      expect(navigate).toHaveBeenCalledTimes(1);
+
+      await user.click(
+        screen.getByRole("button", { name: "Finish navigation" }),
+      );
+      await user.click(screen.getByRole("button", { name: "Last page" }));
+      const next = new URL(navigate.mock.lastCall![0], "https://example.test");
+      expect(next.searchParams.get("page")).toBe("3");
+    },
+  );
 });
 
 describe("DataTable with a router that applies each navigation late", () => {
@@ -1813,6 +1873,76 @@ describe("useDataTableQuery URL", () => {
     ({ children }: { children: React.ReactNode }) => (
       <UIProvider router={router}>{children}</UIProvider>
     );
+
+  it("isolates pending changes of independent routers at the same path", () => {
+    const navigateA = vi.fn();
+    const navigateB = vi.fn();
+    const a = renderHook(() => useDataTableQuery({ syncWithUrl: true }), {
+      wrapper: withRouter({
+        navigate: navigateA,
+        pathname: "/people",
+        search: "",
+      }),
+    });
+    const b = renderHook(() => useDataTableQuery({ syncWithUrl: true }), {
+      wrapper: withRouter({
+        navigate: navigateB,
+        pathname: "/people",
+        search: "",
+      }),
+    });
+
+    act(() => a.result.current[1]((query) => ({ ...query, search: "Adam" })));
+    act(() => b.result.current[1]((query) => ({ ...query, page: 2 })));
+    expect(navigateB).toHaveBeenLastCalledWith("/people?page=2", {
+      replace: false,
+    });
+
+    // Unmounting one router must not discard the other's pending page.
+    a.unmount();
+    act(() =>
+      b.result.current[1]((query) => ({ ...query, page: query.page + 1 })),
+    );
+    expect(navigateB).toHaveBeenLastCalledWith("/people?page=3", {
+      replace: false,
+    });
+  });
+
+  it("shares pending changes through a provider that only changes the locale and links", () => {
+    const navigate = vi.fn();
+    const nextPage = (query: DataTableQuery) => ({
+      ...query,
+      page: query.page + 1,
+    });
+
+    function Page({ prefix }: { prefix: string }) {
+      const [, setQuery] = useDataTableQuery({
+        syncWithUrl: true,
+        urlPrefix: prefix,
+      });
+      return <button onClick={() => setQuery(nextPage)}>Next {prefix}</button>;
+    }
+
+    render(
+      <UIProvider router={{ navigate, pathname: "/people", search: "" }}>
+        <Page prefix="a_" />
+        <UIProvider
+          locale={cs}
+          router={{
+            Link: ({ href, ...props }) => <a href={href} {...props} />,
+          }}
+        >
+          <Page prefix="b_" />
+        </UIProvider>
+      </UIProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Next a_" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next b_" }));
+    expect(navigate).toHaveBeenLastCalledWith("/people?a_page=2&b_page=2", {
+      replace: false,
+    });
+  });
 
   it("does not put the path of a hash router into its hash again", () => {
     // A hash router at its root - the page itself is at `/` too

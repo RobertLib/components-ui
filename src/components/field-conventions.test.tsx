@@ -874,7 +874,7 @@ describe("Right to left", () => {
     render(<ColorInput label="Color" />);
 
     await user.click(screen.getByRole("button", { name: "Choose a color" }));
-    const panel = screen.getByRole("dialog").closest(".start-0");
+    const panel = screen.getByRole("dialog").closest(".inset-s-0");
     expect(panel).not.toBeNull();
     expect(panel).not.toHaveClass("left-0");
   });

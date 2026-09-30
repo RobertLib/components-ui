@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import AgendaView from "./agenda-view";
 import CalendarHeader from "./calendar-header";
 import cn from "../../utils/cn";
-import { dateOf, shiftDay } from "../../utils/date";
+import { dateOf, shiftDay, startOfDay } from "../../utils/date";
 import DayView from "./day-view";
 import { expandRecurringEvents } from "./recurrence";
 import {
@@ -107,7 +107,8 @@ export interface CalendarProps extends Omit<
    * Days of the week the views leave out - `[0, 6]` for a work week without
    * the weekend (`Date#getDay()`: 0 is Sunday). The week and month views
    * have no column for them, the day views skip them (a hidden date shows
-   * the next day), the agenda lists no events on them. Their events are
+   * the next visible day, or the previous one at `maxDate`), the agenda
+   * lists no events on them. Their events are
    * not shown - `getCalendarVisibleRange` still has the days.
    */
   hiddenDays?: WeekDay[];
@@ -278,6 +279,27 @@ const shiftDate = (
 };
 
 /**
+ * The next visible day, or the previous one when the next is past the date
+ * limits. A hidden day between the limits may have neither.
+ */
+function resolveVisibleDay(
+  date: Date,
+  hiddenDays: ReadonlySet<number>,
+  minDate: Date | undefined,
+  maxDate: Date | undefined,
+) {
+  const min = minDate && startOfDay(minDate);
+  const max = maxDate && startOfDay(maxDate);
+
+  for (const direction of [1, -1] as const) {
+    const candidate = skipHiddenDays(date, hiddenDays, direction);
+    const day = startOfDay(candidate);
+    if ((!min || day >= min) && (!max || day <= max)) return candidate;
+  }
+  return null;
+}
+
+/**
  * An event calendar with month, week, day, agenda and resource timeline
  * views. Events can be clicked, moved to another time and resized - by the
  * pointer or the keys - repeat by a rule and belong to resources (rooms,
@@ -372,11 +394,17 @@ export default function Calendar({
         : view === "timelineWeek"
           ? "week"
           : view;
-  // A view of a day shows the next day not hidden
+  // A view of a day shows a visible day inside the limits when possible.
+  // An app-provided date outside them still renders a disabled day; it
+  // never updates the parent's date while rendering.
   const byDays = step === "day";
   const currentDate = useMemo(
-    () => (byDays ? skipHiddenDays(dateValue, hiddenDays) : dateValue),
-    [byDays, dateValue, hiddenDays],
+    () =>
+      byDays
+        ? (resolveVisibleDay(dateValue, hiddenDays, minDate, maxDate) ??
+          skipHiddenDays(dateValue, hiddenDays))
+        : dateValue,
+    [byDays, dateValue, hiddenDays, maxDate, minDate],
   );
 
   const { invalid: invalidHours, schedule: businessHours } = useMemo(
@@ -443,7 +471,7 @@ export default function Calendar({
   // The navigation goes towards the days of `minDate` - `maxDate`, not to a
   // period without one of them - also from a date out of them - and puts
   // the date on the first or the last of them
-  const canNavigateTo = (date: Date) => {
+  const getNavigationDate = (date: Date) => {
     const { end, start } = getVisibleRange(
       date,
       "agenda",
@@ -452,19 +480,27 @@ export default function Calendar({
         agendaPeriod: step,
       },
     );
-    return date < currentDate
-      ? !minDate || end > minDate
-      : !maxDate || start <= maxDate;
-  };
-  const navigate = (date: Date) => {
-    if (!canNavigateTo(date)) return false;
-    changeDate(
+    const canNavigate =
+      date < currentDate
+        ? !minDate || end > minDate
+        : !maxDate || start <= maxDate;
+    if (!canNavigate) return null;
+
+    const target =
       minDate && date < minDate
         ? new Date(minDate)
         : maxDate && date > maxDate
           ? new Date(maxDate)
-          : date,
-    );
+          : date;
+    return byDays
+      ? resolveVisibleDay(target, hiddenDays, minDate, maxDate)
+      : target;
+  };
+  const canNavigateTo = (date: Date) => getNavigationDate(date) !== null;
+  const navigate = (date: Date) => {
+    const target = getNavigationDate(date);
+    if (!target) return false;
+    changeDate(target);
     return true;
   };
 
@@ -564,7 +600,7 @@ export default function Calendar({
         currentDate={currentDate}
         maxDate={maxDate}
         minDate={minDate}
-        onDateSelect={changeDate}
+        onDateSelect={byDays ? navigate : changeDate}
         onNext={() => navigate(nextDate)}
         onPrevious={() => navigate(previousDate)}
         onToday={() => navigate(new Date())}

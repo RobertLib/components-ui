@@ -97,9 +97,12 @@ export default function DataTablePage() {
             are highlighted; dates and booleans without a <code>render</code>{" "}
             show by the locale (<code>24.09.2026</code>, "Yes"), lists as{" "}
             <code>alpha, beta</code>. Numbers stored as strings (
-            <code>"-3.50"</code>) sort by their value. The full screen button
-            covers the page - Escape or the button leave it, and Tab stays in
-            the table meanwhile.
+            <code>"-3.50"</code>) sort by their value. Mixed types sort in
+            groups: numbers (including numeric strings and bigints),{" "}
+            <code>Date</code>s, booleans, then other text in ascending order;
+            descending reverses that order. Empty values stay last in both
+            directions. The full screen button covers the page - Escape or the
+            button leave it, and Tab stays in the table meanwhile.
           </p>
         }
         name="data-table/client-side"
@@ -170,8 +173,10 @@ export default function DataTablePage() {
             <code>excludedRows</code> (act on all rows of the <code>query</code>{" "}
             but these). With <code>autoResetSelectedRows</code> only the rows
             the action got are deselected - rows picked while it ran stay
-            selected. A refetch keeps the selected rows that are still there; a
-            row selected on its own leaves the selection with its page. A group
+            selected. A selection made after changing filters is kept when an
+            older action finishes, even after returning to the original filters.
+            A refetch keeps the selected rows that are still there; a row
+            selected on its own leaves the selection with its page. A group
             action whose button has the focus keeps it when the action drops the
             selection, and "Clear selection" - or an action removing every row -
             gives it to the "select all" checkbox.
@@ -391,12 +396,18 @@ export default function DataTablePage() {
             the one before it - until the cell is saved again, a refetch brings
             another value (another user&apos;s change) or the rows no longer
             have its row (with server data: another page). Update{" "}
-            <code>data</code> with the saved value. While a cell is edited the
-            rows keep their places: sort by name and rename a person - the row
-            moves once the editing ends, not while its next cell is edited.
-            Another page, sorting or filter ends the editing. A field left as it
-            was saves nothing - also when a refetch changed the cell meanwhile,
-            so another user&apos;s change is not overwritten. A number field
+            <code>data</code> with the saved value. If the server normalizes the
+            value, also return <code>{"{ value: savedValue }"}</code> from
+            <code> onCellEdit</code>: the confirmed value takes precedence until
+            the next replacement of its row in <code>data</code>. This also
+            handles normalization back to the original value, which cannot be
+            distinguished from a poll still holding old data. The demo trims
+            spaces around names when saving. While a cell is edited the rows
+            keep their places: sort by name and rename a person - the row moves
+            once the editing ends, not while its next cell is edited. Another
+            page, sorting or filter ends the editing. A field left as it was
+            saves nothing - also when a refetch changed the cell meanwhile, so
+            another user&apos;s change is not overwritten. A number field
             refuses text that is no number instead of emptying the cell. An
             empty cell is edited in the field the other values of its column
             need; set <code>editor</code> for a column that may be all empty.
@@ -568,7 +579,8 @@ export default function DataTablePage() {
               <code>toLocaleString(…, {"{ timeZone }"})</code>) when the server
               renders the table, or render the table in the browser only. The
               date filters of a <code>clientSide</code> table read ISO texts
-              with a zone in the local time too.
+              with a zone in the local time too, and its sorting orders them by
+              their moment, with the dates.
             </li>
           </ul>
         </Prose>

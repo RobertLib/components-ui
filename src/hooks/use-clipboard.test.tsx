@@ -65,6 +65,24 @@ describe("useClipboard", () => {
     });
   });
 
+  it("starts the copied timeout again after another successful copy", async () => {
+    vi.useFakeTimers();
+    setClipboard({ writeText: vi.fn().mockResolvedValue(undefined) });
+    const { result } = renderHook(() => useClipboard({ timeout: 1000 }));
+
+    await act(async () => {
+      await result.current.copy("first");
+    });
+    act(() => vi.advanceTimersByTime(900));
+    await act(async () => {
+      await result.current.copy("second");
+    });
+    act(() => vi.advanceTimersByTime(999));
+    expect(result.current.copied).toBe(true);
+    act(() => vi.advanceTimersByTime(1));
+    expect(result.current.copied).toBe(false);
+  });
+
   it("reports a failure without rejecting", async () => {
     const denied = new DOMException(
       "Write permission denied.",

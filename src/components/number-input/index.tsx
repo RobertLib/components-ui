@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { attachRef, useFormReset } from "../../hooks/use-form-control";
+import useCustomValidity from "../../hooks/use-custom-validity";
 import cn from "../../utils/cn";
 import { flushSync } from "react-dom";
 import { formatMessage } from "../../i18n/format";
@@ -111,7 +112,11 @@ export interface NumberInputProps extends Omit<
    * unit (`{ style: "unit", unit: "kilogram" }`). The value is rounded to
    * the fraction digits the format shows - 3 by default, those of the
    * currency for one, or those of a finer `step` unless the options set
-   * the digits.
+   * the digits. Scientific and engineering notation round the mantissa;
+   * editing expands that value into a plain decimal number. A supplied
+   * value outside `min` - `max` stays invalid even when rounding hides the
+   * excess. If rounding a limit puts it outside the range, clamping and
+   * stepping leave the value unchanged; choose a finer precision then.
    */
   formatOptions?: Intl.NumberFormatOptions;
   /**
@@ -134,7 +139,8 @@ export interface NumberInputProps extends Omit<
   max?: number;
   /**
    * The most fraction digits - a shorthand for the one of `formatOptions`.
-   * With `0` only whole numbers can be typed.
+   * With `0` only whole numbers can be typed, except in scientific and
+   * engineering notation, where this limits the mantissa's fraction.
    */
   maximumFractionDigits?: number;
   /**
@@ -244,13 +250,16 @@ export default function NumberInput({
   // again after a reset, it shows `defaultValue`, like a native field does
   const [enteredValue, setEnteredValue] = useState<number | null>();
   const isControlled = controlledValue !== undefined;
-  const value = toValue(
+  const sourceValue = toValue(
     isControlled
       ? controlledValue
       : enteredValue === undefined
         ? defaultValue
         : enteredValue,
   );
+  // Loaded values follow the same precision as typed ones. Submission,
+  // validation and stepping all use the number the field actually shows.
+  const value = sourceValue === null ? null : numberFormat.round(sourceValue);
 
   // The text being typed - `null` while the field shows the value
   const [text, setText] = useState<string | null>(null);
@@ -277,37 +286,39 @@ export default function NumberInput({
   // number input: a typed one not yet moved into them (a form submitted
   // from a script while the field has the focus), or one of the parent
   const rangeMessage =
-    value !== null && max !== undefined && value > max
+    value !== null &&
+    max !== undefined &&
+    (value > max || (sourceValue !== null && sourceValue > max))
       ? formatMessage(messages.numberInput.rangeOverflow, {
           max: numberFormat.format(max),
         })
-      : value !== null && min !== undefined && value < min
+      : value !== null &&
+          min !== undefined &&
+          (value < min || (sourceValue !== null && sourceValue < min))
         ? formatMessage(messages.numberInput.rangeUnderflow, {
             min: numberFormat.format(min),
           })
         : "";
-  // The message the field set last - one the page set stays
-  const rangeMessageRef = useRef("");
-
-  useLayoutEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-
-    if (rangeMessage) input.setCustomValidity(rangeMessage);
-    else if (input.validationMessage === rangeMessageRef.current) {
-      input.setCustomValidity("");
-    }
-    rangeMessageRef.current = rangeMessage;
-  }, [rangeMessage]);
+  // A partial number may stay while typing, but cannot be submitted as an
+  // empty value. Native `required` only sees the nonempty text (e.g. "-").
+  const validityMessage =
+    value === null && text !== null && text !== ""
+      ? messages.numberInput.invalidNumber
+      : rangeMessage;
+  useCustomValidity(inputRef, validityMessage);
 
   const generatedId = useId();
   const inputId = id ?? generatedId;
 
   const commitValue = (next: number | null) => {
-    if (next === value) return;
-    if (!isControlled) setEnteredValue(next);
-    onChange?.(next);
+    const rounded = next === null ? null : numberFormat.round(next);
+    if (rounded === sourceValue) return;
+    if (!isControlled) setEnteredValue(rounded);
+    onChange?.(rounded);
   };
+
+  const isInRange = (next: number) =>
+    (min === undefined || next >= min) && (max === undefined || next <= max);
 
   // What leaving the field or Enter makes of the typed text: its value
   // within `min` - `max`, which the field then shows
@@ -316,7 +327,11 @@ export default function NumberInput({
 
     const parsed = numberFormat.parse(text);
     setText(null);
-    commitValue(parsed === null ? null : clamp(parsed, min, max));
+    const next =
+      parsed === null ? null : numberFormat.round(clamp(parsed, min, max));
+    // A bound may need more precision than the format permits. Do not
+    // replace the draft with another value outside the permitted range.
+    if (next === null || isInRange(next)) commitValue(next);
   };
 
   /**
@@ -328,34 +343,36 @@ export default function NumberInput({
     direction: 1 | -1,
     count: number,
   ) => {
-    const next = clamp(
-      numberFormat.round(
-        stepValue(current, direction, count, { max, min, step: stepSize }),
-      ),
-      min,
-      max,
+    const next = numberFormat.round(
+      stepValue(current, direction, count, { max, min, step: stepSize }),
     );
     const backwards =
       current !== null && (direction > 0 ? next < current : next > current);
-    return backwards ? current : next;
+    return backwards || !isInRange(next) ? current : next;
   };
 
   /** Steps the value - returns whether it changed. */
   const stepBy = (direction: 1 | -1, count: number) => {
-    if (disabled || readOnly) return false;
+    // Pointer events and an already running repeat can reach a native
+    // control disabled by its fieldset. Check the DOM too, including the
+    // first legend's exception and changes since the latest render.
+    if (disabled || readOnly || inputRef.current?.matches(":disabled")) {
+      return false;
+    }
 
     // A typed text is where the step starts
     const current = text === null ? value : numberFormat.parse(text);
     const next = stepFrom(current, direction, count);
 
     setText(null);
-    commitValue(next);
+    if (next !== current) commitValue(next);
     return next !== current;
   };
 
   const jumpTo = (bound: number) => {
     setText(null);
-    commitValue(clamp(numberFormat.round(bound), min, max));
+    const next = numberFormat.round(clamp(bound, min, max));
+    if (isInRange(next)) commitValue(next);
   };
 
   // A form reset - also the one after a React form action - brings back the
@@ -387,6 +404,7 @@ export default function NumberInput({
       const handleWheel = (event: WheelEvent) => {
         if (
           !wheelEnabledRef.current ||
+          input?.matches(":disabled") ||
           input?.ownerDocument.activeElement !== input ||
           // Pinch zoom, or a horizontal scroll
           event.ctrlKey ||
@@ -427,7 +445,7 @@ export default function NumberInput({
     direction: 1 | -1,
     canStep: boolean,
   ) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || event.currentTarget.matches(":disabled")) return;
 
     // A mouse moves the focus into the field - a finger does not, the
     // on-screen keyboard would cover the page
@@ -582,11 +600,7 @@ export default function NumberInput({
         id={inputId}
         inputMode={
           inputMode ??
-          inputModeFor(
-            platform,
-            numberFormat.fractionDigits > 0,
-            allowsNegative,
-          )
+          inputModeFor(platform, numberFormat.allowsFraction, allowsNegative)
         }
         label={label}
         onBlur={(event) => {
@@ -628,6 +642,7 @@ export default function NumberInput({
           onKeyDown?.(event);
           if (
             event.defaultPrevented ||
+            event.currentTarget.matches(":disabled") ||
             event.altKey ||
             event.ctrlKey ||
             event.metaKey ||

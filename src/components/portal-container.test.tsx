@@ -288,6 +288,29 @@ describe("A portalContainer in a shadow root", () => {
     expect(within(portalRoot).queryByRole("dialog")).toBeNull();
   });
 
+  it("tabs from the last popover control to the next field in the shadow root", async () => {
+    renderInShadow(
+      <>
+        <Popover trigger="Filters" triggerType="click">
+          <button type="button">Apply</button>
+        </Popover>
+        <input aria-label="Next field" />
+      </>,
+    );
+
+    fireEvent.click(within(appRoot).getByRole("button", { name: "Filters" }));
+    const apply = within(portalRoot).getByRole("button", { name: "Apply" });
+    act(() => apply.focus());
+    fireEvent.keyDown(apply, { composed: true, key: "Tab" });
+
+    await waitFor(() => {
+      expect(within(portalRoot).queryByRole("dialog")).toBeNull();
+      expect(getActiveElement()).toBe(
+        within(appRoot).getByRole("textbox", { name: "Next field" }),
+      );
+    });
+  });
+
   it("keeps a context menu open on a press in it there", () => {
     renderInShadow(
       <ContextMenu items={[{ label: "Rename" }, { label: "Delete" }]}>

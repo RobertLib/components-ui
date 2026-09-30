@@ -436,6 +436,112 @@ describe("Input mask", () => {
     expect(input).toHaveValue("");
   });
 
+  it("types a number with its literals as it pastes it", async () => {
+    const user = userEvent.setup();
+    render(
+      <UIProvider locale={cs}>
+        <Input label="Telefon" mask="+420 ### ### ###" />
+        <Input label="Phone" mask="+1 (###) ###-####" />
+      </UIProvider>,
+    );
+
+    const input = textbox(/Telefon/);
+    await user.type(input, "+42");
+    expect(withCaret(input)).toBe("+42|");
+    // Typed literals alone are not a value yet
+    expect(input).toBeInvalid();
+    await user.keyboard("0777123456");
+    expect(input).toHaveValue("+420 777 123 456");
+    expect(input).toBeValid();
+
+    await user.type(textbox(/Phone/), "+15551234567");
+    expect(textbox(/Phone/)).toHaveValue("+1 (555) 123-4567");
+  });
+
+  it("keeps the value of a mask that starts with digits", async () => {
+    const user = userEvent.setup();
+    const onMaskChange = vi.fn();
+
+    function Serial() {
+      const [serial, setSerial] = useState("");
+      return (
+        <Input
+          label="Serial"
+          mask="SN****"
+          onChange={(event) => setSerial(event.target.value)}
+          value={serial}
+        />
+      );
+    }
+    render(
+      <form aria-label="Contact">
+        <Input
+          label="Telefon"
+          mask="07### ######"
+          name="phone"
+          onMaskChange={onMaskChange}
+          unmask
+        />
+        <Serial />
+      </form>,
+    );
+
+    const input = textbox(/Telefon/);
+    await user.type(input, "1");
+    expect(withCaret(input)).toBe("071|");
+    await user.keyboard("23456789");
+    expect(input).toHaveValue("07123 456789");
+    expect(onMaskChange).toHaveBeenLastCalledWith({
+      complete: true,
+      formatted: "07123 456789",
+      raw: "123456789",
+    });
+    const data = new FormData(screen.getByRole("form", { name: "Contact" }));
+    expect(data.get("phone")).toBe("123456789");
+
+    // A controlled value of the formatted text too
+    await user.type(textbox(/Serial/), "a1b2");
+    expect(textbox(/Serial/)).toHaveValue("SNa1b2");
+  });
+
+  it("shows what was typed to a parent that keeps the raw characters", async () => {
+    const user = userEvent.setup();
+
+    function Field({ label, mask }: { label: string; mask: string }) {
+      const [raw, setRaw] = useState("");
+      return (
+        <>
+          <Input
+            label={label}
+            mask={mask}
+            onMaskChange={(value) => setRaw(value.raw)}
+            value={raw}
+          />
+          <button onClick={() => setRaw("")} type="button">
+            Clear {label}
+          </button>
+        </>
+      );
+    }
+    render(
+      <>
+        <Field label="Phone" mask="07### ######" />
+        <Field label="International" mask="+420 ### ### ###" />
+      </>,
+    );
+
+    // Its raw "070" also reads as the field's own text "070", which is 0
+    await user.type(textbox(/Phone/), "070");
+    expect(textbox(/Phone/)).toHaveValue("07070");
+    // The typed "+42" of a value of no raw characters yet stays
+    await user.type(textbox(/International/), "+420777123456");
+    expect(textbox(/International/)).toHaveValue("+420 777 123 456");
+
+    // A value the parent sets is laid into the mask again
+    await user.click(screen.getByRole("button", { name: "Clear Phone" }));
+    expect(textbox(/Phone/)).toHaveValue("");
+  });
+
   it("formats a controlled value of the parent, also a raw one", async () => {
     const user = userEvent.setup();
     const changes: MaskedValue[] = [];
@@ -618,6 +724,68 @@ describe("Input mask", () => {
     expect(onChange.mock.lastCall?.[0].target.value).toBe("ab-1");
     expect(withCaret(input)).toBe("ab-1|");
   });
+
+  it.each([true, false])(
+    "provides the input as currentTarget when the last IME input is composing: %s",
+    (isComposing) => {
+      const events: React.ChangeEvent<HTMLInputElement>[] = [];
+      const changes: {
+        currentTarget: HTMLInputElement;
+        target: HTMLInputElement;
+        type: string;
+        value: string | undefined;
+      }[] = [];
+      const onMaskChange = vi.fn();
+
+      function ControlledInput() {
+        const [value, setValue] = useState("");
+        return (
+          <Input
+            label="Code"
+            mask="@@-##"
+            onChange={(event) => {
+              event.preventDefault();
+              events.push(event);
+              changes.push({
+                currentTarget: event.currentTarget,
+                target: event.target,
+                type: event.type,
+                value: event.currentTarget?.value,
+              });
+              setValue(event.currentTarget?.value ?? "");
+            }}
+            onMaskChange={onMaskChange}
+            value={value}
+          />
+        );
+      }
+
+      render(<ControlledInput />);
+      const input = textbox(/Code/);
+      input.focus();
+      fireEvent.compositionStart(input);
+      fireEvent.input(input, { isComposing: true, target: { value: "ab1" } });
+      expect(changes).toEqual([]);
+
+      // Some browsers commit in the last input event, others on compositionend.
+      fireEvent.input(input, { isComposing, target: { value: "ab12" } });
+      fireEvent.compositionEnd(input);
+
+      expect(changes).toEqual([
+        { currentTarget: input, target: input, type: "change", value: "ab-12" },
+      ]);
+      expect(events[0].currentTarget).toBeNull();
+      expect(events[0].nativeEvent.type).toBe("input");
+      expect(events[0].isDefaultPrevented()).toBe(true);
+      expect(input).toHaveValue("ab-12");
+      expect(withCaret(input)).toBe("ab-12|");
+      expect(onMaskChange).toHaveBeenCalledExactlyOnceWith({
+        complete: true,
+        formatted: "ab-12",
+        raw: "ab12",
+      });
+    },
+  );
 
   it("takes placeholders of your own", async () => {
     const user = userEvent.setup();

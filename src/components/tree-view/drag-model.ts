@@ -188,10 +188,47 @@ export function getDropPlaces<T>(rows: readonly TreeRow<T>[]): DropPlace[] {
 }
 
 /**
+ * Where the keys choose a place: `places[at]`, among the places as they
+ * were then - at first the place before the moved item.
+ */
+export interface PlaceCursor {
+  at: number;
+  places: readonly DropPlace[];
+}
+
+/**
+ * The index in `places` a step from the cursor goes to - towards the end
+ * (`step` 1) or the start (-1). The rows may have changed since the cursor
+ * was set (children loaded, items changed or collapsed from outside): it
+ * steps from its place where that is now, and where it is gone, from the
+ * gap right after the nearest place before it that is still there.
+ */
+export function stepFromCursor(
+  places: readonly DropPlace[],
+  cursor: PlaceCursor,
+  step: 1 | -1,
+): number {
+  const key = ({ position, targetId }: DropPlace) =>
+    `${position} ${typeof targetId} ${targetId}`;
+  const indexes = new Map(places.map((place, index) => [key(place), index]));
+
+  for (let at = cursor.at; at >= 0; at--) {
+    const index = indexes.get(key(cursor.places[at]));
+    if (index === undefined) continue;
+    // Still there - a step from it; gone - from the gap after this one,
+    // where going back comes to this one first
+    return at === cursor.at ? index + step : step === 1 ? index + 1 : index;
+  }
+  // Nothing before it is left - the gap before the first place
+  return step === 1 ? 0 : -1;
+}
+
+/**
  * The row an indicator of `place` is drawn on and where: a line at the top
  * of the target (before), at the bottom of its last shown descendant
- * (after) - indented to the level of the target - or the target row itself
- * (inside). `null` when the target is not shown.
+ * (after) - or of the row under it saying its children load - indented to
+ * the level of the target, or the target row itself (inside). `null` when
+ * the target is not shown.
  */
 export function getPlaceRow<T>(
   place: DropPlace,
@@ -201,6 +238,11 @@ export function getPlaceRow<T>(
   edge: "bottom" | "inside" | "top";
   level: number;
   rowIndex: number;
+  /**
+   * On the row below `rowIndex` saying its children load (or failed to) -
+   * the items land after that one.
+   */
+  status?: boolean;
 } | null {
   const targetIndex = rowIndexById.get(place.targetId);
   if (targetIndex === undefined) return null;
@@ -212,7 +254,13 @@ export function getPlaceRow<T>(
   if (place.position === "inside") {
     return { edge: "inside", level: target.level, rowIndex: targetIndex };
   }
-  return { edge: "bottom", level: target.level, rowIndex: target.end - 1 };
+  const last = target.end - 1;
+  return {
+    edge: "bottom",
+    level: target.level,
+    rowIndex: last,
+    status: rows[last].loadStatus !== undefined,
+  };
 }
 
 /** Which part of a row the pointer is over - its upper, middle or lower part. */

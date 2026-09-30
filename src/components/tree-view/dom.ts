@@ -23,11 +23,16 @@ export const indent = (level: number) =>
 export const levelAt = (offset: number) =>
   Math.floor((offset - INDENT_START) / INDENT_STEP) + 1;
 
-/** Part of an element id for an item id - which may be any string. */
+/**
+ * Part of an element id for an item id - which may be any string. Fixed-width
+ * escapes keep a character and its following digits apart from another
+ * character. Escaping underscores keeps literal escape text distinct, and
+ * escaping hyphens reserves them for the suffixes of label and group ids.
+ */
 export const encodeId = (id: TreeItemId) =>
   typeof id === "number"
     ? `n${id}`
-    : `s${id.replace(/[^a-zA-Z0-9-]/g, (char) => `_${char.charCodeAt(0).toString(16)}`)}`;
+    : `s${id.replace(/[^a-zA-Z0-9]/g, (char) => `_${char.charCodeAt(0).toString(16).padStart(4, "0")}`)}`;
 
 /**
  * Whether an event came from a control of `renderLabel` / `renderActions`

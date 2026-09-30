@@ -90,7 +90,10 @@ export default function Localization() {
               are written (<code>12,345</code> / <code>12 345</code>). They need
               no translation. A code <code>Intl</code> does not understand (
               <code>en_GB</code> instead of <code>en-GB</code>) falls back to{" "}
-              <code>en-US</code>, with a warning in the console.
+              <code>en-US</code>, with a warning in the console. Calendars and
+              date pickers use the Gregorian calendar for their values, month
+              names and day labels, including in languages whose default
+              calendar is different.
             </li>
             <li>
               <code>formats</code> are the display patterns of the pickers - the

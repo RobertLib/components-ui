@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import Calendar, { type CalendarEvent } from ".";
 import { normalizeBusinessHours, getOffHours } from "./business-hours";
 import { cs } from "../../i18n/cs";
+import { en } from "../../i18n/en";
+import { createLocale } from "../../i18n/format";
 import UIProvider from "../../providers/ui-provider";
 
 /** A day of September 2026 - the 24th is a Thursday. */
@@ -44,6 +46,34 @@ const labelsOf = (container: HTMLElement) =>
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("Calendar month labels", () => {
+  it.each(["week", "timelineWeek"] as const)(
+    "uses Gregorian months beside the day numbers in %s",
+    (view) => {
+      const onDateClick = vi.fn();
+      render(
+        <UIProvider locale={createLocale(en, { code: "en-US-u-ca-persian" })}>
+          <Calendar
+            initialDate={d(24)}
+            initialView={view}
+            onDateClick={onDateClick}
+            resources={[{ id: "room", title: "Room" }]}
+            viewOptions={[view]}
+          />
+        </UIProvider>,
+      );
+
+      expect(screen.getAllByText("Sep")).toHaveLength(7);
+      const day = screen.getByRole("button", {
+        name: "Thursday, September 24, 2026",
+      });
+      expect(day).toHaveTextContent("24");
+      fireEvent.click(day);
+      expect(onDateClick).toHaveBeenCalledWith(d(24));
+    },
+  );
 });
 
 describe("Calendar slot duration", () => {
@@ -313,6 +343,46 @@ describe("Calendar hidden days", () => {
     );
   });
 
+  it("focuses the next day shown after a Page Up / Down onto a hidden day", async () => {
+    const user = userEvent.setup();
+    render(
+      <Calendar
+        hiddenDays={[0, 6]}
+        initialDate={d(25)}
+        // A Sunday
+        minDate={new Date(2026, 7, 30)}
+        onDateClick={() => {}}
+      />,
+    );
+    act(() =>
+      screen
+        .getByRole("button", { name: "Friday, September 25, 2026" })
+        .focus(),
+    );
+
+    // October 25 is a Sunday
+    await user.keyboard("{PageDown}");
+    expect(screen.getByRole("grid", { name: "October 2026" })).toBeVisible();
+    expect(document.activeElement).toHaveAccessibleName(
+      "Monday, October 26, 2026",
+    );
+    expect(document.activeElement).toHaveAttribute("tabindex", "0");
+
+    // September 26 is a Saturday
+    await user.keyboard("{PageUp}");
+    expect(document.activeElement).toHaveAccessibleName(
+      "Monday, September 28, 2026",
+    );
+
+    // August 28 is before minDate - the calendar stops on it, a Sunday
+    await user.keyboard("{PageUp}");
+    expect(screen.getByRole("grid", { name: "August 2026" })).toBeVisible();
+    expect(document.activeElement).toHaveAccessibleName(
+      "Monday, August 31, 2026",
+    );
+    expect(document.activeElement).toHaveAttribute("tabindex", "0");
+  });
+
   it("skips the hidden days in the day view and its navigation", async () => {
     const user = userEvent.setup();
     render(
@@ -331,6 +401,114 @@ describe("Calendar hidden days", () => {
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
       "Monday, September 28, 2026",
     );
+  });
+
+  it.each(["day", "timelineDay", "agenda"] as const)(
+    "keeps a hidden day picked in the %s header inside the date limits",
+    (view) => {
+      render(
+        <Calendar
+          agendaPeriod="day"
+          hiddenDays={[0, 6]}
+          initialDate={d(25)}
+          initialView={view}
+          maxDate={d(26)}
+          minDate={d(25, 12)}
+        />,
+      );
+
+      const field = screen.getByRole("combobox", { name: "Go to date" });
+      fireEvent.change(field, { target: { value: "2026-09-26" } });
+      fireEvent.keyDown(field, { key: "Enter" });
+
+      expect(field).toHaveValue("09/25/2026");
+      expect(field).toBeValid();
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
+        "Friday, September 25, 2026",
+      );
+      expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    },
+  );
+
+  it.each(["day", "timelineDay", "agenda"] as const)(
+    "resolves an initial or controlled hidden upper-bound day in %s without changing the parent's date",
+    (view) => {
+      const setCurrentDate = vi.fn();
+      const currentDate = d(26);
+      const props = {
+        agendaPeriod: "day" as const,
+        hiddenDays: [0, 6] as (0 | 6)[],
+        initialView: view,
+        maxDate: d(26),
+        minDate: d(25, 12),
+      };
+      const { rerender } = render(
+        <Calendar {...props} initialDate={currentDate} />,
+      );
+      const field = screen.getByRole("combobox", { name: "Go to date" });
+      expect(field).toHaveValue("09/25/2026");
+
+      rerender(
+        <Calendar
+          {...props}
+          currentDate={currentDate}
+          setCurrentDate={setCurrentDate}
+        />,
+      );
+      expect(field).toHaveValue("09/25/2026");
+      expect(setCurrentDate).not.toHaveBeenCalled();
+      expect(currentDate).toEqual(d(26));
+
+      fireEvent.change(field, { target: { value: "2026-09-26" } });
+      fireEvent.keyDown(field, { key: "Enter" });
+      expect(setCurrentDate).toHaveBeenCalledExactlyOnceWith(d(25));
+      expect(field).toHaveValue("09/25/2026");
+    },
+  );
+
+  it.each(["day", "timelineDay", "agenda"] as const)(
+    "keeps Today inside the date limits of %s when today is hidden",
+    (view) => {
+      vi.useFakeTimers({ now: d(26, 12), toFake: ["Date"] });
+      render(
+        <Calendar
+          agendaPeriod="day"
+          hiddenDays={[0, 6]}
+          initialDate={d(24)}
+          initialView={view}
+          maxDate={d(27)}
+        />,
+      );
+
+      const today = screen.getByRole("button", { name: "Today" });
+      expect(today).toBeEnabled();
+      fireEvent.click(today);
+      expect(screen.getByRole("combobox", { name: "Go to date" })).toHaveValue(
+        "09/25/2026",
+      );
+    },
+  );
+
+  it("refuses hidden destinations when the limits contain no visible day", () => {
+    vi.useFakeTimers({ now: d(26, 12), toFake: ["Date"] });
+    const setCurrentDate = vi.fn();
+    render(
+      <Calendar
+        currentDate={d(25)}
+        hiddenDays={[0, 6]}
+        initialView="day"
+        maxDate={d(27)}
+        minDate={d(26)}
+        setCurrentDate={setCurrentDate}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Today" })).toBeDisabled();
+    const field = screen.getByRole("combobox", { name: "Go to date" });
+    fireEvent.change(field, { target: { value: "2026-09-26" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(setCurrentDate).not.toHaveBeenCalled();
+    expect(field).toHaveValue("09/25/2026");
   });
 
   it("lists no events of the hidden days in the agenda", () => {

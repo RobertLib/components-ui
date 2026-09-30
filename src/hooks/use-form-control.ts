@@ -1,6 +1,6 @@
 import {
   useCallback,
-  useEffect,
+  useInsertionEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -8,6 +8,72 @@ import {
 
 type FieldElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 type FieldValue = string | number | readonly string[];
+
+/**
+ * Keeps a field's DOM listeners while Activity hides it: its refs and
+ * layout effects detach, but its form controls and state stay alive.
+ * A replaced ref or removed element lets go after the commit; a real
+ * unmount lets go at once, even when the field was already hidden.
+ */
+function useRetainedFieldWatch() {
+  const watches = useRef(
+    new Map<Element, { detached: boolean; stop: () => void }>(),
+  );
+  const visible = useRef(false);
+
+  const releaseDetached = useCallback(() => {
+    const current = watches.current;
+    for (const [element, watch] of current) {
+      if (!watch.detached || (!visible.current && element.isConnected)) {
+        continue;
+      }
+      current.delete(element);
+      watch.stop();
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    visible.current = true;
+    // Revealing Activity reconnects only the refs still rendered. A ref
+    // removed while hidden needs releasing even if its node stayed alive.
+    queueMicrotask(releaseDetached);
+    return () => {
+      visible.current = false;
+    };
+  }, [releaseDetached]);
+
+  useInsertionEffect(() => {
+    // Hidden updates can remove a node whose ref already detached on hide.
+    // There is no second ref cleanup, so check again after every commit.
+    queueMicrotask(releaseDetached);
+  });
+
+  useInsertionEffect(() => {
+    const current = watches.current;
+    return () => {
+      current.forEach((watch) => watch.stop());
+      current.clear();
+    };
+  }, []);
+
+  return useCallback(
+    (element: Element, start: () => () => void) => {
+      const current = watches.current;
+      current.get(element)?.stop();
+      const watch = { detached: false, stop: start() };
+      current.set(element, watch);
+
+      return () => {
+        watch.detached = true;
+        // Ref cleanup runs before the layout cleanup that tells us whether
+        // Activity hid the field. Reattaching the same node replaces this
+        // registration before this microtask gets a chance to remove it.
+        queueMicrotask(releaseDetached);
+      };
+    },
+    [releaseDetached],
+  );
+}
 
 /** Points a `ref` prop at `element` - returns what detaches it again. */
 export function attachRef<T>(
@@ -46,8 +112,10 @@ function setDefaultChecked(input: HTMLInputElement, isDefault: boolean) {
  * writes these defaults only when the element mounts - the `value`
  * attribute of a text field it keeps in sync itself.
  */
-function setResetValue(element: FieldElement, value: FieldValue) {
-  const values = new Set((Array.isArray(value) ? value : [value]).map(String));
+function setResetValue(element: FieldElement, value: FieldValue | undefined) {
+  const values = new Set(
+    (Array.isArray(value) ? value : [value ?? ""]).map(String),
+  );
 
   if (element instanceof HTMLSelectElement) {
     for (const option of element.options) {
@@ -61,7 +129,11 @@ function setResetValue(element: FieldElement, value: FieldValue) {
       option.defaultSelected = isDefault;
     }
   } else if (element instanceof HTMLInputElement && element.type === "radio") {
-    setDefaultChecked(element, values.has(element.value));
+    // No default is no selection - an empty string is a real radio option.
+    setDefaultChecked(
+      element,
+      value !== undefined && values.has(element.value),
+    );
   }
 }
 
@@ -132,57 +204,90 @@ function watchPropertyWrites(
   };
 }
 
-// Reset events that reached the root of their form's document - settled
-// there by each watcher of the form
-const resetsAtRoot = new WeakSet<Event>();
-// Reset events a task waits for, in case a listener stops them on their way
-// to the root
-const resetsAwaited = new WeakSet<Event>();
-// The callbacks watching the resets of a form. A field rendered with a new
-// ref during a reset (a state update of `onReset` renders before the event
-// reaches the root) watches anew - the watchers alive at the end count.
-const resetWatchers = new WeakMap<HTMLFormElement, Set<() => void>>();
+// Reset events waiting for every listener to have had a chance to cancel
+// them, including later listeners on the same root and on the window
+const pendingResets = new WeakMap<Node, Set<Event>>();
+// The callbacks watching resets in a document or shadow root. A field
+// rendered with a new ref during a reset (a state update of `onReset`
+// renders before the event reaches the root) watches anew - the watchers
+// alive when the reset settles count.
+const resetWatchers = new WeakMap<
+  Node,
+  Set<(form: EventTarget | null, event: Event) => void>
+>();
 
 /**
- * Calls `onReset` after a reset of `form` that was not canceled. The event
- * reaches the form before the listeners of the page - a React `onReset`
- * that calls `preventDefault()` runs at the root - so it is settled once it
- * reaches the root of the form's document, or a task later when a listener
- * stopped it on its way there. Returns what stops the watch.
+ * A value written after form.reset() returns wins over its deferred reset,
+ * e.g. React Hook Form restoring its defaults. Returns a reset still being
+ * dispatched: its default action may yet overwrite the write.
  */
-function watchFormReset(form: HTMLFormElement, onReset: () => void) {
-  const root = form.getRootNode();
-  const watchers = resetWatchers.get(form) ?? new Set();
-  resetWatchers.set(form, watchers);
+function supersedeResets(
+  element: Element,
+  superseded: WeakSet<Event>,
+  formId?: string,
+) {
+  let dispatching: Event | undefined;
+  for (const event of pendingResets.get(element.getRootNode()) ?? []) {
+    if (event.eventPhase === Event.NONE) superseded.add(event);
+    else if (event.target === ownerFormOf(element, formId)) dispatching = event;
+  }
+  return dispatching;
+}
+
+/**
+ * Calls `onReset` after a reset of the current form of `element` that was
+ * not canceled. Listens at the document or shadow root, so a form mounted
+ * later, replaced or renamed is followed without reattaching the field.
+ * Settles a task later, after every listener can cancel the reset. A
+ * microtask is too early: a browser can run it between event listeners.
+ * Capture also catches resets stopped before they bubble to the root.
+ * `onCancel` lets a field keep script writes made during a canceled reset.
+ */
+function watchFormReset(
+  element: Element,
+  onReset: (event: Event) => void,
+  formId?: string | (() => string | undefined),
+  onCancel?: (event: Event) => void,
+) {
+  const root = element.getRootNode();
+  const watchers = resetWatchers.get(root) ?? new Set();
+  resetWatchers.set(root, watchers);
   // A function of its own - the same callback may watch twice
-  const watcher = () => onReset();
+  const watcher = (form: EventTarget | null, event: Event) => {
+    const currentFormId = typeof formId === "function" ? formId() : formId;
+    if (!form || form !== ownerFormOf(element, currentFormId)) return;
+    if (event.defaultPrevented) onCancel?.(event);
+    else onReset(event);
+  };
   watchers.add(watcher);
 
-  const handleFormReset = (event: Event) => {
-    if (resetsAwaited.has(event)) return;
-    resetsAwaited.add(event);
+  const handleReset = (event: Event) => {
+    const pending = pendingResets.get(root) ?? new Set<Event>();
+    if (pending.has(event)) return;
+    pending.add(event);
+    pendingResets.set(root, pending);
+    // A shadow-root event loses its target once dispatch has finished.
+    const form = event.target;
 
     setTimeout(() => {
-      if (resetsAtRoot.has(event) || event.defaultPrevented) return;
-      for (const current of resetWatchers.get(form) ?? []) current();
+      pending.delete(event);
+      // A callback may synchronously render and attach new watchers. They
+      // must not be visited again by this reset.
+      for (const current of [...(resetWatchers.get(root) ?? [])]) {
+        current(form, event);
+      }
     });
   };
 
-  // By its target, not by an event seen at the form - a watcher that
-  // started while the event was on its way still gets it here
-  const handleRootReset = (event: Event) => {
-    if (event.target !== form) return;
-    resetsAtRoot.add(event);
-    if (!event.defaultPrevented) onReset();
-  };
-
-  form.addEventListener("reset", handleFormReset);
-  root.addEventListener("reset", handleRootReset);
+  root.addEventListener("reset", handleReset, true);
+  // Also catch a reset whose first watcher was attached after capture,
+  // e.g. by a render in the form's onReset.
+  root.addEventListener("reset", handleReset);
 
   return () => {
     watchers.delete(watcher);
-    form.removeEventListener("reset", handleFormReset);
-    root.removeEventListener("reset", handleRootReset);
+    root.removeEventListener("reset", handleReset, true);
+    root.removeEventListener("reset", handleReset);
   };
 }
 
@@ -193,8 +298,18 @@ const holdsValue = (element: FieldElement) =>
     (element.type === "checkbox" || element.type === "radio")
   );
 
-const sameValue = (a: FieldValue | undefined, b: FieldValue | undefined) =>
-  a !== undefined && b !== undefined && String(a) === String(b);
+function sameValue(a: FieldValue | undefined, b: FieldValue | undefined) {
+  if (a === undefined || b === undefined) return false;
+
+  // Compare each selected value: ["a", "b"] and ["a,b"] are different
+  // selections, as are no selection and one option with an empty value.
+  const left = Array.isArray(a) ? a : [a];
+  const right = Array.isArray(b) ? b : [b];
+  return (
+    left.length === right.length &&
+    left.every((value, index) => String(value) === String(right[index]))
+  );
+}
 
 /**
  * The value of a field that works controlled (`value` + `onChange`) and
@@ -221,6 +336,7 @@ const sameValue = (a: FieldValue | undefined, b: FieldValue | undefined) =>
 export function useFormControl<T extends FieldElement = FieldElement>({
   defaultValue,
   followScriptWrites = false,
+  form,
   onChange,
   ref,
   value,
@@ -228,6 +344,8 @@ export function useFormControl<T extends FieldElement = FieldElement>({
   defaultValue?: FieldValue;
   /** Makes a value a script writes into the element the field's value. */
   followScriptWrites?: boolean;
+  /** Reattaches the reset listener when the native field changes forms. */
+  form?: string;
   onChange?: React.ChangeEventHandler<T>;
   ref?: React.Ref<T>;
   value?: FieldValue;
@@ -239,14 +357,18 @@ export function useFormControl<T extends FieldElement = FieldElement>({
   const isControlled = value !== undefined;
   // The elements `fieldRef` is on
   const elements = useRef(new Set<T>());
+  const retainWatch = useRetainedFieldWatch();
+  const supersededResets = useRef(new WeakSet<Event>());
   // What the listeners of the DOM need to know - up to date after each
   // render, and `entered` also at once after a change
   const latest = useRef({
     defaultValue,
+    form,
     entered: undefined as FieldValue | undefined,
     // The entered value was written by a script, not typed
     fromScript: false,
     isControlled,
+    writeDuringReset: undefined as Event | undefined,
   });
 
   const handleChange = useCallback(
@@ -254,22 +376,36 @@ export function useFormControl<T extends FieldElement = FieldElement>({
       onChange?.(event);
       if (isControlled) return;
 
+      // Some composite fields report a value-only target; the refs still
+      // point at their real form controls.
+      for (const element of elements.current) {
+        supersedeResets(element, supersededResets.current, form);
+      }
       const entered = readValue(event.target);
       latest.current.entered = entered;
       latest.current.fromScript = false;
+      latest.current.writeDuringReset = undefined;
       setEnteredValue(entered);
     },
-    [isControlled, onChange],
+    [form, isControlled, onChange],
   );
 
   // A reset fires an event on the form only, none on its fields
   const fieldRef = useCallback(
     (element: T | null) => {
-      const form = element?.form;
-      const handleReset = () => {
+      const handleReset = (event: Event) => {
+        if (supersededResets.current.has(event)) return;
         latest.current.entered = undefined;
         latest.current.fromScript = false;
+        latest.current.writeDuringReset = undefined;
         setEnteredValue(undefined);
+      };
+
+      const handleCancelReset = (event: Event) => {
+        const state = latest.current;
+        if (state.writeDuringReset !== event) return;
+        state.writeDuringReset = undefined;
+        setEnteredValue(state.entered);
       };
 
       // A write while nothing was entered that brings the default is React
@@ -278,6 +414,11 @@ export function useFormControl<T extends FieldElement = FieldElement>({
         const state = latest.current;
         if (!element || state.isControlled) return;
 
+        const dispatching = supersedeResets(
+          element,
+          supersededResets.current,
+          state.form,
+        );
         const written = readValue(element);
         if (
           state.entered === undefined &&
@@ -288,47 +429,65 @@ export function useFormControl<T extends FieldElement = FieldElement>({
 
         state.entered = written;
         state.fromScript = true;
-        setEnteredValue(written);
+        state.writeDuringReset = dispatching;
+        // During a reset, wait for its outcome. Rendering the written value
+        // now could restore it after the native reset but before we settle.
+        if (!dispatching) setEnteredValue(written);
       };
 
       // Watched before the `ref` prop gets the element - `register()`
       // writes the default value into it right then
-      const stopWatching =
-        element && followScriptWrites && holdsValue(element)
-          ? watchPropertyWrites(element, "value", handleWrite)
-          : undefined;
+      const detachWatch = element
+        ? retainWatch(element, () => {
+            elements.current.add(element);
+            const stopWatching =
+              followScriptWrites && holdsValue(element)
+                ? watchPropertyWrites(element, "value", handleWrite)
+                : undefined;
+            const stopResetWatch = watchFormReset(
+              element,
+              handleReset,
+              () => latest.current.form,
+              handleCancelReset,
+            );
+            return () => {
+              elements.current.delete(element);
+              stopResetWatch();
+              stopWatching?.();
+            };
+          })
+        : undefined;
       const detachRef = attachRef(ref, element);
 
-      if (element) elements.current.add(element);
-      const stopResetWatch = form
-        ? watchFormReset(form, handleReset)
-        : undefined;
-
       return () => {
-        if (element) elements.current.delete(element);
-        stopResetWatch?.();
+        detachWatch?.();
         detachRef();
-        stopWatching?.();
       };
     },
-    [followScriptWrites, ref],
+    [followScriptWrites, ref, retainWatch],
   );
 
   // What a reset brings back: the value a controlled field shows, the
   // `defaultValue` of an uncontrolled one - also one that arrived late
-  const resetValue = isControlled ? value : (defaultValue ?? "");
+  const resetValue = isControlled ? value : defaultValue;
+
+  useInsertionEffect(() => {
+    const state = latest.current;
+    state.defaultValue = defaultValue;
+    state.form = form;
+    state.isControlled = isControlled;
+  }, [defaultValue, form, isControlled]);
 
   useLayoutEffect(() => {
     const state = latest.current;
-    state.defaultValue = defaultValue;
-    state.isControlled = isControlled;
-
-    // React writing a `defaultValue` that arrived late looks like a script
-    // to the watch - the field shows its default then, and a later one too
+    // React applying a late default writes during the commit, after this
+    // render had no entered value. Clear only that write; an entered value
+    // already in the render stays even when a later default matches it.
     if (
       !isControlled &&
+      enteredValue === undefined &&
       state.fromScript &&
-      sameValue(enteredValue, defaultValue ?? "")
+      sameValue(state.entered, defaultValue ?? "")
     ) {
       state.entered = undefined;
       state.fromScript = false;
@@ -336,16 +495,29 @@ export function useFormControl<T extends FieldElement = FieldElement>({
     }
   }, [defaultValue, enteredValue, isControlled]);
 
+  // Activity keeps these controls in their form but skips layout effects
+  // while hidden. Their reset defaults must follow hidden commits too.
+  useInsertionEffect(() => {
+    for (const element of elements.current) {
+      setResetValue(element, resetValue);
+    }
+  });
+
+  // Newly attached refs are only available after insertion effects.
   useLayoutEffect(() => {
     for (const element of elements.current) {
       setResetValue(element, resetValue);
     }
   });
 
+  const resolvedValue = isControlled ? value : (enteredValue ?? defaultValue);
+
   return {
     fieldRef,
     handleChange,
-    value: isControlled ? value : (enteredValue ?? defaultValue ?? ""),
+    // Radios distinguish an unselected group from an explicitly empty pick.
+    hasValue: resolvedValue !== undefined,
+    value: resolvedValue ?? "",
   };
 }
 
@@ -371,31 +543,29 @@ export const checkedState = (
  * reset of its form, a script setting `checked` (React Hook Form) or
  * `indeterminate`. Returns what stops it.
  */
-function watchCheckedState(checkbox: HTMLInputElement) {
+function watchCheckedState(
+  checkbox: HTMLInputElement,
+  formId?: string | (() => string | undefined),
+) {
   const update = () => {
     checkbox.dataset.state = checkedState(
       checkbox.checked,
       checkbox.indeterminate,
     );
   };
-  // The form resets its fields after the reset event
-  const updateAfterReset = () => setTimeout(update);
-
   const stopChecked = watchPropertyWrites(checkbox, "checked", update);
   const stopIndeterminate = watchPropertyWrites(
     checkbox,
     "indeterminate",
     update,
   );
-  const stopReset = checkbox.form
-    ? watchFormReset(checkbox.form, updateAfterReset)
-    : undefined;
+  const stopReset = watchFormReset(checkbox, update, formId);
   checkbox.addEventListener("change", update);
   update();
 
   return () => {
     checkbox.removeEventListener("change", update);
-    stopReset?.();
+    stopReset();
     stopIndeterminate();
     stopChecked();
   };
@@ -414,10 +584,13 @@ function watchCheckedState(checkbox: HTMLInputElement) {
  */
 export function useCheckedControl({
   checked,
+  form,
   indeterminate,
   ref,
 }: {
   checked?: boolean;
+  /** Follows resets of the checkbox's current form. */
+  form?: string;
   /**
    * Left alone while `undefined` - the page may set it itself - after
    * clearing it once when it goes from `true` to `undefined`
@@ -427,25 +600,41 @@ export function useCheckedControl({
   ref?: React.Ref<HTMLInputElement>;
 }) {
   const element = useRef<HTMLInputElement | null>(null);
+  const retainWatch = useRetainedFieldWatch();
+  const latestForm = useRef(form);
   // Whether the last render made the checkbox partly checked
   const wasIndeterminate = useRef(false);
 
+  useInsertionEffect(() => {
+    latestForm.current = form;
+  }, [form]);
+
   const checkboxRef = useCallback(
     (checkbox: HTMLInputElement | null) => {
-      element.current = checkbox;
-      const stopState = checkbox ? watchCheckedState(checkbox) : undefined;
+      const detachWatch = checkbox
+        ? retainWatch(checkbox, () => {
+            element.current = checkbox;
+            const stopState = watchCheckedState(
+              checkbox,
+              () => latestForm.current,
+            );
+            return () => {
+              if (element.current === checkbox) element.current = null;
+              stopState();
+            };
+          })
+        : undefined;
       const detachRef = attachRef(ref, checkbox);
 
       return () => {
-        element.current = null;
         detachRef();
-        stopState?.();
+        detachWatch?.();
       };
     },
-    [ref],
+    [ref, retainWatch],
   );
 
-  useLayoutEffect(() => {
+  const sync = () => {
     const checkbox = element.current;
     if (!checkbox) return;
 
@@ -466,7 +655,12 @@ export function useCheckedControl({
       checkbox.checked,
       checkbox.indeterminate,
     );
-  });
+  };
+
+  // Retained checkboxes still submit and reset while Activity is hidden.
+  useInsertionEffect(sync);
+  // Ref callbacks attach new checkboxes after insertion effects.
+  useLayoutEffect(sync);
 
   return checkboxRef;
 }
@@ -504,7 +698,7 @@ function isDisabledByFieldset(element: Element) {
  * controls of a field that are no native form controls (an element with a
  * role, a drop zone), which the fieldset leaves enabled. Put the returned
  * ref on an element of the field: the value follows the `disabled` of the
- * fieldsets around it as it changes. `false` on the server.
+ * fieldsets around it and changes to their first legend. `false` on the server.
  */
 export function useFieldsetDisabled() {
   const [disabled, setDisabled] = useState(false);
@@ -517,7 +711,12 @@ export function useFieldsetDisabled() {
 
     const observer = new MutationObserver(update);
     for (const fieldset of fieldsetsAround(element)) {
-      observer.observe(fieldset, { attributeFilter: ["disabled"] });
+      // Inserting, removing or moving a direct child can change which
+      // legend exempts its fields, without changing `disabled` or our ref.
+      observer.observe(fieldset, {
+        attributeFilter: ["disabled"],
+        childList: true,
+      });
     }
 
     return () => observer.disconnect();
@@ -526,10 +725,44 @@ export function useFieldsetDisabled() {
   return [disabled, ref] as const;
 }
 
-/** The form with the id `formId` in the document of `element`. */
+/** The form with `formId` in the same document or shadow root as `element`. */
 function findForm(element: Element, formId: string) {
-  const form = element.ownerDocument.getElementById(formId);
+  const root = element.getRootNode() as Document | ShadowRoot;
+  const form = root.getElementById?.(formId);
   return form instanceof HTMLFormElement ? form : null;
+}
+
+/** An explicit form association, including none, overrides the ancestor form. */
+function ownerFormOf(element: Element, formId?: string) {
+  if (formId !== undefined) return findForm(element, formId);
+  if ("form" in element) {
+    return element.form instanceof HTMLFormElement ? element.form : null;
+  }
+  return element.closest("form");
+}
+
+/**
+ * Leaves an internal field name out of submitted data. Put the ref on the
+ * group whose radios share that name. Capture on the root follows a form
+ * mounted later, replaced or renamed, including in a shadow root.
+ * `undefined` keeps the data, for a group with a name supplied by the app.
+ */
+export function useOmitFormValue(name: string | undefined, formId?: string) {
+  return useCallback(
+    (element: Element | null) => {
+      if (!element || name === undefined) return;
+
+      const root = element.getRootNode();
+      const dropValue = (event: Event) => {
+        if (event.target === ownerFormOf(element, formId)) {
+          (event as FormDataEvent).formData.delete(name);
+        }
+      };
+      root.addEventListener("formdata", dropValue, true);
+      return () => root.removeEventListener("formdata", dropValue, true);
+    },
+    [formId, name],
+  );
 }
 
 /**
@@ -545,26 +778,26 @@ function findForm(element: Element, formId: string) {
  * `formId` (the `form` prop of a field).
  */
 export function useFormReset(onReset: () => void, formId?: string) {
-  const onResetRef = useRef(onReset);
+  const latest = useRef({ formId, onReset });
+  const retainWatch = useRetainedFieldWatch();
 
-  useEffect(() => {
-    onResetRef.current = onReset;
+  useInsertionEffect(() => {
+    latest.current = { formId, onReset };
   });
 
   // A reset fires an event on the form only, none on its fields
   return useCallback(
     (element: Element | null) => {
-      const form = !element
-        ? null
-        : formId
-          ? findForm(element, formId)
-          : "form" in element && element.form instanceof HTMLFormElement
-            ? element.form
-            : element.closest("form");
-      if (!form) return;
+      if (!element) return;
 
-      return watchFormReset(form, () => onResetRef.current());
+      return retainWatch(element, () =>
+        watchFormReset(
+          element,
+          () => latest.current.onReset(),
+          () => latest.current.formId,
+        ),
+      );
     },
-    [formId],
+    [retainWatch],
   );
 }

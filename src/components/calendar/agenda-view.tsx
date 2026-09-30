@@ -12,6 +12,7 @@ import { useEffect, useId, useMemo, useRef } from "react";
 import cn from "../../utils/cn";
 import EventTile from "./event-tile";
 import EventTitle from "./event-title";
+import { hasBusinessHours } from "./business-hours";
 import Spinner from "../spinner";
 import {
   capitalize,
@@ -126,6 +127,7 @@ function scrollToToday(
  * events are buttons, reached by Tab.
  */
 export default function AgendaView({
+  businessHours,
   events,
   getEventColor,
   getEventLabel,
@@ -140,6 +142,7 @@ export default function AgendaView({
   renderEventActions,
   renderEventIcon,
   resources,
+  restrictToBusinessHours,
   stickyHeader = true,
   view,
   visibleRange,
@@ -222,7 +225,7 @@ export default function AgendaView({
         <EventTile
           actions={renderEventActions?.(event)}
           // In the row, not over its text
-          actionsClassName="relative! end-auto! top-auto! ms-2 shrink-0 self-center"
+          actionsClassName="relative! inset-e-auto! top-auto! ms-2 shrink-0 self-center"
           className={cn(
             "relative flex px-3 py-2 text-sm",
             clickable
@@ -252,7 +255,7 @@ export default function AgendaView({
             )}
           />
           <span className="min-w-0 flex-1 leading-5">
-            <span className="block font-medium break-words text-neutral-900 dark:text-neutral-100">
+            <span className="block font-medium wrap-break-word text-neutral-900 dark:text-neutral-100">
               {/* Optional custom icon renderer */}
               {renderEventIcon?.(event)}
               {renderEvent ? (
@@ -312,6 +315,11 @@ export default function AgendaView({
               (minDate && addCalendarDays(date, 1) <= minDate) ||
               (maxDate && date > maxDate)
             );
+            const canPickDay =
+              !disabled &&
+              (!restrictToBusinessHours ||
+                !businessHours ||
+                hasBusinessHours(businessHours, date));
 
             return (
               <li data-date={iso} key={iso}>
@@ -328,7 +336,7 @@ export default function AgendaView({
                         : "text-neutral-700 dark:text-neutral-200",
                   )}
                 >
-                  {onDateClick && !disabled ? (
+                  {onDateClick && canPickDay ? (
                     <button
                       aria-current={isToday ? "date" : undefined}
                       className="rounded-sm text-start hover:underline focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500"

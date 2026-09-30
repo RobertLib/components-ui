@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Activity } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CopyButton from "./copy-button";
@@ -35,6 +36,61 @@ describe("CopyButton", () => {
     act(() => vi.advanceTimersByTime(2000));
     expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
   });
+
+  it.each([
+    { finishesHidden: false, hiddenFor: 200 },
+    { finishesHidden: false, hiddenFor: 2000 },
+    { finishesHidden: true, hiddenFor: 200 },
+    { finishesHidden: true, hiddenFor: 2000 },
+  ])(
+    "expires its copied status across Activity hiding: %o",
+    async ({ finishesHidden, hiddenFor }) => {
+      userEvent.setup();
+      vi.useFakeTimers();
+      let finish!: () => void;
+      vi.spyOn(navigator.clipboard, "writeText").mockReturnValue(
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+      );
+      const view = (mode: "visible" | "hidden") => (
+        <Activity mode={mode}>
+          <CopyButton timeout={1000} value="CZ65" />
+        </Activity>
+      );
+      const { rerender } = render(view("visible"));
+
+      await click(screen.getByRole("button", { name: "Copy" }));
+      if (!finishesHidden) {
+        await act(async () => finish());
+        expect(
+          screen.getByRole("button", { name: "Copied" }),
+        ).toBeInTheDocument();
+        act(() => vi.advanceTimersByTime(100));
+      }
+      rerender(view("hidden"));
+      if (finishesHidden) await act(async () => finish());
+      act(() => vi.advanceTimersByTime(hiddenFor));
+      rerender(view("visible"));
+      // An already elapsed deadline schedules its expiry immediately.
+      act(() => vi.advanceTimersByTime(0));
+
+      if (hiddenFor < 1000) {
+        expect(
+          screen.getByRole("button", { name: "Copied" }),
+        ).toBeInTheDocument();
+        // Hiding does not restart the full timeout when the button returns.
+        const remaining = 1000 - hiddenFor - (finishesHidden ? 0 : 100);
+        act(() => vi.advanceTimersByTime(remaining - 1));
+        expect(
+          screen.getByRole("button", { name: "Copied" }),
+        ).toBeInTheDocument();
+        act(() => vi.advanceTimersByTime(1));
+      }
+      expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    },
+  );
 
   it("keeps its tooltip open and switches it to Copied", async () => {
     userEvent.setup();

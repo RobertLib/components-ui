@@ -5,6 +5,7 @@ import type {
   DataTableDensity,
 } from "./types";
 import { useCallback, useMemo, useState } from "react";
+import columnRecord from "./column-record";
 import usePendingValue from "./use-pending-value";
 import useTableState, {
   EMPTY_TABLE_STATE,
@@ -15,7 +16,7 @@ import useTableState, {
 
 /** The record without `key`. */
 function withoutKey<V>(record: Record<string, V>, key: string) {
-  const result = { ...record };
+  const result = columnRecord(record);
   delete result[key];
   return result;
 }
@@ -58,6 +59,34 @@ function keepGroupsTogether(
   return result;
 }
 
+function resolveColumnVisibility<T>(
+  columns: Column<T>[],
+  visibility: TableState["columnVisibility"],
+) {
+  return Object.fromEntries(
+    columns.map((column) => [
+      column.key,
+      visibility[column.key] ?? column.visible ?? true,
+    ]),
+  );
+}
+
+function resolveColumnOrder<T>(
+  columns: Column<T>[],
+  order: string[],
+  groupOf: Readonly<Record<string, string>>,
+) {
+  const keys = columns.map((column) => column.key);
+  const known = new Set(keys);
+  const saved = order.filter((key) => known.has(key));
+  const placed = new Set(saved);
+
+  return keepGroupsTogether(
+    [...saved, ...keys.filter((key) => !placed.has(key))],
+    groupOf,
+  );
+}
+
 export interface ColumnManagementOptions {
   /** Controlled column settings - see `DataTableProps.columnState`. */
   columnState?: DataTableColumnState;
@@ -69,7 +98,7 @@ export interface ColumnManagementOptions {
   onColumnStateChange?: (state: DataTableColumnState) => void;
 }
 
-const NO_GROUPS: Readonly<Record<string, string>> = {};
+const NO_GROUPS = columnRecord<string>();
 
 export default function useColumnManagement<T>(
   columns: Column<T>[],
@@ -112,8 +141,13 @@ export default function useColumnManagement<T>(
   const latestState = usePendingValue(state, isSameState);
 
   const updateState = useCallback(
-    (changes: Partial<TableState>) => {
-      const next = { ...latestState.get(), ...changes };
+    (
+      update:
+        Partial<TableState> | ((previous: TableState) => Partial<TableState>),
+    ) => {
+      const previous = latestState.get();
+      const changes = typeof update === "function" ? update(previous) : update;
+      const next = { ...previous, ...changes };
       latestState.set(next);
 
       if (!isControlled) {
@@ -131,13 +165,7 @@ export default function useColumnManagement<T>(
 
   // The user's choices over the columns' defaults
   const columnVisibility = useMemo(
-    () =>
-      Object.fromEntries(
-        columns.map((column) => [
-          column.key,
-          state.columnVisibility[column.key] ?? column.visible ?? true,
-        ]),
-      ),
+    () => resolveColumnVisibility(columns, state.columnVisibility),
     [columns, state.columnVisibility],
   );
 
@@ -154,29 +182,28 @@ export default function useColumnManagement<T>(
   }, [columns, state.columnPinning]);
 
   // Columns added since the order was saved go last
-  const columnOrder = useMemo(() => {
-    const keys = columns.map((column) => column.key);
-    const known = new Set(keys);
-    const saved = state.columnOrder.filter((key) => known.has(key));
-    const placed = new Set(saved);
-
-    return keepGroupsTogether(
-      [...saved, ...keys.filter((key) => !placed.has(key))],
-      groupOf,
-    );
-  }, [columns, groupOf, state.columnOrder]);
+  const columnOrder = useMemo(
+    () => resolveColumnOrder(columns, state.columnOrder, groupOf),
+    [columns, groupOf, state.columnOrder],
+  );
 
   const setColumnOrder = useCallback(
     (newOrder: string[] | ((prev: string[]) => string[])) => {
-      const order =
-        typeof newOrder === "function" ? newOrder(columnOrder) : newOrder;
-      const isDefault =
-        order.length === columns.length &&
-        order.every((key, index) => key === columns[index].key);
+      updateState((previous) => {
+        const order =
+          typeof newOrder === "function"
+            ? newOrder(
+                resolveColumnOrder(columns, previous.columnOrder, groupOf),
+              )
+            : newOrder;
+        const isDefault =
+          order.length === columns.length &&
+          order.every((key, index) => key === columns[index].key);
 
-      updateState({ columnOrder: isDefault ? [] : order });
+        return { columnOrder: isDefault ? [] : order };
+      });
     },
-    [columnOrder, columns, updateState],
+    [columns, groupOf, updateState],
   );
 
   const setColumnVisibility = useCallback(
@@ -185,25 +212,31 @@ export default function useColumnManagement<T>(
         | Record<string, boolean>
         | ((prev: Record<string, boolean>) => Record<string, boolean>),
     ) => {
-      const visibility =
-        typeof newVisibility === "function"
-          ? newVisibility(columnVisibility)
-          : newVisibility;
+      updateState((previous) => {
+        const visibility =
+          typeof newVisibility === "function"
+            ? newVisibility(
+                resolveColumnVisibility(columns, previous.columnVisibility),
+              )
+            : newVisibility;
 
-      // Only what differs from the column's default is remembered
-      updateState({
-        columnVisibility: Object.fromEntries(
-          columns
-            .filter(
-              (column) =>
-                visibility[column.key] !== undefined &&
-                visibility[column.key] !== (column.visible ?? true),
-            )
-            .map((column) => [column.key, visibility[column.key]]),
-        ),
+        // Only what differs from the column's default is remembered
+        return {
+          columnVisibility: columnRecord(
+            Object.fromEntries(
+              columns
+                .filter(
+                  (column) =>
+                    visibility[column.key] !== undefined &&
+                    visibility[column.key] !== (column.visible ?? true),
+                )
+                .map((column) => [column.key, visibility[column.key]]),
+            ),
+          ),
+        };
       });
     },
-    [columnVisibility, columns, updateState],
+    [columns, updateState],
   );
 
   /** Pins a column to an edge - or unpins it when it is pinned there. */
@@ -212,23 +245,18 @@ export default function useColumnManagement<T>(
       const column = columns.find((candidate) => candidate.key === columnKey);
       if (!column) return;
 
-      const current = pinnedColumns.left.includes(columnKey)
-        ? "left"
-        : pinnedColumns.right.includes(columnKey)
-          ? "right"
-          : false;
-      const next = current === position ? false : position;
-      // Only what differs from the column's default is remembered
-      const others = withoutKey(state.columnPinning, columnKey);
+      updateState((previous) => {
+        const current =
+          previous.columnPinning[columnKey] ?? column.pinned ?? false;
+        const next = current === position ? false : position;
+        // Only what differs from the column's default is remembered
+        const pinning = withoutKey(previous.columnPinning, columnKey);
+        if (next !== (column.pinned ?? false)) pinning[columnKey] = next;
 
-      updateState({
-        columnPinning:
-          next === (column.pinned ?? false)
-            ? others
-            : { ...others, [columnKey]: next },
+        return { columnPinning: pinning };
       });
     },
-    [columns, pinnedColumns, state.columnPinning, updateState],
+    [columns, updateState],
   );
 
   /** The widths the user resized the columns to, by column key. */
@@ -237,19 +265,24 @@ export default function useColumnManagement<T>(
   /** Remembers the width of a column - `null` brings back its own. */
   const setColumnWidth = useCallback(
     (columnKey: string, width: number | null) => {
-      const others = withoutKey(state.columnWidths, columnKey);
+      updateState((previous) => {
+        const widths = withoutKey(previous.columnWidths, columnKey);
+        if (width !== null) widths[columnKey] = width;
 
-      updateState({
-        columnWidths:
-          width === null ? others : { ...others, [columnKey]: width },
+        return { columnWidths: widths };
       });
     },
-    [state.columnWidths, updateState],
+    [updateState],
   );
 
   /** The order, pinning and widths of the columns' definitions. */
   const resetColumnLayout = useCallback(
-    () => updateState({ columnOrder: [], columnPinning: {}, columnWidths: {} }),
+    () =>
+      updateState({
+        columnOrder: [],
+        columnPinning: columnRecord(),
+        columnWidths: columnRecord(),
+      }),
     [updateState],
   );
 

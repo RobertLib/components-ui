@@ -48,7 +48,7 @@ export default function Skeleton({
       >
         {Array.from({ length: lineCount }, (_, index) => (
           // A line box of the font around, with the bar in its middle
-          <div className="flex h-[1lh] items-center" key={index}>
+          <div className="flex h-lh items-center" key={index}>
             <div
               className={cn(
                 "rounded",

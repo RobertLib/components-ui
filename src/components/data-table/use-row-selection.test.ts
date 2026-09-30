@@ -40,4 +40,36 @@ describe("useRowSelection", () => {
     rerender({ data: [{ id: 2 }, { id: 3 }] });
     expect(result.current.ids).toEqual([2]);
   });
+
+  it.each([{ data: [] }, { data: [{ id: 1 }] }])(
+    "reconciles default ids when the first load ends with unchanged rows: $data",
+    ({ data }) => {
+      const { rerender, result } = renderHook(
+        ({ loading }) =>
+          useRowSelection(data, { defaultSelectedIds: [1, 2], loading }),
+        { initialProps: { loading: true } },
+      );
+      expect(result.current.ids).toEqual([1, 2]);
+
+      rerender({ loading: false });
+
+      expect(result.current.ids).toEqual(data.map((row) => row.id));
+      expect(result.current.selectedRows).toEqual(data);
+    },
+  );
+
+  it("reconciles defaults when loading begins after the empty first render", () => {
+    const data: { id: number }[] = [];
+    const { rerender, result } = renderHook(
+      ({ loading }) =>
+        useRowSelection(data, { defaultSelectedIds: [1, 2], loading }),
+      { initialProps: { loading: false } },
+    );
+    rerender({ loading: true });
+    expect(result.current.ids).toEqual([1, 2]);
+
+    rerender({ loading: false });
+
+    expect(result.current.ids).toEqual([]);
+  });
 });

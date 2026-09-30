@@ -190,7 +190,9 @@ export default function AutocompletePage() {
               - read like the other options - or a promise of it. While it runs,
               the option says "Adding…" and cannot be picked again; then the new
               option is selected (added to the chips in multiple mode) and
-              announced. An error it throws is shown in the list - its{" "}
+              announced. If <code>maxSelections</code> is reached while the
+              promise is pending, the new option is created without adding it to
+              the selection. An error it throws is shown in the list - its{" "}
               <code>message</code>, or a text of the locale - and the user can
               try again. Add the new option to your <code>options</code>, as
               here, to offer it from then on.

@@ -1,5 +1,442 @@
 # Changelog
 
+## 0.3.1
+
+- **ContextMenu / Dropdown submenus / Tooltip** - stay in the part of the
+  page that is seen - above the on-screen keyboard, inside a view zoomed in
+  with pinch zoom - and are placed again as it changes.
+- **Tooltip** - render nothing for a scroll or resize that leaves it where
+  it is.
+- **Dialog / Popover** - pass over a Tab stop the browser gives no focus
+  (Firefox to a link in editable text, also one with a `tabindex`) instead
+  of keeping the focus where it was.
+- **Dialog / Popover** - pass over links in editable content when keeping
+  Tab inside, as browsers do, so the focus no longer gets stuck in a
+  RichTextEditor whose text has a link. Controls in editable content and
+  in `contenteditable="false"` parts stay Tab stops.
+- **Input** - keep the values of masks that start with literal digits or
+  letters (`07### ######`, `SN****`) as typed instead of reading the
+  literals into the value again, also with a parent that keeps the raw
+  characters.
+- **Input** - type a number with its literal prefix key by key as it is
+  pasted: `+420777123456` makes `+420 777 123 456`. The typed `+` or `+42`
+  stays in the field, which is invalid until the number is complete.
+- **DataTable** - clear an "all matching rows" selection after a group
+  action with `autoResetSelectedRows` without selecting the rows unchecked
+  from it.
+- **DataTable** - keep a controlled "select all matching rows" while the
+  parent applies `onSelectedIdsChange` later, e.g. in a transition or
+  through the URL of a router.
+- **DataTable** - sort and group ISO date-times with a time zone by their
+  moment, also across zones and in the hour the clocks go back.
+- **DataTable** - describe a header by its `labelInfo` also when the column
+  key contains spaces.
+- **Autocomplete** - with `allowCustomValue`, pick the option whose label
+  the text is - one already loaded for the current `loadOptionsDeps`, or
+  the selected one - on Tab, on Enter and in the submitted value, also
+  before the search for the text has loaded.
+- **Calendar** - move the focus to the next day shown after Page Up / Page
+  Down onto a hidden weekday, or onto a hidden `minDate` / `maxDate`, in
+  the month view.
+- **RangeCalendar** - keep the shown month and the focus on the last day
+  picked instead of jumping back to the month of the first one. A range of
+  the parent or a preset still shows its first month.
+- **Popover** - place an open panel again when only the viewport changes:
+  it flips, is held to the room left and moves into view as the on-screen
+  keyboard comes up, pinch zoom changes or the window is resized.
+- **TreeSelect** - close the popup with Space on the item picked already,
+  as Enter and a click do. A Space typed in a typeahead search still goes
+  on with it.
+- **TreeView** - go on with a keyboard move from the moved item or the
+  chosen place after the rows above it change - children loaded, items or
+  expansion changed from outside.
+- **TreeView** - draw the drop line after an item whose children load (or
+  failed to) below its Loading / Retry row, where the items land, and
+  scroll it into view.
+- **Slider** - give 0, not -0, for a step that lands on zero from below and
+  for a -0 of the parent, so the value label, `aria-valuetext`, `onChange`
+  and the submitted value no longer say "-0".
+- **PinInput** - take full-width, Arabic-Indic, Persian and Devanagari
+  digits, pasted or committed by an input method, as the Latin ones
+  instead of dropping them.
+- **CheckboxGroup / RadioGroup** - point no option at a description that
+  renders nothing (the `false` of `isPro && "Pro only"`) with
+  `aria-describedby`, and lay such an option out as one without a
+  description.
+- **CommandPalette** - find labels typed as they are in scripts whose marks
+  can be typed in another order (Hebrew and Arabic points) or with letters
+  past U+FFFF (Deseret), highlight such letters whole, and rank a match
+  after a mark inside a word as one inside the word.
+- **cn / joinTokens** - skip 0 like the other falsy values:
+  `cn("a", count && "has-items")` is "a", not "a 0".
+- **matchesShortcut / useHotkeys** - match "space" without Shift only -
+  Shift+Space is "shift+space", as Shift+Enter is "shift+enter".
+- **uploadWithProgress** - attach no upload listener without `onProgress`,
+  so a cross-origin upload without custom headers sends no CORS preflight.
+- **Tests** - cover Tab over a link in an editor inside a dialog in real
+  browsers.
+- **Autocomplete** - recover from synchronous errors in `loadMore` so
+  loading finishes and the next page can be retried.
+- **Calendar** - keep moved events within the displayed hours after
+  daylight saving normalization, preserving their duration.
+- **Shadow DOM** - preserve keyboard navigation and focus restoration in
+  TreeView, TreeSelect, Autocomplete, RichTextEditor, TagsInput and
+  FileUpload; scroll highlighted CommandPalette items into view.
+- **Tests** - cover shadow-root keyboard navigation, focus after removing
+  tags and attachments, and command scrolling in real browsers.
+- **Calendar** - cancel keyboard slot ranges when dates, resources, hours or
+  availability change, keeping day, week and timeline selections on their
+  original grid.
+- **DateTimePicker** - clear malformed loaded values like native date inputs,
+  so display, required validation and submitted values stay consistent.
+- **Drawer** - dismiss an open menu with the first backdrop press and the
+  mobile drawer with the next, including touch and assistive activation.
+- **Popover** - return focus from fields inside Shadow DOM on Escape and
+  parent-controlled closing.
+- **Sparkline** - preserve line, area and highlight coordinates when finite
+  extremes overflow their range.
+- **Tests** - cover loaded picker values, stacked drawer dismissal, shadow
+  focus return and changed keyboard calendar selection in real browsers.
+- **CheckboxGroup** - enforce required selections and minimum counts even
+  when no options are available or all options are disabled, preserving
+  native form validation and focus.
+- **Toast** - close once when a manual dismissal overlaps an automatic or
+  swipe animation, and cancel pending timers after dismissal.
+- **DataTable** - match each item of date, time and numeric cell arrays
+  individually when filtering, including local dates of zoned ISO values.
+- **NumberInput** - preserve finite percentages whose displayed percent
+  number overflows, including rounding, editing and form submission.
+- **TreeSelect** - distinguish numeric and string item IDs in chips and
+  submitted values, removing obsolete selections without leaving hidden
+  form values behind.
+- **ConfirmDialog / PinInput** - wait for IME composition to finish before
+  confirming an action or committing a code and moving focus.
+- **Calendar** - respect working-hour restrictions when selecting day
+  headings in the agenda view.
+- **Form fields** - keep reset defaults current for choices hidden by React
+  Activity, including selects, radio groups, segmented controls, checkboxes
+  and switches. Keep checkbox state watchers attached while hidden, and
+  update checkbox-group validation when hidden values or limits change.
+- **RichTextEditor** - cancel obsolete image uploads and release their form
+  validation when hidden content or image formatting is replaced, ignoring
+  late results while preserving uploads through accepted edits and undo.
+- **Autocomplete** - restart page, offset and cursor pagination when
+  `pageSize` changes, aborting obsolete loads and pending searches.
+- **Calendar** - enforce displayed and working-hour limits after daylight
+  saving normalization for mouse, touch and keyboard slot selections in
+  day, week and timeline views.
+- **Tests** - cover hidden choice resets and editor replacements in real
+  browsers, changed autocomplete page sizes and restricted DST slot ranges.
+- **Form fields** - preserve custom validation while React Activity hides a
+  field, and update it when a hidden field's value or constraints change.
+- **RichTextEditor** - clear canceled image-upload validation after a form
+  reset while the editor is hidden by React Activity.
+- **TreeView / TreeSelect** - give arbitrary string item IDs distinct DOM
+  IDs, preserving accessible names and keyboard navigation.
+- **DateRangePicker / RangeCalendar** - keep preset boundaries at the start
+  of each calendar day across daylight saving transitions at midnight.
+- **Tests** - cover hidden field validation and canceled editor uploads in
+  real browsers, colliding tree IDs, and presets across skipped midnights.
+- **FileUpload** - use current callbacks and update form validity and native
+  file values when uploads or asynchronous validation finish in a hidden
+  React Activity.
+- **Calendar** - cancel dragged slot selections when their dates, limits or
+  layout change, and clear selection previews and pointer capture when
+  Activity hides the calendar. Keep all-day event boundaries at the target
+  days' starts across skipped midnights, preserving early years in UTC dates.
+- **DataTable** - cancel column resizing when its handle is removed or
+  Activity hides the table, without saving the temporary width. Settle
+  custom-editor saves and failures when the edited value is `NaN`.
+- **Pagination** - wait for new cursors after requesting the first page,
+  while keeping offset pagination with cursor-free page-info flags working.
+- **Tests** - cover hidden upload completion and native form submission,
+  canceled column resizing and slot selection, and first-page cursor
+  requests in real browsers.
+- **Forms** - reset values and cancel pending uploads even while React
+  Activity hides their fields, preserving canceled resets and ignoring late
+  upload results.
+- **DataTable** - calculate the last page from a pending page-size change,
+  keep rows without links keyboard-accessible when other rows have links,
+  and distinguish numeric and string row IDs in editing and row keys.
+- **DateTimePicker** - reject ISO times and date-times with invalid seconds
+  instead of silently discarding them.
+- **Calendar** - move events by calendar dates across a time zone's skipped
+  day, including Samoa's December 2011 change.
+- **Tests** - cover form resets during Activity hiding in real browsers,
+  including cancellation of uploads and their late results.
+- **DataTable** - discard uncommitted search and filter drafts when React
+  Activity hides the table, so their text follows the current query again
+  when it is shown, including changes made while hidden.
+- **Splitter** - cancel active drags when pane limits or layout settings
+  change, or React Activity hides the splitter, releasing pointer capture
+  without restoring or saving stale pane sizes.
+- **Slider** - cancel active drags when their bounds or interaction settings
+  change, or the slider becomes disabled or read-only, without reporting
+  stale values or restoring a locked value with Escape. React Activity hiding
+  clears the drag's value label, pointer listeners and pointer capture.
+- **Calendar** - cancel active event moves and resizes when their event
+  disappears or changes time, or their layout changes; clear their previews
+  and pointer listeners when React Activity hides the calendar.
+- **DataTable** - ignore stale pagination cursors while a changed filter,
+  search, sort or page size waits for URL navigation to finish.
+- **Dropdown / ContextMenu** - restore keyboard focus to the parent menu when
+  updates remove or disable an open submenu, and clear stale submenu state.
+- **Dialogs** - keep Tab navigation inside modal content in WebKit too, where
+  native keyboard navigation can skip buttons and otherwise leave the dialog.
+- **Tests** - cover changing menu items and pending cursor queries in real
+  browsers, and run the browser regressions in Firefox and WebKit as well as
+  Chromium, including mobile Chromium and WebKit.
+- **Calendar** - cancel keyboard range selections when the time grid changes,
+  preventing crashes after reducing the displayed hours or removing a resource.
+- **DateCalendar** - follow external changes to multiple selected dates and
+  restore the default month after a form reset, while keeping the picking month
+  for local additions and removals.
+- **RichTextEditor** - leave Enter and Escape to IME composition in image,
+  link and table forms instead of confirming or closing them prematurely.
+- **DataTable** - export displayed inline-edit values to CSV, including the
+  original value restored after an optimistic update is rejected.
+- **Dropdown / ContextMenu** - keep child dialogs open when Tab or Shift+Tab
+  moves focus inside them, including dialogs opened from custom submenu items.
+- **Tests** - run keyboard and CSV regressions in desktop and mobile Chromium
+  with Playwright, locally and in CI.
+- **Autocomplete** - treat an empty single-selection option consistently as
+  no selection, so required fields cannot submit an empty value.
+- **Calendar** - keep day navigation within the date limits when the chosen
+  day is hidden, including dates selected in the header and Today.
+- **Textarea** - restore the height supplied through `style` when turning
+  off automatic sizing in browsers without CSS `field-sizing`.
+- **Autocomplete** - normalize newly created static items just like the
+  options, including records with `id` and `name` / `title`.
+- **TagsInput** - commit pending text on leaving a tag's remove button with
+  `addOnBlur`, including before form submission and validation.
+- **CopyButton / useClipboard** - expire the copied status across React
+  Activity hiding and showing, including copies that finish while hidden.
+- **FileUpload** - respect canceled drop and paste events without starting
+  uploads, and clear the drag highlight after a canceled drop.
+- **NumberInput** - submit default and controlled values at the precision
+  shown by the field, including after the number format changes.
+- **Calendar** - keep the start of moved all-day timeline events within the
+  allowed days, including when changing their resource.
+- **Popover** - keep hover panels open while their trigger, content or a
+  nested overlay has focus, even after the pointer leaves.
+- **ContextMenu** - respect prevented touch presses in both the target's
+  handlers and the menu's handlers, without opening or moving focus.
+- **Autocomplete** - normalize static items with `id` and `name` / `title`
+  without accessors, preserving existing options and their `data` payloads.
+- **FileUpload / RichTextEditor** - keep uploads and their previews through
+  React Activity hiding and showing the page, including uploads that finish
+  while hidden, without leaving the form blocked.
+- **DataTable** - reconcile uncontrolled selection after loading finishes,
+  even when the returned row IDs are unchanged or the result is empty.
+- **Calendar** - use the displayed day of UTC all-day events for timeline
+  moves, respecting date limits in every time zone.
+- **ConfirmProvider** - keep pending questions and accept new ones after
+  React Activity hides and shows the page.
+- **TreeView** - recheck disabled items and `canDrag` before completing a
+  move, including restrictions changed while the move is in progress.
+- **TagsInput** - wait until IME composition ends before splitting text into
+  tags, without repeating tags when a final input event follows.
+- **Autocomplete** - treat `maxSelections={0}` as a limit of zero, including
+  when creating new options.
+- **Input** - give masked IME changes a valid `currentTarget` while calling
+  `onChange`, so controlled fields can read and store the composed value.
+- **Calendar** - keep the start of a moved multi-day event within the allowed
+  dates when dragging or moving a later day's tile with the keyboard.
+- **FileUpload** - keep server attachment IDs separate from generated upload
+  keys, so adding or removing a file cannot replace an unrelated attachment.
+- **Autocomplete** - retain refreshed labels and records of selected options
+  when a later search no longer includes them.
+- **TreeSelect** - preserve disabled descendants when removing the chip of a
+  selected parent, including when all its descendants are disabled.
+- **Tooltip** - measure initially open tooltips after their portal hydrates,
+  and keep them visible when the pointer leaves while keyboard focus remains.
+- **DateCalendar / RangeCalendar** - hydrate across month and year boundaries
+  without mismatches: empty calendars wait for the browser's date, and selected
+  calendars keep their server-rendered month.
+- **TagsInput** - preserve custom validation errors set by the application
+  when the component rerenders or its own validation changes.
+- **RangeCalendar** - choosing a preset discards a range picked halfway,
+  including when the preset matches the current value.
+- **TreeView** - preserve Ctrl, Cmd, Shift and Alt when clicking the icon or
+  empty space of a linked row, so modified clicks follow the link correctly.
+- **Autocomplete** - preserve a newer single selection or cleared value when
+  an earlier asynchronous option creation finishes.
+- **TreeView** - cancel active and pending drags when moving is disabled or
+  a dragged item is removed, without reporting a stale move.
+- **Dialogs** - let fields in nested shadow roots keep focus, including
+  autofocus, Tab navigation and fields in popovers opened from the dialog.
+- **DataTable** - preserve successive column settings while a controlled
+  state update is pending, including pinning, widths, visibility and order.
+- **Popovers** - move focus to the next field when tabbing out of a panel
+  inside a shadow root, including apps using a custom portal container.
+- **Date / time pickers** - leave IME candidate-selection keys alone,
+  preserving the draft and focus until composition finishes, also in Safari.
+- **Date / color pickers** - submit valid typed values even before blur and
+  block form submission while the typed text is invalid, preserving custom
+  validation errors set by the application.
+- **Date pickers** - form resets discard uncommitted text even when the
+  committed value already equals its default.
+- **Calendar** - keep timeline moves within the permitted days when an
+  event starts outside the displayed hours, without jumping its start.
+- **RichTextEditor** - count selected spaces and code-block whitespace in
+  their original context, so replacing them at `maxLength` works.
+- **Tabs** - keep scroll fades up to date when loading panels replaces the
+  scrolling element.
+- **Autocomplete** - keep disabled options unselectable when loaded from an
+  API or normalized with label, value or group accessors.
+- **Form fields** - clear resolved custom validation errors even while a
+  number, masked input or date picker is disabled or read-only, preserving
+  errors set by the application.
+- **RichTextEditor** - preserve relative links and leave existing link URLs
+  unchanged when their edit form is confirmed without changes.
+- **DateRangePicker / RangeCalendar** - discard a range picked halfway when
+  its first day becomes unavailable or falls outside updated date limits.
+- **Calendar** - evaluate ordinal weekdays across the year for yearly rules
+  with `BYMONTHDAY` and no `BYMONTH`, instead of repeating them each month.
+- **DataTable** - keep a new selection after changing filters when an older
+  asynchronous group action finishes.
+- **Autocomplete** - empty read-only required fields no longer block form
+  submission; validation returns when the field becomes editable.
+- **DateCalendar** - respect a controlled `null` value even when a
+  `defaultValue` is supplied.
+- **RangeCalendar** - form resets discard a range picked halfway, so the next
+  day starts a new range.
+- **Calendar** - preserve the minimum event duration when resizing timeline
+  events across daylight saving time changes.
+- **Autocomplete** - form resets discard pending option creation, ignoring
+  late results and failures without blocking a new creation.
+- **DataTable** - reconcile excluded rows with refreshed client-side data
+  so filtered selection counts and group actions stay correct.
+- **RichTextEditor** - replacing the document discards its pending image
+  uploads, releasing validation and ignoring their late results and errors.
+- **RichTextEditor** - preserve whole Unicode characters when trimming an IME
+  composition to `maxLength`. Form resets discard pending image uploads and
+  release their validation state, ignoring results that arrive after the reset.
+- **DateCalendar / RangeCalendar** - restore validation of out-of-range and
+  disabled dates when a read-only calendar becomes editable again.
+- **DateRangePicker / RangeCalendar** - validate `minDays` / `maxDays` for
+  default and controlled ranges, including when the limits change.
+- **DateTimePicker** - disable time selection on disabled days,
+  including when there is no enabled day inside the allowed range.
+- **Autocomplete** - respect the current `maxSelections` when an asynchronous
+  `onCreate` finishes after the selection or limit changed.
+- **TreeSelect** - keep disabled descendants selected when clearing a cascade
+  selection supplied through their parent.
+- **Calendars / date pickers** - keep month names, year headings and accessible
+  day labels in the Gregorian calendar of their values, also for locales whose
+  default calendar is Persian or Buddhist.
+- **CommandPalette** - remove loaded commands and errors when `loadItems` is
+  removed; enabling loading again waits for fresh results.
+- **DataTable** - accept settings saved or removed in another tab after a
+  failed localStorage write, without losing unsaved settings for unrelated
+  tables or sessionStorage changes.
+- **DataTable** - isolate pending URL changes between independent routers
+  on the same path, while sharing them through nested locale and link providers.
+- **CollapsibleContent** - finish opening and closing when `duration` changes
+  during an animation, including hiding content kept with `keepMounted`.
+- **FileUpload** - block form submission while file checks or uploads are
+  pending, including optional fields, existing attachments and the native
+  picker fallback. Superseded checks and form resets release their pending
+  state without affecting newer picks.
+- **Button / IconButton** - disabled links stop clicks and middle clicks
+  from activating a clickable container around them.
+- **NumberInput** - respect disabled fieldsets when stepping with buttons,
+  held presses, the keyboard or the mouse wheel, including the first
+  legend's exception and fieldsets disabled after a press starts.
+- **Textarea** - measure inline font, spacing and width styles when autosizing
+  without CSS `field-sizing`, so larger text is not clipped.
+- **Tests** - keep time-zone tests in process workers even with
+  `--pool=threads`; Node does not apply changes of `TZ` in worker threads.
+- **NumberInput** - accept decimal input with compact notation and
+  significant-digit precision that keeps fractions, including `morePrecision`
+  with zero maximum fraction digits.
+- **DataTable** - sort mixed numbers, dates, booleans and text consistently,
+  keeping numeric values in order even next to descriptive text.
+- **Form fields** - follow the first legend's disabled-fieldset exception
+  when legends are inserted, removed or reordered without remounting a field.
+- **TagsInput** - close suggestions when a surrounding fieldset becomes
+  disabled, respecting the first legend's exception. Suggestions stay closed
+  after the field is enabled or made editable again.
+- **RichTextEditor** - handle synchronous image upload failures like rejected
+  uploads, clearing the pending state and form validation without stopping
+  other files or later attempts.
+- **RichTextEditor / ColorInput** - respect disabled fieldsets, including
+  later changes and the first legend's exception. Color pickers close when
+  disabled or made read-only, stay closed when enabled again, and ignore
+  screen colors returned after closing.
+- **DateTimePicker / DateRangePicker** - close their popups when a surrounding
+  fieldset becomes disabled, keep them closed when it is enabled again, and
+  respect the first legend's exception.
+- **DataTable** - sort and filter numeric strings and bigints without rounding
+  distinct values together, including negative bigints, precise fractions and
+  amounts outside JavaScript Number's range.
+- **Pagination** - an out-of-range jump-to-page value no longer blocks
+  submission of a form around the pagination controls.
+- **DataTable** - virtualized rows keep their measured heights when the
+  table is hidden and shown again, including expanded details.
+- **DataTable** - large negative numbers stored as text sort in numeric
+  order without losing precision; equivalent decimal and exponential
+  representations stay tied for subsequent sort columns.
+- **Form fields** - keep script-written values when a later `defaultValue`
+  matches them, while still following late defaults before an edit and
+  restoring the latest default on reset.
+- **RadioGroup / SegmentedControl** - leave generated names out of form data
+  when an external form is mounted later or replaced, also in a shadow root.
+- **Class names** - font sizes with a slash line height, such as `text-lg/7`,
+  override earlier `leading-*` classes, including arbitrary sizes and heights.
+- **Class names** - custom classes such as `constructor-card` no longer
+  crash class merging or inherit utility definitions from object prototypes.
+- **Select** - keeps script-written selections distinct from defaults when
+  option values contain commas or are empty strings.
+- **TreeView** - respects a disabled fieldset around it, including later
+  changes and the first legend's exception, while still allowing browsing.
+- **Form fields** - preserve edits when a later reset listener on the
+  document, window or shadow root cancels the reset.
+- **Autocomplete** - handles a synchronous `loadSelectedOptions` failure
+  through `onLoadError`, and retries when the list opens again.
+- **Slider** - keeps range thumbs on their steps when `minDistance` puts
+  their movement bounds between steps.
+- **Form fields** - reset with an external form mounted later or replaced,
+  and respect `form=""` when a field is detached from its surrounding form.
+- **DataTable CSV export** - preserves the precision of very small numbers,
+  including subnormal values, instead of rounding them to zero.
+- **Form fields** - follow changes to the `form` attribute when resetting,
+  leaving edits alone when the previous form resets. Checkbox and switch
+  state attributes follow resets of the new form too.
+- **RadioGroup / SegmentedControl** - keep groups without a value or default
+  unselected even when an option has an empty-string value. Explicitly empty
+  values remain selectable, and resetting restores the original selection.
+- **NumberInput** - blocks form submission while a number is incomplete,
+  preserves very small values in submitted form data, and keeps scientific
+  and engineering notation's precision when editing and rounding.
+- **NumberInput** - preserves the negative sign of pasted accounting
+  amounts with direction marks, including Persian currency formats.
+- **DataTable** - column and group keys such as `constructor`, `toString`
+  and `__proto__` work in settings, layouts, summaries and URL filters
+  without inheriting object properties or dropping values.
+- **DataTable** - `onCellEdit` can return `{ value: savedValue }` to confirm
+  the server's value explicitly, including normalization back to the original
+  value, which otherwise looks like a stale poll.
+- **NumberInput** - accepts grammatical forms of long unit and currency names
+  when pasting formatted values, and takes a single step at large safe integer
+  values without skipping numbers.
+- **DataTable** - keeps a server-normalized cell value when updated data
+  arrives before its save finishes; a poll with the old value still keeps
+  the saved draft until fresh data arrives.
+- **DataTable** - equal numeric values such as `1`, `"1.0"` and `"1e0"`
+  stay tied when sorting, so subsequent sort columns decide their order.
+- **NumberInput** - parsing, editing and stepping follow the rounding mode,
+  increment and precision of `formatOptions`, matching the displayed value.
+- **FileUpload** - a newer single-file pick supersedes pending validation
+  of the previous pick, so a late result cannot replace the new file or
+  cancel its upload. The native picker fallback follows the same rule;
+  additive picks with `multiple` still validate independently.
+- **TreeSelect** - ignores children returned by a loader after its request
+  was aborted when the popup closed, preserving the results of a later load.
+- **useLocalStorage** - reads the stored text again when `deserialize`
+  changes, without repeatedly rendering for an inline deserializer that
+  returns an object.
+
 ## 0.3.0
 
 A round of what business apps missed next to other libraries: new components

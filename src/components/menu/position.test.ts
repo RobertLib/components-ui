@@ -13,7 +13,8 @@ import {
   resolveSide,
 } from "./position";
 
-const viewport = { height: 800, width: 1200 };
+// The part of the page that is seen - all of a 1200 x 800 window
+const viewport = { bottom: 800, left: 0, right: 1200, top: 0 };
 const menu = { height: 200, width: 180 };
 
 describe("placeAtAnchor", () => {
@@ -52,7 +53,7 @@ describe("placeAtAnchor", () => {
       placeAtAnchor(
         pointRect({ x: 300, y: 150 }),
         { height: 500, width: 180 },
-        { height: 600, width: 1200 },
+        { bottom: 600, left: 0, right: 1200, top: 0 },
         2,
       ),
     ).toEqual({ align: "start", left: 300, side: "bottom", top: 92 });
@@ -72,6 +73,36 @@ describe("placeAtAnchor", () => {
       maxHeight: 784,
       side: "bottom",
       top: 8,
+    });
+  });
+
+  it("stays in the part of the page that is seen - above the on-screen keyboard, in a zoomed-in part", () => {
+    // The keyboard covers all below 400
+    expect(
+      placeAtAnchor(
+        pointRect({ x: 100, y: 300 }),
+        menu,
+        { ...viewport, bottom: 400 },
+        2,
+      ),
+    ).toEqual({ align: "start", left: 100, side: "top", top: 98 });
+    // Pinch zoom shows 400 x 300 from 600, 200
+    const zoomed = { bottom: 500, left: 600, right: 1000, top: 200 };
+    expect(
+      placeAtAnchor(pointRect({ x: 950, y: 250 }), menu, zoomed, 2),
+    ).toEqual({ align: "end", left: 770, side: "bottom", top: 252 });
+    expect(
+      // Near the right edge of what is seen, and moved up into it
+      placeSubmenu(
+        { bottom: 492, left: 850, right: 990, top: 460 },
+        menu,
+        zoomed,
+      ),
+    ).toEqual({
+      align: "start",
+      left: 666,
+      side: "left",
+      top: 292,
     });
   });
 });
@@ -109,7 +140,12 @@ describe("placeSubmenu right to left", () => {
   it("opens below its item from its right with room on neither side", () => {
     const phoneItem = { bottom: 132, left: 170, right: 360, top: 100 };
     expect(
-      placeSubmenu(phoneItem, menu, { height: 800, width: 375 }, true),
+      placeSubmenu(
+        phoneItem,
+        menu,
+        { bottom: 800, left: 0, right: 375, top: 0 },
+        true,
+      ),
     ).toEqual({ align: "start", left: 168, side: "bottom", top: 134 });
   });
 });
@@ -127,7 +163,9 @@ describe("placeSubmenu", () => {
   });
 
   it("opens to the left near the right edge of the viewport", () => {
-    expect(placeSubmenu(item, menu, { height: 800, width: 700 })).toEqual({
+    expect(
+      placeSubmenu(item, menu, { bottom: 800, left: 0, right: 700, top: 0 }),
+    ).toEqual({
       align: "start",
       left: 221,
       side: "left",
@@ -137,7 +175,14 @@ describe("placeSubmenu", () => {
 
   it("opens below its item with room on neither side", () => {
     const phoneItem = { bottom: 132, left: 170, right: 360, top: 100 };
-    expect(placeSubmenu(phoneItem, menu, { height: 800, width: 375 })).toEqual({
+    expect(
+      placeSubmenu(phoneItem, menu, {
+        bottom: 800,
+        left: 0,
+        right: 375,
+        top: 0,
+      }),
+    ).toEqual({
       align: "start",
       left: 182,
       side: "bottom",

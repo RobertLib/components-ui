@@ -9,7 +9,10 @@ import {
   useRef,
 } from "react";
 import {
+  composedContains,
+  focusFirst,
   getNextTabbable,
+  getPreviousTabbable,
   getTabbableElements,
   getTabStopsBeside,
 } from "../utils/tabbable";
@@ -216,7 +219,9 @@ function belongsTo(entry: OverlayEntry, id: string, depth = 0): boolean {
 }
 
 const containsNode = (entry: OverlayEntry, node: Node) =>
-  entry.getElements().some((element) => !!element?.contains(node));
+  entry
+    .getElements()
+    .some((element) => !!element && composedContains(element, node));
 
 /** Ids of the open overlays, the topmost last - for tests. */
 export const getOverlayStack = () => stack.map((entry) => entry.id);
@@ -463,7 +468,8 @@ export const isEscapeKey = (event: KeyboardEvent) =>
  */
 export const returnFocus = (targets: HTMLElement[], leaving?: Element | null) =>
   targets.some((target) => {
-    if (!target.isConnected || leaving?.contains(target)) return false;
+    if (!target.isConnected || (leaving && composedContains(leaving, target)))
+      return false;
     target.focus();
     // In a shadow root, the document sees its host focused
     const root = target.getRootNode();
@@ -626,7 +632,7 @@ const isAllowedOutside = (id: string, node: Node) => {
 const getExemptTabbables = (container: Element) => [
   ...new Set(
     getExemptRegions(container)
-      .filter((region) => !container.contains(region))
+      .filter((region) => !composedContains(container, region))
       .flatMap((region) => getTabbableElements(region)),
   ),
 ];
@@ -643,18 +649,21 @@ export function getNextTabStop(element: Element, skipped?: Element | null) {
   const modal = stack.findLast((entry) => entry.modal);
   const container = modal
     ?.getElements()
-    .find((candidate) => !!candidate?.contains(element));
+    .find((candidate) => !!candidate && composedContains(candidate, element));
   if (
     !modal ||
     !container ||
-    (next && (container.contains(next) || isAllowedOutside(modal.id, next)))
+    (next &&
+      (composedContains(container, next) || isAllowedOutside(modal.id, next)))
   ) {
     return next;
   }
 
   return (
     getExemptTabbables(container)[0] ??
-    getTabbableElements(container).find((stop) => !skipped?.contains(stop))
+    getTabbableElements(container).find(
+      (stop) => !skipped || !composedContains(skipped, stop),
+    )
   );
 }
 
@@ -863,13 +872,19 @@ export function useFocusTrap(
       if (
         current &&
         exemptIndex === -1 &&
-        !container.contains(current) &&
+        !composedContains(container, current) &&
         isAllowedOutside(id, current)
       ) {
         return;
       }
 
-      const tabbables = getTabbableElements(container);
+      // Positive tabindex values precede ordinary controls; equal values
+      // keep their rendered order, as native Tab traversal does.
+      const tabbables = getTabbableElements(container).sort((a, b) => {
+        const left = a.tabIndex > 0 ? a.tabIndex : Infinity;
+        const right = b.tabIndex > 0 ? b.tabIndex : Infinity;
+        return left === right ? 0 : left - right;
+      });
 
       if (tabbables.length === 0 && exempt.length === 0) {
         event.preventDefault();
@@ -877,9 +892,33 @@ export function useFocusTrap(
         return;
       }
 
+      // The stops in the order Tab goes round them - the toasts after the
+      // last control
+      const sequence = [...tabbables, ...exempt];
       const moveTo = (element: HTMLElement | undefined) => {
         event.preventDefault();
-        (element ?? container).focus();
+        const start = element ? sequence.indexOf(element) : -1;
+        if (start === -1) {
+          (element ?? container).focus();
+          return;
+        }
+
+        // On from it to the first stop that takes the focus - a browser
+        // may give none to one (Firefox to a link in editable text, also
+        // one with a `tabindex`), and Tab passes over it then
+        const step = event.shiftKey ? -1 : 1;
+        const { length } = sequence;
+        const onward: HTMLElement[] = [];
+        for (let offset = 0; offset < length; offset++) {
+          const candidate =
+            sequence[(((start + offset * step) % length) + length) % length];
+          // Round to where the focus is - it stays there
+          if (candidate === current) break;
+          onward.push(candidate);
+        }
+        if (!focusFirst(onward) && !composedContains(container, current)) {
+          container.focus();
+        }
       };
 
       // The toasts come after the last control of the container - one by
@@ -903,14 +942,18 @@ export function useFocusTrap(
         index === -1 &&
         current &&
         current !== container &&
-        container.contains(current)
+        composedContains(container, current)
       ) {
+        // DOM position cannot order controls in separate shadow roots.
         const onward = event.shiftKey
-          ? Node.DOCUMENT_POSITION_PRECEDING
-          : Node.DOCUMENT_POSITION_FOLLOWING;
-        const hasStopOnward = tabbables.some(
-          (stop) => !!(current.compareDocumentPosition(stop) & onward),
-        );
+          ? getPreviousTabbable(current)
+          : getNextTabbable(current);
+        // The next-stop helper skips descendants; Tab enters them when a
+        // non-tabbable container was focused by a script.
+        const hasStopOnward =
+          (!event.shiftKey &&
+            tabbables.some((stop) => composedContains(current, stop))) ||
+          (!!onward && composedContains(container, onward));
         if (!hasStopOnward) {
           moveTo(
             event.shiftKey
@@ -921,20 +964,15 @@ export function useFocusTrap(
         return;
       }
 
-      // Also when the focus is not on one of them - on the container, the
-      // page body after a click on the backdrop, or outside
-      if (event.shiftKey && index <= 0) {
-        moveTo(exempt.at(-1) ?? tabbables.at(-1));
-      } else if (
-        !event.shiftKey &&
-        (index === -1 || index === tabbables.length - 1)
-      ) {
-        moveTo(
-          index === -1
-            ? (tabbables[0] ?? exempt[0])
-            : (exempt[0] ?? tabbables[0]),
-        );
-      }
+      // Move between controls too: WebKit may skip buttons according to
+      // the system keyboard preference, leaving the document without a
+      // focusin event for the trap to catch. Also bring focus from the
+      // container or outside back into its sequence.
+      moveTo(
+        event.shiftKey
+          ? (tabbables[index - 1] ?? exempt.at(-1) ?? tabbables.at(-1))
+          : (tabbables[index + 1] ?? exempt[0] ?? tabbables[0]),
+      );
     };
 
     // Seen on the document and on the shadow root the container is in
@@ -954,7 +992,7 @@ export function useFocusTrap(
       }
       handledFocus.add(event);
 
-      if (container.contains(target)) {
+      if (composedContains(container, target)) {
         lastFocused = target as HTMLElement;
         return;
       }
@@ -962,7 +1000,7 @@ export function useFocusTrap(
       if (isAllowedOutside(id, target)) return;
 
       const back =
-        lastFocused && container.contains(lastFocused)
+        lastFocused && composedContains(container, lastFocused)
           ? lastFocused
           : (getTabbableElements(container)[0] ?? container);
       back.focus();
@@ -1142,7 +1180,7 @@ export function useOverlay({
     const container = ref.current;
     if (!isModalOpen || !container) return;
 
-    if (!container.contains(getActiveElement())) {
+    if (!composedContains(container, getActiveElement())) {
       (getTabbableElements(container)[0] ?? container).focus();
     }
 

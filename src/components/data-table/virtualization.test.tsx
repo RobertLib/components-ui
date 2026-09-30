@@ -25,18 +25,36 @@ const columns: Column<Row>[] = [{ key: "name", label: "Name" }];
 
 // Reports every observed element once - the table measures its rows so
 class MeasuringObserver {
+  static instances = new Set<MeasuringObserver>();
+  private targets = new Set<Element>();
   private callback: ResizeObserverCallback;
   constructor(callback: ResizeObserverCallback) {
     this.callback = callback;
+    MeasuringObserver.instances.add(this);
   }
   observe(target: Element) {
+    this.targets.add(target);
     this.callback(
       [{ target } as ResizeObserverEntry],
       this as unknown as ResizeObserver,
     );
   }
-  disconnect() {}
-  unobserve() {}
+  disconnect() {
+    this.targets.clear();
+  }
+  unobserve(target: Element) {
+    this.targets.delete(target);
+  }
+  static resize() {
+    for (const observer of MeasuringObserver.instances) {
+      observer.callback(
+        [...observer.targets].map(
+          (target) => ({ target }) as ResizeObserverEntry,
+        ),
+        observer as unknown as ResizeObserver,
+      );
+    }
+  }
 }
 
 const scroller = () => {
@@ -47,15 +65,19 @@ const scroller = () => {
 
 // The height of a row in the layout below - a test may change it
 let rowHeight = 30;
+let tableHidden = false;
 
 // The layout jsdom has not: a 300px high view of the table, whose body
 // starts 100px below the top of the scrolled content; rows are 30px high,
 // details 90px
 beforeEach(() => {
   rowHeight = 30;
+  tableHidden = false;
+  MeasuringObserver.instances.clear();
   vi.stubGlobal("ResizeObserver", MeasuringObserver);
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
     function (this: Element) {
+      if (tableHidden) return { height: 0, top: 0, width: 0 } as DOMRect;
       if (this.tagName === "TBODY") {
         return { height: 0, top: 100 - scroller().scrollTop } as DOMRect;
       }
@@ -98,6 +120,45 @@ const spacers = () =>
   Array.from(document.querySelectorAll<HTMLElement>("tbody > tr[aria-hidden]"));
 
 describe("DataTable virtualization", () => {
+  it("measures number and string ids of different heights separately", () => {
+    const readRect = vi
+      .mocked(Element.prototype.getBoundingClientRect)
+      .getMockImplementation()!;
+    vi.mocked(Element.prototype.getBoundingClientRect).mockImplementation(
+      function (this: Element) {
+        if (
+          this.tagName === "TR" &&
+          this.getAttribute("data-row-index") === "1"
+        ) {
+          return { height: 90 } as DOMRect;
+        }
+        return readRect.call(this);
+      },
+    );
+    const data = manyRows.slice(0, 100).map((row, index) => ({
+      ...row,
+      id: index === 1 ? "1" : row.id,
+    }));
+    render(
+      <DataTable
+        clientSide
+        columns={[{ key: "name", label: "Name" }]}
+        data={data}
+        pagination={false}
+        virtualized
+      />,
+    );
+
+    scrollTo(700);
+    const start = renderedIndexes()[0];
+    expect(start).toBeGreaterThan(1);
+    expect(start).toBeLessThan(30);
+    // The hidden first rows measured 30px and 90px; the rest measured 30px.
+    expect(spacers()[0].firstElementChild).toHaveStyle({
+      height: `${120 + (start - 2) * 30}px`,
+    });
+  });
+
   it("renders only the rows in view and tells screen readers the rest", () => {
     render(
       <DataTable
@@ -150,6 +211,44 @@ describe("DataTable virtualization", () => {
     // The header row is still there
     expect(screen.getByRole("columnheader", { name: "Name" })).toBeVisible();
   });
+
+  it.each([false, true])(
+    "keeps row heights after hiding and showing the table (details: %s)",
+    (details) => {
+      render(
+        <DataTable
+          clientSide
+          columns={columns}
+          data={manyRows.slice(0, 200)}
+          expandedByDefault={details}
+          pagination={false}
+          renderSubRow={details ? (row) => `Detail of ${row.name}` : undefined}
+          virtualized
+        />,
+      );
+      const top = 100 + 100 * (details ? 120 : 30);
+      scrollTo(top);
+      const before = renderedIndexes();
+      expect(before).toContain(100);
+
+      // A kept tab panel becomes display:none: connected rows and their
+      // container report zero sizes. The scroll position itself stays.
+      Object.defineProperty(scroller(), "clientHeight", {
+        configurable: true,
+        get: () => (tableHidden ? 0 : 300),
+      });
+      tableHidden = true;
+      act(() => MeasuringObserver.resize());
+      tableHidden = false;
+      act(() => MeasuringObserver.resize());
+
+      expect(scroller().scrollTop).toBe(top);
+      expect(renderedIndexes()).toEqual(before);
+      expect(spacers()[0].firstElementChild).toHaveStyle({
+        height: `${before[0] * (details ? 120 : 30)}px`,
+      });
+    },
+  );
 
   it("keeps the row with the focus while it is scrolled away", async () => {
     const user = userEvent.setup();

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import cn from "../../utils/cn";
 import { clampWidth, MAX_COLUMN_WIDTH } from "./cell-layout";
 import { formatMessage, formatPlural } from "../../i18n/format";
@@ -18,6 +18,8 @@ interface Drag {
   cleanup: () => void;
   /** `1` when moving the pointer right widens the column, `-1` otherwise. */
   direction: 1 | -1;
+  /** The handle holding the pointer capture. */
+  element: HTMLElement;
   /** The width shown last. */
   last: number;
   /** Whether the pointer has moved the edge - a click alone keeps the width. */
@@ -26,6 +28,17 @@ interface Drag {
   /** Width of the column when the drag started. */
   startWidth: number;
   startX: number;
+}
+
+/** Releases a canceled gesture whose pointer may already be gone. */
+function releasePointer(element: Element, pointerId: number) {
+  try {
+    if (element.hasPointerCapture?.(pointerId)) {
+      element.releasePointerCapture(pointerId);
+    }
+  } catch {
+    // The pointer may have ended before the handle was removed.
+  }
 }
 
 interface ColumnResizeHandleProps {
@@ -74,6 +87,11 @@ export default function ColumnResizeHandle({
   const { messages } = locale;
   const dragRef = useRef<Drag | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const latestOnDrag = useRef(onDrag);
+
+  useLayoutEffect(() => {
+    latestOnDrag.current = onDrag;
+  });
 
   const max = Math.max(minWidth, maxWidth ?? MAX_COLUMN_WIDTH);
   // Moving the handle to the left narrows a column - or widens one pinned
@@ -97,11 +115,18 @@ export default function ColumnResizeHandle({
     onDrag(null);
   };
 
-  // A drag must not outlive the table
-  useEffect(
+  // Removing the handle or hiding its table in Activity cancels the drag,
+  // including the parent's temporary width. Clear it before releasing
+  // capture, whose lostpointercapture event must not save the canceled width.
+  useLayoutEffect(
     () => () => {
-      dragRef.current?.cleanup();
+      const drag = dragRef.current;
+      if (!drag) return;
       dragRef.current = null;
+      drag.cleanup();
+      setIsDragging(false);
+      latestOnDrag.current(null);
+      releasePointer(drag.element, drag.pointerId);
     },
     [],
   );
@@ -129,6 +154,7 @@ export default function ColumnResizeHandle({
       cleanup: () =>
         document.removeEventListener("keydown", handleKeyDown, true),
       direction: directionOf(handle),
+      element: handle,
       last: startWidth,
       moved: false,
       pointerId: event.pointerId,
@@ -207,7 +233,7 @@ export default function ColumnResizeHandle({
       )}
       className={cn(
         "group/resize absolute inset-y-0 z-1 flex w-2 cursor-col-resize touch-none select-none focus:outline-hidden pointer-coarse:w-4",
-        edge === "start" ? "start-0 justify-start" : "end-0 justify-end",
+        edge === "start" ? "inset-s-0 justify-start" : "inset-e-0 justify-end",
       )}
       data-resizing={isDragging ? "" : undefined}
       // Not a click on the header - e.g. the sort button next to it

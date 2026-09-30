@@ -299,10 +299,14 @@ export function getHiddenSide(
 
 /**
  * The full day, e.g. "Thursday, September 24, 2026". A locale code `Intl`
- * does not understand ("en_GB") falls back, like in the pickers.
+ * does not understand ("en_GB") falls back, like in the pickers. Dates use
+ * the Gregorian calendar of the grid, including their accessible labels.
  */
 export const createDayFormat = (locale: Locale) =>
-  new Intl.DateTimeFormat(toIntlLocale(locale.code), { dateStyle: "full" });
+  new Intl.DateTimeFormat(toIntlLocale(locale.code), {
+    calendar: "gregory",
+    dateStyle: "full",
+  });
 
 /**
  * A time - or the times of a range - on the clock of the locale, e.g.
@@ -310,6 +314,8 @@ export const createDayFormat = (locale: Locale) =>
  */
 export const createTimeFormat = (locale: Locale) =>
   new Intl.DateTimeFormat(toIntlLocale(locale.code), {
+    // A range across midnight includes dates, even with only timeStyle.
+    calendar: "gregory",
     hourCycle: usesHour12(locale.formats.time) ? "h12" : "h23",
     timeStyle: "short",
   });
@@ -320,6 +326,7 @@ export const createTimeFormat = (locale: Locale) =>
  */
 export const createDateTimeFormat = (locale: Locale, timeZone?: string) =>
   new Intl.DateTimeFormat(toIntlLocale(locale.code), {
+    calendar: "gregory",
     dateStyle: "full",
     // The locale's time format decides - `h:mm A` is the 12-hour clock
     hourCycle: usesHour12(locale.formats.time) ? "h12" : "h23",

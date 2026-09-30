@@ -5,6 +5,8 @@ import type { WeekDay } from "../../i18n/types";
 import { createLocale } from "../../i18n/format";
 import { en } from "../../i18n/en";
 import { getVisibleRange } from "./date-utils";
+import { shiftEventByDays } from "./move-geometry";
+import { isOnDay } from "./utils";
 import UIProvider from "../../providers/ui-provider";
 
 // There the clocks jump from 0:00 to 1:00 in 2026 - the day of the change
@@ -51,6 +53,37 @@ describe.each([
     it("runs in a time zone whose day of the change starts at 1:00", () => {
       expect(day(0).getHours()).toBe(1);
       expect(day(1).getHours()).toBe(0);
+    });
+
+    it.each([
+      { offset: -1, shift: 1 },
+      { offset: 0, shift: 1 },
+      { offset: 0, shift: -1 },
+      { offset: 1, shift: -1 },
+    ])(
+      "keeps one all-day day when moving day $offset by $shift days",
+      ({ offset, shift }) => {
+        const original = {
+          ...event("Holiday", day(offset), day(offset + 1)),
+          allDay: true,
+        };
+        const moved = { ...original, ...shiftEventByDays(original, shift) };
+        expect(moved.start).toEqual(day(offset + shift));
+        expect(moved.end).toEqual(day(offset + shift + 1));
+        expect(isOnDay(moved, day(offset + shift))).toBe(true);
+        expect(isOnDay(moved, day(offset + shift + 1))).toBe(false);
+      },
+    );
+
+    it("keeps the UTC representation and early years when moving all-day dates", () => {
+      const original = {
+        ...event("Ancient", new Date("0099-09-24"), new Date("0099-09-25")),
+        allDay: true,
+      };
+      expect(shiftEventByDays(original, 1)).toEqual({
+        end: new Date("0099-09-26"),
+        start: new Date("0099-09-25"),
+      });
     });
 
     it("gives the visible ranges the midnights of their days", () => {

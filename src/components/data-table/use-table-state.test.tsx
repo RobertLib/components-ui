@@ -1,9 +1,10 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, renderHook, screen } from "@testing-library/react";
 import { useLayoutEffect } from "react";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
+import useTableState from "./use-table-state";
 import type { Column } from "./types";
 
 interface Row {
@@ -86,6 +87,71 @@ describe("DataTable column settings", () => {
 });
 
 describe("DataTable saved settings", () => {
+  it.each(["replace", "remove", "clear"] as const)(
+    "accepts another tab's %s after a failed write",
+    (operation) => {
+      const tableId = `failed-write-${operation}`;
+      const key = `table-state-${tableId}`;
+      localStorage.setItem(key, JSON.stringify({ density: "normal" }));
+      const { result } = renderHook(() => ({
+        first: useTableState(tableId),
+        second: useTableState(tableId),
+      }));
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const write = vi
+        .spyOn(Storage.prototype, "setItem")
+        .mockImplementation(() => {
+          throw new DOMException("full", "QuotaExceededError");
+        });
+      act(() => result.current.first[1]({ density: "compact" }));
+      expect(result.current.second[0].density).toBe("compact");
+      write.mockRestore();
+
+      act(() => {
+        if (operation === "clear") localStorage.clear();
+        else if (operation === "remove") localStorage.removeItem(key);
+        else
+          localStorage.setItem(key, JSON.stringify({ density: "comfortable" }));
+        window.dispatchEvent(
+          new StorageEvent("storage", {
+            key: operation === "clear" ? null : key,
+            newValue: localStorage.getItem(key),
+            storageArea: localStorage,
+          }),
+        );
+      });
+      const density = operation === "replace" ? "comfortable" : null;
+      expect(result.current.first[0].density).toBe(density);
+      expect(result.current.second[0].density).toBe(density);
+
+      act(() => result.current.first[1]({ columnWidths: { name: 200 } }));
+      expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ density });
+    },
+  );
+
+  it("keeps unsaved settings when another table or sessionStorage changes", () => {
+    const tableId = "unrelated-storage";
+    const key = `table-state-${tableId}`;
+    const { result } = renderHook(() => useTableState(tableId));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const write = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("full", "QuotaExceededError");
+      });
+    act(() => result.current[1]({ density: "compact" }));
+    write.mockRestore();
+
+    for (const event of [
+      { key: "table-state-someone-else", storageArea: localStorage },
+      { key, storageArea: sessionStorage },
+      { key: null, storageArea: sessionStorage },
+    ]) {
+      act(() => window.dispatchEvent(new StorageEvent("storage", event)));
+      expect(result.current[0].density).toBe("compact");
+    }
+  });
+
   it("tolerate hand-edited values", () => {
     localStorage.setItem(
       "table-state-people",

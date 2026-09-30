@@ -362,9 +362,12 @@ function monthDates(rule: Rule, year: number, month: number, event: Date) {
       .map((day) => existingDayOf(year, month, day))
       .filter((date) => date !== null);
     const { weekdays } = rule;
+    // Without BYMONTH, a yearly ordinal counts weekdays across the year,
+    // even when BYMONTHDAY supplies the candidate days month by month.
+    const scope = rule.freq === "yearly" && !rule.months ? "year" : "month";
     return uniqueSorted(
       weekdays
-        ? dates.filter((date) => matchesWeekday(date, weekdays, "month"))
+        ? dates.filter((date) => matchesWeekday(date, weekdays, scope))
         : dates,
     );
   }

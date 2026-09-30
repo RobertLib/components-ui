@@ -504,6 +504,41 @@ function createScriptedForm(defaults: Record<string, string>) {
 }
 
 describe("Values written by a script", () => {
+  it.each([false, true])(
+    "keep edits when later defaults match them (batched: %s)",
+    async (batched) => {
+      const fields = (defaultValue: string) => (
+        <form aria-label="Profile">
+          <Input defaultValue={defaultValue} label="Name" />
+          <Textarea defaultValue={defaultValue} label="Note" />
+          <Select defaultValue={defaultValue} label="Size" options={sizes} />
+          <input aria-label="Native" defaultValue={defaultValue} />
+        </form>
+      );
+      const { rerender } = render(fields("s"));
+      const controls = [
+        screen.getByRole<HTMLInputElement>("textbox", { name: "Name:" }),
+        screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Note:" }),
+        screen.getByRole<HTMLSelectElement>("combobox"),
+        screen.getByRole<HTMLInputElement>("textbox", { name: "Native" }),
+      ];
+      act(() => {
+        controls.forEach((control) => {
+          control.value = "m";
+        });
+        if (batched) rerender(fields("m"));
+      });
+      if (!batched) rerender(fields("m"));
+      rerender(fields("l"));
+      controls.forEach((control) => expect(control).toHaveValue("m"));
+
+      act(() => screen.getByRole<HTMLFormElement>("form").reset());
+      await waitFor(() => {
+        controls.forEach((control) => expect(control).toHaveValue("l"));
+      });
+    },
+  );
+
   it("stay in an uncontrolled Input - register(), setValue(), reset()", async () => {
     const user = userEvent.setup();
     const form = createScriptedForm({ name: "Ada" });

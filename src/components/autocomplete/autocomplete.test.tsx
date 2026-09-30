@@ -72,6 +72,51 @@ describe("Autocomplete with static options", () => {
     expect(input).toHaveValue("Zürich");
   });
 
+  it.each([
+    { id: 0, name: "Anna" },
+    { id: 0, title: "Anna" },
+    { id: 0, label: "Anna" },
+  ])("reads default fields from a static item: %j", async (person) => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <Autocomplete
+        label="Person"
+        onChange={onChange}
+        options={[person, { id: 1, name: "Bea" }]}
+      />,
+    );
+
+    const input = screen.getByRole("combobox", { name: "Person:" });
+    await user.type(input, "ann");
+
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    await user.click(screen.getByRole("option", { name: "Anna" }));
+    expect(input).toHaveValue("Anna");
+    expect(onChange).toHaveBeenCalledWith(0, person);
+    expect(onChange.mock.calls[0][1]).toBe(person);
+  });
+
+  it("preserves the data of ready-made static options alongside items", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const person = { id: 1, name: "Anna" };
+    const option = { label: "Anna", value: 1, data: person };
+    render(
+      <Autocomplete
+        label="Person"
+        onChange={onChange}
+        options={[option, { id: 2, name: "Bea" }]}
+      />,
+    );
+
+    await user.type(screen.getByRole("combobox", { name: "Person:" }), "ann");
+    await user.click(screen.getByRole("option", { name: "Anna" }));
+
+    expect(onChange).toHaveBeenCalledWith(1, person);
+    expect(onChange.mock.calls[0][1]).toBe(person);
+  });
+
   it("follows a controlled value, including resets from outside", async () => {
     const user = userEvent.setup();
 
@@ -177,6 +222,84 @@ describe("Autocomplete with static options", () => {
     expect([...new FormData(form).entries()]).toEqual([["city", ""]]);
   });
 
+  it.each([
+    { asSelect: false, controlled: false },
+    { asSelect: true, controlled: false },
+    { asSelect: false, controlled: true },
+    { asSelect: true, controlled: true },
+  ])(
+    "clears a required single field through an empty option (asSelect=$asSelect, controlled=$controlled)",
+    async ({ asSelect, controlled }) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const options = [{ label: "No city", value: "" }, ...cities];
+
+      function Example() {
+        const [value, setValue] = useState<AutocompleteValue | null>("praha");
+        return (
+          <form aria-label="Trip">
+            <Autocomplete
+              asSelect={asSelect}
+              defaultValue={controlled ? undefined : "praha"}
+              label="City"
+              name="city"
+              onChange={(next, item) => {
+                onChange(next, item);
+                setValue(next);
+              }}
+              options={options}
+              placeholder="Choose a city"
+              required
+              value={controlled ? value : undefined}
+            />
+          </form>
+        );
+      }
+
+      render(<Example />);
+      const form = screen.getByRole<HTMLFormElement>("form", { name: "Trip" });
+      const input = screen.getByRole("combobox");
+      expect(form.checkValidity()).toBe(true);
+
+      await user.click(input);
+      await user.click(await screen.findByRole("option", { name: "No city" }));
+
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(null, null);
+      expect(new FormData(form).get("city")).toBe("");
+      expect(form.checkValidity()).toBe(false);
+      if (asSelect) expect(input).toHaveTextContent("Choose a city");
+      else expect(input).toHaveValue("");
+    },
+  );
+
+  it("keeps a typed empty-valued option invalid before the field loses focus", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <form aria-label="Trip">
+        <Autocomplete
+          allowCustomValue
+          label="City"
+          name="city"
+          onChange={onChange}
+          options={[{ label: "No city", value: "" }, ...cities]}
+          required
+        />
+        <button type="button">Next</button>
+      </form>,
+    );
+
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Trip" });
+    await user.type(screen.getByRole("combobox"), "No city");
+    expect(new FormData(form).get("city")).toBe("");
+    expect(form.checkValidity()).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(null, null);
+    expect(form.checkValidity()).toBe(false);
+    expect(screen.getByRole("combobox")).toHaveValue("");
+  });
+
   it("is a combobox without a button wrapped around it", () => {
     render(<Autocomplete label="City" options={cities} />);
 
@@ -270,6 +393,36 @@ describe("Autocomplete with static options", () => {
         expect.any(Error),
       ),
     );
+    expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+  });
+
+  it("clears loading after loadMore throws synchronously and lets a later scroll retry", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const user = userEvent.setup();
+    const failure = new Error("offline");
+    const loadMore = vi
+      .fn<() => Promise<void>>()
+      .mockImplementationOnce(() => {
+        throw failure;
+      })
+      .mockResolvedValue(undefined);
+    render(<Autocomplete label="City" loadMore={loadMore} options={cities} />);
+
+    await user.click(screen.getByRole("combobox", { name: /City/ }));
+    scrollListToEnd();
+
+    await waitFor(() =>
+      expect(consoleError).toHaveBeenCalledWith(
+        "Failed to load more options",
+        failure,
+      ),
+    );
+    expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+
+    scrollListToEnd();
+    await waitFor(() => expect(loadMore).toHaveBeenCalledTimes(2));
     expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
   });
 });
@@ -607,6 +760,153 @@ describe("Autocomplete with loadOptions", () => {
     );
   });
 
+  it("starts page-based pagination over when the page size changes", async () => {
+    const user = userEvent.setup();
+    const items = people.slice(0, 4);
+    const loadOptions = vi.fn(
+      async ({ page, pageSize }: LoadOptionsParams) => ({
+        items: items.slice((page - 1) * pageSize, page * pageSize),
+        total: items.length,
+      }),
+    );
+    const field = (pageSize: number) => (
+      <Autocomplete
+        label="Person"
+        loadOptions={loadOptions}
+        pageSize={pageSize}
+      />
+    );
+    const { rerender } = render(field(2));
+
+    await user.click(screen.getByRole("combobox", { name: /Person/ }));
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(2));
+    rerender(field(1));
+
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
+    expect(loadOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        after: null,
+        cursor: null,
+        first: 1,
+        offset: 0,
+        page: 1,
+        pageSize: 1,
+      }),
+    );
+
+    for (let count = 2; count <= items.length; count++) {
+      scrollListToEnd();
+      await waitFor(() =>
+        expect(screen.getAllByRole("option")).toHaveLength(count),
+      );
+      expect(loadOptions).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          offset: count - 1,
+          page: count,
+          pageSize: 1,
+        }),
+      );
+    }
+    expect(
+      screen.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(items.map((item) => item.name));
+  });
+
+  it("aborts a pending cursor page when the page size changes", async () => {
+    const user = userEvent.setup();
+    let resolvePage: (result: {
+      items: typeof people;
+      nextCursor: string | null;
+    }) => void = () => {};
+    const loadOptions = vi.fn(({ cursor, pageSize }: LoadOptionsParams) => {
+      if (cursor) {
+        return new Promise<{ items: typeof people; nextCursor: string | null }>(
+          (resolve) => {
+            resolvePage = resolve;
+          },
+        );
+      }
+      return Promise.resolve({
+        items: people.slice(0, pageSize),
+        nextCursor: String(pageSize),
+      });
+    });
+    const field = (pageSize: number) => (
+      <Autocomplete
+        label="Person"
+        loadOptions={loadOptions}
+        pageSize={pageSize}
+      />
+    );
+    const { rerender } = render(field(2));
+
+    await user.click(screen.getByRole("combobox", { name: /Person/ }));
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(2));
+    scrollListToEnd();
+    await waitFor(() => expect(loadOptions).toHaveBeenCalledTimes(2));
+    const pendingRequest = loadOptions.mock.calls[1][0];
+    expect(pendingRequest.cursor).toBe("2");
+
+    rerender(field(1));
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
+    expect(pendingRequest.signal.aborted).toBe(true);
+    expect(loadOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cursor: null,
+        offset: 0,
+        page: 1,
+        pageSize: 1,
+      }),
+    );
+
+    // A loader that ignores AbortSignal must not append its old page or
+    // replace the new cursor after the fresh list arrives.
+    await act(async () =>
+      resolvePage({ items: people.slice(2, 4), nextCursor: "4" }),
+    );
+    expect(
+      screen.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["Person 1"]);
+    scrollListToEnd();
+    await waitFor(() => expect(loadOptions).toHaveBeenCalledTimes(4));
+    expect(loadOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: "1", offset: 1, page: 2, pageSize: 1 }),
+    );
+  });
+
+  it("uses the new page size for a search still waiting for its debounce", async () => {
+    const user = userEvent.setup();
+    const loadOptions = vi.fn(pagePeople);
+    const field = (pageSize: number) => (
+      <Autocomplete
+        label="Person"
+        loadOptions={loadOptions}
+        pageSize={pageSize}
+      />
+    );
+    const { rerender } = render(field(10));
+    const input = screen.getByRole("combobox", { name: /Person/ });
+
+    await user.click(input);
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(10));
+    await user.type(input, "Person 2");
+    expect(loadOptions).toHaveBeenCalledTimes(1);
+    rerender(field(5));
+
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(5));
+    expect(loadOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        first: 5,
+        offset: 0,
+        page: 1,
+        pageSize: 5,
+        search: "Person 2",
+      }),
+    );
+    await act(() => sleep(400));
+    expect(loadOptions).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores the response of a request a newer one replaced", async () => {
     const user = userEvent.setup();
     const pending: ((items: typeof people) => void)[] = [];
@@ -921,6 +1221,55 @@ describe("Autocomplete with loadOptions", () => {
     expect(loadSelectedOptions).not.toHaveBeenCalled();
     expect(input).not.toHaveAttribute("readonly");
   });
+
+  it.each([false, true])(
+    "keeps refreshed selected labels and items after searching (preloaded: %s)",
+    async (preloaded) => {
+      const user = userEvent.setup();
+      const original = { id: 1, name: "Original name", version: 1 };
+      const refreshed = { id: 1, name: "Updated name", version: 2 };
+      const other = { id: 2, name: "Other person", version: 1 };
+      const onChange = vi.fn();
+      const loadOptions = vi
+        .fn()
+        .mockResolvedValueOnce([original])
+        .mockResolvedValueOnce([refreshed])
+        .mockResolvedValue([other]);
+      render(
+        <StrictMode>
+          <Autocomplete
+            defaultValue={[1]}
+            label="Team"
+            loadOptions={loadOptions}
+            loadSelectedOptions={preloaded ? async () => [original] : undefined}
+            multiple
+            onChange={onChange}
+          />
+        </StrictMode>,
+      );
+      const input = screen.getByRole("combobox", { name: /Team/ });
+      if (preloaded) {
+        await screen.findByRole("button", { name: "Clear Original name" });
+      }
+
+      await user.click(input);
+      await screen.findByRole("option", { name: "Original name" });
+      await user.keyboard("{Escape}");
+      await user.click(input);
+      await screen.findByRole("button", { name: "Clear Updated name" });
+
+      await user.type(input, "Other");
+      const option = await screen.findByRole("option", {
+        name: "Other person",
+      });
+      expect(
+        screen.getByRole("button", { name: "Clear Updated name" }),
+      ).toBeInTheDocument();
+      await user.click(option);
+
+      expect(onChange).toHaveBeenLastCalledWith([1, 2], [refreshed, other]);
+    },
+  );
 });
 
 const statuses = [
@@ -1477,6 +1826,36 @@ describe("Autocomplete selected values", () => {
     );
   });
 
+  it("reports a synchronous preload failure and retries when opened", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const user = userEvent.setup();
+    const failure = new Error("offline");
+    const onLoadError = vi.fn();
+    const loadSelectedOptions = vi.fn(loadPerson).mockImplementationOnce(() => {
+      throw failure;
+    });
+    render(
+      <Autocomplete
+        defaultValue={3}
+        label="Person"
+        loadOptions={async () => []}
+        loadSelectedOptions={loadSelectedOptions}
+        onLoadError={onLoadError}
+      />,
+    );
+
+    const input = screen.getByRole("combobox", { name: "Person:" });
+    await waitFor(() => expect(input).toHaveValue("3"));
+    expect(input).not.toHaveAttribute("readonly");
+    expect(onLoadError).toHaveBeenCalledExactlyOnceWith(failure);
+    expect(loadSelectedOptions).toHaveBeenCalledTimes(1);
+
+    await user.click(input);
+    await waitFor(() => expect(input).toHaveValue("Person 3"));
+    expect(loadSelectedOptions).toHaveBeenCalledTimes(2);
+    expect(onLoadError).toHaveBeenCalledTimes(1);
+  });
+
   it("aborts loadSelectedOptions when it unmounts", () => {
     const loadSelectedOptions = vi.fn(
       (_ids: AutocompleteValue[], { signal }: { signal: AbortSignal }) =>
@@ -1558,6 +1937,41 @@ describe("Autocomplete option states", () => {
     );
   });
 
+  it.each(["static accessor", "loadOptions"] as const)(
+    "preserves disabled options from %s",
+    async (source) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const sourceProps =
+        source === "loadOptions"
+          ? { loadOptions: async () => withDisabled }
+          : {
+              getOptionLabel: (option: (typeof withDisabled)[number]) =>
+                option.label,
+              options: withDisabled,
+            };
+      render(
+        <Autocomplete label="City" onChange={onChange} {...sourceProps} />,
+      );
+
+      const input = screen.getByRole("combobox", { name: "City:" });
+      await user.click(input);
+      const plzen = await screen.findByRole("option", { name: "Plzeň" });
+      expect(plzen).toHaveAttribute("aria-disabled", "true");
+
+      await user.click(plzen);
+      expect(onChange).not.toHaveBeenCalled();
+
+      await user.keyboard("{ArrowDown}{ArrowDown}");
+      expect(input).toHaveAttribute(
+        "aria-activedescendant",
+        screen.getByRole("option", { name: "Zürich" }).id,
+      );
+      await user.keyboard("{Enter}");
+      expect(onChange).toHaveBeenCalledWith("zurich", withDisabled[2]);
+    },
+  );
+
   it("says when maxSelections is reached and offers only the selected options", async () => {
     const user = userEvent.setup();
     render(
@@ -1595,6 +2009,42 @@ describe("Autocomplete option states", () => {
     expect(screen.getByRole("option", { name: "Zürich" })).not.toHaveAttribute(
       "aria-disabled",
     );
+  });
+
+  it("allows only removal when maxSelections is zero", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <Autocomplete
+        defaultValue={["praha"]}
+        label="Cities"
+        maxSelections={0}
+        multiple
+        onChange={onChange}
+        options={cities}
+        selectAll
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Cities:" }));
+    expect(screen.getByRole("option", { name: "Plzeň" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(
+      screen.queryByRole("option", { name: "Select all" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "Plzeň" }));
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("option", { name: "Praha" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith([], []);
+    expect(screen.getByRole("option", { name: "Praha" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 
   it("tells options with the same value apart and warns about them", async () => {

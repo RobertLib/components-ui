@@ -20,7 +20,7 @@ export default function Controlled() {
         </span>
       </div>
       <Splitter
-        className="h-[260px] rounded-lg border border-neutral-200 dark:border-neutral-800"
+        className="h-65 rounded-lg border border-neutral-200 dark:border-neutral-800"
         collapsible={[true, false]}
         minSizes={[15, 40]}
         onSizesChange={setSizes}

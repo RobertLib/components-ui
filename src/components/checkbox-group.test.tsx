@@ -1,6 +1,6 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef, useState } from "react";
+import { Activity, createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -181,7 +181,7 @@ describe("CheckboxGroup", () => {
     await user.click(checkbox("Push"));
     act(() => getForm().reset());
 
-    expect(checkbox("Email")).toBeChecked();
+    await waitFor(() => expect(checkbox("Email")).toBeChecked());
     expect(checkbox("Push")).not.toBeChecked();
     expect(new FormData(getForm()).getAll("channels")).toEqual(["email"]);
   });
@@ -234,7 +234,7 @@ describe("CheckboxGroup", () => {
     ]);
 
     act(() => getForm().reset());
-    expect(checkbox("SMS")).not.toBeChecked();
+    await waitFor(() => expect(checkbox("SMS")).not.toBeChecked());
     expect(checkbox("Email")).toBeChecked();
   });
 
@@ -260,6 +260,206 @@ describe("CheckboxGroup", () => {
     expect(screen.getByText("*")).toHaveAttribute("aria-hidden", "true");
 
     await user.click(checkbox("Push"));
+    expect(getForm().checkValidity()).toBe(true);
+  });
+
+  it.each([
+    { constraints: { required: true }, options: [] },
+    { constraints: { min: 2 }, options: [] },
+    {
+      constraints: { required: true },
+      options: channels.map((option) => ({ ...option, disabled: true })),
+    },
+    {
+      constraints: { min: 2 },
+      options: channels.map((option) => ({ ...option, disabled: true })),
+    },
+  ])(
+    "enforces $constraints without an enabled option",
+    async ({ constraints, options }) => {
+      render(
+        <form aria-label="Settings">
+          <CheckboxGroup
+            {...constraints}
+            label="Channels"
+            name="channels"
+            options={options}
+            value={["email", "sms"]}
+          />
+        </form>,
+      );
+
+      expect(getForm().checkValidity()).toBe(false);
+      expect(new FormData(getForm()).getAll("channels")).toEqual([]);
+      const validation =
+        getForm().querySelector<HTMLInputElement>("input[type=text]")!;
+      expect(validation.validationMessage).toBe(
+        constraints.min === 2
+          ? "Select at least 2 options."
+          : "Select at least one option.",
+      );
+      // A native invalid control can take focus, then directs it to the group.
+      await act(async () => validation.focus());
+      expect(screen.getByRole("group", { name: "Channels:" })).toHaveFocus();
+    },
+  );
+
+  it("does not reclaim focus after an empty group's validation is removed", async () => {
+    const field = (required: boolean) => (
+      <>
+        <CheckboxGroup label="Channels" options={[]} required={required} />
+        <button type="button">Next field</button>
+      </>
+    );
+    const { rerender } = render(field(true));
+    const validation = screen.getByRole("group").querySelector("input")!;
+    const next = screen.getByRole("button", { name: "Next field" });
+    await act(async () => {
+      validation.focus();
+      next.focus();
+      rerender(field(false));
+    });
+    expect(next).toHaveFocus();
+    expect(validation).not.toBeInTheDocument();
+  });
+
+  it("moves validation between the empty group and its returned options", () => {
+    const field = (options: typeof channels) => (
+      <form aria-label="Settings">
+        <CheckboxGroup
+          label="Channels"
+          options={options}
+          required
+          value={["email"]}
+        />
+      </form>
+    );
+    const { rerender } = render(field([]));
+    expect(getForm().checkValidity()).toBe(false);
+
+    rerender(field(channels));
+    expect(getForm().querySelector("input[type=text]")).toBeNull();
+    expect(getForm().checkValidity()).toBe(true);
+
+    rerender(field([]));
+    expect(getForm().checkValidity()).toBe(false);
+  });
+
+  it.each(["disabled", "readOnly"] as const)(
+    "does not validate an empty %s group, and restores validation when enabled",
+    (state) => {
+      const field = (locked: boolean) => (
+        <form aria-label="Settings">
+          <CheckboxGroup
+            {...{ [state]: locked }}
+            label="Channels"
+            options={[]}
+            required
+          />
+        </form>
+      );
+      const { rerender } = render(field(true));
+      expect(getForm().checkValidity()).toBe(true);
+      rerender(field(false));
+      expect(getForm().checkValidity()).toBe(false);
+      rerender(field(true));
+      expect(getForm().checkValidity()).toBe(true);
+    },
+  );
+
+  it("follows a disabled ancestor fieldset and its first legend exception", () => {
+    render(
+      <form aria-label="Settings">
+        <fieldset aria-label="Parent" disabled>
+          <legend>
+            <CheckboxGroup label="Exempt" options={[]} required />
+          </legend>
+          <CheckboxGroup label="Disabled" options={[]} required />
+        </fieldset>
+      </form>,
+    );
+
+    const exempt = screen.getByRole("group", { name: "Exempt:" });
+    const disabled = screen.getByRole("group", { name: "Disabled:" });
+    expect(exempt.querySelector("input")).toBeEnabled();
+    expect(disabled.querySelector("input")).toBeDisabled();
+    expect(getForm().checkValidity()).toBe(false);
+    getForm().querySelector("fieldset")!.disabled = false;
+    expect(disabled.querySelector("input")).toBeEnabled();
+    expect(getForm().checkValidity()).toBe(false);
+  });
+
+  it("validates an empty group in its explicitly associated form", () => {
+    render(
+      <>
+        <form aria-label="Settings" id="settings" />
+        <CheckboxGroup form="settings" label="Channels" options={[]} required />
+      </>,
+    );
+
+    expect(getForm().checkValidity()).toBe(false);
+    expect(getForm().elements).toHaveLength(1);
+    expect([...new FormData(getForm())]).toEqual([]);
+  });
+
+  it("resets the selection while options are empty, and restores it when they return", async () => {
+    const user = userEvent.setup();
+    const field = (options: typeof channels) => (
+      <form aria-label="Settings">
+        <CheckboxGroup
+          defaultValue={["email"]}
+          label="Channels"
+          options={options}
+          required
+        />
+      </form>
+    );
+    const { rerender } = render(field(channels));
+    await user.click(checkbox("Email"));
+    await user.click(checkbox("SMS"));
+    rerender(field([]));
+    expect(getForm().checkValidity()).toBe(false);
+    await act(async () => {
+      getForm().reset();
+      await new Promise((resolve) => setTimeout(resolve));
+    });
+    expect(getForm().checkValidity()).toBe(false);
+
+    rerender(field(channels));
+    expect(checkbox("Email")).toBeChecked();
+    expect(checkbox("SMS")).not.toBeChecked();
+    expect(getForm().checkValidity()).toBe(true);
+  });
+
+  it("enforces a missing minimum when Activity empties the options while hidden", async () => {
+    const field = (
+      hidden: boolean,
+      options: typeof channels,
+      required = true,
+    ) => (
+      <form aria-label="Settings">
+        <Activity mode={hidden ? "hidden" : "visible"}>
+          <CheckboxGroup
+            label="Channels"
+            options={options}
+            required={required}
+            value={["email"]}
+          />
+        </Activity>
+      </form>
+    );
+    const { rerender } = render(field(false, channels));
+    expect(getForm().checkValidity()).toBe(true);
+    await act(async () => rerender(field(true, [])));
+    expect(getForm().checkValidity()).toBe(false);
+
+    await act(async () => rerender(field(true, [], false)));
+    expect(getForm().checkValidity()).toBe(true);
+
+    await act(async () => rerender(field(true, channels)));
+    expect(getForm().checkValidity()).toBe(true);
+    await act(async () => rerender(field(false, channels)));
+    expect(checkbox("Email")).toBeChecked();
     expect(getForm().checkValidity()).toBe(true);
   });
 
@@ -572,6 +772,28 @@ describe("CheckboxGroup", () => {
     expect(checkbox("SMS")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByRole("alert")).toHaveTextContent("Pick a channel");
   });
+
+  it.each(["default", "card"] as const)(
+    "points no option at a description that renders nothing (%s)",
+    (variant) => {
+      render(
+        <CheckboxGroup
+          label="Channels"
+          options={[
+            // `isPro && "Pro only"`, `count && "…"`
+            { description: false, label: "Email", value: "e" },
+            { description: 0, label: "SMS", value: "s" },
+            { description: "", label: "Push", value: "p" },
+          ]}
+          variant={variant}
+        />,
+      );
+
+      for (const name of ["Email", "SMS", "Push"]) {
+        expect(checkbox(name)).not.toHaveAttribute("aria-describedby");
+      }
+    },
+  );
 
   it("marks the options invalid, not its select all", () => {
     render(

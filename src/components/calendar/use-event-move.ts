@@ -42,6 +42,10 @@ interface UseEventMoveOptions {
   announce: (message: string) => void;
   /** When an event would take place - its day, times and resource. */
   describe: (event: CalendarEvent, display: EventDisplay) => string;
+  /** The latest events - a removed or externally moved event cancels its move. */
+  events: CalendarEvent[];
+  /** The days, resources, hours and limits the move's geometry belongs to. */
+  geometryKey: string;
   /** An event was moved. */
   onEventDrop?: (change: EventTimeChange) => void;
   /** An event was resized. */
@@ -53,17 +57,27 @@ interface UseEventMoveOptions {
   scrollRef: React.RefObject<HTMLElement | null>;
 }
 
+/** The event and layout a move started with. */
+interface MoveContext {
+  event: CalendarEvent;
+  geometryKey: string;
+  type: DragType;
+}
+
+interface PointerSession extends MoveContext {
+  /** Stops the listeners, clears the cursor and puts the event back. */
+  stop: () => void;
+}
+
 /** A move by the keys. */
-interface KeyboardSession {
+interface KeyboardSession extends MoveContext {
   /** Where the event is shown now. */
   display: EventDisplay;
-  event: CalendarEvent;
   geometry: MoveGeometry;
   /** Where it was - a drop there changes nothing. */
   origin: EventDisplay;
   steps: MoveSteps;
   tile: MoveTile;
-  type: DragType;
 }
 
 /** A tile to give the focus back to once it is rendered. */
@@ -86,6 +100,23 @@ const sameDisplay = (a: EventDisplay, b: EventDisplay) =>
   a.start.getTime() === b.start.getTime() &&
   a.end.getTime() === b.end.getTime() &&
   a.resourceId === b.resourceId;
+
+/** The current event, while the times and layout the move started in still fit. */
+function getCurrentEvent(options: UseEventMoveOptions, context: MoveContext) {
+  if (
+    options.geometryKey !== context.geometryKey ||
+    !(context.type === "move" ? options.onEventDrop : options.onEventResize)
+  ) {
+    return undefined;
+  }
+
+  const current = options.events.find((event) => event.id === context.event.id);
+  return current &&
+    sameDisplay(current, context.event) &&
+    !!current.allDay === !!context.event.allDay
+    ? current
+    : undefined;
+}
 
 /** The cursor of a resize everywhere - also where the pointer leaves the tile. */
 function addCursor(cursor: string) {
@@ -114,16 +145,53 @@ export default function useEventMove(options: UseEventMoveOptions) {
   const [dragState, setDragState] = useState<DragState | null>(null);
   // A drag outlives the render it started in - it reads the latest options
   const optionsRef = useRef(options);
-  // Ends the pointer drag in progress without a drop
-  const stopRef = useRef<(() => void) | null>(null);
+  const pointerRef = useRef<PointerSession | null>(null);
   const sessionRef = useRef<KeyboardSession | null>(null);
   const focusRef = useRef<FocusTarget | null>(null);
 
-  useEffect(() => {
+  /** Ends the move by the keys - the event goes back where it was. */
+  const cancelKeyboard = (announce: boolean) => {
+    const session = sessionRef.current;
+    if (!session) return;
+    sessionRef.current = null;
+    setDragState(null);
+    focusRef.current = {
+      day: session.tile.day,
+      id: session.event.id,
+      until: Date.now() + 1000,
+    };
+    if (announce) {
+      optionsRef.current.announce(
+        formatMessage(messages.calendar.moveCancelled, {
+          title: session.event.title,
+        }),
+      );
+    }
+  };
+
+  // Before the focus follows a tile, or a release can report a stale move.
+  // Refetching equal times keeps the move; changed geometry or event times
+  // puts it back, including presses still below the drag threshold.
+  useLayoutEffect(() => {
     optionsRef.current = options;
+    const pointer = pointerRef.current;
+    if (pointer && !getCurrentEvent(options, pointer)) pointer.stop();
+    const session = sessionRef.current;
+    if (session && !getCurrentEvent(options, session)) cancelKeyboard(true);
   });
 
-  useEffect(() => () => stopRef.current?.(), []);
+  // Activity hides the view by removing its effects while keeping state.
+  // A stopped drag must clear that state too, so showing the view again
+  // restores the event and lets the other tiles take pointer clicks.
+  useEffect(
+    () => () => {
+      pointerRef.current?.stop();
+      sessionRef.current = null;
+      focusRef.current = null;
+      setDragState(null);
+    },
+    [],
+  );
 
   // The tile of an event the keys move goes to another day or column - a
   // new element, and the focus would drop to the page. It follows the tile,
@@ -181,11 +249,12 @@ export default function useEventMove(options: UseEventMoveOptions) {
 
   /** Reports a change - a move or a resize. */
   const commit = (
-    event: CalendarEvent,
-    type: DragType,
+    context: MoveContext,
     display: EventDisplay,
     hasResources: boolean,
   ) => {
+    const event = getCurrentEvent(optionsRef.current, context);
+    if (!event) return false;
     const change: EventTimeChange = {
       event,
       newEnd: display.end,
@@ -193,30 +262,10 @@ export default function useEventMove(options: UseEventMoveOptions) {
       ...(hasResources && { newResourceId: display.resourceId }),
     };
     const { onEventDrop, onEventResize } = optionsRef.current;
-    if (type === "move") {
+    if (context.type === "move") {
       onEventDrop?.(change);
     } else {
       onEventResize?.(change);
-    }
-  };
-
-  /** Ends the move by the keys - the event goes back where it was. */
-  const cancelKeyboard = (announce: boolean) => {
-    const session = sessionRef.current;
-    if (!session) return;
-    sessionRef.current = null;
-    setDragState(null);
-    focusRef.current = {
-      day: session.tile.day,
-      id: session.event.id,
-      until: Date.now() + 1000,
-    };
-    if (announce) {
-      optionsRef.current.announce(
-        formatMessage(messages.calendar.moveCancelled, {
-          title: session.event.title,
-        }),
-      );
     }
   };
 
@@ -226,7 +275,10 @@ export default function useEventMove(options: UseEventMoveOptions) {
     if (!session) return;
     const { display, event, geometry, origin, tile, type } = session;
 
-    if (sameDisplay(display, origin)) {
+    if (
+      sameDisplay(display, origin) ||
+      !getCurrentEvent(optionsRef.current, session)
+    ) {
       cancelKeyboard(true);
       return;
     }
@@ -239,7 +291,7 @@ export default function useEventMove(options: UseEventMoveOptions) {
       id: event.id,
       until: Date.now() + 2000,
     };
-    commit(event, type, display, geometry.hasResources);
+    commit(session, display, geometry.hasResources);
     optionsRef.current.announce(
       formatMessage(
         type === "move" ? messages.calendar.moved : messages.calendar.resized,
@@ -261,9 +313,14 @@ export default function useEventMove(options: UseEventMoveOptions) {
     if (!isDragPress(e)) return;
     // A handle, not the tile under it
     e.stopPropagation();
-    stopRef.current?.();
+    pointerRef.current?.stop();
     cancelKeyboard(false);
 
+    const context: MoveContext = {
+      event,
+      geometryKey: optionsRef.current.geometryKey,
+      type,
+    };
     const origin = geometry.compute({ x: 0, y: 0 });
     // The times a drop gives - live, not those of the last render
     let current: EventDisplay | null = null;
@@ -273,7 +330,7 @@ export default function useEventMove(options: UseEventMoveOptions) {
     let cursorStyle: HTMLStyleElement | null = null;
 
     const finish = () => {
-      stopRef.current = null;
+      pointerRef.current = null;
       cursorStyle?.remove();
       setDragState(null);
     };
@@ -297,15 +354,18 @@ export default function useEventMove(options: UseEventMoveOptions) {
       onDrop: () => {
         finish();
         if (!current || sameDisplay(current, origin)) return moved;
-        commit(event, type, current, geometry.hasResources);
+        commit(context, current, geometry.hasResources);
         return true;
       },
       onCancel: finish,
     });
 
-    stopRef.current = () => {
-      stopDrag();
-      cursorStyle?.remove();
+    pointerRef.current = {
+      ...context,
+      stop: () => {
+        stopDrag();
+        finish();
+      },
     };
   };
 
@@ -339,12 +399,13 @@ export default function useEventMove(options: UseEventMoveOptions) {
       if (!geometry) return;
       e.preventDefault();
 
-      stopRef.current?.();
+      pointerRef.current?.stop();
       cancelKeyboard(false);
       const origin = geometry.compute({ x: 0, y: 0 });
       sessionRef.current = {
         display: origin,
         event,
+        geometryKey: optionsRef.current.geometryKey,
         geometry,
         origin,
         steps: { x: 0, y: 0 },

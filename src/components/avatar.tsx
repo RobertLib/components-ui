@@ -121,7 +121,7 @@ const statusSizeClasses: Record<AvatarSize, string> = {
 // around the dot by at least 3:1 (WCAG 1.4.11)
 const statusClasses: Record<NonNullable<AvatarProps["status"]>, string> = {
   // A crescent - the surface cuts a circle out of it (at the start)
-  away: "overflow-hidden bg-warning-700 after:absolute after:-start-[15%] after:-top-[15%] after:size-[70%] after:rounded-full after:bg-surface dark:bg-warning-500 dark:after:bg-surface-dark",
+  away: "overflow-hidden bg-warning-700 after:absolute after:inset-s-[-15%] after:top-[-15%] after:size-[70%] after:rounded-full after:bg-surface dark:bg-warning-500 dark:after:bg-surface-dark",
   busy: "bg-danger-500 after:absolute after:inset-x-1/4 after:top-1/2 after:h-[20%] after:min-h-0.5 after:-translate-y-1/2 after:rounded-full after:bg-white",
   offline:
     "border-2 border-neutral-500 bg-surface dark:border-neutral-500 dark:bg-surface-dark",
@@ -239,7 +239,7 @@ export default function Avatar({
             // drop the fills
             "absolute rounded-full ring-2 ring-surface forced-color-adjust-none dark:ring-surface-dark",
             // On the edge of a circle - on the corner of a square
-            isSquare ? "-end-0.5 -bottom-0.5" : "end-0 bottom-0",
+            isSquare ? "-inset-e-0.5 -bottom-0.5" : "inset-e-0 bottom-0",
             statusSizeClasses[size],
             statusClasses[status],
           )}

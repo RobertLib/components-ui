@@ -1,6 +1,7 @@
 import { screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  focusFirst,
   getNextTabbable,
   getPreviousTabbable,
   getTabbableElements,
@@ -54,6 +55,27 @@ describe("getTabbableElements", () => {
       "Clip",
       "Podcast",
       "Notes",
+    ]);
+  });
+
+  it("passes over the links of editable text, as Tab does - not over its controls or a part that is not editable", () => {
+    const body = mount(`
+      <button>Before</button>
+      <div aria-label="Notes" contenteditable="true">
+        <p>See <a href="/a">Link</a> or <a href="/b" tabindex="0">Link with a tabindex</a></p>
+        <button>Embedded</button>
+        <figure contenteditable="false"><a href="/c">Caption link</a></figure>
+      </div>
+      <button>After</button>
+    `);
+
+    expect(names(getTabbableElements(body))).toEqual([
+      "Before",
+      "Notes",
+      "Link with a tabindex",
+      "Embedded",
+      "Caption link",
+      "After",
     ]);
   });
 
@@ -122,6 +144,17 @@ describe("getNextTabbable", () => {
 
     expect(getNextTabbable(small)?.textContent).toBe("Next");
   });
+
+  it("moves from an editing host past the links in its text", () => {
+    mount(`
+      <div aria-label="Notes" contenteditable="true">See <a href="/a">Link</a></div>
+      <button>Next</button>
+    `);
+    const notes = screen.getByLabelText("Notes");
+
+    expect(getNextTabbable(notes)?.textContent).toBe("Next");
+    expect(getPreviousTabbable(screen.getByText("Next"))).toBe(notes);
+  });
 });
 
 describe("getPreviousTabbable", () => {
@@ -175,6 +208,187 @@ describe("getTabStopsBeside", () => {
   });
 });
 
+describe("Tab order through shadow roots", () => {
+  const attachShadow = (host: Element, html: string) => {
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = html;
+    return shadow;
+  };
+
+  it("enters nested shadow roots in place and leaves them in both directions", () => {
+    const body = mount(`
+      <button>Before</button>
+      <div id="host"><button>Unslotted</button></div>
+      <button>After</button>
+    `);
+    const host = document.getElementById("host")!;
+    const shadow = attachShadow(
+      host,
+      `
+      <button>First</button>
+      <div id="nested"></div>
+      <button>Last</button>
+    `,
+    );
+    const nested = attachShadow(
+      shadow.getElementById("nested")!,
+      `
+      <button>Nested first</button><button>Nested last</button>
+    `,
+    );
+    const [first, last] = shadow.querySelectorAll("button");
+    const [nestedFirst, nestedLast] = nested.querySelectorAll("button");
+
+    expect(names(getTabbableElements(body))).toEqual([
+      "Before",
+      "First",
+      "Nested first",
+      "Nested last",
+      "Last",
+      "After",
+    ]);
+    expect(getNextTabbable(screen.getByText("Before"))).toBe(first);
+    expect(getNextTabbable(first)).toBe(nestedFirst);
+    expect(getPreviousTabbable(nestedFirst)).toBe(first);
+    expect(getNextTabbable(nestedLast)).toBe(last);
+    expect(getPreviousTabbable(last)).toBe(nestedLast);
+    expect(getNextTabbable(last)).toBe(screen.getByText("After"));
+    expect(getPreviousTabbable(first)).toBe(screen.getByText("Before"));
+    expect(getPreviousTabbable(screen.getByText("After"))).toBe(last);
+  });
+
+  it("skips a host's shadow descendants, including a skipped portal region", () => {
+    mount(`<button>Before</button><div id="host"></div><button>After</button>`);
+    const host = document.getElementById("host")!;
+    attachShadow(host, `<button>Panel action</button>`);
+
+    expect(getNextTabbable(host)).toBe(screen.getByText("After"));
+    expect(getNextTabbable(screen.getByText("Before"), host)).toBe(
+      screen.getByText("After"),
+    );
+    expect(getPreviousTabbable(screen.getByText("After"), host)).toBe(
+      screen.getByText("Before"),
+    );
+  });
+
+  it("can leave a closed shadow root when the reference is inside it", () => {
+    mount(`<button>Before</button><div id="host"></div><button>After</button>`);
+    const shadow = document
+      .getElementById("host")!
+      .attachShadow({ mode: "closed" });
+    shadow.innerHTML = `<button>First</button><button>Last</button>`;
+    const [first, last] = shadow.querySelectorAll("button");
+
+    expect(getNextTabbable(first)).toBe(last);
+    expect(getNextTabbable(last)).toBe(screen.getByText("After"));
+    expect(getPreviousTabbable(first)).toBe(screen.getByText("Before"));
+    expect(names(getTabStopsBeside(first, false))).toEqual(["Last", "After"]);
+  });
+
+  it("uses slot order and fallback content, excluding unassigned children", () => {
+    const body = mount(`
+      <div id="host">
+        <button slot="second">Second</button>
+        <button slot="first">First</button>
+        <button>Unassigned</button>
+      </div>
+      <button>After</button>
+    `);
+    attachShadow(
+      document.getElementById("host")!,
+      `
+      <slot name="first"><button>Unused fallback</button></slot>
+      <button>Middle</button>
+      <slot name="second"></slot>
+      <slot name="empty"><button>Fallback</button></slot>
+    `,
+    );
+
+    expect(names(getTabbableElements(body))).toEqual([
+      "First",
+      "Middle",
+      "Second",
+      "Fallback",
+      "After",
+    ]);
+    expect(getNextTabbable(screen.getByText("First"))?.textContent).toBe(
+      "Middle",
+    );
+    expect(getPreviousTabbable(screen.getByText("Second"))?.textContent).toBe(
+      "Middle",
+    );
+  });
+
+  it("respects inert and hidden ancestors across shadow hosts and slots", () => {
+    const body = mount(`
+      <div id="inert" inert></div>
+      <div aria-hidden="true"><div id="hidden"></div></div>
+      <div id="slotted"><button>Hidden by slot</button></div>
+      <button>Visible</button>
+    `);
+    attachShadow(document.getElementById("inert")!, `<button>Inert</button>`);
+    attachShadow(document.getElementById("hidden")!, `<button>Hidden</button>`);
+    attachShadow(document.getElementById("slotted")!, `<slot inert></slot>`);
+
+    expect(names(getTabbableElements(body))).toEqual(["Visible"]);
+  });
+
+  it("keeps radio groups in separate trees and uses the focused shadow radio", () => {
+    const body = mount(`
+      <input type="radio" name="size" aria-label="Page" checked />
+      <div id="host"></div>
+      <button>After</button>
+    `);
+    const shadow = attachShadow(
+      document.getElementById("host")!,
+      `
+      <input type="radio" name="size" aria-label="Small" checked />
+      <input type="radio" name="size" aria-label="Medium" />
+    `,
+    );
+    const [small, medium] = shadow.querySelectorAll("input");
+    expect(names(getTabbableElements(body))).toEqual([
+      "Page",
+      "Small",
+      "After",
+    ]);
+    expect(getNextTabbable(screen.getByRole("radio", { name: "Page" }))).toBe(
+      small,
+    );
+
+    medium.focus();
+    expect(names(getTabbableElements(body))).toEqual([
+      "Page",
+      "Medium",
+      "After",
+    ]);
+    expect(getPreviousTabbable(screen.getByText("After"))).toBe(medium);
+  });
+
+  it("retains ancestor fallbacks beyond the shadow host", () => {
+    mount(`<button>Before</button><div id="host"></div><button>After</button>`);
+    const shadow = attachShadow(
+      document.getElementById("host")!,
+      `
+      <ul>
+        <li><button>Actions A</button><button>Open A</button></li>
+        <li><button>Actions B</button></li>
+      </ul>
+      <button>Outside list</button>
+    `,
+    );
+    const actions = shadow.querySelector("button")!;
+
+    expect(names(getTabStopsBeside(actions, false))).toEqual([
+      "Open A",
+      "Actions B",
+      "Outside list",
+      "After",
+    ]);
+    expect(names(getTabStopsBeside(actions, true))).toEqual(["Before"]);
+  });
+});
+
 describe("finding the Tab stops next to an element", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -197,5 +411,32 @@ describe("finding the Tab stops next to an element", () => {
     // Its own comparisons - the DOM of the tests compares on its own too
     const own = compare.mock.contexts.filter((node) => node === middle);
     expect(own.length).toBeLessThan(50);
+  });
+});
+
+describe("focusFirst", () => {
+  it("focuses the first element that takes the focus", () => {
+    mount(
+      "<button>Skipped</button><button>Taken</button><button>Last</button>",
+    );
+    const [skipped, taken] = screen.getAllByRole("button");
+    // As Firefox does with a link in editable text
+    vi.spyOn(skipped, "focus").mockImplementation(() => {});
+
+    expect(focusFirst(screen.getAllByRole("button"))).toBe(true);
+    expect(taken).toHaveFocus();
+  });
+
+  it("tells when none takes it - also in a shadow root", () => {
+    mount("<div></div>");
+    const root = document.body.firstElementChild!.attachShadow({
+      mode: "open",
+    });
+    root.innerHTML = "<button>Inside</button><span>Text</span>";
+    const [button, span] = root.children as unknown as HTMLElement[];
+
+    expect(focusFirst([span])).toBe(false);
+    expect(focusFirst([span, button])).toBe(true);
+    expect(root.activeElement).toBe(button);
   });
 });

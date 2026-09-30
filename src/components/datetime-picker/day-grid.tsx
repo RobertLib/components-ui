@@ -116,11 +116,31 @@ const isRtl = (element: Element) =>
  * so it starts at the selected day (or today) - and follows a day selected
  * while it is open. `DateCalendar` and `RangeCalendar` show it inline.
  */
-export default function DayGrid({
+export default function DayGrid(props: DayGridProps) {
+  const isHydrated = useIsHydrated();
+
+  // An empty calendar starts at the browser's today, which the server
+  // cannot know. Reserve its space until hydration instead of rendering a
+  // month that may differ across midnight or time zones. Browser-only
+  // renders are hydrated from the start and show the grid immediately.
+  if (!props.selected && !isHydrated) {
+    return (
+      <div
+        aria-hidden="true"
+        className={cn("h-64", props.months === 2 && "w-132")}
+      />
+    );
+  }
+
+  return <DayGridContent {...props} isHydrated={isHydrated} />;
+}
+
+function DayGridContent({
   autoFocus = false,
   disabled: gridDisabled = false,
   inline = false,
   isDateDisabled,
+  isHydrated,
   isUnavailable,
   max,
   min,
@@ -132,16 +152,12 @@ export default function DayGrid({
   readOnly = false,
   selected,
   selection,
-}: DayGridProps) {
+}: DayGridProps & { isHydrated: boolean }) {
   const locale = useLocale();
   const { messages } = locale;
   const isRangeMode = range !== undefined;
   const isMultiple = selection !== undefined;
   const selectionKeys = new Set(selection?.map(toISODate));
-  // Today is marked once the page has hydrated - the server's day may be
-  // another one
-  const isHydrated = useIsHydrated();
-
   const minDay = min ? startOfDay(min) : null;
   const maxDay = max ? startOfDay(max) : null;
 
@@ -358,6 +374,7 @@ export default function DayGrid({
   );
   const monthNames = getMonthNames(locale.code);
   const dayLabelFormat = new Intl.DateTimeFormat(toIntlLocale(locale.code), {
+    calendar: "gregory",
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -366,7 +383,9 @@ export default function DayGrid({
   // From `min` to `max`, or a century back and some years ahead - always
   // with the year on screen, and at most a century on either side of it
   const shownYear = month.getFullYear();
-  const thisYear = new Date().getFullYear();
+  // Even a selected date must hydrate across New Year's Eve. Before the
+  // browser's year is known, derive the options from the shown year.
+  const thisYear = today?.getFullYear() ?? shownYear;
   const firstYear = Math.min(
     Math.max(
       min?.getFullYear() ?? thisYear - YEARS_BACK,

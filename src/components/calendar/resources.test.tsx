@@ -323,7 +323,7 @@ describe("Calendar resources in the day view", () => {
     );
     expect(container.querySelector(".time-column")).toHaveClass(
       "sticky",
-      "start-0",
+      "inset-s-0",
       "z-10",
     );
     // Many resources get wider than the view - it scrolls sideways

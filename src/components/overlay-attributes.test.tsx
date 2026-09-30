@@ -757,7 +757,7 @@ describe("Right to left", () => {
     );
 
     const nav = screen.getByRole("navigation", { hidden: true });
-    expect(nav).toHaveClass("start-0", "border-e");
+    expect(nav).toHaveClass("inset-s-0", "border-e");
     expect(nav).toHaveClass("-translate-x-full", "rtl:translate-x-full");
     expect(nav.className).not.toMatch(/\b(left|border-r|border-l)-?/);
 

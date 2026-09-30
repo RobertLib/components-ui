@@ -78,6 +78,36 @@ describe("Sparkline", () => {
     expect(pathsOf(container)[0]).toHaveAttribute("d", "M0 100L50 50L100 0");
   });
 
+  it("draws finite extremes without overflowing the line, area or last dot", () => {
+    const { container } = render(
+      <Sparkline
+        area
+        data={[-Number.MAX_VALUE, 0, Number.MAX_VALUE]}
+        highlightLast
+      />,
+    );
+
+    const [area, line, dot] = pathsOf(container);
+    expect(area).toHaveAttribute("d", "M0 100L50 50L100 0L100 100L0 100Z");
+    expect(line).toHaveAttribute("d", "M0 100L50 50L100 0");
+    expect(dot).toHaveAttribute("d", "M100 0h0");
+  });
+
+  it("clamps finite values to an explicit scale whose range overflows", () => {
+    const { container } = render(
+      <Sparkline
+        data={[-Number.MAX_VALUE, -5e307, 0, 5e307, Number.MAX_VALUE]}
+        max={1e308}
+        min={-1e308}
+      />,
+    );
+
+    expect(pathsOf(container)[0]).toHaveAttribute(
+      "d",
+      "M0 100L25 75L50 50L75 25L100 0",
+    );
+  });
+
   it("draws a flat series through the middle", () => {
     const { container } = render(<Sparkline data={[3, 3, 3]} />);
 

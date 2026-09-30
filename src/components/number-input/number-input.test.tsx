@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
@@ -65,6 +71,42 @@ describe("NumberInput", () => {
     expect(input).toHaveValue("1,5");
   });
 
+  it.each([en, cs])(
+    "pastes a singular unit in $code and submits its number",
+    async (locale) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const formatOptions: Intl.NumberFormatOptions = {
+        style: "unit",
+        unit: "meter",
+        unitDisplay: "long",
+      };
+      render(
+        <UIProvider locale={locale}>
+          <form aria-label="Measurement">
+            <NumberInput
+              label="Quantity"
+              name="length"
+              formatOptions={formatOptions}
+              onChange={onChange}
+            />
+          </form>
+        </UIProvider>,
+      );
+      await user.click(spinbutton());
+      await user.paste(
+        new Intl.NumberFormat(locale.code, formatOptions).format(1),
+      );
+      await user.tab();
+      expect(onChange).toHaveBeenLastCalledWith(1);
+      expect(spinbutton()).toHaveAttribute("aria-valuenow", "1");
+      const form = screen.getByRole<HTMLFormElement>("form", {
+        name: "Measurement",
+      });
+      expect(new FormData(form).get("length")).toBe("1");
+    },
+  );
+
   it("refuses characters that make no number, keeping the caret", async () => {
     const user = userEvent.setup();
     render(<NumberInput defaultValue={12} label="Quantity" />);
@@ -76,6 +118,38 @@ describe("NumberInput", () => {
 
     expect(input).toHaveValue("12");
     expect(input.selectionStart).toBe(1);
+  });
+
+  it("submits a pasted Persian accounting amount with its negative sign", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const formatOptions: Intl.NumberFormatOptions = {
+      currency: "USD",
+      currencySign: "accounting",
+      style: "currency",
+    };
+    render(
+      <UIProvider locale={{ ...en, code: "fa-IR" }}>
+        <form aria-label="Payment">
+          <NumberInput
+            formatOptions={formatOptions}
+            label="Quantity"
+            name="amount"
+            onChange={onChange}
+          />
+        </form>
+      </UIProvider>,
+    );
+    await user.click(spinbutton());
+    await user.paste(
+      new Intl.NumberFormat("fa-IR", formatOptions).format(-1234.5),
+    );
+    await user.tab();
+
+    expect(onChange).toHaveBeenLastCalledWith(-1234.5);
+    expect(spinbutton()).toHaveAttribute("aria-valuenow", "-1234.5");
+    const form = screen.getByRole<HTMLFormElement>("form", { name: "Payment" });
+    expect(new FormData(form).get("amount")).toBe("-1234.5");
   });
 
   it("refuses a minus sign above a min of 0 and a separator of whole numbers", async () => {
@@ -178,6 +252,235 @@ describe("NumberInput", () => {
     expect(input).toHaveValue("3.14");
   });
 
+  it("submits and reports the value rounded with formatOptions", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <UIProvider locale={cs}>
+        <form aria-label="Payment">
+          <NumberInput
+            formatOptions={{ maximumFractionDigits: 2, roundingMode: "trunc" }}
+            label="Quantity"
+            name="quantity"
+            onChange={onChange}
+          />
+        </form>
+      </UIProvider>,
+    );
+
+    const input = spinbutton();
+    await user.type(input, "1,239");
+    await user.tab();
+
+    expect(onChange).toHaveBeenLastCalledWith(1.23);
+    expect(input).toHaveValue("1,23");
+    expect(
+      new FormData(screen.getByRole("form", { name: "Payment" })).get(
+        "quantity",
+      ),
+    ).toBe("1.23");
+  });
+
+  it.each(["defaultValue", "value"] as const)(
+    "submits %s at the precision shown, before and after focusing",
+    async (valueProp) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <form aria-label="Payment">
+          <NumberInput
+            {...{ [valueProp]: 1.239 }}
+            label="Quantity"
+            maximumFractionDigits={2}
+            name="quantity"
+            onChange={onChange}
+          />
+        </form>,
+      );
+
+      const form = screen.getByRole<HTMLFormElement>("form");
+      const input = spinbutton();
+      expect(input).toHaveValue("1.24");
+      expect(input).toHaveAttribute("aria-valuenow", "1.24");
+      expect(new FormData(form).get("quantity")).toBe("1.24");
+
+      await user.click(input);
+      expect(input).toHaveValue("1.24");
+      await user.tab();
+      expect(new FormData(form).get("quantity")).toBe("1.24");
+      // Showing a supplied value is not a user edit.
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
+
+  it("uses the current format for changed controlled values", () => {
+    const field = (
+      value: number,
+      roundingMode: Intl.NumberFormatOptions["roundingMode"],
+    ) => (
+      <form aria-label="Payment">
+        <NumberInput
+          formatOptions={{ maximumFractionDigits: 2, roundingMode }}
+          label="Quantity"
+          name="quantity"
+          value={value}
+        />
+      </form>
+    );
+    const { rerender } = render(field(1.239, "halfExpand"));
+    const form = screen.getByRole<HTMLFormElement>("form");
+
+    rerender(field(2.345, "halfExpand"));
+    expect(spinbutton()).toHaveValue("2.35");
+    expect(new FormData(form).get("quantity")).toBe("2.35");
+
+    rerender(field(2.345, "trunc"));
+    expect(spinbutton()).toHaveValue("2.34");
+    expect(new FormData(form).get("quantity")).toBe("2.34");
+  });
+
+  it("rounds a restored defaultValue with the current precision after reset", async () => {
+    const user = userEvent.setup();
+    const field = (maximumFractionDigits: number) => (
+      <form aria-label="Payment">
+        <NumberInput
+          defaultValue={1.239}
+          label="Quantity"
+          maximumFractionDigits={maximumFractionDigits}
+          name="quantity"
+        />
+        <button type="reset">Reset</button>
+      </form>
+    );
+    const { rerender } = render(field(3));
+    const form = screen.getByRole<HTMLFormElement>("form");
+    const input = spinbutton();
+    await user.clear(input);
+    await user.type(input, "2.567");
+    await user.tab();
+
+    rerender(field(2));
+    expect(input).toHaveValue("2.57");
+    expect(new FormData(form).get("quantity")).toBe("2.57");
+
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    expect(input).toHaveValue("1.24");
+    expect(new FormData(form).get("quantity")).toBe("1.24");
+  });
+
+  it.each([
+    { defaultValue: 10.001, max: 10, min: undefined },
+    { defaultValue: 9.999, max: undefined, min: 10 },
+  ])(
+    "keeps a supplied out-of-range $defaultValue invalid after rounding",
+    async (bounds) => {
+      const user = userEvent.setup();
+      render(
+        <form aria-label="Payment">
+          <NumberInput
+            {...bounds}
+            label="Quantity"
+            maximumFractionDigits={2}
+            name="quantity"
+          />
+        </form>,
+      );
+      const form = screen.getByRole<HTMLFormElement>("form");
+      const input = spinbutton();
+      expect(input).toHaveValue("10");
+      expect(new FormData(form).get("quantity")).toBe("10");
+      expect(form.checkValidity()).toBe(false);
+
+      // An explicit edit to the displayed boundary corrects the supplied
+      // value, even though the rounded number itself has not changed.
+      fireEvent.change(input, { target: { value: "10.00" } });
+      await user.tab();
+      expect(form.checkValidity()).toBe(true);
+      expect(new FormData(form).get("quantity")).toBe("10");
+    },
+  );
+
+  it.each([
+    { max: 1.239, min: undefined, key: "ArrowDown", text: "2" },
+    { max: undefined, min: 1.231, key: "ArrowUp", text: "0" },
+  ])(
+    "does not step or clamp to a boundary that rounds out of range ($key)",
+    async ({ key, text, ...bounds }) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <form aria-label="Payment">
+          <NumberInput
+            {...bounds}
+            label="Quantity"
+            maximumFractionDigits={2}
+            name="quantity"
+            onChange={onChange}
+          />
+        </form>,
+      );
+      const form = screen.getByRole<HTMLFormElement>("form");
+      const input = spinbutton();
+      await user.click(input);
+      await user.keyboard(`{${key}}`);
+      expect(input).toHaveValue("");
+      expect(onChange).not.toHaveBeenCalled();
+
+      await user.type(input, text);
+      await user.tab();
+      expect(input).toHaveValue(text);
+      expect(new FormData(form).get("quantity")).toBe(text);
+      expect(form.checkValidity()).toBe(false);
+      expect(onChange).toHaveBeenLastCalledWith(Number(text));
+    },
+  );
+
+  it.each([en, cs])(
+    "types and submits fractions with compact and significant precision in $code",
+    async (locale) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const formats: Intl.NumberFormatOptions[] = [
+        { notation: "compact" },
+        {
+          maximumFractionDigits: 0,
+          maximumSignificantDigits: 3,
+          roundingPriority: "morePrecision",
+        },
+      ];
+      render(
+        <UIProvider locale={locale}>
+          <form aria-label="Measurement">
+            {formats.map((formatOptions, index) => (
+              <NumberInput
+                key={index}
+                label={`Quantity ${index}`}
+                name={`quantity${index}`}
+                formatOptions={formatOptions}
+                onChange={onChange}
+              />
+            ))}
+          </form>
+        </UIProvider>,
+      );
+      const text = locale === cs ? "1,5" : "1.5";
+      for (const index of [0, 1]) {
+        const input = spinbutton(`Quantity ${index}:`);
+        expect(input).toHaveAttribute("inputmode", "decimal");
+        await user.type(input, text);
+        await user.tab();
+        expect(input).toHaveValue(text);
+        expect(input).toHaveAttribute("aria-valuenow", "1.5");
+        expect(onChange).toHaveBeenLastCalledWith(1.5);
+        expect(
+          new FormData(screen.getByRole<HTMLFormElement>("form")).get(
+            `quantity${index}`,
+          ),
+        ).toBe("1.5");
+      }
+    },
+  );
+
   it("keeps all the digits of a long number", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -200,6 +503,57 @@ describe("NumberInput", () => {
     ).toBe("1234567890123456");
   });
 
+  it("submits a fraction smaller than twenty decimal places as shown", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const text = "0.000000000000000000001";
+    render(
+      <form aria-label="Measurement">
+        <NumberInput
+          label="Quantity"
+          name="quantity"
+          maximumFractionDigits={30}
+          onChange={onChange}
+        />
+      </form>,
+    );
+    await user.click(spinbutton());
+    await user.paste(text);
+    await user.tab();
+    expect(spinbutton()).toHaveValue(text);
+    expect(onChange).toHaveBeenLastCalledWith(1e-21);
+    expect(
+      new FormData(screen.getByRole<HTMLFormElement>("form")).get("quantity"),
+    ).toBe(text);
+  });
+
+  it.each(["scientific", "engineering"] as const)(
+    "keeps a small %s number when focusing and editing it",
+    async (notation) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <NumberInput
+          label="Quantity"
+          defaultValue={0.0001}
+          formatOptions={{ notation }}
+          onChange={onChange}
+        />,
+      );
+      const input = spinbutton();
+      expect(input).toHaveValue(notation === "scientific" ? "1E-4" : "100E-6");
+      await user.click(input);
+      expect(input).toHaveValue("0.0001");
+      expect(onChange).not.toHaveBeenCalled();
+      await user.keyboard("{End}2");
+      expect(onChange).toHaveBeenLastCalledWith(0.00012);
+      await user.tab();
+      expect(input).toHaveValue(
+        notation === "scientific" ? "1.2E-4" : "120E-6",
+      );
+    },
+  );
+
   it("types a percentage as the percent number", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -220,6 +574,53 @@ describe("NumberInput", () => {
     expect(onChange).toHaveBeenLastCalledWith(0.25);
     expect(input).toHaveValue("25\u00a0%");
   });
+
+  it.each(["defaultValue", "value"] as const)(
+    "submits and edits a finite overflowing percentage supplied through %s",
+    async (valueProp) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const value = 1e307;
+      const options = { style: "percent" } as const;
+      function Field() {
+        const [current, setCurrent] = useState<number | null>(value);
+        return (
+          <form aria-label="Percentage">
+            <NumberInput
+              {...{ [valueProp]: current }}
+              formatOptions={options}
+              label="Percentage"
+              name="percentage"
+              onChange={(next) => {
+                onChange(next);
+                setCurrent(next);
+              }}
+            />
+          </form>
+        );
+      }
+      render(<Field />);
+
+      const input = spinbutton(/Percentage/);
+      const form = screen.getByRole<HTMLFormElement>("form");
+      const submitted = () => new FormData(form).get("percentage");
+      expect(input).toHaveValue(
+        new Intl.NumberFormat("en-US", options).format(value),
+      );
+      expect(Number(submitted())).toBe(value);
+      await user.click(input);
+      const editText = input.value;
+      expect(editText).not.toContain("∞");
+      expect(onChange).not.toHaveBeenCalled();
+      // Editing the displayed percent number must keep a finite fraction,
+      // even though Number(editText) itself would overflow.
+      fireEvent.change(input, { target: { value: `2${editText.slice(1)}` } });
+      await user.tab();
+      expect(Number(submitted())).toBe(2e307);
+      expect(form.checkValidity()).toBe(true);
+      expect(onChange).toHaveBeenLastCalledWith(2e307);
+    },
+  );
 
   it("formats a currency and gives the canonical value to the form", async () => {
     const user = userEvent.setup();
@@ -441,6 +842,110 @@ describe("NumberInput", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
+  it("ignores step buttons and keys in a disabled fieldset", () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    render(
+      <fieldset disabled>
+        <NumberInput
+          defaultValue={5}
+          label="Quantity"
+          min={0}
+          max={10}
+          onChange={onChange}
+        />
+      </fieldset>,
+    );
+
+    const input = spinbutton();
+    expect(input).toBeDisabled();
+    // Browsers still deliver pointer events to disabled buttons.
+    const increase = screen.getByRole("button", { name: "Increase" });
+    fireEvent.pointerDown(increase, { button: 0, pointerType: "mouse" });
+    act(() => vi.advanceTimersByTime(400));
+    fireEvent.pointerUp(document);
+    fireEvent.click(increase);
+    for (const key of [
+      "ArrowUp",
+      "ArrowDown",
+      "PageUp",
+      "PageDown",
+      "Home",
+      "End",
+    ]) {
+      fireEvent.keyDown(input, { key });
+    }
+
+    expect(input).toHaveAttribute("aria-valuenow", "5");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("stops a held step when its fieldset becomes disabled without a render", () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    render(
+      <fieldset>
+        <NumberInput defaultValue={0} label="Quantity" onChange={onChange} />
+      </fieldset>,
+    );
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Increase" }), {
+      button: 0,
+      pointerType: "mouse",
+    });
+    expect(spinbutton()).toHaveAttribute("aria-valuenow", "1");
+    const fieldset = spinbutton().closest("fieldset")!;
+    fieldset.disabled = true;
+    onChange.mockClear();
+    act(() => vi.advanceTimersByTime(400));
+    expect(spinbutton()).toHaveAttribute("aria-valuenow", "1");
+    expect(onChange).not.toHaveBeenCalled();
+
+    fieldset.disabled = false;
+    act(() => vi.advanceTimersByTime(1000));
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.pointerUp(document);
+  });
+
+  it("steps only fields in the disabled fieldset's first legend", () => {
+    render(
+      <fieldset disabled>
+        <legend>
+          <NumberInput defaultValue={1} label="First legend" />
+        </legend>
+        <legend>
+          <NumberInput defaultValue={1} label="Second legend" />
+        </legend>
+      </fieldset>,
+    );
+
+    fireEvent.keyDown(spinbutton("First legend:"), { key: "ArrowUp" });
+    fireEvent.keyDown(spinbutton("Second legend:"), { key: "ArrowUp" });
+    expect(spinbutton("First legend:")).toHaveAttribute("aria-valuenow", "2");
+    expect(spinbutton("Second legend:")).toHaveAttribute("aria-valuenow", "1");
+  });
+
+  it("leaves wheel scrolling alone after its fieldset is disabled", () => {
+    const onChange = vi.fn();
+    render(
+      <fieldset>
+        <NumberInput
+          changeOnWheel
+          defaultValue={5}
+          label="Quantity"
+          onChange={onChange}
+        />
+      </fieldset>,
+    );
+
+    const input = spinbutton();
+    act(() => input.focus());
+    input.closest("fieldset")!.disabled = true;
+    expect(fireEvent.wheel(input, { deltaY: -100 })).toBe(true);
+    expect(input).toHaveAttribute("aria-valuenow", "5");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("steps with the wheel only when asked to, and only with the focus", async () => {
     const user = userEvent.setup();
     const { rerender } = render(
@@ -652,6 +1157,63 @@ describe("NumberInput", () => {
       />,
     );
     expect(ref.current!.validationMessage).toBe("Not in stock");
+  });
+
+  it.each([true, false])(
+    "blocks submission of an incomplete number (required: %s)",
+    async (required) => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn((event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        return new FormData(event.currentTarget).get("quantity");
+      });
+      render(
+        <form aria-label="Order" onSubmit={onSubmit}>
+          <NumberInput label="Quantity" name="quantity" required={required} />
+        </form>,
+      );
+      const form = screen.getByRole<HTMLFormElement>("form");
+      const input = spinbutton();
+      for (const partial of ["-", ".", "-."]) {
+        await user.clear(input);
+        await user.type(input, partial);
+        expect(input).toHaveValue(partial);
+        expect(form.checkValidity()).toBe(false);
+        expect(input.validationMessage).toBe("Enter a number.");
+        act(() => form.requestSubmit());
+        expect(onSubmit).not.toHaveBeenCalled();
+      }
+      await user.keyboard("2");
+      expect(form.checkValidity()).toBe(true);
+      act(() => form.requestSubmit());
+      expect(onSubmit).toHaveReturnedWith("-0.2");
+      await user.clear(input);
+      expect(form.checkValidity()).toBe(!required);
+    },
+  );
+
+  it("localizes incomplete-number validation and clears it on blur and reset", async () => {
+    const user = userEvent.setup();
+    render(
+      <UIProvider locale={cs}>
+        <form aria-label="Order">
+          <NumberInput label="Quantity" defaultValue={5} />
+        </form>
+      </UIProvider>,
+    );
+    const input = spinbutton();
+    const form = screen.getByRole<HTMLFormElement>("form");
+    await user.clear(input);
+    await user.type(input, ",");
+    expect(input.validationMessage).toBe("Zadejte číslo.");
+    await user.tab();
+    expect(input).toHaveValue("");
+    expect(form.checkValidity()).toBe(true);
+    await user.type(input, "-");
+    expect(form.checkValidity()).toBe(false);
+    act(() => form.reset());
+    await waitFor(() => expect(input).toHaveValue("5"));
+    expect(form.checkValidity()).toBe(true);
   });
 
   it("describes itself with its error and description", () => {

@@ -7,9 +7,84 @@ const TABBABLE =
 const IMPLICIT_TAB_STOP =
   "[contenteditable]:not([contenteditable='false']), audio[controls], video[controls]";
 
+/** The parent in the rendered tree, including slots and shadow hosts. */
+const composedParent = (element: Element): Element | null => {
+  if (element.assignedSlot) return element.assignedSlot;
+  const parent = element.parentNode;
+  return parent instanceof ShadowRoot ? parent.host : element.parentElement;
+};
+
+/** Whether `node` is inside `container`, across slots and shadow roots too. */
+export const composedContains = (container: Element, node: Node | null) => {
+  for (
+    let current: Node | null = node;
+    current;
+    current =
+      current instanceof Element
+        ? composedParent(current)
+        : current instanceof ShadowRoot
+          ? current.host
+          : current.parentNode
+  ) {
+    if (current === container) return true;
+  }
+  return false;
+};
+
+/** The rendered children: a host's shadow tree, or a slot's assigned nodes. */
+const composedChildren = (
+  container: ParentNode,
+  knownRoots?: Map<Element, ShadowRoot>,
+): HTMLCollectionOf<Element> | Element[] => {
+  if (container instanceof Element) {
+    const shadow = container.shadowRoot ?? knownRoots?.get(container);
+    if (shadow) return shadow.children;
+  }
+  if (
+    container instanceof HTMLSlotElement &&
+    container.assignedNodes().length
+  ) {
+    return container.assignedElements({ flatten: true });
+  }
+  return container.children;
+};
+
 /**
- * Whether an editable element is inside another editing host - only the
- * host is a Tab stop, not what is editable in it.
+ * Candidates in rendered order, with the position just after `anchor`.
+ * Document selectors and compareDocumentPosition cannot order elements in
+ * different shadow roots. Walking the tree also leaves out unslotted light
+ * DOM and keeps slotted controls in the order in which Tab reaches them.
+ */
+function collectTabCandidates(
+  container: ParentNode | null | undefined,
+  anchor?: Element,
+) {
+  const elements: HTMLElement[] = [];
+  // A reference inside a closed root still gives access to that root and
+  // its ancestors, even though their hosts do not expose `shadowRoot`.
+  const knownRoots = new Map<Element, ShadowRoot>();
+  let root = anchor?.getRootNode();
+  while (root instanceof ShadowRoot) {
+    knownRoots.set(root.host, root);
+    root = root.host.getRootNode();
+  }
+  let after = -1;
+  const visit = (element: Element) => {
+    if (element.matches(TABBABLE)) elements.push(element as HTMLElement);
+    if (element === anchor) after = elements.length;
+    for (const child of composedChildren(element, knownRoots)) visit(child);
+  };
+  if (container) {
+    for (const child of composedChildren(container, knownRoots)) visit(child);
+  }
+  return { elements, after };
+}
+
+/**
+ * Whether an element is in the editable content of an editing host - Tab
+ * stops at the host, not at an editable element or a link in it (its
+ * controls are still stops). A part with `contenteditable="false"` is not
+ * editable.
  */
 const isInsideEditingHost = (element: HTMLElement) => {
   const host = element.parentElement?.closest("[contenteditable]");
@@ -17,12 +92,17 @@ const isInsideEditingHost = (element: HTMLElement) => {
 };
 
 /** The `tabIndex` Tab goes by. */
-const tabIndexOf = (element: HTMLElement) =>
-  !element.hasAttribute("tabindex") &&
-  element.matches(IMPLICIT_TAB_STOP) &&
-  !isInsideEditingHost(element)
-    ? 0
+const tabIndexOf = (element: HTMLElement) => {
+  if (element.hasAttribute("tabindex")) return element.tabIndex;
+  if (element.matches(IMPLICIT_TAB_STOP)) {
+    return isInsideEditingHost(element) ? element.tabIndex : 0;
+  }
+  // A link in editable text is part of the text: browsers give it no
+  // focus, unlike a control there
+  return element.matches("a[href]") && isInsideEditingHost(element)
+    ? -1
     : element.tabIndex;
+};
 
 const isRadio = (element: Element): element is HTMLInputElement =>
   element instanceof HTMLInputElement && element.type === "radio";
@@ -40,9 +120,14 @@ function isRadioTabStop(radio: HTMLInputElement, candidates: HTMLElement[]) {
     (candidate): candidate is HTMLInputElement =>
       isRadio(candidate) &&
       candidate.name === radio.name &&
-      candidate.form === radio.form,
+      candidate.form === radio.form &&
+      candidate.getRootNode() === radio.getRootNode(),
   );
-  const focused = radio.ownerDocument.activeElement;
+  const root = radio.getRootNode();
+  const focused =
+    root instanceof ShadowRoot
+      ? root.activeElement
+      : radio.ownerDocument.activeElement;
 
   return (
     radio ===
@@ -58,14 +143,14 @@ function isRadioTabStop(radio: HTMLInputElement, candidates: HTMLElement[]) {
  * and elements with a `tabindex`. Left out are those the selector also
  * matches but Tab skips: `tabindex="-1"`, disabled, aria-hidden and
  * unrendered ones - such as the validation inputs of the pickers and the
- * file input of `FileUpload` - and all but one radio of a group.
+ * file input of `FileUpload` - the links and editable elements in editable
+ * text, and all but one radio of a group.
  */
 export const getTabbableElements = (
   container: ParentNode | null | undefined,
 ) => {
-  const candidates = Array.from(
-    container?.querySelectorAll<HTMLElement>(TABBABLE) ?? [],
-  ).filter(isTabStopCandidate);
+  const candidates =
+    collectTabCandidates(container).elements.filter(isTabStopCandidate);
 
   return candidates.filter(
     (element) => !isRadio(element) || isRadioTabStop(element, candidates),
@@ -74,10 +159,16 @@ export const getTabbableElements = (
 
 /** Whether Tab stops at `element`, leaving aside the radios of a group. */
 function isTabStopCandidate(element: HTMLElement) {
+  for (
+    let current: Element | null = element;
+    current;
+    current = composedParent(current)
+  ) {
+    if (current.matches("[aria-hidden='true'], [inert]")) return false;
+  }
   return (
     tabIndexOf(element) >= 0 &&
     !element.matches(":disabled") &&
-    !element.closest("[aria-hidden='true'], [inert]") &&
     // Older browsers (and jsdom) lack it - the element counts as visible
     element.checkVisibility?.({ visibilityProperty: true }) !== false
   );
@@ -108,21 +199,11 @@ function isTabStopAmong(candidate: HTMLElement, elements: HTMLElement[]) {
 function tabCandidatesBeside(element: Element, backwards: boolean) {
   if (!element.isConnected) return { beside: [], elements: [] };
 
-  const elements = Array.from(
-    element.ownerDocument.body.querySelectorAll<HTMLElement>(TABBABLE),
+  const { elements, after } = collectTabCandidates(
+    element.ownerDocument.body,
+    element,
   );
-
-  // The first of them after `element` (or in it) - they are in the order of
-  // the page, so a few comparisons find it. Each may walk a long row of
-  // siblings (the rows of a table), too slow for all of them.
-  let after = 0;
-  let end = elements.length;
-  while (after < end) {
-    const middle = (after + end) >> 1;
-    const position = element.compareDocumentPosition(elements[middle]);
-    if (position & Node.DOCUMENT_POSITION_FOLLOWING) end = middle;
-    else after = middle + 1;
-  }
+  if (after === -1) return { beside: [], elements };
 
   const beside = backwards
     ? elements
@@ -148,8 +229,8 @@ function findTabStopBeside(
 
   return beside.find(
     (candidate) =>
-      !element.contains(candidate) &&
-      !skipped?.contains(candidate) &&
+      !composedContains(element, candidate) &&
+      (!skipped || !composedContains(skipped, candidate)) &&
       isTabStopAmong(candidate, elements),
   );
 }
@@ -171,7 +252,7 @@ export function getTabStopsBeside(element: Element, backwards: boolean) {
   for (
     let current: Element | null = element;
     current && current !== body;
-    current = current.parentElement
+    current = composedParent(current)
   ) {
     scopes.push(current);
   }
@@ -181,14 +262,17 @@ export function getTabStopsBeside(element: Element, backwards: boolean) {
   for (const candidate of beside) {
     if (level === scopes.length) break;
     if (
-      scopes[level].contains(candidate) ||
+      composedContains(scopes[level], candidate) ||
       !isTabStopAmong(candidate, elements)
     ) {
       continue;
     }
     stops.push(candidate);
     // The stop next to all the scopes it is outside of
-    while (level < scopes.length && !scopes[level].contains(candidate)) {
+    while (
+      level < scopes.length &&
+      !composedContains(scopes[level], candidate)
+    ) {
       level += 1;
     }
   }
@@ -210,3 +294,22 @@ export const getPreviousTabbable = (
   element: Element,
   skipped?: Element | null,
 ): HTMLElement | undefined => findTabStopBeside(element, true, skipped);
+
+/**
+ * Focuses the first of `candidates` that takes the focus - and tells whether
+ * one did. A browser may give none to an element the rules make a Tab stop:
+ * Firefox focuses no link in editable text, also one with a `tabindex`.
+ */
+export function focusFirst(candidates: Iterable<HTMLElement>) {
+  for (const element of candidates) {
+    element.focus();
+    const root = element.getRootNode();
+    if (
+      (root instanceof Document || root instanceof ShadowRoot) &&
+      root.activeElement === element
+    ) {
+      return true;
+    }
+  }
+  return false;
+}

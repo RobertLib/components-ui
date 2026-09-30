@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -264,6 +264,69 @@ describe("DateTimePicker isDateDisabled - date and time", () => {
     await user.click(screen.getByRole("combobox", { name: /Pick/ }));
     await user.click(screen.getByRole("option", { name: "10 AM" }));
     expect(onChange).toHaveBeenLastCalledWith("2026-09-28T10:00");
+  });
+
+  it("offers no time when all allowed days are disabled", async () => {
+    const { input, onChange, user } = await openByKeyboard({
+      isDateDisabled: () => true,
+      max: "2026-09-24",
+      min: "2026-09-24",
+      type: "datetime-local",
+    });
+    for (const option of within(
+      screen.getByRole("group", { name: "Select time" }),
+    ).getAllByRole("option")) {
+      expect(option).toBeDisabled();
+    }
+    await user.click(screen.getByRole("option", { name: "10 AM" }));
+    act(() => screen.getByRole("listbox", { name: "Hours" }).focus());
+    await user.keyboard("{ArrowDown}{Home}{End}");
+    act(() => screen.getByRole("listbox", { name: "Minutes" }).focus());
+    await user.keyboard("{ArrowUp}{Home}{End}");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("disables time changes when the selected day becomes unavailable", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const picker = (isDateDisabled?: (date: Date) => boolean) => (
+      <DateTimePicker
+        defaultValue="2026-09-26T10:00"
+        isDateDisabled={isDateDisabled}
+        label="Pick"
+        onChange={(event) => onChange(event.target.value)}
+        type="datetime-local"
+      />
+    );
+    const { rerender } = render(picker());
+    await user.click(screen.getByRole("combobox"));
+    expect(screen.getByRole("option", { name: "11 AM" })).toBeEnabled();
+    rerender(picker(isWeekend));
+    for (const option of within(
+      screen.getByRole("group", { name: "Select time" }),
+    ).getAllByRole("option")) {
+      expect(option).toBeDisabled();
+    }
+    await user.click(screen.getByRole("option", { name: "11 AM" }));
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.click(day("September 28, 2026"));
+    expect(onChange).toHaveBeenLastCalledWith("2026-09-28T10:00");
+    expect(screen.getByRole("option", { name: "11 AM" })).toBeEnabled();
+    await user.click(screen.getByRole("option", { name: "11 AM" }));
+    expect(onChange).toHaveBeenLastCalledWith("2026-09-28T11:00");
+  });
+
+  it("does not round a popup pick into a disabled day", async () => {
+    const { onChange, user } = await openByKeyboard({
+      defaultValue: "2026-09-24T23:58",
+      isDateDisabled: isWeekend,
+      minuteStep: 5,
+      type: "datetime-local",
+    });
+    await user.click(day("September 25, 2026"));
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
 

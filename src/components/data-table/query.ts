@@ -1,4 +1,5 @@
 import { foldSearchText } from "../../utils/remove-diacritics";
+import columnRecord from "./column-record";
 import { toIntlLocale } from "../../i18n/format";
 import { formatCellValue } from "./format-value";
 import { toISODate, toISOTime } from "../../utils/date";
@@ -347,7 +348,7 @@ export function setFilter(
   // An unchanged filter keeps the page
   if (isSameFilterValue(query.filters[key], normalized)) return query;
 
-  const filters = { ...query.filters };
+  const filters = columnRecord(query.filters);
 
   if (normalized !== null) {
     filters[key] = normalized;
@@ -553,7 +554,7 @@ export function readQueryFromSearch(
         // Only the values the table writes - texts, lists of texts and
         // ranges; a hand-edited `null` or number would become the filter
         // "null" or "5"
-        filters = {};
+        filters = columnRecord();
         for (const [key, value] of Object.entries(parsed)) {
           const normalized = normalizeFilterValue(value);
           if (normalized !== null) filters[key] = normalized;
@@ -655,7 +656,7 @@ export function writeQueryToSearch(
   write("search", query.search === base.search ? null : query.search);
   // In the order of the keys and normalized, so the same filters make the
   // same URL however they were set
-  const filters: Record<string, DataTableFilterValue> = {};
+  const filters = columnRecord<DataTableFilterValue>();
   for (const key of Object.keys(query.filters).sort()) {
     const value = normalizeFilterValue(query.filters[key]);
     if (value !== null) filters[key] = value;
@@ -761,11 +762,11 @@ function matchesRange(
 
   if (filterType === "time") return isTextInRange(toTimeText(value), range);
 
-  const number = toNumber(value);
-  if (!isDateFilter(filterType) && number !== null) {
-    const from = range.from === undefined ? null : toNumber(range.from);
-    const to = range.to === undefined ? null : toNumber(range.to);
-    return (from === null || number >= from) && (to === null || number <= to);
+  const key = toSortKey(value);
+  if (!isDateFilter(filterType) && key.number !== null) {
+    const from = compareNumericValues(key, toSortKey(range.from));
+    const to = compareNumericValues(key, toSortKey(range.to));
+    return (from === null || from >= 0) && (to === null || to <= 0);
   }
   if (filterType === "numberRange") return false;
 
@@ -787,6 +788,19 @@ function matchesFilter(
   if (typeof filterValue !== "string") {
     return matchesRange(value, filterValue, filterType);
   }
+  // Compare dates, times and amounts item by item, like range filters do.
+  // Joining the cell's list would only find its first date or time, and
+  // would lose the individual Date/ISO-zone and numeric conversions.
+  if (
+    Array.isArray(value) &&
+    (isDateFilter(filterType) ||
+      filterType === "time" ||
+      filterType === "numberRange")
+  ) {
+    return value.some((item) =>
+      matchesFilter(item, filterValue, filterType, locale),
+    );
+  }
 
   switch (filterType) {
     case "select":
@@ -802,10 +816,10 @@ function matchesFilter(
       return toDateText(value).startsWith(filterValue);
     case "time":
       return toTimeText(value).startsWith(filterValue);
-    case "numberRange": {
-      const number = toNumber(value);
-      return number !== null && number === toNumber(filterValue);
-    }
+    case "numberRange":
+      return (
+        compareNumericValues(toSortKey(value), toSortKey(filterValue)) === 0
+      );
     default:
       return containsText(value, normalizeText(filterValue), locale);
   }
@@ -855,31 +869,136 @@ export function getCollator(localeCode = "") {
 export interface SortKey {
   /** Nothing to show - sorted last in both directions. */
   empty: boolean;
-  /** The value of a number, also of one stored as a string. */
+  /** Approximate number, also of a bigint or numeric text; ties compare exactly. */
   number: number | null;
   /** The value as text, compared by the collation of the language. */
   text: string;
-  /** The value itself - dates and booleans are compared as such. */
+  /** The moment of a date, also of an ISO text with a time zone. */
+  time: number | null;
+  /** The value itself - booleans are compared as such. */
   value: unknown;
+}
+
+/**
+ * The moment of a date - or of an ISO text with a time zone, which names
+ * one whatever the local time. Other texts (a day, a local time) are none.
+ */
+function toTime(value: unknown) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value !== "string" || !ZONED_DATE_TIME.test(value)) return null;
+
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : time;
 }
 
 export const toSortKey = (value: unknown): SortKey => ({
   empty: isEmptyValue(value),
-  number: toNumber(value),
+  number: typeof value === "bigint" ? Number(value) : toNumber(value),
   text: toText(value),
+  time: toTime(value),
   value,
 });
 
+/** Decimal digits and their scale, without converting the amount to Number. */
+function decimalParts(text: string) {
+  const trimmed = text.trim();
+  if (!NUMERIC_TEXT.test(trimmed)) return null;
+
+  const [coefficient, exponent = "0"] = trimmed.split(/e/i);
+  const fractionLength = coefficient.split(".")[1]?.length ?? 0;
+  const digits = coefficient
+    .replace(/^[+-]/, "")
+    .replace(".", "")
+    .replace(/^0+/, "");
+  return {
+    digits,
+    // The position of the decimal point relative to the first nonzero
+    // digit. BigInt also keeps exponents beyond Number's range distinct.
+    power: BigInt(digits.length - fractionLength) + BigInt(exponent),
+    sign: digits ? (coefficient.startsWith("-") ? -1 : 1) : 0,
+  };
+}
+
+/**
+ * Distinguishes amounts that Number rounded to the same value, including
+ * fractions and underflow to zero. The padding is only as long as the
+ * input digits, even for a huge exponent.
+ */
+function compareDecimalText(a: string, b: string): number | null {
+  const left = decimalParts(a);
+  const right = decimalParts(b);
+  if (!left || !right) return null;
+  if (left.sign !== right.sign) return left.sign - right.sign;
+
+  const length = Math.max(left.digits.length, right.digits.length);
+  const leftDigits = left.digits.padEnd(length, "0");
+  const rightDigits = right.digits.padEnd(length, "0");
+  const order =
+    left.power < right.power
+      ? -1
+      : left.power > right.power
+        ? 1
+        : leftDigits < rightDigits
+          ? -1
+          : leftDigits > rightDigits
+            ? 1
+            : 0;
+  return order * left.sign;
+}
+
+/**
+ * Numeric order for sorting and filtering - null if either value is not
+ * numeric. Different rounded numbers already have the right order; ties
+ * need the original digits, even below MAX_SAFE_INTEGER (fractions).
+ */
+function compareNumericValues(a: SortKey, b: SortKey): number | null {
+  if (a.number === null || b.number === null) return null;
+  if (a.number !== b.number) return a.number < b.number ? -1 : 1;
+  if (a.text === b.text) return 0;
+
+  // A finite bigint or decimal string may overflow Number. Actual
+  // infinities still lie outside every finite amount.
+  if (!Number.isFinite(a.number)) {
+    const leftInfinite = typeof a.value === "number";
+    const rightInfinite = typeof b.value === "number";
+    if (leftInfinite || rightInfinite) {
+      return (
+        (Number(leftInfinite) - Number(rightInfinite)) * Math.sign(a.number)
+      );
+    }
+  }
+
+  // Equal amounts stay tied regardless of notation, including 1n, "1.0"
+  // and "1e0", so another sort column can decide their order.
+  return compareDecimalText(a.text, b.text);
+}
+
+/**
+ * Mixed types sort in groups: numbers, dates (also ISO texts with a time
+ * zone), booleans, then other text.
+ */
+const sortGroup = (key: SortKey) =>
+  key.number !== null
+    ? 0
+    : key.time !== null
+      ? 1
+      : typeof key.value === "boolean"
+        ? 2
+        : 3;
+
 /** The order of two values that are not empty - negative for `a` first. */
 function compareValues(a: SortKey, b: SortKey, collator: Intl.Collator) {
-  if (a.value instanceof Date && b.value instanceof Date) {
-    return a.value.getTime() - b.value.getTime();
-  }
-  // Equal numbers of different texts - long ids beyond the precision of a
-  // number - are told apart by their digits below
-  if (a.number !== null && b.number !== null && a.number !== b.number) {
-    return a.number - b.number;
-  }
+  // Switching from numeric order to collation only for mixed pairs makes
+  // cycles: -10 < -2 < "-3 pending" < -10. Keep each kind together, also
+  // dates whose text omits seconds and booleans next to their text forms.
+  // An ISO text with a time zone is a moment, like a date - by its text it
+  // would sort out of order across zones and the hour clocks go back.
+  const groupOrder = sortGroup(a) - sortGroup(b);
+  if (groupOrder !== 0) return groupOrder;
+
+  if (a.time !== null && b.time !== null) return a.time - b.time;
+  const numericOrder = compareNumericValues(a, b);
+  if (numericOrder !== null) return numericOrder;
   if (typeof a.value === "boolean" && typeof b.value === "boolean") {
     return Number(a.value) - Number(b.value);
   }
@@ -1029,6 +1148,9 @@ export function paginateRows<T>(rows: T[], page: number, pageSize: number) {
  * `clientSide` prop of `DataTable` does. Returns the rows of the page, the
  * number of matching rows and the page actually shown (the last one when
  * `query.page` is past the end, the first one for a page below 1).
+ * Mixed values sort in groups: numbers (including numeric strings and
+ * bigints), dates, booleans, then other text in ascending order; descending
+ * reverses that order. Empty values stay last in either direction.
  */
 export function applyDataTableQuery<T>(
   rows: T[],

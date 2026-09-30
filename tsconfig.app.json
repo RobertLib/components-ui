@@ -28,6 +28,6 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "docs"],
+  "include": ["src", "docs", "tests/browser"],
   "exclude": ["docs/plugins"]
 }

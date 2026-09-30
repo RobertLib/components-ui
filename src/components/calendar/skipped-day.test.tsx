@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import Calendar, { type CalendarEvent } from ".";
 import { expandRecurringEvents } from "./recurrence";
-import { getVisibleRange } from "./date-utils";
+import { daysBetween, getVisibleRange } from "./date-utils";
 
 // Samoa went from Thursday, December 29, 2011 to Saturday, December 31 - the
 // Friday between them has no hour
@@ -27,6 +27,12 @@ describe("Calendar where the time zone skips a day (Pacific/Apia)", () => {
 
   it("runs in a time zone without December 30, 2011", () => {
     expect(d(30).getDate()).toBe(31);
+  });
+
+  it("counts calendar days across the skipped day in both directions", () => {
+    expect(daysBetween(d(29, 10), d(31, 11))).toBe(2);
+    expect(daysBetween(d(31, 11), d(29, 10))).toBe(-2);
+    expect(daysBetween(d(29), new Date(2012, 0, 1))).toBe(3);
   });
 
   it("leaves the day out of the month view - an empty cell", () => {
@@ -109,6 +115,47 @@ describe("Calendar where the time zone skips a day (Pacific/Apia)", () => {
       expect.objectContaining({ newEnd: d(29, 11), newStart: d(29, 10) }),
     );
   });
+
+  it.each([
+    [31, 29, -200, 0],
+    [29, 32, -400, 128],
+  ])(
+    "moves a month event from day %i to day %i across the skipped day",
+    (from, to, deltaX, deltaY) => {
+      vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(
+        700,
+      );
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(
+        768,
+      );
+      const onEventDrop = vi.fn();
+      render(
+        <Calendar
+          events={[
+            { end: d(from, 11), id: "a", start: d(from, 10), title: "Visit" },
+          ]}
+          initialDate={d(28)}
+          onEventDrop={onEventDrop}
+        />,
+      );
+
+      const tile = screen.getByText("Visit").closest(".group\\/event")!;
+      fireEvent.pointerDown(tile, {
+        clientX: 500,
+        clientY: 100,
+        isPrimary: true,
+      });
+      fireEvent.pointerMove(document, {
+        buttons: 1,
+        clientX: 500 + deltaX,
+        clientY: 100 + deltaY,
+      });
+      fireEvent.pointerUp(document);
+      expect(onEventDrop).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ newEnd: d(to, 11), newStart: d(to, 10) }),
+      );
+    },
+  );
 
   it("lists every day of the agenda once", () => {
     const events: CalendarEvent[] = [

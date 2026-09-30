@@ -4,9 +4,10 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef, useState } from "react";
+import { Activity, StrictMode, createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -121,6 +122,99 @@ describe("RichTextEditor", () => {
   });
 });
 
+describe("RichTextEditor disabled fieldsets", () => {
+  it("disables editing, shortcuts and pastes inside a disabled fieldset", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    const onChange = vi.fn();
+    render(
+      <form data-testid="form">
+        <fieldset disabled>
+          <RichTextEditor
+            defaultValue="<p>Saved</p>"
+            label="Note"
+            name="note"
+            onChange={onChange}
+          />
+        </fieldset>
+      </form>,
+    );
+
+    expect(editor()).toHaveAttribute("contenteditable", "false");
+    expect(editor()).toHaveAttribute("aria-disabled", "true");
+    expect(editor()).toHaveAttribute("data-disabled");
+    expect(editor()).toHaveAttribute("tabindex", "-1");
+    fireEvent.keyDown(editor(), { ctrlKey: true, key: "b" });
+    fireEvent.paste(editor(), {
+      clipboardData: { getData: () => "Pasted" },
+    });
+    expect(execCommand).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(editor()).toHaveTextContent("Saved");
+    expect(
+      new FormData(screen.getByTestId("form") as HTMLFormElement).has("note"),
+    ).toBe(false);
+  });
+
+  it("follows changes to the fieldset and keeps the value when enabled again", async () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <fieldset>
+        <RichTextEditor
+          defaultValue="<p>Saved</p>"
+          label="Note"
+          onChange={onChange}
+        />
+      </fieldset>,
+    );
+    const fieldset = container.querySelector("fieldset")!;
+    expect(editor()).toHaveAttribute("contenteditable", "true");
+
+    await act(async () => {
+      fieldset.disabled = true;
+    });
+    expect(editor()).toHaveAttribute("contenteditable", "false");
+    expect(editor()).toHaveAttribute("aria-disabled", "true");
+
+    await act(async () => {
+      fieldset.disabled = false;
+    });
+    expect(editor()).toHaveAttribute("contenteditable", "true");
+    expect(editor()).not.toHaveAttribute("aria-disabled");
+    expect(editor()).toHaveAttribute("tabindex", "0");
+    expect(editor()).toHaveTextContent("Saved");
+    expect(onChange).not.toHaveBeenCalled();
+
+    editor().innerHTML = "<p>Edited</p>";
+    fireEvent.input(editor());
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("<p>Edited</p>");
+  });
+
+  it("leaves only the first legend's editor enabled", () => {
+    const onChange = vi.fn();
+    render(
+      <fieldset disabled>
+        <legend>
+          <RichTextEditor label="Note" onChange={onChange} />
+        </legend>
+        <legend>
+          <RichTextEditor label="Blocked" />
+        </legend>
+      </fieldset>,
+    );
+
+    expect(editor()).toHaveAttribute("contenteditable", "true");
+    expect(editor()).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByRole("textbox", { name: "Blocked:" })).toHaveAttribute(
+      "contenteditable",
+      "false",
+    );
+    editor().innerHTML = "<p>Edited</p>";
+    fireEvent.input(editor());
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("<p>Edited</p>");
+  });
+});
+
 describe("RichTextEditor values", () => {
   it("submits and validates the content the editor shows", () => {
     const { unmount } = render(
@@ -205,7 +299,7 @@ describe("RichTextEditor values", () => {
 
     const form = screen.getByTestId("form") as HTMLFormElement;
     expect(new FormData(form).get("note")).toBe("<p>Ada</p>");
-    expect(editor().innerHTML).toBe("<p>Ada</p>");
+    await waitFor(() => expect(editor().innerHTML).toBe("<p>Ada</p>"));
   });
 
   it("clears a list or table without text when the form is reset", async () => {
@@ -956,6 +1050,55 @@ describe("RichTextEditor formatting", () => {
   });
 });
 
+describe.each([
+  { tool: "link", title: "Link", role: "textbox", name: "Enter the link URL:" },
+  { tool: "image", title: "Image", role: "textbox", name: "Alternative text" },
+  { tool: "table", title: "Table", role: "spinbutton", name: "Rows" },
+] as const)("RichTextEditor $tool form composition", (form) => {
+  it.each([
+    { key: "Enter", isComposing: true, keyCode: 13 },
+    { key: "Escape", isComposing: true, keyCode: 27 },
+    { key: "Enter", isComposing: false, keyCode: 229 },
+    { key: "Escape", isComposing: false, keyCode: 229 },
+  ])(
+    "leaves $key to the IME (composing: $isComposing, code: $keyCode)",
+    (key) => {
+      const onChange = vi.fn();
+      render(
+        <RichTextEditor
+          defaultValue="<p>Draft</p>"
+          label="Note"
+          onChange={onChange}
+          toolbar={[form.tool]}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: form.title }));
+      const input = screen.getByRole(form.role, { name: form.name });
+      if (form.tool === "image") {
+        fireEvent.change(screen.getByRole("textbox", { name: "Image URL" }), {
+          target: { value: "/a.png" },
+        });
+        fireEvent.change(input, { target: { value: "漢" } });
+      } else if (form.tool === "link") {
+        fireEvent.change(input, {
+          target: { value: "https://example.com/漢" },
+        });
+      }
+
+      act(() => input.focus());
+      fireEvent.compositionStart(input);
+      // Safari delivers the candidate-confirming key after compositionend.
+      if (!key.isComposing) fireEvent.compositionEnd(input);
+      expect(fireEvent.keyDown(input, key)).toBe(true);
+
+      expect(input).toBeInTheDocument();
+      expect(input).toHaveFocus();
+      expect(editor().innerHTML).toBe("<p>Draft</p>");
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe("RichTextEditor links", () => {
   /** Selects the text of the editor, like the user would before a link. */
   function selectText() {
@@ -1025,8 +1168,19 @@ describe("RichTextEditor links", () => {
   });
 
   it.each([
+    ["/docs/page", "/docs/page"],
+    ["./docs/page", "./docs/page"],
+    ["../docs/page", "../docs/page"],
+    ["docs/page", "docs/page"],
+    ["?page=2", "?page=2"],
+    ["#details", "#details"],
+    ["//example.com/docs", "//example.com/docs"],
+    ["example.com/docs", "https://example.com/docs"],
+    ["example.com?next=/docs", "https://example.com?next=/docs"],
+    ["example.com#docs/page", "https://example.com#docs/page"],
     ["example.com:8080/page", "https://example.com:8080/page"],
     ["localhost:3000", "https://localhost:3000"],
+    ["localhost:3000/docs", "https://localhost:3000/docs"],
     ["http://localhost:3000/a", "http://localhost:3000/a"],
     ["jana@example.com", "mailto:jana@example.com"],
     ["mailto:jana@example.com", "mailto:jana@example.com"],
@@ -1039,6 +1193,7 @@ describe("RichTextEditor links", () => {
     // The dots of an IP address make no phone number
     ["192.168.1.1", "https://192.168.1.1"],
     ["10.0.0.138:8080", "https://10.0.0.138:8080"],
+    ["[::1]:3000/docs", "https://[::1]:3000/docs"],
     ["555.123.4567", "tel:5551234567"],
   ])("links %s to %s", async (typed, href) => {
     const user = userEvent.setup();
@@ -1050,7 +1205,7 @@ describe("RichTextEditor links", () => {
     await user.click(screen.getByRole("button", { name: "Link" }));
     await user.type(
       screen.getByRole("textbox", { name: "Enter the link URL:" }),
-      `${typed}{Enter}`,
+      `${typed.replaceAll("[", "[[")}{Enter}`,
     );
 
     expect(execCommand).toHaveBeenCalledWith("createLink", false, href);
@@ -1233,6 +1388,44 @@ function beforeInput(inputType: string, data?: string) {
 }
 
 describe("RichTextEditor toolbar", () => {
+  it.each([false, true])(
+    "moves through its tools with the keyboard, shadow root=%s",
+    (inShadowRoot) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = inShadowRoot
+        ? host.attachShadow({ mode: "open" })
+        : document;
+      const container = inShadowRoot
+        ? root.appendChild(document.createElement("div"))
+        : host;
+      const { unmount } = render(<RichTextEditor label="Note" />, {
+        container,
+      });
+      const tools = within(container);
+      const undo = tools.getByRole("button", { name: "Undo" });
+      const redo = tools.getByRole("button", { name: "Redo" });
+      const last = tools.getByRole("button", { name: "Clear formatting" });
+
+      try {
+        act(() => undo.focus());
+        fireEvent.keyDown(undo, { key: "ArrowRight" });
+        expect(root.activeElement).toBe(redo);
+        fireEvent.keyDown(redo, { key: "End" });
+        expect(root.activeElement).toBe(last);
+        fireEvent.keyDown(last, { key: "ArrowRight" });
+        expect(root.activeElement).toBe(undo);
+        fireEvent.keyDown(undo, { key: "ArrowLeft" });
+        expect(root.activeElement).toBe(last);
+        fireEvent.keyDown(last, { key: "Home" });
+        expect(root.activeElement).toBe(undo);
+      } finally {
+        unmount();
+        host.remove();
+      }
+    },
+  );
+
   it("shows the default tools as one stop of Tab", async () => {
     const user = userEvent.setup();
     render(<RichTextEditor label="Note" />);
@@ -2180,6 +2373,40 @@ describe("RichTextEditor tables", () => {
 });
 
 describe("RichTextEditor link editing", () => {
+  it.each([
+    "/docs/page",
+    "./docs/page",
+    "../docs/page",
+    "docs/page",
+    "guide.html",
+    "?page=2",
+    "#details",
+    "//example.com/docs",
+  ])(
+    "keeps an existing link %s when its URL is confirmed unchanged",
+    async (href) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <RichTextEditor
+          defaultValue={`<p>See <a href="${href}">the docs</a></p>`}
+          label="Note"
+          onChange={onChange}
+        />,
+      );
+
+      selectText("docs", undefined, 2);
+      await user.click(tool("Link"));
+      const url = screen.getByRole("textbox", { name: "Enter the link URL:" });
+      expect(url).toHaveValue(href);
+      await user.keyboard("{Enter}");
+
+      expect(url).not.toBeInTheDocument();
+      expect(editor().querySelector("a")).toHaveAttribute("href", href);
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
+
   it("edits and removes the link at the selection", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -2568,6 +2795,97 @@ describe("RichTextEditor character count", () => {
     expect(execCommand).toHaveBeenLastCalledWith("insertText", false, "12\n3");
   });
 
+  it.each([
+    { html: "<p>a b</p>", selection: " ", replacement: "X", max: 3 },
+    {
+      html: "<p>a   b</p>",
+      selection: "   ",
+      replacement: "X",
+      max: 3,
+    },
+    {
+      html: "<pre><code>a  b</code></pre>",
+      selection: "  ",
+      replacement: "XY",
+      max: 4,
+    },
+  ])(
+    "allows replacing selected whitespace at maxLength in $html",
+    ({ html, selection, replacement, max }) => {
+      const execCommand = vi.fn(() => true);
+      document.execCommand = execCommand;
+      render(
+        <RichTextEditor
+          defaultValue={html}
+          label="Note"
+          maxLength={max}
+          toolbar={EVERY_TOOL}
+        />,
+      );
+      selectText(selection, selection);
+
+      expect(beforeInput("insertText", replacement)).toBe(true);
+      expect(execCommand).not.toHaveBeenCalled();
+      expect(beforeInput("insertText", `${replacement}Z`)).toBe(false);
+      expect(execCommand).toHaveBeenLastCalledWith(
+        "insertText",
+        false,
+        replacement,
+      );
+    },
+  );
+
+  it.each([
+    {
+      html: "<p>a b</p>",
+      selection: " ",
+      max: 3,
+      clipboardHtml: "",
+      command: "insertText",
+      inserted: "X",
+    },
+    {
+      html: "<p>a b</p>",
+      selection: " ",
+      max: 3,
+      clipboardHtml: "<b>XYZ</b>",
+      command: "insertHTML",
+      inserted: "<b>X</b>",
+    },
+    {
+      html: "<pre><code>a  b</code></pre>",
+      selection: "  ",
+      max: 4,
+      clipboardHtml: "",
+      command: "insertHTML",
+      inserted: "XY",
+    },
+  ])(
+    "fits pasted content into selected whitespace in $html ($command)",
+    ({ html, selection, max, clipboardHtml, command, inserted }) => {
+      const execCommand = vi.fn(() => true);
+      document.execCommand = execCommand;
+      render(
+        <RichTextEditor
+          defaultValue={html}
+          label="Note"
+          maxLength={max}
+          toolbar={EVERY_TOOL}
+        />,
+      );
+      selectText(selection, selection);
+
+      fireEvent.paste(editor(), {
+        clipboardData: {
+          getData: (type: string) =>
+            type === "text/html" ? clipboardHtml : "XYZ",
+        },
+      });
+
+      expect(execCommand).toHaveBeenLastCalledWith(command, false, inserted);
+    },
+  );
+
   it("pastes nothing once the text is at its limit", () => {
     const execCommand = vi.fn(() => true);
     document.execCommand = execCommand;
@@ -2599,6 +2917,39 @@ describe("RichTextEditor character count", () => {
 
     expect(editor().innerHTML).toBe("<p>abc漢</p>");
   });
+
+  it.each([
+    { composed: "😀", expected: "abc" },
+    { composed: "𠮷字", expected: "abc" },
+    { composed: "字😀", expected: "abc字" },
+  ])(
+    "keeps complete characters when cutting a composition: $composed",
+    ({ composed, expected }) => {
+      const onChange = vi.fn();
+      render(
+        <RichTextEditor
+          defaultValue="<p>abc</p>"
+          label="Note"
+          maxLength={4}
+          onChange={onChange}
+        />,
+      );
+      const text = textNode("abc");
+      selectText("abc", undefined, 3);
+      fireEvent.compositionStart(editor());
+      text.data = `abc${composed}`;
+      const caret = document.createRange();
+      caret.setStart(text, text.length);
+      document.getSelection()?.removeAllRanges();
+      document.getSelection()?.addRange(caret);
+      fireEvent.compositionEnd(editor(), { data: composed });
+
+      expect(editor().innerHTML).toBe(`<p>${expected}</p>`);
+      expect(document.getSelection()?.anchorOffset).toBe(expected.length);
+      if (expected === "abc") expect(onChange).not.toHaveBeenCalled();
+      else expect(onChange).toHaveBeenLastCalledWith(`<p>${expected}</p>`);
+    },
+  );
 
   it("is invalid once the user edits a text too long", () => {
     const { container } = render(
@@ -2864,6 +3215,497 @@ describe("RichTextEditor code blocks", () => {
 });
 
 describe("RichTextEditor images", () => {
+  it.each([
+    { finishHidden: false, fails: false },
+    { finishHidden: true, fails: false },
+    { finishHidden: false, fails: true },
+    { finishHidden: true, fails: true },
+  ])(
+    "settles image uploads across Activity hiding: %o",
+    async ({ finishHidden, fails }) => {
+      let resolve: (url: string) => void = () => {};
+      let reject: (error: Error) => void = () => {};
+      const signals: AbortSignal[] = [];
+      const uploadImage = vi.fn(
+        (_: File, { signal }: { signal: AbortSignal }) => {
+          signals.push(signal);
+          return new Promise<string>((done, fail) => {
+            resolve = done;
+            reject = fail;
+          });
+        },
+      );
+      const onChange = vi.fn();
+      const revokeObjectURL = vi.fn();
+      class PreviewURL extends URL {
+        static createObjectURL = () => "blob:shot.png";
+        static revokeObjectURL = revokeObjectURL;
+      }
+      vi.stubGlobal("URL", PreviewURL);
+      const view = (mode: "hidden" | "visible") => (
+        <StrictMode>
+          <Activity mode={mode}>
+            <form aria-label="Order">
+              <RichTextEditor
+                defaultValue="<p>Shot</p>"
+                label="Note"
+                name="note"
+                onChange={onChange}
+                toolbar={[...IMAGE_TOOLS, "undo"]}
+                uploadImage={uploadImage}
+              />
+            </form>
+          </Activity>
+        </StrictMode>
+      );
+      const { rerender, unmount } = render(view("visible"));
+      try {
+        const form = screen.getByRole<HTMLFormElement>("form", {
+          name: "Order",
+        });
+        selectText("Shot", undefined, 4);
+        fireEvent.paste(editor(), {
+          clipboardData: {
+            files: [new File(["png"], "shot.png", { type: "image/png" })],
+            getData: () => "",
+          },
+        });
+        expect(form.checkValidity()).toBe(false);
+        rerender(view("hidden"));
+        expect(signals[0].aborted).toBe(false);
+        expect(revokeObjectURL).not.toHaveBeenCalled();
+        if (!finishHidden) await act(async () => rerender(view("visible")));
+        await act(async () => {
+          if (fails) reject(new Error("Upload failed"));
+          else resolve("/shot.png");
+        });
+        if (finishHidden) {
+          // The hidden form must not submit before its settled placeholder
+          // has been applied to the submitted content on reveal.
+          expect(form.checkValidity()).toBe(false);
+          await act(async () => rerender(view("visible")));
+        }
+
+        expect(form.checkValidity()).toBe(true);
+        expect(editor()).not.toHaveAttribute("aria-busy");
+        expect(editor().querySelector("img[data-upload]")).toBeNull();
+        expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith(
+          "blob:shot.png",
+        );
+        if (fails) {
+          expect(editor().innerHTML).toBe("<p>Shot</p>");
+          expect(new FormData(form).get("note")).toBe("<p>Shot</p>");
+          expect(screen.getByRole("alert")).toHaveTextContent(
+            "The image could not be uploaded.",
+          );
+        } else {
+          const value = '<p>Shot<img src="/shot.png" alt=""></p>';
+          expect(new FormData(form).get("note")).toBe(value);
+          expect(onChange).toHaveBeenCalledExactlyOnceWith(value);
+          undoKey();
+          expect(editor().querySelector("img")).toBeNull();
+          fireEvent.keyDown(editor(), { ctrlKey: true, key: "y" });
+          expect(editor().querySelector("img")).toHaveAttribute(
+            "src",
+            "/shot.png",
+          );
+          expect(editor().querySelector("img[data-upload]")).toBeNull();
+        }
+        await act(async () => unmount());
+        expect(revokeObjectURL).toHaveBeenCalledTimes(1);
+      } finally {
+        await act(async () => unmount());
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each([
+    { emptyDefault: false, rejects: false },
+    { emptyDefault: false, rejects: true },
+    { emptyDefault: true, rejects: false },
+    { emptyDefault: true, rejects: true },
+  ])(
+    "clears a hidden upload's blocker on reset while preserving required validity: %o",
+    async ({ emptyDefault, rejects }) => {
+      let resolve: (url: string) => void = () => {};
+      let reject: (error: Error) => void = () => {};
+      let signal!: AbortSignal;
+      const uploadImage = (_: File, options: { signal: AbortSignal }) => {
+        signal = options.signal;
+        return new Promise<string>((done, fail) => {
+          resolve = done;
+          reject = fail;
+        });
+      };
+      const onChange = vi.fn();
+      const defaultValue = emptyDefault ? "" : "<p>Shot</p>";
+      const view = (mode: "hidden" | "visible") => (
+        <StrictMode>
+          <form aria-label="Order">
+            <Activity mode={mode}>
+              <RichTextEditor
+                defaultValue={defaultValue}
+                label="Note"
+                name="note"
+                onChange={onChange}
+                required
+                toolbar={IMAGE_TOOLS}
+                uploadImage={uploadImage}
+              />
+            </Activity>
+          </form>
+        </StrictMode>
+      );
+      const { rerender } = render(view("visible"));
+      const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+      if (emptyDefault) {
+        editor().innerHTML = "<p>Shot</p>";
+        fireEvent.input(editor());
+      }
+      selectText("Shot", undefined, 4);
+      fireEvent.paste(editor(), {
+        clipboardData: {
+          files: [new File(["png"], "shot.png", { type: "image/png" })],
+          getData: () => "",
+        },
+      });
+      onChange.mockClear();
+      expect(form.checkValidity()).toBe(false);
+      rerender(view("hidden"));
+
+      await act(async () => {
+        form.reset();
+        await new Promise((done) => setTimeout(done, 10));
+      });
+
+      expect(signal.aborted).toBe(true);
+      expect(form.checkValidity()).toBe(!emptyDefault);
+      expect(new FormData(form).get("note")).toBe(defaultValue);
+      expect(
+        form.querySelector<HTMLInputElement>("input[aria-hidden]")?.validity
+          .customError,
+      ).toBe(false);
+      await act(async () => {
+        if (rejects) reject(new Error("Late failure"));
+        else resolve("/shot.png");
+      });
+      expect(form.checkValidity()).toBe(!emptyDefault);
+      expect(onChange).not.toHaveBeenCalled();
+      rerender(view("visible"));
+      expect(editor()).not.toHaveAttribute("aria-busy");
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(editor().innerHTML).toBe(defaultValue);
+    },
+  );
+
+  it("aborts uploads and releases previews when a hidden Activity unmounts", async () => {
+    const signals: AbortSignal[] = [];
+    const uploadImage = vi.fn(
+      (_: File, { signal }: { signal: AbortSignal }) => {
+        signals.push(signal);
+        return new Promise<string>(() => {});
+      },
+    );
+    const revokeObjectURL = vi.fn();
+    class PreviewURL extends URL {
+      static createObjectURL = () => "blob:shot.png";
+      static revokeObjectURL = revokeObjectURL;
+    }
+    vi.stubGlobal("URL", PreviewURL);
+    const view = (mode: "hidden" | "visible") => (
+      <Activity mode={mode}>
+        <RichTextEditor
+          label="Note"
+          toolbar={IMAGE_TOOLS}
+          uploadImage={uploadImage}
+        />
+      </Activity>
+    );
+    const { rerender, unmount } = render(view("visible"));
+    try {
+      fireEvent.paste(editor(), {
+        clipboardData: {
+          files: [new File(["png"], "shot.png", { type: "image/png" })],
+          getData: () => "",
+        },
+      });
+      rerender(view("hidden"));
+      expect(signals[0].aborted).toBe(false);
+      expect(revokeObjectURL).not.toHaveBeenCalled();
+      await act(async () => unmount());
+      expect(signals[0].aborted).toBe(true);
+      expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:shot.png");
+    } finally {
+      await act(async () => unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    { replacement: "<p>New content</p>", rejects: false },
+    { replacement: "<p>New content</p>", rejects: true },
+    { replacement: "", rejects: false },
+  ])(
+    "discards a hidden upload when its controlled content is replaced: %o",
+    async ({ replacement, rejects }) => {
+      let resolve!: (url: string) => void;
+      let reject!: (error: Error) => void;
+      let signal!: AbortSignal;
+      const onChange = vi.fn();
+      const revokeObjectURL = vi.fn();
+      class PreviewURL extends URL {
+        static createObjectURL = () => "blob:shot.png";
+        static revokeObjectURL = revokeObjectURL;
+      }
+      vi.stubGlobal("URL", PreviewURL);
+      function Page({
+        mode,
+        replacement,
+      }: {
+        mode: "hidden" | "visible";
+        replacement?: string;
+      }) {
+        const [value, setValue] = useState("<p>Shot</p>");
+        const [aborted, setAborted] = useState(false);
+        return (
+          <StrictMode>
+            <form aria-label="Order">
+              <Activity mode={mode}>
+                <RichTextEditor
+                  label="Note"
+                  name="note"
+                  onChange={(next) => {
+                    onChange(next);
+                    setValue(next);
+                  }}
+                  required
+                  toolbar={[...IMAGE_TOOLS, "undo"]}
+                  uploadImage={(_, options) => {
+                    signal = options.signal;
+                    signal.addEventListener("abort", () => setAborted(true));
+                    return new Promise<string>((done, fail) => {
+                      resolve = done;
+                      reject = fail;
+                    });
+                  }}
+                  value={replacement ?? value}
+                />
+              </Activity>
+              <output aria-label="Upload aborted">{String(aborted)}</output>
+            </form>
+          </StrictMode>
+        );
+      }
+      const { rerender, unmount } = render(<Page mode="visible" />);
+      try {
+        const form = screen.getByRole<HTMLFormElement>("form", {
+          name: "Order",
+        });
+        selectText("Shot", undefined, 4);
+        fireEvent.paste(editor(), {
+          clipboardData: {
+            files: [new File(["png"], "shot.png", { type: "image/png" })],
+            getData: () => "",
+          },
+        });
+        expect(form.checkValidity()).toBe(false);
+        await act(async () => rerender(<Page mode="hidden" />));
+        expect(signal.aborted).toBe(false);
+        await act(async () =>
+          rerender(<Page mode="hidden" replacement={replacement} />),
+        );
+        expect(signal.aborted).toBe(true);
+        expect(screen.getByLabelText("Upload aborted")).toHaveTextContent(
+          "true",
+        );
+        expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith(
+          "blob:shot.png",
+        );
+        expect(new FormData(form).get("note")).toBe(replacement);
+        expect(form.checkValidity()).toBe(replacement !== "");
+        expect(
+          form.querySelector<HTMLInputElement>("input[aria-hidden]")?.validity
+            .customError,
+        ).toBe(false);
+        await act(async () => {
+          if (rejects) reject(new Error("Obsolete upload"));
+          else resolve("/old.png");
+        });
+        expect(new FormData(form).get("note")).toBe(replacement);
+        expect(onChange).not.toHaveBeenCalled();
+        rerender(<Page mode="visible" replacement={replacement} />);
+        expect(editor().innerHTML).toBe(replacement);
+        expect(editor()).not.toHaveAttribute("aria-busy");
+        expect(screen.queryByRole("alert")).toBeNull();
+        expect(tool("Undo")).toHaveAttribute("aria-disabled", "true");
+      } finally {
+        await act(async () => unmount());
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each(["pending", "resolved", "rejected"] as const)(
+    "discards a hidden upload when image formatting is removed (%s)",
+    async (completion) => {
+      let resolve!: (url: string) => void;
+      let reject!: (error: Error) => void;
+      let signal!: AbortSignal;
+      const onChange = vi.fn();
+      const uploadImage = (_: File, options: { signal: AbortSignal }) => {
+        signal = options.signal;
+        return new Promise<string>((done, fail) => {
+          resolve = done;
+          reject = fail;
+        });
+      };
+      const view = (mode: "hidden" | "visible", images = true) => (
+        <StrictMode>
+          <form aria-label="Order">
+            <Activity mode={mode}>
+              <RichTextEditor
+                label="Note"
+                name="note"
+                onChange={onChange}
+                toolbar={images ? IMAGE_TOOLS : ["bold"]}
+                uploadImage={uploadImage}
+                value="<p>Shot</p>"
+              />
+            </Activity>
+          </form>
+        </StrictMode>
+      );
+      const { rerender } = render(view("visible"));
+      const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+      selectText("Shot", undefined, 4);
+      fireEvent.paste(editor(), {
+        clipboardData: {
+          files: [new File(["png"], "shot.png", { type: "image/png" })],
+          getData: () => "",
+        },
+      });
+      rerender(view("hidden"));
+      if (completion !== "pending") {
+        await act(async () => {
+          if (completion === "resolved") resolve("/old.png");
+          else reject(new Error("Upload failed"));
+        });
+      }
+      await act(async () => rerender(view("hidden", false)));
+      expect(signal.aborted).toBe(true);
+      expect(form.checkValidity()).toBe(true);
+      expect(new FormData(form).get("note")).toBe("<p>Shot</p>");
+      await act(async () => resolve("/old.png"));
+      rerender(view("visible", false));
+      expect(editor().innerHTML).toBe("<p>Shot</p>");
+      expect(editor()).not.toHaveAttribute("aria-busy");
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    "settles a hidden upload with controlled content (replaced: %s)",
+    async (replaced) => {
+      let resolve: (url: string) => void = () => {};
+      const uploadImage = () =>
+        new Promise<string>((done) => {
+          resolve = done;
+        });
+      const onChange = vi.fn();
+      function Page({
+        mode,
+        replacement,
+      }: {
+        mode: "hidden" | "visible";
+        replacement?: string;
+      }) {
+        const [value, setValue] = useState("<p>Shot</p>");
+        return (
+          <StrictMode>
+            <Activity mode={mode}>
+              <form aria-label="Order">
+                <RichTextEditor
+                  label="Note"
+                  name="note"
+                  onChange={(next) => {
+                    onChange(next);
+                    setValue(next);
+                  }}
+                  toolbar={IMAGE_TOOLS}
+                  uploadImage={uploadImage}
+                  value={replacement ?? value}
+                />
+              </form>
+            </Activity>
+          </StrictMode>
+        );
+      }
+      const { rerender } = render(<Page mode="visible" />);
+      const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+      selectText("Shot", undefined, 4);
+      fireEvent.paste(editor(), {
+        clipboardData: {
+          files: [new File(["png"], "shot.png", { type: "image/png" })],
+          getData: () => "",
+        },
+      });
+      const replacement = replaced ? "<p>New content</p>" : undefined;
+      rerender(<Page mode="hidden" replacement={replacement} />);
+      await act(async () => resolve("/shot.png"));
+      await act(async () =>
+        rerender(<Page mode="visible" replacement={replacement} />),
+      );
+      expect(form.checkValidity()).toBe(true);
+      const expected = replacement ?? '<p>Shot<img src="/shot.png" alt=""></p>';
+      expect(new FormData(form).get("note")).toBe(expected);
+      expect(editor().querySelector("img[data-upload]")).toBeNull();
+      if (replaced) {
+        expect(editor().innerHTML).toBe(expected);
+        expect(onChange).not.toHaveBeenCalled();
+      } else {
+        expect(editor().querySelector("img")).toHaveAttribute(
+          "src",
+          "/shot.png",
+        );
+        expect(onChange).toHaveBeenCalledExactlyOnceWith(expected);
+      }
+    },
+  );
+
+  it("lets abort listeners update their owner after the editor unmounts", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    function Page({ visible }: { visible: boolean }) {
+      const [aborted, setAborted] = useState(false);
+      return (
+        <>
+          {visible && (
+            <RichTextEditor
+              label="Note"
+              toolbar={IMAGE_TOOLS}
+              uploadImage={(_, { signal }) => {
+                signal.addEventListener("abort", () => setAborted(true));
+                return new Promise<string>(() => {});
+              }}
+            />
+          )}
+          <output>{aborted ? "Cancelled" : "Pending"}</output>
+        </>
+      );
+    }
+    const { rerender } = render(<Page visible />);
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        files: [new File(["png"], "shot.png", { type: "image/png" })],
+        getData: () => "",
+      },
+    });
+    await act(async () => rerender(<Page visible={false} />));
+    expect(screen.getByRole("status")).toHaveTextContent("Cancelled");
+    expect(error).not.toHaveBeenCalled();
+  });
+
   it("inserts an image by its URL and alternative text", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -3087,6 +3929,372 @@ describe("RichTextEditor images", () => {
     expect(screen.getByRole("alert")).toBeVisible();
   });
 
+  it.each([false, true])(
+    "discards uploads on form reset and ignores their late results, controlled: %s",
+    async (controlled) => {
+      const pending: {
+        resolve: (url: string) => void;
+        signal: AbortSignal;
+      }[] = [];
+      const uploadImage = vi.fn(
+        (_: File, { signal }: { signal: AbortSignal }) =>
+          new Promise<string>((resolve) => pending.push({ resolve, signal })),
+      );
+      const onChange = vi.fn();
+      const revokeObjectURL = vi.fn();
+      class PreviewURL extends URL {
+        static createObjectURL = vi.fn<typeof URL.createObjectURL>(
+          (file) => `blob:${(file as File).name}`,
+        );
+        static revokeObjectURL = revokeObjectURL;
+      }
+      vi.stubGlobal("URL", PreviewURL);
+      function Form() {
+        const [html, setHtml] = useState("<p>Shot</p>");
+        return (
+          <form data-testid="form">
+            <RichTextEditor
+              defaultValue="<p>Shot</p>"
+              label="Note"
+              name="note"
+              onChange={(next) => {
+                setHtml(next);
+                onChange(next);
+              }}
+              toolbar={[...IMAGE_TOOLS, "undo"]}
+              uploadImage={uploadImage}
+              value={controlled ? html : undefined}
+            />
+          </form>
+        );
+      }
+      const { unmount } = render(<Form />);
+      try {
+        const form = screen.getByTestId("form") as HTMLFormElement;
+        const paste = (name: string) => {
+          selectText("Shot", undefined, 4);
+          fireEvent.paste(editor(), {
+            clipboardData: {
+              files: [new File(["png"], name, { type: "image/png" })],
+              getData: () => "",
+            },
+          });
+        };
+        paste("old.png");
+        expect(form.checkValidity()).toBe(false);
+        expect(editor().querySelector("img[data-upload]")).not.toBeNull();
+
+        await act(async () => form.reset());
+        await waitFor(() => expect(pending[0].signal.aborted).toBe(true));
+        expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:old.png");
+        expect(editor().innerHTML).toBe("<p>Shot</p>");
+        expect(new FormData(form).get("note")).toBe("<p>Shot</p>");
+        expect(editor()).not.toHaveAttribute("aria-busy");
+        expect(form.checkValidity()).toBe(true);
+        expect(tool("Undo")).toHaveAttribute("aria-disabled", "true");
+
+        paste("new.png");
+        await act(async () => pending[0].resolve("/old.png"));
+        expect(onChange).not.toHaveBeenCalled();
+        expect(editor()).toHaveAttribute("aria-busy", "true");
+        expect(editor().querySelector("img[data-upload]")).toHaveAttribute(
+          "src",
+          "blob:new.png",
+        );
+        expect(form.checkValidity()).toBe(false);
+        expect(pending[1].signal.aborted).toBe(false);
+        expect(revokeObjectURL).toHaveBeenCalledTimes(1);
+
+        await act(async () => pending[1].resolve("/new.png"));
+        expect(editor()).not.toHaveAttribute("aria-busy");
+        expect(form.checkValidity()).toBe(true);
+        expect(new FormData(form).get("note")).toBe(
+          '<p>Shot<img src="/new.png" alt=""></p>',
+        );
+        expect(onChange).toHaveBeenCalledExactlyOnceWith(
+          '<p>Shot<img src="/new.png" alt=""></p>',
+        );
+        expect(revokeObjectURL).toHaveBeenNthCalledWith(2, "blob:new.png");
+
+        unmount();
+        expect(revokeObjectURL).toHaveBeenCalledTimes(2);
+      } finally {
+        unmount();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it("clears upload failures on reset and ignores a discarded upload rejecting", async () => {
+    let reject: (error: Error) => void = () => {};
+    const uploadImage = vi.fn(
+      () => new Promise<string>((_, fail) => (reject = fail)),
+    );
+    render(
+      <form data-testid="form">
+        <RichTextEditor
+          label="Note"
+          toolbar={IMAGE_TOOLS}
+          uploadImage={uploadImage}
+        />
+      </form>,
+    );
+    const form = screen.getByTestId("form") as HTMLFormElement;
+    const paste = () =>
+      fireEvent.paste(editor(), {
+        clipboardData: {
+          files: [new File(["png"], "shot.png", { type: "image/png" })],
+          getData: () => "",
+        },
+      });
+    paste();
+    await act(async () => reject(new Error("Upload failed")));
+    expect(screen.getByRole("alert")).toBeVisible();
+
+    await act(async () => form.reset());
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    paste();
+    await act(async () => form.reset());
+    await waitFor(() => expect(editor()).not.toHaveAttribute("aria-busy"));
+    await act(async () => reject(new Error("Upload failed after reset")));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(editor()).not.toHaveAttribute("aria-busy");
+    expect(form.checkValidity()).toBe(true);
+  });
+
+  it.each([false, true])(
+    "discards uploads when controlled content is replaced and ignores their late results (rejects: %s)",
+    async (rejects) => {
+      const pending: {
+        reject: (error: Error) => void;
+        resolve: (url: string) => void;
+        signal: AbortSignal;
+      }[] = [];
+      const uploadImage = vi.fn(
+        (_: File, { signal }: { signal: AbortSignal }) =>
+          new Promise<string>((resolve, reject) =>
+            pending.push({ reject, resolve, signal }),
+          ),
+      );
+      const onChange = vi.fn();
+      const revokeObjectURL = vi.fn();
+      class PreviewURL extends URL {
+        static createObjectURL = vi.fn<typeof URL.createObjectURL>(
+          (file) => `blob:${(file as File).name}`,
+        );
+        static revokeObjectURL = revokeObjectURL;
+      }
+      vi.stubGlobal("URL", PreviewURL);
+      function Form() {
+        const [html, setHtml] = useState("<p>Shot</p>");
+        return (
+          <form data-testid="form">
+            <RichTextEditor
+              label="Note"
+              name="note"
+              onChange={(next) => {
+                setHtml(next);
+                onChange(next);
+              }}
+              toolbar={[...IMAGE_TOOLS, "undo"]}
+              uploadImage={uploadImage}
+              value={html}
+            />
+            <button onClick={() => setHtml("<p>Template</p>")} type="button">
+              Load
+            </button>
+          </form>
+        );
+      }
+      const { unmount } = render(<Form />);
+      try {
+        const form = screen.getByTestId("form") as HTMLFormElement;
+        const paste = (text: string, name: string) => {
+          selectText(text, undefined, text.length);
+          fireEvent.paste(editor(), {
+            clipboardData: {
+              files: [new File(["png"], name, { type: "image/png" })],
+              getData: () => "",
+            },
+          });
+        };
+        paste("Shot", "old.png");
+        expect(form.checkValidity()).toBe(false);
+        fireEvent.click(screen.getByRole("button", { name: "Load" }));
+        expect(pending[0].signal.aborted).toBe(true);
+        expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:old.png");
+        expect(editor().innerHTML).toBe("<p>Template</p>");
+        expect(new FormData(form).get("note")).toBe("<p>Template</p>");
+        expect(editor()).not.toHaveAttribute("aria-busy");
+        expect(form.checkValidity()).toBe(true);
+        expect(tool("Undo")).toHaveAttribute("aria-disabled", "true");
+
+        paste("Template", "new.png");
+        await act(async () => {
+          if (rejects) pending[0].reject(new Error("Obsolete failure"));
+          else pending[0].resolve("/old.png");
+        });
+        expect(onChange).not.toHaveBeenCalled();
+        expect(screen.queryByRole("alert")).toBeNull();
+        expect(editor()).toHaveAttribute("aria-busy", "true");
+        expect(editor().querySelector("img[data-upload]")).toHaveAttribute(
+          "src",
+          "blob:new.png",
+        );
+        expect(form.checkValidity()).toBe(false);
+        expect(pending[1].signal.aborted).toBe(false);
+        expect(revokeObjectURL).toHaveBeenCalledTimes(1);
+
+        await act(async () => pending[1].resolve("/new.png"));
+        expect(form.checkValidity()).toBe(true);
+        expect(editor()).not.toHaveAttribute("aria-busy");
+        expect(new FormData(form).get("note")).toBe(
+          '<p>Template<img src="/new.png" alt=""></p>',
+        );
+        expect(onChange).toHaveBeenCalledExactlyOnceWith(
+          '<p>Template<img src="/new.png" alt=""></p>',
+        );
+        expect(revokeObjectURL).toHaveBeenNthCalledWith(2, "blob:new.png");
+
+        unmount();
+        expect(revokeObjectURL).toHaveBeenCalledTimes(2);
+      } finally {
+        unmount();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it("keeps pending uploads through accepted controlled edits and undo or redo", async () => {
+    let resolve: (url: string) => void = () => {};
+    let signal: AbortSignal | undefined;
+    const uploadImage = vi.fn((_: File, options: { signal: AbortSignal }) => {
+      signal = options.signal;
+      return new Promise<string>((done) => (resolve = done));
+    });
+    function Controlled() {
+      const [html, setHtml] = useState("<p>Shot</p>");
+      return (
+        <RichTextEditor
+          label="Note"
+          onChange={setHtml}
+          toolbar={[...IMAGE_TOOLS, "undo", "redo"]}
+          uploadImage={uploadImage}
+          value={html}
+        />
+      );
+    }
+    render(<Controlled />);
+    selectText("Shot", undefined, 4);
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        files: [new File(["png"], "shot.png", { type: "image/png" })],
+        getData: () => "",
+      },
+    });
+    textNode("Shot").data = "Changed";
+    fireEvent.input(editor(), { inputType: "insertText" });
+    expect(editor().querySelector("img[data-upload]")).not.toBeNull();
+    expect(signal?.aborted).toBe(false);
+
+    undoKey();
+    expect(editor()).toHaveTextContent("Shot");
+    expect(editor().querySelector("img[data-upload]")).not.toBeNull();
+    undoKey();
+    expect(editor().querySelector("img[data-upload]")).toBeNull();
+    expect(editor()).toHaveAttribute("aria-busy", "true");
+    expect(signal?.aborted).toBe(false);
+    fireEvent.keyDown(editor(), { ctrlKey: true, key: "y" });
+    expect(editor().querySelector("img[data-upload]")).not.toBeNull();
+
+    await act(async () => resolve("/shot.png"));
+    expect(editor().querySelector("img[data-upload]")).toBeNull();
+    expect(editor().querySelector("img")).toHaveAttribute("src", "/shot.png");
+    expect(editor()).not.toHaveAttribute("aria-busy");
+  });
+
+  it("clears a previous upload failure when controlled content is replaced", async () => {
+    const field = (value: string) => (
+      <RichTextEditor
+        label="Note"
+        toolbar={IMAGE_TOOLS}
+        uploadImage={async () => {
+          throw new Error("Upload failed");
+        }}
+        value={value}
+      />
+    );
+    const { rerender } = render(field("<p>Shot</p>"));
+    selectText("Shot", undefined, 4);
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        files: [new File(["png"], "shot.png", { type: "image/png" })],
+        getData: () => "",
+      },
+    });
+    expect(await screen.findByRole("alert")).toBeVisible();
+    rerender(field("<p>Template</p>"));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it.each([false, true])(
+    "recovers from a synchronous upload failure, with another file: %s",
+    async (withAnotherFile) => {
+      let resolve: (url: string) => void = () => {};
+      const failed = new File(["png"], "bad.png", { type: "image/png" });
+      const next = new File(["png"], "good.png", { type: "image/png" });
+      const uploadImage = vi.fn((file: File): Promise<string> => {
+        if (file === failed) throw new Error("Too big");
+        return new Promise<string>((done) => (resolve = done));
+      });
+      render(
+        <form data-testid="form">
+          <RichTextEditor
+            defaultValue="<p>Shot</p>"
+            label="Note"
+            name="note"
+            toolbar={IMAGE_TOOLS}
+            uploadImage={uploadImage}
+          />
+        </form>,
+      );
+      const form = screen.getByTestId("form") as HTMLFormElement;
+      const paste = (files: File[]) =>
+        fireEvent.paste(editor(), {
+          clipboardData: { files, getData: () => "" },
+        });
+
+      selectText("Shot", undefined, 4);
+      await act(async () => paste(withAnotherFile ? [failed, next] : [failed]));
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "The image could not be uploaded.",
+      );
+      expect(uploadImage).toHaveBeenCalledTimes(withAnotherFile ? 2 : 1);
+      expect(new FormData(form).get("note")).toBe("<p>Shot</p>");
+
+      if (!withAnotherFile) {
+        expect(editor()).not.toHaveAttribute("aria-busy");
+        expect(editor().querySelector("img")).toBeNull();
+        expect(form.checkValidity()).toBe(true);
+        // Another attempt still works after the failure.
+        selectText("Shot", undefined, 4);
+        paste([next]);
+      }
+
+      // A failed file leaves the other upload running and validated.
+      expect(editor()).toHaveAttribute("aria-busy", "true");
+      expect(editor().querySelectorAll("img[data-upload]")).toHaveLength(1);
+      expect(form.checkValidity()).toBe(false);
+      await act(async () => resolve("/good.png"));
+      expect(editor().querySelector("img[data-upload]")).toBeNull();
+      expect(editor()).not.toHaveAttribute("aria-busy");
+      expect(form.checkValidity()).toBe(true);
+      expect(new FormData(form).get("note")).toBe(
+        '<p>Shot<img src="/good.png" alt=""></p>',
+      );
+    },
+  );
+
   it("uploads dropped image files and those picked in the image form", async () => {
     const user = userEvent.setup();
     const uploadImage = vi.fn(async (file: File) => `/uploads/${file.name}`);
@@ -3164,7 +4372,7 @@ describe("RichTextEditor images", () => {
     expect(editor().innerHTML).toBe("<p>Shot</p>");
   });
 
-  it("aborts its uploads when it unmounts", () => {
+  it("aborts its uploads when it unmounts", async () => {
     const signals: AbortSignal[] = [];
     const uploadImage = vi.fn(
       (_: File, { signal }: { signal: AbortSignal }) => {
@@ -3190,7 +4398,7 @@ describe("RichTextEditor images", () => {
     });
     expect(signals[0].aborted).toBe(false);
 
-    unmount();
+    await act(async () => unmount());
     expect(signals[0].aborted).toBe(true);
   });
 

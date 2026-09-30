@@ -488,7 +488,7 @@ export default function Stepper({
               <div
                 aria-hidden="true"
                 className={cn(
-                  "absolute start-[17px] top-11 bottom-2 border-s-2",
+                  "absolute inset-s-4.25 top-11 bottom-2 border-s-2",
                   connectorClassName(info),
                 )}
               />

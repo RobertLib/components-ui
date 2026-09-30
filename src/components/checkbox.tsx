@@ -101,6 +101,7 @@ export default function Checkbox({
 }: CheckboxProps) {
   const checkboxRef = useCheckedControl({
     checked: props.checked,
+    form: props.form,
     indeterminate,
     ref,
   });

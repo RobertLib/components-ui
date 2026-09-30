@@ -48,6 +48,8 @@ interface RangePanelProps {
   presets: (DateRangePresetKey | DateRangePreset)[];
   /** The days can be focused, but nothing picked. */
   readOnly?: boolean;
+  /** A form reset clears a draft even when the selected range stays the same. */
+  resetCount?: number;
   /** The selected range. */
   value: DayRange | null;
 }
@@ -69,6 +71,7 @@ export default function RangePanel({
   onPick,
   presets,
   readOnly = false,
+  resetCount = 0,
   value,
 }: RangePanelProps) {
   const locale = useLocale();
@@ -80,18 +83,48 @@ export default function RangePanel({
   // being picked
   const [highlighted, setHighlighted] = useState<Date | null>(null);
 
-  // A range typed into the field meanwhile (or set by the parent) starts
-  // the picking over
+  // A range typed into the field meanwhile (or set by the parent), or a
+  // form reset, starts the picking over without remounting the grid - and
+  // the grid shows its first day. A range picked in the grid leaves the
+  // months where they are, with the focus on the day picked.
   const valueKey = value ? encodeRange(toDateRange(value)) : "";
-  const [shownValueKey, setShownValueKey] = useState(valueKey);
+  const [shownValue, setShownValue] = useState({
+    resetCount,
+    start: value?.start ?? null,
+    valueKey,
+  });
+  // The range the last pick in the grid reported - taken once, so it
+  // cannot keep a later range of the parent from showing its month
+  const [pickedKey, setPickedKey] = useState<string | null>(null);
 
-  if (valueKey !== shownValueKey) {
-    setShownValueKey(valueKey);
+  if (
+    valueKey !== shownValue.valueKey ||
+    resetCount !== shownValue.resetCount
+  ) {
+    const isPicked =
+      valueKey === pickedKey && resetCount === shownValue.resetCount;
+    setShownValue({
+      resetCount,
+      start: isPicked ? shownValue.start : (value?.start ?? null),
+      valueKey,
+    });
+    setPickedKey(null);
     setAnchor(null);
+    setHighlighted(null);
   }
 
-  // A disabled or read-only calendar drops a range picked halfway
-  if (anchor && (disabled || readOnly)) setAnchor(null);
+  // A range picked halfway starts over when its first day can no longer
+  // be picked, including availability or date limits updated by the app.
+  if (
+    anchor &&
+    (disabled ||
+      readOnly ||
+      !isDayAllowed(anchor, limits) ||
+      limits.isDateDisabled?.(anchor))
+  ) {
+    setAnchor(null);
+    setHighlighted(null);
+  }
 
   // The disabled days nearest to the first day - the range cannot reach
   // over them (unless `allowDisabledInRange`)
@@ -126,7 +159,9 @@ export default function RangePanel({
       return;
     }
 
-    onPick(orderDays(anchor, day));
+    const range = orderDays(anchor, day);
+    setPickedKey(encodeRange(toDateRange(range)));
+    onPick(range);
     setAnchor(null);
   };
 
@@ -169,7 +204,13 @@ export default function RangePanel({
           label={messages.presetsLabel}
           onPick={(index) => {
             const range = presetItems[index]?.range;
-            if (range) onPick(range);
+            if (!range) return;
+            // A preset completes the pick even when the value stays the same
+            // - and shows its first month, like a range of the parent.
+            setAnchor(null);
+            setHighlighted(null);
+            setPickedKey(null);
+            onPick(range);
           }}
         />
       )}
@@ -197,7 +238,7 @@ export default function RangePanel({
           onSelect={pick}
           range={shownRange}
           readOnly={readOnly}
-          selected={value?.start ?? null}
+          selected={shownValue.start}
         />
 
         <div className="mt-2 flex items-center justify-between gap-2 border-t border-neutral-200 pt-2 text-xs text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">

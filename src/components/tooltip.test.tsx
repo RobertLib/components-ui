@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { Profiler, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Button from "./button";
 import Dialog from "./dialog";
@@ -115,6 +115,69 @@ describe("Tooltip and Escape", () => {
 describe("Tooltip hover", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it.each(["blur", "Escape", "click"])(
+    "keeps a focused tooltip after the pointer leaves until %s dismisses it",
+    async (dismissal) => {
+      const user = userEvent.setup();
+      render(
+        <>
+          <Tooltip title="Saves the draft">
+            <button type="button">Save</button>
+          </Tooltip>
+          <button type="button">Other</button>
+        </>,
+      );
+
+      await user.tab();
+      const trigger = screen.getByRole("button", { name: "Save" });
+      const tooltip = screen.getByRole("tooltip");
+      vi.useFakeTimers();
+
+      fireEvent.mouseEnter(trigger);
+      fireEvent.mouseLeave(trigger);
+      act(() => vi.advanceTimersByTime(200));
+      expect(trigger).toHaveFocus();
+      expect(screen.getByRole("tooltip")).toBe(tooltip);
+
+      if (dismissal === "blur") {
+        act(() => screen.getByRole("button", { name: "Other" }).focus());
+      } else if (dismissal === "Escape") {
+        fireEvent.keyDown(trigger, { key: "Escape" });
+      } else {
+        fireEvent.click(trigger);
+      }
+      act(() => vi.advanceTimersByTime(1000));
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    },
+  );
+
+  it("keeps an interactive tooltip while its content has the focus", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Tooltip interactive title={<ul tabIndex={-1}>Participants</ul>}>
+          <button type="button">12 participants</button>
+        </Tooltip>
+        <button type="button">Other</button>
+      </>,
+    );
+
+    await user.tab();
+    const tooltip = screen.getByRole("tooltip");
+    const list = screen.getByRole("list");
+    act(() => list.focus());
+    fireEvent.click(list);
+    vi.useFakeTimers();
+    fireEvent.mouseEnter(tooltip);
+    fireEvent.mouseLeave(tooltip);
+    act(() => vi.advanceTimersByTime(200));
+    expect(list).toHaveFocus();
+    expect(screen.getByRole("tooltip")).toBe(tooltip);
+
+    act(() => screen.getByRole("button", { name: "Other" }).focus());
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
   it("stays hidden under a modal dialog opened before its delay is over", () => {
@@ -478,6 +541,68 @@ describe("Tooltip placement", () => {
       window.dispatchEvent(new Event("scroll"));
     });
     expect(tooltip.style.top).toBe("138px");
+  });
+
+  it("flips above its trigger as the on-screen keyboard comes up", async () => {
+    mockLayout();
+    rect = {
+      bottom: 430,
+      height: 20,
+      left: 100,
+      right: 140,
+      top: 410,
+      width: 40,
+    };
+    // Fires its own resize, as the visual viewport of a phone does
+    const viewport = Object.assign(new EventTarget(), {
+      height: 768,
+      offsetLeft: 0,
+      offsetTop: 0,
+      width: 1024,
+    });
+    vi.stubGlobal("visualViewport", viewport);
+    try {
+      const tooltip = await showTooltip("bottom");
+      expect(tooltip.style.top).toBe("438px");
+
+      // The keyboard covers all below 450 - no room for 24 px below
+      viewport.height = 450;
+      act(() => {
+        viewport.dispatchEvent(new Event("resize"));
+      });
+      expect(tooltip).toHaveAttribute("data-side", "top");
+      expect(tooltip.style.top).toBe(`${410 - 8 - 24}px`);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not render again for a scroll that leaves it where it is", async () => {
+    mockLayout();
+    const user = userEvent.setup();
+    const onRender = vi.fn();
+    render(
+      <Profiler id="tooltip" onRender={onRender}>
+        <Tooltip position="bottom" title="Saves the draft">
+          <button type="button">Save</button>
+        </Tooltip>
+      </Profiler>,
+    );
+    await user.tab();
+    const top = screen.getByRole("tooltip").style.top;
+    // React may render once more before it bails out of the same state
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+    onRender.mockClear();
+
+    for (let scroll = 0; scroll < 3; scroll++) {
+      act(() => {
+        window.dispatchEvent(new Event("scroll"));
+      });
+    }
+    expect(screen.getByRole("tooltip").style.top).toBe(top);
+    expect(onRender).not.toHaveBeenCalled();
   });
 });
 

@@ -1,7 +1,12 @@
 import type { NewEventTimeRange } from "./types";
-import { atMinutes } from "./date-utils";
+import { atMinutes, minutesIntoDay } from "./date-utils";
+import {
+  isBusinessTime,
+  type BusinessSchedule,
+  type MinuteRange,
+} from "./business-hours";
 import { isDragPress, startPointerDrag } from "./pointer-drag";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 /** A range of time slots of one day - of one resource. */
 export interface SlotRange {
@@ -18,37 +23,64 @@ export interface SlotRange {
   to: number;
 }
 
+/** The clock hours a normalized selection must stay inside. */
+export interface TimeRangeLimits extends MinuteRange {
+  /** Working hours when selection is restricted to them. */
+  businessHours?: BusinessSchedule | null;
+}
+
 /**
  * The dates of a range of slots - with its resource. A range whose rows a
  * daylight saving change skips all (2:00 - 3:00 when the clocks jump to
- * 3:00) starts at the end of the gap and keeps its length - it never comes
- * out empty.
+ * 3:00) starts at the end of the gap and keeps its length. With `limits`,
+ * returns `null` if that normalized range leaves the allowed clock hours.
  */
-export function toTimeRange({
-  day,
-  from,
-  resourceId,
-  to,
-}: SlotRange): NewEventTimeRange {
+export function toTimeRange(range: SlotRange): NewEventTimeRange;
+export function toTimeRange(
+  range: SlotRange,
+  limits: TimeRangeLimits,
+): NewEventTimeRange | null;
+export function toTimeRange(
+  { day, from, resourceId, to }: SlotRange,
+  limits?: TimeRangeLimits,
+): NewEventTimeRange | null {
   const start = atMinutes(day, from);
-  const end = atMinutes(day, to);
+  const clockEnd = atMinutes(day, to);
+  const end =
+    clockEnd > start
+      ? clockEnd
+      : new Date(start.getTime() + (to - from) * 60_000);
+
+  if (limits) {
+    const actualFrom = minutesIntoDay(day, start);
+    const actualTo = minutesIntoDay(day, end);
+    if (
+      end <= start ||
+      actualFrom < limits.from ||
+      actualTo > limits.to ||
+      (limits.businessHours &&
+        !isBusinessTime(limits.businessHours, day, actualFrom, actualTo))
+    ) {
+      return null;
+    }
+  }
 
   return {
-    end: end > start ? end : new Date(start.getTime() + (to - from) * 60_000),
+    end,
     start,
     ...(resourceId !== undefined && { resourceId }),
   };
 }
 
 interface UseSlotDragOptions {
+  /** The days, resources, hours and availability the selection belongs to. */
+  geometryKey: string;
   /** Height of one slot in pixels. */
   slotHeight: number;
   /** Length of one slot in minutes. */
   slotDurationMinutes: number;
-  /** First hour of the grid. */
-  startHour: number;
-  /** Hour the grid ends with - a range never runs past it. */
-  endHour: number;
+  /** Shown and working hours the normalized range must stay inside. */
+  timeRangeLimits: TimeRangeLimits;
   /** The element holding the slots. */
   gridRef: React.RefObject<HTMLElement | null>;
   /** The scroll container of the view - scrolled along a drag at its edges. */
@@ -77,13 +109,27 @@ export default function useSlotDrag(options: UseSlotDragOptions) {
   // A drag outlives the render it started in - it reads the latest options
   const optionsRef = useRef(options);
   // Ends the drag in progress without a range
-  const stopRef = useRef<(() => void) | null>(null);
+  const sessionRef = useRef<{
+    geometryKey: string;
+    stop: () => void;
+  } | null>(null);
 
-  useEffect(() => {
+  // A release must never commit a selection from obsolete days or limits.
+  // Update the callback before cancelling, and before pointer events can run.
+  useLayoutEffect(() => {
     optionsRef.current = options;
+    const session = sessionRef.current;
+    if (
+      session &&
+      (session.geometryKey !== options.geometryKey || !options.onSlotDragEnd)
+    ) {
+      session.stop();
+    }
   });
 
-  useEffect(() => () => stopRef.current?.(), []);
+  // Activity can hide the view while preserving its state. Clear both the
+  // listeners and the selected range so showing it starts with no session.
+  useEffect(() => () => sessionRef.current?.stop(), []);
 
   /**
    * Starts a range at the slot `minutes` after the midnight of `day` - in
@@ -98,41 +144,41 @@ export default function useSlotDrag(options: UseSlotDragOptions) {
   ) => {
     const {
       axis = "y",
-      endHour,
       getBounds,
       gridRef,
       onSlotDragEnd,
       scrollRef,
       slotDurationMinutes: slot,
       slotHeight,
-      startHour,
+      timeRangeLimits,
     } = optionsRef.current;
     if (!onSlotDragEnd || e.pointerType === "touch" || !isDragPress(e)) {
       return;
     }
 
-    // No text is selected along the drag
-    e.preventDefault();
-    stopRef.current?.();
-
     // The range ends by the end hour at the latest - a press on the row of
     // the end hour starts the last slot before it
     const grid = gridRef.current;
     const rtl = !!grid && getComputedStyle(grid).direction === "rtl";
-    const anchor = Math.min(minutes, endHour * 60 - slot);
+    const anchor = Math.min(minutes, timeRangeLimits.to - slot);
     const bounds = getBounds?.(day, anchor) ?? {
-      from: startHour * 60,
-      to: endHour * 60,
+      from: timeRangeLimits.from,
+      to: timeRangeLimits.to,
     };
     let range: SlotRange = { day, from: anchor, resourceId, to: anchor + slot };
+    if (!toTimeRange(range, timeRangeLimits)) return;
+
+    // No text is selected along the drag
+    e.preventDefault();
+    sessionRef.current?.stop();
     setSlotDragState(range);
 
     const finish = () => {
-      stopRef.current = null;
+      sessionRef.current = null;
       setSlotDragState(null);
     };
 
-    stopRef.current = startPointerDrag(e, {
+    const stopDrag = startPointerDrag(e, {
       axis,
       grid,
       scroller: scrollRef?.current,
@@ -146,12 +192,25 @@ export default function useSlotDrag(options: UseSlotDragOptions) {
         const highest =
           anchor +
           Math.floor(Math.max(0, bounds.to - anchor - slot) / slot) * slot;
-        const other = Math.min(
+        let other = Math.min(
           Math.max(anchor + Math.round(distance / slotHeight) * slot, lowest),
           highest,
         );
-        const from = Math.min(anchor, other);
-        const to = Math.max(anchor, other) + slot;
+        const rangeTo = (edge: number): SlotRange => ({
+          day,
+          from: Math.min(anchor, edge),
+          resourceId,
+          to: Math.max(anchor, edge) + slot,
+        });
+        // Normalizing skipped rows may extend the actual time past a
+        // boundary. Stop at the last whole-slot selection that still fits.
+        while (
+          other !== anchor &&
+          !toTimeRange(rangeTo(other), timeRangeLimits)
+        ) {
+          other += other < anchor ? slot : -slot;
+        }
+        const { from, to } = rangeTo(other);
         if (from === range.from && to === range.to) return;
 
         range = { day, from, resourceId, to };
@@ -159,11 +218,19 @@ export default function useSlotDrag(options: UseSlotDragOptions) {
       },
       onDrop: () => {
         finish();
-        optionsRef.current.onSlotDragEnd?.(toTimeRange(range));
+        const times = toTimeRange(range, optionsRef.current.timeRangeLimits);
+        if (times) optionsRef.current.onSlotDragEnd?.(times);
         return true;
       },
       onCancel: finish,
     });
+    sessionRef.current = {
+      geometryKey: optionsRef.current.geometryKey,
+      stop: () => {
+        stopDrag();
+        finish();
+      },
+    };
   };
 
   return { handleSlotDragStart, slotDragState };

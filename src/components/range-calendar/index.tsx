@@ -12,6 +12,7 @@ import {
   DEFAULT_PRESETS,
   encodeRange,
   findUnavailableDay,
+  getRangeLengthMessage,
   toDateRange,
   toDayLimit,
   toDayRange,
@@ -95,11 +96,17 @@ export interface RangeCalendarProps extends Omit<
    * it keeps the form from being submitted.
    */
   max?: string;
-  /** The most days a range may have - a week is 7 days. */
+  /**
+   * The most days a range may have - a week is 7 days. A longer value,
+   * including a default or controlled one, keeps the form from being submitted.
+   */
   maxDays?: number;
   /** The earliest day that can be picked, `YYYY-MM-DD` - see `max`. */
   min?: string;
-  /** The fewest days a range may have - e.g. 2 for at least one night. */
+  /**
+   * The fewest days a range may have - e.g. 2 for at least one night.
+   * A shorter value keeps the form from being submitted.
+   */
   minDays?: number;
   /**
    * Months shown side by side - the arrow keys move on from one to the
@@ -190,6 +197,7 @@ export default function RangeCalendar({
   // The range picked in an uncontrolled calendar - until then, and again
   // after a reset, it shows `defaultValue`
   const [entered, setEntered] = useState<DateRange>();
+  const [resetCount, setResetCount] = useState(0);
   const isControlled = value !== undefined;
   // In order, and without the days that do not exist
   const range = toDayRange(
@@ -200,7 +208,11 @@ export default function RangeCalendar({
   const { disabled, wrapperRef } = useCalendarField({
     disabled: disabledProp,
     form,
-    onReset: () => setEntered(undefined),
+    onReset: () => {
+      setEntered(undefined);
+      // A draft also resets when the committed range stays the same.
+      setResetCount((count) => count + 1);
+    },
   });
 
   const limits: RangeLimits = {
@@ -238,6 +250,12 @@ export default function RangeCalendar({
       days?.end,
       { max: maxDay },
       formatDay,
+    ) ||
+    getRangeLengthMessage(
+      range,
+      limits,
+      locale.formats.date,
+      messages.dateTimePicker.outOfRangeText,
     ) ||
     unavailableMessage;
 
@@ -282,6 +300,7 @@ export default function RangeCalendar({
         }}
         presets={presets === true ? DEFAULT_PRESETS : presets || []}
         readOnly={readOnly}
+        resetCount={resetCount}
         value={range}
       />
     </CalendarField>

@@ -23,10 +23,10 @@ import { useLocale } from "../providers/ui-context";
 // smaller sizes, as the CSS order decides between two utilities. The
 // paddings and the text of `Input`.
 const dimStyles = {
-  xs: "px-1 py-0 text-sm min-h-[48px]",
-  sm: "px-1 py-0.5 text-sm min-h-[60px]",
-  md: "px-2 py-1 text-base min-h-[80px]",
-  lg: "px-3 py-2 text-lg min-h-[100px]",
+  xs: "px-1 py-0 text-sm min-h-12",
+  sm: "px-1 py-0.5 text-sm min-h-15",
+  md: "px-2 py-1 text-base min-h-20",
+  lg: "px-3 py-2 text-lg min-h-25",
 };
 
 // The vertical padding of `dimStyles`, and with the `pt-6` of a floating
@@ -48,7 +48,7 @@ const floatingPaddings = {
 const ANNOUNCE_DELAY = 750;
 
 // Measures the content of an autosizing field where CSS cannot size it - a
-// copy with the same classes, out of sight
+// copy with the same classes and inline styles, out of sight
 const shadowStyle: React.CSSProperties = {
   height: 0,
   insetInlineStart: 0,
@@ -201,7 +201,11 @@ export default function Textarea({
       fitToShadow(textarea, shadow);
       sizedByScript.current = true;
     } else if (sizedByScript.current) {
-      textarea.style.height = "";
+      // React leaves an unchanged style alone, even though measuring
+      // replaced it. Restore the height of this render when sizing ends.
+      const height = props.style?.height;
+      textarea.style.height =
+        typeof height === "number" ? `${height}px` : (height ?? "");
       sizedByScript.current = false;
     }
   });
@@ -385,7 +389,9 @@ export default function Textarea({
             readOnly
             ref={shadowRef}
             rows={1}
-            style={shadowStyle}
+            // Keep the font, spacing and width of the visible field, while
+            // leaving this measuring copy hidden and free of height limits.
+            style={{ ...props.style, ...shadowStyle }}
             tabIndex={-1}
             value={text}
           />

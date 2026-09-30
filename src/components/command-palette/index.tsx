@@ -34,6 +34,7 @@ import {
   type SearchableText,
 } from "./match";
 import usePointerMoved from "../../hooks/use-pointer-moved";
+import { getElementByIdAt } from "../overlay-stack";
 
 /** A command of `CommandPalette` - an action (`onSelect`), a page (`href`) or both. */
 export interface CommandPaletteItem {
@@ -352,6 +353,7 @@ function PaletteContent({
   const [failedQuery, setFailedQuery] = useState<string | null>(null);
 
   const pointerMoved = usePointerMoved();
+  const listboxRef = useRef<HTMLDivElement>(null);
 
   // Callers pass the callbacks inline - the loading reacts to the search,
   // not to their identity
@@ -362,6 +364,13 @@ function PaletteContent({
   });
 
   const isAsync = typeof loadItems === "function";
+
+  // Removing the source also removes its results and errors. A later
+  // source starts fresh, even if the search has not changed.
+  if (!isAsync && (loaded !== null || failedQuery !== null)) {
+    setLoaded(null);
+    setFailedQuery(null);
+  }
 
   useEffect(() => {
     const load = callbacksRef.current.loadItems;
@@ -403,7 +412,8 @@ function PaletteContent({
   // for it, until then it is loading
   const isSettled = settledQuery === query;
   const loadFailed = isAsync && isSettled && failedQuery === settledQuery;
-  const hasLoaded = isSettled && loaded !== null && loaded.query === query;
+  const hasLoaded =
+    isAsync && isSettled && loaded !== null && loaded.query === query;
   const isLoading = isAsync && !loadFailed && !hasLoaded;
 
   const loadedEntries = useMemo(
@@ -463,7 +473,9 @@ function PaletteContent({
     setChosen({ key: option.key, query });
 
     // The first option of a group brings the heading of the group along
-    const element = document.getElementById(optionId(index));
+    const element = listboxRef.current
+      ? getElementByIdAt(listboxRef.current, optionId(index))
+      : null;
     const previous = element?.previousElementSibling;
     if (previous?.getAttribute("role") === "presentation") {
       previous.scrollIntoView({ block: "nearest" });
@@ -605,6 +617,7 @@ function PaletteContent({
         id={listboxId}
         // A click on an option keeps the focus in the search
         onMouseDown={(event) => event.preventDefault()}
+        ref={listboxRef}
         role="listbox"
       >
         {groups.map((group, groupIndex) => {

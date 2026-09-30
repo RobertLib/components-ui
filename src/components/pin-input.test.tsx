@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
@@ -214,6 +220,32 @@ describe("PinInput", () => {
     expect(cell(6)).toHaveFocus();
   });
 
+  it("takes the full-width digits of a pasted code as the Latin ones", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<PinInput aria-label="Code" length={4} onChange={onChange} />);
+
+    // As Japanese and Chinese input methods type them
+    await user.click(cell(1, 4));
+    await user.paste("\uFF11\uFF12\uFF13\uFF14");
+
+    expect(cellValues()).toBe("1234");
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("1234");
+  });
+
+  it("takes the Arabic-Indic and Persian digits of a pasted code as the Latin ones", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<PinInput aria-label="Code" length={4} onChange={onChange} />);
+
+    // ١٢ in Arabic, ۳۴ in Persian - as a mask takes them
+    await user.click(cell(1, 4));
+    await user.paste("١٢۳۴");
+
+    expect(cellValues()).toBe("1234");
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("1234");
+  });
+
   it("puts a part of a code in from the cell it is pasted into", async () => {
     const user = userEvent.setup();
     render(<PinInput aria-label="Code" defaultValue="1234" />);
@@ -233,6 +265,266 @@ describe("PinInput", () => {
 
     expect(cellValues()).toBe("654321");
     expect(onComplete).toHaveBeenCalledWith("654321");
+  });
+
+  it.each([false, true])(
+    "keeps an IME draft until completion and ignores its trailing input (controlled: %s)",
+    (controlled) => {
+      const onChange = vi.fn();
+      const onComplete = vi.fn();
+      function Verify({ label }: { label: string }) {
+        const [value, setValue] = useState("");
+        return (
+          <form aria-label="Code">
+            <PinInput
+              label={label}
+              length={4}
+              name="code"
+              onChange={(next) => {
+                onChange(next);
+                setValue(next);
+              }}
+              onComplete={onComplete}
+              value={controlled ? value : undefined}
+            />
+          </form>
+        );
+      }
+      const { rerender } = render(<Verify label="Code" />);
+      const input = cell(1, 4);
+      act(() => input.focus());
+      fireEvent.compositionStart(input);
+      fireEvent.input(input, {
+        inputType: "insertCompositionText",
+        isComposing: true,
+        target: { value: "12" },
+      });
+
+      expect(input).toHaveValue("12");
+      expect(input).toHaveFocus();
+      expect(new FormData(getForm()).get("code")).toBe("");
+      expect(onChange).not.toHaveBeenCalled();
+      expect(onComplete).not.toHaveBeenCalled();
+      rerender(<Verify label="Updated code" />);
+      expect(input).toHaveValue("12");
+      expect(input).toHaveFocus();
+
+      fireEvent.compositionEnd(input, { data: "12" });
+      expect(cellValues()).toBe("12");
+      expect(cell(3, 4)).toHaveFocus();
+      expect(new FormData(getForm()).get("code")).toBe("12");
+      expect(onChange).toHaveBeenCalledExactlyOnceWith("12");
+      expect(onComplete).not.toHaveBeenCalled();
+
+      fireEvent.input(input, {
+        inputType: "insertText",
+        isComposing: false,
+        target: { value: "12" },
+      });
+      expect(cellValues()).toBe("12");
+      expect(cell(3, 4)).toHaveFocus();
+      expect(onChange).toHaveBeenCalledOnce();
+
+      fireEvent.keyDown(cell(3, 4), { key: "3" });
+      fireEvent.keyDown(cell(4, 4), { key: "4" });
+      expect(cellValues()).toBe("1234");
+      expect(onComplete).toHaveBeenCalledExactlyOnceWith("1234");
+    },
+  );
+
+  it("completes a composed code once, after compositionend", () => {
+    const onChange = vi.fn();
+    const onComplete = vi.fn();
+    render(
+      <PinInput
+        defaultValue="123"
+        length={4}
+        onChange={onChange}
+        onComplete={onComplete}
+      />,
+    );
+    const input = cell(4, 4);
+    act(() => input.focus());
+    fireEvent.compositionStart(input);
+    fireEvent.input(input, {
+      isComposing: true,
+      target: { value: "4" },
+    });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onComplete).not.toHaveBeenCalled();
+
+    fireEvent.compositionEnd(input, { data: "4" });
+    expect(cellValues()).toBe("1234");
+    expect(input).toHaveFocus();
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("1234");
+    expect(onComplete).toHaveBeenCalledExactlyOnceWith("1234");
+  });
+
+  it("takes a full-width digit an IME commits as the Latin one", () => {
+    const onChange = vi.fn();
+    render(<PinInput length={4} onChange={onChange} />);
+    const input = cell(1, 4);
+    act(() => input.focus());
+    fireEvent.compositionStart(input);
+    fireEvent.input(input, {
+      isComposing: true,
+      target: { value: "\uFF17" },
+    });
+
+    fireEvent.compositionEnd(input, { data: "\uFF17" });
+    expect(cellValues()).toBe("7");
+    expect(cell(2, 4)).toHaveFocus();
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("7");
+  });
+
+  it.each(["invalid", "canceled"])(
+    "restores a cell after an %s composition without changing the code or focus",
+    (outcome) => {
+      const onChange = vi.fn();
+      const onComplete = vi.fn();
+      render(
+        <PinInput
+          defaultValue="1234"
+          length={4}
+          onChange={onChange}
+          onComplete={onComplete}
+        />,
+      );
+      const input = cell(2, 4);
+      act(() => input.focus());
+      fireEvent.compositionStart(input);
+      fireEvent.input(input, {
+        isComposing: true,
+        target: { value: "ě" },
+      });
+      expect(input).toHaveValue("ě");
+      fireEvent.compositionEnd(input, {
+        data: outcome === "canceled" ? "" : "ě",
+        target: { value: outcome === "canceled" ? "2" : "ě" },
+      });
+
+      expect(cellValues()).toBe("1234");
+      expect(input).toHaveFocus();
+      expect(onChange).not.toHaveBeenCalled();
+      expect(onComplete).not.toHaveBeenCalled();
+    },
+  );
+
+  it("leaves composing and Safari key-code 229 keys to the IME", () => {
+    const onChange = vi.fn();
+    render(<PinInput defaultValue="12" length={4} onChange={onChange} />);
+    const input = cell(2, 4);
+    act(() => input.focus());
+    fireEvent.compositionStart(input);
+    expect(fireEvent.keyDown(input, { key: "Backspace" })).toBe(true);
+    expect(fireEvent.keyDown(input, { key: "ArrowRight" })).toBe(true);
+    expect(input).toHaveFocus();
+    fireEvent.compositionEnd(input, { data: "" });
+    expect(fireEvent.keyDown(input, { key: "Backspace", keyCode: 229 })).toBe(
+      true,
+    );
+    expect(
+      fireEvent.keyDown(input, { key: "ArrowRight", isComposing: true }),
+    ).toBe(true);
+    expect(cellValues()).toBe("12");
+    expect(input).toHaveFocus();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("discards a composing draft and its late completion after a form reset", async () => {
+    const onChange = vi.fn();
+    render(
+      <form aria-label="Code">
+        <PinInput defaultValue="1" length={4} name="code" onChange={onChange} />
+      </form>,
+    );
+    const input = cell(2, 4);
+    act(() => input.focus());
+    fireEvent.compositionStart(input);
+    fireEvent.input(input, {
+      isComposing: true,
+      target: { value: "23" },
+    });
+    act(() => getForm().reset());
+    await waitFor(() => expect(input).toHaveValue(""));
+
+    fireEvent.compositionEnd(input, {
+      data: "23",
+      target: { value: "23" },
+    });
+    fireEvent.input(input, {
+      isComposing: false,
+      target: { value: "23" },
+    });
+    expect(cellValues()).toBe("1");
+    expect(new FormData(getForm()).get("code")).toBe("1");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("accepts another phone edit when the composing cell is focused again", () => {
+    const onChange = vi.fn();
+    render(<PinInput length={4} onChange={onChange} />);
+    const input = cell(1, 4);
+    act(() => input.focus());
+    fireEvent.compositionStart(input);
+    fireEvent.input(input, { isComposing: true, target: { value: "12" } });
+    fireEvent.compositionEnd(input, { data: "12" });
+    act(() => input.focus());
+    fireEvent.input(input, {
+      data: "2",
+      inputType: "insertText",
+      isComposing: false,
+      target: { value: "12" },
+    });
+
+    expect(cellValues()).toBe("22");
+    expect(onChange).toHaveBeenLastCalledWith("22");
+  });
+
+  it("accepts typing after a reset cancels composition without its final event", async () => {
+    const onChange = vi.fn();
+    render(
+      <form aria-label="Code">
+        <PinInput defaultValue="1" length={4} onChange={onChange} />
+      </form>,
+    );
+    const input = cell(2, 4);
+    act(() => input.focus());
+    fireEvent.compositionStart(input);
+    fireEvent.input(input, { isComposing: true, target: { value: "23" } });
+    act(() => getForm().reset());
+    await waitFor(() => expect(input).toHaveValue(""));
+    fireEvent.keyDown(input, { key: "4" });
+
+    expect(cellValues()).toBe("14");
+    expect(cell(3, 4)).toHaveFocus();
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("14");
+  });
+
+  it("does not revive a discarded composition when the controlled value returns", () => {
+    const onChange = vi.fn();
+    const view = (value: string) => (
+      <PinInput length={4} onChange={onChange} value={value} />
+    );
+    const { rerender } = render(view("1"));
+    const input = cell(2, 4);
+    act(() => input.focus());
+    fireEvent.compositionStart(input);
+    fireEvent.input(input, { isComposing: true, target: { value: "23" } });
+    rerender(view("9"));
+    expect(cellValues()).toBe("9");
+    rerender(view("1"));
+    fireEvent.compositionEnd(input, {
+      data: "23",
+      target: { value: "23" },
+    });
+    fireEvent.input(input, {
+      isComposing: false,
+      target: { value: "23" },
+    });
+
+    expect(cellValues()).toBe("1");
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("clears a cell a phone keyboard empties", () => {
@@ -281,7 +573,7 @@ describe("PinInput", () => {
     expect(new FormData(getForm()).get("code")).toBe("1234");
 
     act(() => getForm().reset());
-    expect(cellValues()).toBe("12");
+    await waitFor(() => expect(cellValues()).toBe("12"));
     expect(new FormData(getForm()).get("code")).toBe("12");
   });
 
@@ -480,7 +772,7 @@ describe("PinInput with a code that gets shorter under the focus", () => {
 
     // React resetting the form after an action submitted with Enter
     act(() => getForm().reset());
-    expect(cellValues()).toBe("");
+    await waitFor(() => expect(cellValues()).toBe(""));
     expect(cell(1, 4)).toHaveFocus();
 
     await user.keyboard("12{Backspace}");

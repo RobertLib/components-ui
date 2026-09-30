@@ -1,7 +1,12 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import cn from "../../utils/cn";
-import { getRangeMessage, isInRange, parseDisplayValue } from "./parse";
+import {
+  getRangeMessage,
+  isInRange,
+  parseDisplayValue,
+  parseMonth,
+} from "./parse";
 import PickerField from "./picker-field";
 import usePickerPopup from "./use-picker-popup";
 import { isMonthUnavailable, type DateDisabledPredicate } from "./availability";
@@ -15,12 +20,6 @@ import {
 } from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
-
-/** Splits `YYYY-MM` into numbers (month 1 - 12). */
-const parseMonth = (value: string | undefined) => {
-  const match = value?.match(/^(\d{4})-(\d{2})/);
-  return match ? { month: Number(match[2]), year: Number(match[1]) } : null;
-};
 
 interface MonthGridProps {
   /** Moves the focus to the month - the popup was opened by a key. */
@@ -313,6 +312,15 @@ export default function MonthPicker({
     return parts ? formatPattern(locale.formats.month, parts) : month;
   };
 
+  const getUnavailableMessage = (value: string) => {
+    const month = parseMonth(value);
+    return month &&
+      isDateDisabled &&
+      isMonthUnavailable(month.year, month.month, isDateDisabled)
+      ? formatMessage(messages.unavailable, { value: formatValue(value) })
+      : "";
+  };
+
   return (
     <PickerField
       {...props}
@@ -334,7 +342,7 @@ export default function MonthPicker({
         const typed = parseDisplayValue(text, locale.formats.month, "month");
         if (!typed) return { error: "format" };
         return isInRange(typed, min, max)
-          ? { value: typed }
+          ? { value: typed, validityMessage: getUnavailableMessage(typed) }
           : { error: "range" };
       }}
       pickCount={pickCount}
@@ -351,11 +359,7 @@ export default function MonthPicker({
         ) ||
         // A month with no day left - one typed too, which is kept (the form
         // cannot be submitted with it)
-        (selected &&
-        isDateDisabled &&
-        isMonthUnavailable(selected.year, selected.month, isDateDisabled)
-          ? formatMessage(messages.unavailable, { value: formatValue(value) })
-          : "")
+        getUnavailableMessage(value)
       }
       value={value}
     >

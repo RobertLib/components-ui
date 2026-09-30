@@ -163,6 +163,74 @@ describe("Calendar moving in the month view", () => {
     expect(onEventDrop).toHaveBeenCalledWith(change(d(25, 9), d(25, 10)));
   });
 
+  it.each([false, true])(
+    "bounds the start of a spanning event when dragging a later tile (allDay: %s)",
+    (allDay) => {
+      vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(
+        700,
+      );
+      const onEventDrop = vi.fn();
+      const hour = allDay ? 0 : 9;
+      render(
+        <Calendar
+          events={[event("Trip", d(24, hour), d(26, hour), { allDay })]}
+          initialDate={d(24)}
+          maxDate={d(25)}
+          minDate={d(24, 12)}
+          onEventDrop={onEventDrop}
+        />,
+      );
+
+      // The grabbed tile would land on the 24th, but the start on the 23rd.
+      drag(screen.getAllByText("Trip")[1].closest(".group\\/event")!, 0, -100);
+      expect(onEventDrop).not.toHaveBeenCalled();
+
+      // Bounds apply to the start day; its time and full length survive.
+      drag(screen.getAllByText("Trip")[0].closest(".group\\/event")!, 0, 100);
+      expect(onEventDrop).toHaveBeenCalledWith(
+        change(d(25, hour), d(27, hour)),
+      );
+    },
+  );
+
+  it("keeps a shifted start on an allowed hidden day", () => {
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+    const onEventDrop = vi.fn();
+    render(
+      <Calendar
+        events={[event("Trip", d(22), d(25), { allDay: true })]}
+        hiddenDays={[3]}
+        initialDate={d(24)}
+        minDate={d(22)}
+        onEventDrop={onEventDrop}
+      />,
+    );
+
+    // Wednesday is hidden: the second tile is Thursday, moved to Friday.
+    drag(screen.getAllByText("Trip")[1].closest(".group\\/event")!, 0, 100);
+    expect(onEventDrop).toHaveBeenCalledWith(change(d(23), d(26)));
+  });
+
+  it("requires an already disabled start to reach minDate before dropping", () => {
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(700);
+    const onEventDrop = vi.fn();
+    render(
+      <Calendar
+        events={[event("Trip", d(22), d(26), { allDay: true })]}
+        initialDate={d(24)}
+        minDate={d(24)}
+        onEventDrop={onEventDrop}
+      />,
+    );
+
+    const tile = () =>
+      screen.getAllByText("Trip")[2].closest(".group\\/event")!;
+    drag(tile(), 0, 100);
+    expect(onEventDrop).not.toHaveBeenCalled();
+    drag(tile(), 0, 200);
+    expect(onEventDrop).toHaveBeenCalledWith(change(d(24), d(28)));
+  });
+
   it("moves an event by the keys - Ctrl + X, arrows, Enter", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -276,6 +344,28 @@ describe("Calendar moving in the month view", () => {
 });
 
 describe("Calendar moving all-day events in the week and day views", () => {
+  it.each(["month", "week"] as const)(
+    "stops at minDate when the keys move a later tile of a spanning event (%s)",
+    async (view) => {
+      const user = userEvent.setup();
+      const onEventDrop = vi.fn();
+      render(
+        <Calendar
+          events={[event("Trip", d(25), d(27), { allDay: true })]}
+          initialDate={d(24)}
+          initialView={view}
+          minDate={d(24)}
+          onEventDrop={onEventDrop}
+        />,
+      );
+
+      act(() => screen.getAllByRole("button", { name: /^Trip,/ })[1].focus());
+      // The first step reaches the limit; further steps stay there.
+      await user.keyboard("{Control>}x{/Control}{ArrowLeft>3/}{Enter}");
+      expect(onEventDrop).toHaveBeenCalledWith(change(d(24), d(26)));
+    },
+  );
+
   it("drags an all-day event to another day of the week", () => {
     vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(700);
     const onEventDrop = vi.fn();
@@ -323,6 +413,42 @@ describe("Calendar moving all-day events in the week and day views", () => {
       newStart: d(24),
     });
   });
+
+  it.each([22, 24])(
+    "checks a resource-only move against minDate, even with its start out of view (minDate: %s)",
+    async (minDay) => {
+      const user = userEvent.setup();
+      const onEventDrop = vi.fn();
+      render(
+        <Calendar
+          events={[
+            event("Trip", d(23), d(26), { allDay: true, resourceId: "a" }),
+          ]}
+          initialDate={d(24)}
+          initialView="day"
+          minDate={d(minDay)}
+          onEventDrop={onEventDrop}
+          resources={[
+            { id: "a", title: "Room A" },
+            { id: "b", title: "Room B" },
+          ]}
+        />,
+      );
+
+      act(() => tileButton("Trip").focus());
+      await user.keyboard("{Control>}x{/Control}{ArrowRight}{Enter}");
+      if (minDay === 24) {
+        expect(onEventDrop).not.toHaveBeenCalled();
+      } else {
+        expect(onEventDrop).toHaveBeenCalledWith({
+          event: expect.objectContaining({ id: "Trip" }),
+          newEnd: d(26),
+          newResourceId: "b",
+          newStart: d(23),
+        });
+      }
+    },
+  );
 
   it("does not move the all-day events of the day view without resources", () => {
     render(

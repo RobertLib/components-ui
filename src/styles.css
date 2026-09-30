@@ -249,7 +249,7 @@
 
   /* Renders the HTML produced by RichTextEditor, which preflight would otherwise strip of all formatting */
   .rich-text {
-    @apply leading-relaxed break-words;
+    @apply leading-relaxed wrap-break-word;
 
     & p {
       @apply mb-2 last:mb-0;

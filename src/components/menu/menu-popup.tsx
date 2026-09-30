@@ -1,6 +1,7 @@
 import { createPortal } from "react-dom";
 import { useLayoutEffect, useRef, useState } from "react";
 import {
+  getVisibleArea,
   placeAtAnchor,
   placeSubmenu,
   type AnchorRect,
@@ -73,7 +74,8 @@ export default function MenuPopup({
 
   // Placed once rendered, as it is measured - before it is painted, so it
   // never shows where it was put to be measured. Again when the page
-  // scrolls or resizes, or the menu changes its size.
+  // scrolls or resizes, or the menu changes its size - on phones also when
+  // the on-screen keyboard or pinch zoom changes the visual viewport.
   useLayoutEffect(() => {
     const panel = ref.current;
     if (!panel) return;
@@ -88,12 +90,13 @@ export default function MenuPopup({
         height: panel.scrollHeight + borders,
         width: panel.offsetWidth,
       };
-      const viewport = { height: window.innerHeight, width: window.innerWidth };
+      // In the part of the page that is seen - not under the keyboard
+      const area = getVisibleArea();
       const rtl = dir === "rtl";
       const next =
         placement === "submenu"
-          ? placeSubmenu(anchor, size, viewport, rtl)
-          : placeAtAnchor(anchor, size, viewport, gap, rtl);
+          ? placeSubmenu(anchor, size, area, rtl)
+          : placeAtAnchor(anchor, size, area, gap, rtl);
 
       setPosition((current) =>
         current && isSamePosition(current, next) ? current : next,
@@ -109,13 +112,18 @@ export default function MenuPopup({
     for (const element of [panel, ...panel.children]) {
       observer?.observe(element);
     }
+    const viewport = window.visualViewport;
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
+    viewport?.addEventListener("resize", place);
+    viewport?.addEventListener("scroll", place);
 
     return () => {
       observer?.disconnect();
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
+      viewport?.removeEventListener("resize", place);
+      viewport?.removeEventListener("scroll", place);
     };
   }, [dir, gap, placement, ref]);
 

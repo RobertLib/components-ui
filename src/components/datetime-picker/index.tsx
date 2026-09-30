@@ -1,4 +1,5 @@
-import { useCallback, useId, useLayoutEffect, useRef } from "react";
+import { useCallback, useId, useRef } from "react";
+import useCustomValidity from "../../hooks/use-custom-validity";
 import cn, { joinTokens } from "../../utils/cn";
 import DatePicker from "./date-picker";
 import DateTimePanelPicker from "./date-time-picker";
@@ -9,7 +10,7 @@ import MonthPicker from "./month-picker";
 import TimePicker from "./time-picker";
 import WeekPicker from "./week-picker";
 import { isValueUnavailable, type DateDisabledPredicate } from "./availability";
-import { parseTime } from "./parse";
+import { parseTime, sanitizePickerLimit, sanitizePickerValue } from "./parse";
 import { isAriaInvalid, useFormControl } from "../../hooks/use-form-control";
 import { formatMessage } from "../../i18n/format";
 import {
@@ -157,7 +158,8 @@ export interface DateTimePickerProps extends Omit<
   /**
    * The value format is that of the native input: `YYYY-MM-DD` (date),
    * `HH:mm` (time), `YYYY-MM-DDTHH:mm` (datetime-local), `YYYY-MM` (month),
-   * `YYYY-Www` (week).
+   * `YYYY-Www` (week). Malformed `value` / `defaultValue` is shown and
+   * submitted as empty, like a native input, so `required` blocks it.
    */
   type?: DateTimePickerType;
 }
@@ -266,6 +268,7 @@ export default function DateTimePicker({
     // A value a script writes into the native input stays - `register()`.
     // The custom pickers' `fieldRef` is on a field showing formatted text.
     followScriptWrites: mode === "native",
+    form: inputProps.form,
     onChange,
     ref,
     value: valueProp,
@@ -292,19 +295,7 @@ export default function DateTimePicker({
           value: formatValue(String(value), type, locale),
         })
       : "";
-  // The message set last is the one cleared - one the page set stays
-  const nativeMessageRef = useRef("");
-
-  useLayoutEffect(() => {
-    const input = nativeRef.current;
-    if (!input) return;
-
-    if (nativeMessage) input.setCustomValidity(nativeMessage);
-    else if (input.validationMessage === nativeMessageRef.current) {
-      input.setCustomValidity("");
-    }
-    nativeMessageRef.current = nativeMessage;
-  }, [nativeMessage]);
+  useCustomValidity(nativeRef, nativeMessage);
 
   const generatedId = useId();
   const inputId = id ?? generatedId;
@@ -408,8 +399,8 @@ export default function DateTimePicker({
     inputProps,
     isDateDisabled,
     label,
-    max: max === undefined ? undefined : String(max),
-    min: min === undefined ? undefined : String(min),
+    max: sanitizePickerLimit(max === undefined ? undefined : String(max), type),
+    min: sanitizePickerLimit(min === undefined ? undefined : String(min), type),
     minuteStep: pickerMinuteStep,
     name,
     onBlur,
@@ -431,7 +422,8 @@ export default function DateTimePicker({
     presets,
     readOnly,
     required,
-    value: String(value ?? ""),
+    sourceValue: String(value ?? ""),
+    value: sanitizePickerValue(String(value ?? ""), type),
   };
 
   switch (type) {

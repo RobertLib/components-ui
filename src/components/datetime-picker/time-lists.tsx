@@ -7,6 +7,8 @@ import { useLocale } from "../../providers/ui-context";
 interface TimeListsProps {
   /** Moves the focus into the hour list - the popup was opened by a key. */
   autoFocus?: boolean;
+  /** No time can be picked, e.g. the date of a date-time is disabled. */
+  disabled?: boolean;
   /**
    * Shows the hours on the 12-hour clock with the AM / PM of the locale -
    * `9 AM`; the values stay 24-hour.
@@ -272,6 +274,7 @@ function TimeList({
  */
 export default function TimeLists({
   autoFocus = false,
+  disabled = false,
   hour12 = false,
   hours,
   listClassName = "max-h-40",
@@ -291,11 +294,12 @@ export default function TimeLists({
   // option in it, and the minutes that are not with the selected hour -
   // with midnight before one is selected
   const isHourDisabled = (hour: string) =>
+    disabled ||
     !minuteOptions.some((minute) =>
       isTimeInRange(`${hour}:${minute}`, min, max),
     );
   const isMinuteDisabled = (minute: string) =>
-    !isTimeInRange(`${hours ?? "00"}:${minute}`, min, max);
+    disabled || !isTimeInRange(`${hours ?? "00"}:${minute}`, min, max);
 
   return (
     <div className="flex gap-2">

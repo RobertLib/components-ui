@@ -129,6 +129,12 @@ export default function DateTimePickerPage() {
       <Section title="The change event">
         <Prose>
           <p>
+            A form submits the parsed value even before the field loses focus;
+            an invalid draft blocks submission. Typing calls{" "}
+            <code>onChange</code> on Enter or blur. A form reset also discards
+            any unfinished text.
+          </p>
+          <p>
             No DOM element stands behind the event of the custom picker - its
             field shows the formatted value, not the value itself:
           </p>

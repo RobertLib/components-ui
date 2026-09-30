@@ -174,6 +174,8 @@ export default function IconButton({
         aria-disabled="true"
         aria-label={label}
         className={classNames}
+        onAuxClick={preventActivation}
+        onClick={preventActivation}
         role="link"
         tabIndex={undefined}
       >

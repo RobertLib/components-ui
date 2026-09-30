@@ -6,7 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StrictMode, useEffect, useState } from "react";
+import { Activity, StrictMode, useEffect, useState } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import ConfirmProvider from "./confirm-provider";
@@ -527,6 +527,81 @@ describe("ConfirmProvider unmounted", () => {
     expect(
       screen.getByRole("alertdialog", { name: "Restore the draft?" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("ConfirmProvider and Activity", () => {
+  function Page({ mode }: { mode: "hidden" | "visible" }) {
+    return (
+      <Activity mode={mode}>
+        <ConfirmProvider>
+          <DeleteButton />
+        </ConfirmProvider>
+      </Activity>
+    );
+  }
+
+  it("accepts a new question after the page is shown again", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<Page mode="visible" />);
+
+    await act(async () => rerender(<Page mode="hidden" />));
+    await act(async () => rerender(<Page mode="visible" />));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(
+      screen.getByRole("alertdialog", { name: "Delete the customer?" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(screen.getByRole("status")).toHaveTextContent("confirmed");
+  });
+
+  it("keeps an unanswered question pending while the page is hidden", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<Page mode="visible" />);
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await act(async () => rerender(<Page mode="hidden" />));
+    expect(screen.getByRole("status", { hidden: true })).toHaveTextContent(
+      "none",
+    );
+    await act(async () => rerender(<Page mode="visible" />));
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("confirmed");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("cancels a pending question when the hidden page unmounts", async () => {
+    let confirm!: ConfirmFunction;
+    const answer = vi.fn();
+
+    function Keep() {
+      const value = useConfirm();
+      useEffect(() => {
+        confirm = value;
+      }, [value]);
+      return null;
+    }
+
+    const content = (
+      <ConfirmProvider>
+        <Keep />
+      </ConfirmProvider>
+    );
+    const { rerender, unmount } = render(
+      <Activity mode="visible">{content}</Activity>,
+    );
+    await act(async () => {
+      void confirm({ title: "Delete the order?" }).then(answer);
+    });
+    await act(async () => {
+      rerender(<Activity mode="hidden">{content}</Activity>);
+    });
+    expect(answer).not.toHaveBeenCalled();
+
+    await act(async () => unmount());
+    expect(answer).toHaveBeenCalledExactlyOnceWith(false);
   });
 });
 

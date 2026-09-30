@@ -200,4 +200,24 @@ describe("TreeView virtualized", () => {
       targetId: "region-99",
     });
   });
+
+  it("scrolls the line below the loading row of the last item into view", async () => {
+    const user = userEvent.setup();
+    renderTree({
+      defaultExpanded: [...allRegions, "archive"],
+      items: [
+        ...regions,
+        { hasChildren: true, id: "archive", label: "Archive" },
+      ],
+      loadChildren: () => new Promise<TreeItem<string>[]>(() => {}),
+      onMove: () => {},
+    });
+
+    await user.tab();
+    await user.keyboard("{ArrowDown}{Control>}x{/Control}{End}");
+    // After Archive - below its loading row, the last of the 10 002
+    const loading = screen.getByText("Loading…").parentElement;
+    expect(loading).toHaveAttribute("data-drop-edge", "bottom");
+    expect(tree().scrollTop).toBe(10_002 * 32 - 320);
+  });
 });

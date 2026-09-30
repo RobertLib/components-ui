@@ -311,6 +311,50 @@ describe("expandRecurringEvents", () => {
     ]);
   });
 
+  describe.each(["object", "RRULE"] as const)(
+    "yearly weekday ordinals with month days (%s)",
+    (format) => {
+      it.each([
+        {
+          name: "first Monday",
+          nth: 1,
+          weekday: 1 as const,
+          icalWeekday: "MO",
+          monthDays: [1, 2, 3, 4, 5, 6, 7],
+          start: new Date(2026, 0, 5, 9),
+          expected: "2027-01-04 09:00",
+        },
+        {
+          name: "last Friday",
+          nth: -1,
+          weekday: 5 as const,
+          icalWeekday: "FR",
+          monthDays: [-1, -2, -3, -4, -5, -6, -7],
+          start: new Date(2026, 11, 25, 9),
+          expected: "2027-12-31 09:00",
+        },
+      ])(
+        "takes the $name of the year, not of each month",
+        ({ nth, weekday, icalWeekday, monthDays, start, expected }) => {
+          const recurrence: CalendarRecurrence | string =
+            format === "object"
+              ? {
+                  byMonthDay: monthDays,
+                  byWeekday: [{ day: weekday, nth }],
+                  freq: "yearly",
+                }
+              : `FREQ=YEARLY;BYDAY=${nth}${icalWeekday};BYMONTHDAY=${monthDays.join(",")}`;
+          const events = expandRecurringEvents(
+            [event(start, new Date(start.getTime() + 3_600_000), recurrence)],
+            range(new Date(2027, 0, 1), new Date(2028, 0, 1)),
+          );
+
+          expect(starts(events)).toEqual([expected]);
+        },
+      );
+    },
+  );
+
   it("limits a rule to the months of byMonth", () => {
     const events = expandRecurringEvents(
       [

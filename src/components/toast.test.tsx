@@ -233,6 +233,74 @@ describe("Toast", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Saved")).toBeNull();
   });
+
+  it("closes only once when dismissed during its automatic slide-out", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    render(<Toast duration={1000} message="Saved" onClose={onClose} />);
+
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.getByRole("status")).toHaveAttribute("data-state", "closed");
+    fireEvent.click(screen.getByRole("button", { name: "Close notification" }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Saved")).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => vi.advanceTimersByTime(200));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels its timers when dismissed before its duration ends", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    const onHide = vi.fn();
+    render(
+      <Toast
+        duration={1000}
+        message="Saved"
+        onClose={onClose}
+        onHide={onHide}
+      />,
+    );
+
+    act(() => vi.advanceTimersByTime(LIVE_REGION_DELAY));
+    fireEvent.click(screen.getByRole("button", { name: "Close notification" }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Saved")).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => vi.advanceTimersByTime(1000));
+    act(() => vi.advanceTimersByTime(200));
+    expect(onHide).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels the swipe animation timer when dismissed while sliding away", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    render(<Toast message="Saved" onClose={onClose} />);
+    act(() => vi.advanceTimersByTime(LIVE_REGION_DELAY));
+    const toast = screen.getByRole("status");
+    const pointer = {
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 5,
+      pointerType: "touch",
+    };
+
+    fireEvent.pointerDown(toast, { ...pointer, clientX: 100 });
+    act(() => vi.advanceTimersByTime(100));
+    fireEvent.pointerMove(toast, { ...pointer, clientX: 190 });
+    fireEvent.pointerUp(toast, { ...pointer, clientX: 190 });
+    expect(toast).toHaveAttribute("data-state", "closed");
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close notification" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => vi.advanceTimersByTime(200));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("Toast focus", () => {

@@ -84,6 +84,42 @@ describe("ContextMenu with the pointer", () => {
     );
   });
 
+  it("moves above the pointer as the on-screen keyboard comes up", () => {
+    // Fires its own resize, as the visual viewport of a phone does
+    const viewport = Object.assign(new EventTarget(), {
+      height: 768,
+      offsetLeft: 0,
+      offsetTop: 0,
+      width: 1024,
+    });
+    vi.stubGlobal("visualViewport", viewport);
+    // jsdom lays nothing out - the menu is 180 x 200 px
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(200);
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(180);
+    try {
+      render(<FileRow />);
+      const row = screen.getByText("report.pdf");
+      // Lower in the page - the pointer is on it
+      vi.spyOn(row, "getBoundingClientRect").mockReturnValue(
+        DOMRect.fromRect({ height: 40, width: 500, x: 0, y: 280 }),
+      );
+
+      fireEvent.contextMenu(row, { clientX: 120, clientY: 300 });
+      const panel = screen.getByRole("menu").parentElement!;
+      expect(panel).toHaveStyle({ top: "302px" });
+
+      // The keyboard covers all below 400 - no room for 200 px below
+      viewport.height = 400;
+      act(() => {
+        viewport.dispatchEvent(new Event("resize"));
+      });
+      expect(panel).toHaveStyle({ top: `${300 - 2 - 200}px` });
+      expect(panel).toHaveAttribute("data-side", "top");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("runs a picked item, closes and gives the focus back", async () => {
     const user = userEvent.setup();
     const rename = vi.fn();
@@ -199,6 +235,51 @@ describe("ContextMenu with the pointer", () => {
     act(() => vi.advanceTimersByTime(1000));
     expect(screen.queryByRole("menu")).toBeNull();
   });
+
+  it.each(["child", "menu", "wrapper"])(
+    "keeps a prevented touch press closed with the %s handler",
+    (handler) => {
+      vi.useFakeTimers();
+      const onOpenChange = vi.fn();
+      const preventPress = vi.fn((event: React.PointerEvent) => {
+        if (event.shiftKey) event.preventDefault();
+      });
+      render(
+        <ContextMenu
+          items={[{ label: "Rename" }]}
+          onOpenChange={onOpenChange}
+          onPointerDown={handler === "child" ? undefined : preventPress}
+          tabIndex={0}
+        >
+          {handler === "wrapper" ? (
+            "Row"
+          ) : (
+            <div onPointerDown={handler === "child" ? preventPress : undefined}>
+              Row
+            </div>
+          )}
+        </ContextMenu>,
+      );
+      const row = screen.getByText("Row");
+      act(() => row.focus());
+      const touch = { pointerId: 7, pointerType: "touch" };
+
+      fireEvent.pointerDown(row, { ...touch, shiftKey: true });
+      act(() => vi.advanceTimersByTime(600));
+
+      expect(preventPress).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(onOpenChange).not.toHaveBeenCalled();
+      expect(row).toHaveFocus();
+
+      fireEvent.pointerUp(row, touch);
+      fireEvent.pointerDown(row, touch);
+      act(() => vi.advanceTimersByTime(500));
+
+      expect(screen.getByRole("menu")).toHaveFocus();
+      expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(true);
+    },
+  );
 });
 
 describe("ContextMenu right to left", () => {

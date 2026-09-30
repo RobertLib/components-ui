@@ -114,6 +114,74 @@ describe("filter values", () => {
     expect(ids({ filters: { joined: "2026-09-30" } })).toEqual([3]);
   });
 
+  it.each(["date", "datetime", "dateRange"] as const)(
+    "matches %s filters against each date in a cell",
+    (filter) => {
+      const earlier = new Date(2026, 8, 24, 23, 30);
+      const later = new Date(2026, 8, 30, 0, 30);
+      const rows = [
+        { id: 1, dates: ["2026-09-24", "2026-09-30"] },
+        { id: 2, dates: [earlier, later] },
+        { id: 3, dates: [earlier.toISOString(), later.toISOString()] },
+        { id: 4, dates: ["2026-09-24"] },
+        { id: 5, dates: [] },
+      ];
+      const columns = [{ filter, key: "dates", label: "Dates" }];
+      const matching = (value: string) =>
+        applyDataTableQuery(
+          rows,
+          createDataTableQuery({ filters: { dates: value } }),
+          columns,
+        ).rows.map((row) => row.id);
+
+      expect(matching("2026-09-30")).toEqual([1, 2, 3]);
+      expect(matching("2026-09-30T00:30")).toEqual([2, 3]);
+      expect(matching("2026-10-01")).toEqual([]);
+    },
+  );
+
+  it("matches time filters against each time in a cell", () => {
+    const earlier = new Date(2026, 8, 24, 8);
+    const later = new Date(2026, 8, 30, 10, 30);
+    const rows = [
+      { id: 1, times: ["08:00", "10:30"] },
+      { id: 2, times: [earlier, later] },
+      { id: 3, times: [earlier.toISOString(), later.toISOString()] },
+      { id: 4, times: ["2026-09-24T08:00", "2026-09-30T10:30"] },
+      { id: 5, times: ["08:00"] },
+      { id: 6, times: [] },
+    ];
+    const result = applyDataTableQuery(
+      rows,
+      createDataTableQuery({ filters: { times: "10:30" } }),
+      [{ filter: "time", key: "times", label: "Times" }],
+    );
+
+    expect(result.rows.map((row) => row.id)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("matches a single numeric filter against each amount in a cell", () => {
+    const rows = [
+      { id: 1, amounts: [1, "2.00"] },
+      { id: 2, amounts: [1n, "9007199254740993"] },
+      { id: 3, amounts: [1] },
+      { id: 4, amounts: [] },
+    ];
+    const columns: Column<(typeof rows)[number]>[] = [
+      { filter: "numberRange", key: "amounts", label: "Amounts" },
+    ];
+    const matching = (value: string) =>
+      applyDataTableQuery(
+        rows,
+        createDataTableQuery({ filters: { amounts: value } }),
+        columns,
+      ).rows.map((row) => row.id);
+
+    expect(matching("2")).toEqual([1]);
+    expect(matching("9007199254740993")).toEqual([2]);
+    expect(matching("9007199254740992")).toEqual([]);
+  });
+
   it("gives filterFn the text and the value", () => {
     const filterFn = vi.fn(() => true);
     applyDataTableQuery(

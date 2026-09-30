@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { DataTable, type Column } from "components-ui";
+import { DataTable, type CellEditResult, type Column } from "components-ui";
 import { departmentOptions, people } from "../../mocks/data";
 import { Salary } from "./salary";
 
@@ -64,12 +64,16 @@ const columns: Column<Employee>[] = [
   { editable: true, key: "remote", label: "Remote" },
 ];
 
-/** A save to a server - "error" in a name makes it refuse the change. */
-async function saveEmployee(key: string, value: unknown) {
+/** A server trims names; "error" in one makes it refuse the change. */
+async function saveEmployee(
+  key: string,
+  value: unknown,
+): Promise<CellEditResult> {
   await new Promise((resolve) => setTimeout(resolve, 700));
   if (key === "name" && String(value).toLowerCase().includes("error")) {
     throw new Error("The server refused this name.");
   }
+  return { value: key === "name" ? String(value).trim() : value };
 }
 
 export default function InlineEditing() {
@@ -86,12 +90,13 @@ export default function InlineEditing() {
       // The cell shows the new value with a spinner while this runs - and
       // its old value with the message when it throws
       onCellEdit={async (employee, key, value) => {
-        await saveEmployee(key, value);
+        const saved = await saveEmployee(key, value);
         setRows((current) =>
           current.map((row) =>
-            row.id === employee.id ? { ...row, [key]: value } : row,
+            row.id === employee.id ? { ...row, [key]: saved.value } : row,
           ),
         );
+        return saved;
       }}
     />
   );

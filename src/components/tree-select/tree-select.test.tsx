@@ -1,9 +1,18 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import TreeSelect from ".";
 import type { TreeItem } from "../tree-view";
+import UIProvider from "../../providers/ui-provider";
+import { getActiveElement } from "../overlay-stack";
 
 // Electronics
 //   Computers
@@ -40,6 +49,54 @@ const formValues = (form: HTMLFormElement, name: string) =>
   new FormData(form).getAll(name);
 
 describe("TreeSelect", () => {
+  it("navigates its tree in a shadow root and returns the focus after picking or clearing", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    onTestFinished(() => host.remove());
+    const shadow = host.attachShadow({ mode: "open" });
+    const container = document.createElement("div");
+    const portalRoot = document.createElement("div");
+    shadow.append(container, portalRoot);
+    const onChange = vi.fn();
+    render(
+      <UIProvider portalContainer={portalRoot}>
+        <TreeSelect items={categories} label="Category" onChange={onChange} />
+      </UIProvider>,
+      { container },
+    );
+    const app = within(container);
+    const popup = within(portalRoot);
+    const field = app.getByRole("combobox");
+    act(() => field.focus());
+    fireEvent.keyDown(field, { composed: true, key: "ArrowDown" });
+    const searchField = popup.getByRole("searchbox");
+    expect(getActiveElement(shadow)).toBe(searchField);
+    fireEvent.keyDown(searchField, { composed: true, key: "ArrowDown" });
+
+    const electronics = popup.getByRole("treeitem", { name: "Electronics" });
+    expect(getActiveElement(shadow)).toBe(electronics);
+    fireEvent.keyDown(electronics, { composed: true, key: "ArrowRight" });
+    fireEvent.keyDown(electronics, { composed: true, key: "ArrowDown" });
+    const computers = popup.getByRole("treeitem", { name: "Computers" });
+    expect(getActiveElement(shadow)).toBe(computers);
+    fireEvent.keyDown(computers, { composed: true, key: "ArrowRight" });
+    fireEvent.keyDown(computers, { composed: true, key: "ArrowDown" });
+    const laptops = popup.getByRole("treeitem", { name: "Laptops" });
+    expect(getActiveElement(shadow)).toBe(laptops);
+    fireEvent.keyDown(laptops, { composed: true, key: "Enter" });
+
+    expect(onChange).toHaveBeenLastCalledWith("laptops", expect.any(Object));
+    expect(popup.queryByRole("tree")).toBeNull();
+    expect(getActiveElement(shadow)).toBe(field);
+    expect(field).toHaveTextContent("Laptops");
+
+    const clear = app.getByRole("button", { name: "Clear" });
+    act(() => clear.focus());
+    fireEvent.click(clear);
+    expect(onChange).toHaveBeenLastCalledWith(null, null);
+    expect(getActiveElement(shadow)).toBe(field);
+  });
+
   it("is a combobox named by its label that opens a tree", async () => {
     const user = userEvent.setup();
     render(
@@ -110,6 +167,37 @@ describe("TreeSelect", () => {
     await user.keyboard("{ArrowUp}[Space]");
     expect(combobox()).toHaveTextContent("Laptops");
     expect(combobox()).toHaveFocus();
+  });
+
+  it("closes with Space on the item picked already - a Space typed in a typeahead search goes on with it", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <TreeSelect
+        defaultValue="new-york"
+        items={[
+          { id: "boston", label: "Boston" },
+          { id: "new-york", label: "New York" },
+        ]}
+        label="City"
+        onChange={onChange}
+        searchable={false}
+      />,
+    );
+
+    await user.tab();
+    await user.keyboard("{Enter}");
+    expect(item("New York")).toHaveFocus();
+    await user.keyboard("[Space]");
+    expect(queryTree()).not.toBeInTheDocument();
+    expect(combobox()).toHaveFocus();
+    expect(onChange).not.toHaveBeenCalled();
+
+    // "New Y…" typed in the tree - the Space is part of it
+    await user.keyboard("{Enter}");
+    await user.keyboard("new ");
+    expect(item("New York")).toHaveFocus();
+    expect(queryTree()).toBeInTheDocument();
   });
 
   it("closes with Escape and gives the focus back - an Escape in the search empties it first", async () => {
@@ -451,6 +539,94 @@ describe("TreeSelect multiple", () => {
     expect(combobox()).toHaveTextContent("Cameras");
     expect(combobox()).not.toHaveTextContent("Garden");
   });
+
+  it("keeps disabled descendants selected through a parent when clearing", () => {
+    const onChange = vi.fn();
+    render(
+      <form aria-label="form">
+        <TreeSelect
+          defaultValue={["electronics"]}
+          items={categories}
+          label="Categories"
+          multiple
+          name="categories"
+          onChange={onChange}
+        />
+      </form>,
+    );
+    const form = screen.getByRole<HTMLFormElement>("form");
+    expect(formValues(form, "categories")).toContain("cameras");
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(onChange).toHaveBeenCalledWith(
+      ["cameras"],
+      [{ disabled: true, id: "cameras", label: "Cameras" }],
+    );
+    expect(formValues(form, "categories")).toEqual(["cameras"]);
+    expect(combobox()).toHaveTextContent("Cameras");
+    expect(
+      screen.queryByRole("button", { name: "Remove Cameras" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+  });
+
+  it("keeps a checked parent with only disabled descendants when its chip is removed", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const items = [
+      {
+        children: [{ disabled: true, id: "child", label: "Child" }],
+        id: "parent",
+        label: "Parent",
+      },
+    ];
+    render(
+      <form aria-label="form">
+        <TreeSelect
+          defaultValue={["parent"]}
+          items={items}
+          label="Categories"
+          multiple
+          name="categories"
+          onChange={onChange}
+        />
+      </form>,
+    );
+    const form = screen.getByRole<HTMLFormElement>("form");
+    expect(formValues(form, "categories")).toEqual(["parent", "child"]);
+
+    await user.click(screen.getByRole("button", { name: "Remove Parent" }));
+    act(() => combobox().focus());
+    await user.keyboard("{Backspace}{Delete}");
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(formValues(form, "categories")).toEqual(["parent", "child"]);
+    expect(combobox()).toHaveTextContent("Parent");
+  });
+
+  it("removes a chip whose item is not in the tree", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <TreeSelect
+        defaultValue={["missing", "garden"]}
+        items={categories}
+        label="Categories"
+        multiple
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Remove missing" }));
+
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(
+      ["garden"],
+      [{ id: "garden", label: "Garden" }],
+    );
+    expect(combobox()).toHaveTextContent("Garden");
+    expect(combobox()).not.toHaveTextContent("missing");
+  });
 });
 
 describe("TreeSelect in a form", () => {
@@ -477,7 +653,9 @@ describe("TreeSelect in a form", () => {
     expect(formValues(form, "category")).toEqual(["garden"]);
 
     act(() => form.reset());
-    expect(formValues(form, "category")).toEqual(["phones"]);
+    await waitFor(() =>
+      expect(formValues(form, "category")).toEqual(["phones"]),
+    );
     expect(field).toHaveTextContent("Phones");
   });
 
@@ -501,6 +679,45 @@ describe("TreeSelect in a form", () => {
       "garden",
     ]);
   });
+
+  it.each(["cascade", "independent"] as const)(
+    "removes chips and submitted values with mixed numeric and string ids (%s)",
+    (checkMode) => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const items: TreeItem[] = [
+        { id: 1, label: "Numeric id" },
+        { id: "1", label: "String id" },
+        { id: 2, label: "Other id" },
+      ];
+      const field = (value: TreeItem["id"][]) => (
+        <form data-testid="form">
+          <TreeSelect
+            checkMode={checkMode}
+            items={items}
+            multiple
+            name="categories"
+            value={value}
+          />
+        </form>
+      );
+      const { rerender } = render(field([1, "1", 2]));
+      const form = screen.getByTestId("form") as HTMLFormElement;
+      expect(formValues(form, "categories")).toEqual(["1", "1", "2"]);
+      expect(screen.getByText("Numeric id")).toBeVisible();
+      expect(screen.getByText("String id")).toBeVisible();
+
+      rerender(field([2]));
+      expect(formValues(form, "categories")).toEqual(["2"]);
+      expect(screen.queryByText("Numeric id")).toBeNull();
+      expect(screen.queryByText("String id")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Remove Other id" }),
+      ).toBeVisible();
+      expect(consoleError).not.toHaveBeenCalled();
+    },
+  );
 
   it("belongs to the form of its form attribute", () => {
     render(
@@ -619,6 +836,59 @@ describe("TreeSelect in a form", () => {
 });
 
 describe("TreeSelect loading children", () => {
+  it.each([true, false])(
+    "ignores an aborted load when it finishes before the new one: %s",
+    async (oldFirst) => {
+      const user = userEvent.setup();
+      const requests: {
+        resolve: (children: TreeItem<string>[]) => void;
+        signal: AbortSignal;
+      }[] = [];
+      const items: TreeItem<string>[] = [
+        { hasChildren: true, id: "folder", label: "Folder" },
+      ];
+      render(
+        <TreeSelect
+          items={items}
+          label="Category"
+          loadChildren={(_item, { signal }) =>
+            new Promise<TreeItem<string>[]>((resolve) =>
+              requests.push({ resolve, signal }),
+            )
+          }
+        />,
+      );
+
+      await user.click(combobox());
+      await user.click(
+        item("Folder").querySelector("[data-tree-toggle]") as Element,
+      );
+      expect(requests).toHaveLength(1);
+      await user.keyboard("{Escape}");
+      expect(requests[0].signal.aborted).toBe(true);
+      await user.click(combobox());
+      expect(requests).toHaveLength(2);
+
+      const finishOld = () =>
+        act(async () => requests[0].resolve([{ id: "stale", label: "Stale" }]));
+      if (oldFirst) {
+        await finishOld();
+        expect(screen.queryByRole("treeitem", { name: "Stale" })).toBeNull();
+      }
+
+      await act(async () =>
+        requests[1].resolve([{ id: "fresh", label: "Fresh" }]),
+      );
+      expect(item("Fresh")).toBeInTheDocument();
+      if (!oldFirst) await finishOld();
+
+      expect(item("Fresh")).toBeInTheDocument();
+      expect(screen.queryByRole("treeitem", { name: "Stale" })).toBeNull();
+      await user.click(item("Fresh"));
+      expect(combobox()).toHaveTextContent("Fresh");
+    },
+  );
+
   it("keeps the children loaded while the popup is closed", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

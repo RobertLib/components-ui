@@ -29,6 +29,7 @@ import {
   type CellPosition,
 } from "./cell-navigation";
 import { getTabbableElements } from "../../utils/tabbable";
+import { getRowKey } from "./row-key";
 import { TableRow } from "./table-row";
 import { useLocale } from "../../providers/ui-context";
 import type { BodyRowGroup } from "./grouping";
@@ -215,7 +216,7 @@ export function TableBody<T extends { id: RowId }>({
   // Rows activated by a click and Enter, without links, are one tab stop -
   // the one focused last, or the first one rendered; the arrow keys move
   // between them
-  const hasFocusableRows = !!onRowClick && !getRowHref;
+  const hasFocusableRows = !!onRowClick;
   const [activeRowId, setActiveRowId] = useState<RowId | null>(null);
 
   // The row with the focus stays rendered while it is scrolled out of view,
@@ -335,10 +336,13 @@ export function TableBody<T extends { id: RowId }>({
       activeRowId === null
         ? -1
         : data.findIndex((row) => row.id === activeRowId);
-    rowTabStop = renderedIndexes.includes(activeIndex)
+    const focusableIndexes = renderedIndexes.filter(
+      (index) => getRowHref?.(data[index]) === undefined,
+    );
+    rowTabStop = focusableIndexes.includes(activeIndex)
       ? activeRowId
-      : renderedIndexes.length > 0
-        ? data[renderedIndexes[0]].id
+      : focusableIndexes.length > 0
+        ? data[focusableIndexes[0]].id
         : null;
   }
 
@@ -385,7 +389,7 @@ export function TableBody<T extends { id: RowId }>({
     }
 
     const index = data.indexOf(row);
-    const targetIndex =
+    let targetIndex =
       event.key === "ArrowDown"
         ? index + 1
         : event.key === "ArrowUp"
@@ -398,7 +402,12 @@ export function TableBody<T extends { id: RowId }>({
     if (targetIndex === null) return;
 
     event.preventDefault();
-    const target = data[targetIndex];
+    const step = event.key === "ArrowUp" || event.key === "End" ? -1 : 1;
+    let target = data[targetIndex];
+    while (target && getRowHref?.(target) !== undefined) {
+      targetIndex += step;
+      target = data[targetIndex];
+    }
     if (!target || target === row) return;
 
     setActiveRowId(target.id);
@@ -541,6 +550,7 @@ export function TableBody<T extends { id: RowId }>({
   const renderRow = (index: number) => {
     const row = data[index];
     const rowsBefore = tableRowsBefore(index);
+    const href = getRowHref?.(row);
 
     return (
       <TableRow
@@ -562,13 +572,13 @@ export function TableBody<T extends { id: RowId }>({
         getRowClassName={getRowClassName}
         hasSelection={hasSelection}
         highlightTerms={highlightTerms}
-        href={getRowHref?.(row)}
+        href={href}
         idPrefix={idPrefix}
         isEditable={isEditable}
         isExpanded={expandedRows.has(row.id)}
         isMobile={isMobile}
         isSelected={selectedIds.has(row.id)}
-        key={row.id}
+        key={getRowKey(row.id)}
         locale={locale}
         measureRef={measureRef}
         onCancelEdit={onCancelEdit}
@@ -583,7 +593,11 @@ export function TableBody<T extends { id: RowId }>({
         row={row}
         rowIndex={index}
         rowTabIndex={
-          hasFocusableRows ? (rowTabStop === row.id ? 0 : -1) : undefined
+          hasFocusableRows && href === undefined
+            ? rowTabStop === row.id
+              ? 0
+              : -1
+            : undefined
         }
         tabStopColumnKey={tabStop?.rowId === row.id ? tabStop.columnKey : null}
         toggleRowExpansion={toggleRowExpansion}
@@ -617,7 +631,7 @@ export function TableBody<T extends { id: RowId }>({
               {/* Stays in view while the table scrolls sideways */}
               <button
                 aria-expanded={!group.collapsed}
-                className="sticky start-2 inline-flex cursor-pointer items-center gap-1.5 rounded-sm text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500"
+                className="sticky inset-s-2 inline-flex cursor-pointer items-center gap-1.5 rounded-sm text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500"
                 data-state={group.collapsed ? "closed" : "open"}
                 onClick={() => onToggleGroup(group.key)}
                 type="button"

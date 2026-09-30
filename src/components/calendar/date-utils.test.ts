@@ -7,6 +7,7 @@ import {
   minutesIntoDay,
 } from "./date-utils";
 import { toTimeRange } from "./use-slot-drag";
+import { normalizeBusinessHours } from "./business-hours";
 
 describe("getVisibleRange", () => {
   // Thursday, September 24th 2026
@@ -81,6 +82,16 @@ describe("getVisibleRange", () => {
 });
 
 describe("slot times", () => {
+  it("counts calendar days in the years 0 - 99", () => {
+    const from = new Date(0);
+    from.setFullYear(50, 11, 31);
+    const to = new Date(from);
+    to.setFullYear(51, 0, 1);
+    expect(daysBetween(from, to)).toBe(1);
+    expect(daysBetween(to, from)).toBe(-1);
+    expect(daysBetween(from, new Date(from))).toBe(0);
+  });
+
   it("gives the 24:00 row the last slot of its day", () => {
     const day = new Date(2026, 8, 24);
     expect(getSlotStart(day, 24, 0, 30, 24)).toEqual(
@@ -178,5 +189,53 @@ describe("slot times over a daylight saving change", () => {
     ]);
     // 2:30 before the clocks go back to 3:00 after it
     expect(end.getTime() - start.getTime()).toBe(90 * 60_000);
+  });
+
+  it("rejects a skipped range normalized past the end hour", () => {
+    expect(
+      toTimeRange(
+        { day: new Date(2026, 2, 29), from: 120, to: 180 },
+        { from: 60, to: 180 },
+      ),
+    ).toBeNull();
+  });
+
+  it("checks normalized skipped rows against the actual working hours", () => {
+    const day = new Date(2026, 2, 29);
+    const range = { day, from: 120, resourceId: "room", to: 180 };
+    const business = (end: string) =>
+      normalizeBusinessHours({ days: [0], end, start: "02:00" }).schedule;
+
+    expect(
+      toTimeRange(range, {
+        businessHours: business("03:00"),
+        from: 60,
+        to: 300,
+      }),
+    ).toBeNull();
+    expect(
+      toTimeRange(range, {
+        businessHours: business("04:00"),
+        from: 60,
+        to: 240,
+      }),
+    ).toEqual({
+      end: new Date(2026, 2, 29, 4),
+      resourceId: "room",
+      start: new Date(2026, 2, 29, 3),
+    });
+  });
+
+  it("rejects a skipped range normalized into a working-hours break", () => {
+    const businessHours = normalizeBusinessHours([
+      { days: [0], end: "02:30", start: "02:00" },
+      { days: [0], end: "05:00", start: "03:30" },
+    ]).schedule;
+    expect(
+      toTimeRange(
+        { day: new Date(2026, 2, 29), from: 120, to: 150 },
+        { businessHours, from: 60, to: 300 },
+      ),
+    ).toBeNull();
   });
 });

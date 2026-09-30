@@ -1,13 +1,31 @@
 import { attachRef, useFormReset } from "../hooks/use-form-control";
-import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useId,
+  useInsertionEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
+import { toLatinDigit } from "./input-mask";
 import { formatMessage } from "../i18n/format";
 import { useMessages } from "../providers/ui-context";
 import RequiredMark from "./required-mark";
 
 type PinType = "numeric" | "alphanumeric";
+
+interface CellComposition {
+  code: string;
+  element: HTMLInputElement;
+  index: number;
+  initialText: string;
+  length: number;
+  replacesCell: boolean;
+  type: PinType;
+}
 
 /**
  * The attributes of an HTML element not listed here - `data-*`, `style`,
@@ -117,11 +135,14 @@ const ALPHANUMERIC = /^[\da-z]$/i;
 
 /**
  * The characters of `text` a code of `type` takes - spaces, dashes and the
- * like of a pasted "123 456" are left out.
+ * like of a pasted "123 456" are left out. Digits of other scripts - the
+ * full-width "１２３" of Japanese and Chinese input methods, Arabic-Indic,
+ * Persian and Devanagari ones - are taken as the Latin ones, as a mask
+ * takes them.
  */
 function sanitize(text: string, type: PinType) {
   const allowed = type === "numeric" ? NUMERIC : ALPHANUMERIC;
-  return Array.from(text)
+  return Array.from(text, (char) => toLatinDigit(char) ?? char)
     .filter((char) => allowed.test(char))
     .join("");
 }
@@ -227,6 +248,57 @@ export default function PinInput({
     isControlled ? value : (enteredValue ?? defaultValue ?? "")
   ).slice(0, length);
 
+  // A cell keeps the IME's text until it is confirmed; it is not yet part
+  // of the code, and must not move the focus or complete the field.
+  const composition = useRef<CellComposition | null>(null);
+  const canceledComposition = useRef<CellComposition | null>(null);
+  const [composingText, setComposingText] = useState<
+    | (Pick<CellComposition, "code" | "index" | "length" | "type"> & {
+        text: string;
+      })
+    | null
+  >(null);
+  // Some browsers send the committed text once more after compositionend,
+  // on the original cell even though confirming it has moved the focus.
+  const completedComposition = useRef<{
+    element: HTMLInputElement;
+    text: string;
+  } | null>(null);
+
+  const cancelComposition = () => {
+    if (composition.current) {
+      canceledComposition.current = composition.current;
+      composition.current = null;
+    }
+  };
+
+  if (
+    composingText &&
+    (composingText.code !== code ||
+      composingText.length !== length ||
+      composingText.type !== type ||
+      disabled ||
+      readOnly)
+  ) {
+    setComposingText(null);
+  }
+
+  // A discarded session stays discarded if its source returns to the old
+  // value later. Insertion effects also see commits of a hidden Activity.
+  useInsertionEffect(() => {
+    const composing = composition.current;
+    if (
+      composing &&
+      (composing.code !== code ||
+        composing.length !== length ||
+        composing.type !== type ||
+        disabled ||
+        readOnly)
+    ) {
+      cancelComposition();
+    }
+  });
+
   // The code has no gaps: the next character goes to the first empty cell,
   // which is where Tab stops - the last cell of a complete code
   const activeIndex = Math.min(code.length, length - 1);
@@ -246,7 +318,15 @@ export default function PinInput({
 
   // `form.reset()` - also the one after a React form action - brings back
   // the `defaultValue`, like it does for a native field
-  const formResetRef = useFormReset(() => setEnteredValue(undefined), form);
+  const formResetRef = useFormReset(() => {
+    // Its final event may still arrive after the reset. Keep the canceled
+    // session until it ends so neither that event nor its trailing input
+    // can put the discarded text back into the code.
+    cancelComposition();
+    completedComposition.current = null;
+    setComposingText(null);
+    setEnteredValue(undefined);
+  }, form);
 
   const firstCellRef = useCallback(
     (element: HTMLInputElement | null) => attachRef(ref, element),
@@ -303,6 +383,7 @@ export default function PinInput({
   // A code that got shorter under the focus - cleared by the parent after a
   // rejected code, or reset - moves the focus back to the first empty cell
   useLayoutEffect(() => {
+    if (composition.current) return;
     const group = groupRef.current;
     if (!group) return;
 
@@ -321,8 +402,16 @@ export default function PinInput({
     cellIndex: number,
     event: React.KeyboardEvent<HTMLInputElement>,
   ) => {
-    // The keys of an input method editor (IME) composing text
-    if (event.nativeEvent.isComposing) return;
+    // Candidate editing belongs to the IME. Safari can send its confirming
+    // key after compositionend with key code 229 instead of isComposing.
+    if (
+      composition.current ||
+      event.nativeEvent.isComposing ||
+      event.keyCode === 229
+    ) {
+      return;
+    }
+    completedComposition.current = null;
 
     const { key } = event;
     const index = targetIndex(cellIndex);
@@ -379,13 +468,12 @@ export default function PinInput({
     insert(index, digit ?? key);
   };
 
-  const handleChange = (
+  const changeText = (
     cellIndex: number,
-    event: React.ChangeEvent<HTMLInputElement>,
+    text: string,
+    replacesCell = false,
   ) => {
-    if (readOnly) return;
     const index = targetIndex(cellIndex);
-    const text = event.target.value;
     const current = code[index] ?? "";
 
     // Emptied - by the Backspace of a phone keyboard, or cut
@@ -396,7 +484,7 @@ export default function PinInput({
 
     // Typed next to the character of the cell instead of over it
     const typed =
-      current && text.length === 2
+      !replacesCell && current && text.length === 2
         ? text.startsWith(current)
           ? text.slice(1)
           : text.endsWith(current)
@@ -406,10 +494,113 @@ export default function PinInput({
     insert(index, typed);
   };
 
+  const startComposition = (cellIndex: number, element: HTMLInputElement) => {
+    const composing: CellComposition = {
+      code,
+      element,
+      index: targetIndex(cellIndex),
+      initialText: element.value,
+      length,
+      replacesCell:
+        element.selectionStart === 0 &&
+        element.selectionEnd === element.value.length,
+      type,
+    };
+    composition.current = composing;
+    canceledComposition.current = null;
+    completedComposition.current = null;
+    setComposingText({
+      code,
+      index: composing.index,
+      length,
+      text: element.value,
+      type,
+    });
+    return composing;
+  };
+
+  const handleChange = (
+    cellIndex: number,
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const element = event.currentTarget;
+    if (readOnly || disabled || element.matches(":disabled")) return;
+
+    const text = element.value;
+    const completed = completedComposition.current;
+    completedComposition.current = null;
+    if (completed?.element === element && completed.text === text) return;
+
+    const nativeComposing = (event.nativeEvent as InputEvent).isComposing;
+    if (
+      !composition.current &&
+      canceledComposition.current?.element === element &&
+      nativeComposing
+    ) {
+      return;
+    }
+
+    if (composition.current?.element === element || nativeComposing) {
+      const composing =
+        composition.current ?? startComposition(cellIndex, element);
+      if (
+        composing.code !== code ||
+        composing.length !== length ||
+        composing.type !== type
+      ) {
+        cancelComposition();
+        setComposingText(null);
+        return;
+      }
+      setComposingText({ code, index: composing.index, length, text, type });
+      return;
+    }
+
+    changeText(cellIndex, text);
+  };
+
+  const endComposition = (event: React.CompositionEvent<HTMLInputElement>) => {
+    const element = event.currentTarget;
+    const active = composition.current;
+    const composing =
+      active?.element === element
+        ? active
+        : canceledComposition.current?.element === element
+          ? canceledComposition.current
+          : null;
+    if (!composing) return;
+
+    const text = element.value;
+    composition.current = null;
+    canceledComposition.current = null;
+    completedComposition.current = { element, text };
+    setComposingText(null);
+    if (
+      composing !== active ||
+      composing.code !== code ||
+      composing.length !== length ||
+      composing.type !== type ||
+      disabled ||
+      readOnly ||
+      element.matches(":disabled") ||
+      (event.data === "" && text === composing.initialText)
+    ) {
+      return;
+    }
+
+    changeText(composing.index, text, composing.replacesCell);
+  };
+
   const handleFocus = (
     index: number,
     event: React.FocusEvent<HTMLInputElement>,
   ) => {
+    if (
+      !movingFocus.current &&
+      completedComposition.current?.element === event.currentTarget
+    ) {
+      completedComposition.current = null;
+    }
     if (!groupRef.current?.contains(event.relatedTarget)) onFocus?.(event);
 
     // A click on a cell after the first empty one fills the empty one
@@ -503,11 +694,26 @@ export default function PinInput({
             key={index}
             onBlur={handleBlur}
             onChange={(event) => handleChange(index, event)}
+            onCompositionEnd={endComposition}
+            onCompositionStart={(event) => {
+              if (
+                readOnly ||
+                disabled ||
+                event.currentTarget.matches(":disabled")
+              )
+                return;
+              startComposition(index, event.currentTarget);
+            }}
             onFocus={(event) => handleFocus(index, event)}
             onKeyDown={(event) => handleKeyDown(index, event)}
+            onPointerDown={() => {
+              completedComposition.current = null;
+            }}
             onPaste={(event) => {
+              if (composition.current) return;
               event.preventDefault();
               if (readOnly) return;
+              completedComposition.current = null;
               insert(targetIndex(index), event.clipboardData.getData("text"));
             }}
             placeholder={placeholder}
@@ -518,7 +724,11 @@ export default function PinInput({
             // One tab stop - the arrow keys move between the cells
             tabIndex={index === activeIndex ? 0 : -1}
             type={mask ? "password" : "text"}
-            value={code[index] ?? ""}
+            value={
+              composingText?.index === index
+                ? composingText.text
+                : (code[index] ?? "")
+            }
           />,
           separatorAfter.has(index) && (
             <span

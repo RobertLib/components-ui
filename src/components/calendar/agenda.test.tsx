@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Calendar, { type CalendarEvent } from ".";
+import Calendar, { type CalendarBusinessHours, type CalendarEvent } from ".";
 import { createLocale } from "../../i18n/format";
 import { cs } from "../../i18n/cs";
 import { en } from "../../i18n/en";
@@ -260,6 +260,57 @@ describe("Calendar agenda", () => {
     ).toBeNull();
     expect(screen.getByText("Tuesday, September 22, 2026")).toBeVisible();
   });
+
+  it.each([
+    {
+      businessHours: true,
+      day: 26,
+      name: "Saturday, September 26, 2026",
+    },
+    {
+      businessHours: {
+        days: [4],
+        end: "17:00",
+        start: "09:00",
+      } satisfies CalendarBusinessHours,
+      day: 25,
+      name: "Friday, September 25, 2026",
+    },
+  ])(
+    "restricts picking $name to business days while keeping its events interactive",
+    async ({ businessHours, day, name }) => {
+      const user = userEvent.setup();
+      const onDateClick = vi.fn();
+      const onEventClick = vi.fn();
+      const offHoursEvent = event("Off hours", d(day, 9), d(day, 10));
+      const props = {
+        businessHours,
+        events: [event("Working", d(24, 9), d(24, 10)), offHoursEvent],
+        initialDate: d(24),
+        initialView: "agenda" as const,
+        onDateClick,
+        onEventClick,
+      };
+      const { rerender } = render(
+        <Calendar {...props} restrictToBusinessHours />,
+      );
+
+      expect(screen.queryByRole("button", { name })).toBeNull();
+      expect(screen.getByRole("heading", { name })).toBeVisible();
+      await user.click(screen.getByRole("button", { name: /^Off hours,/ }));
+      expect(onEventClick).toHaveBeenCalledWith(offHoursEvent);
+      expect(onDateClick).not.toHaveBeenCalled();
+
+      await user.click(
+        screen.getByRole("button", { name: "Thursday, September 24, 2026" }),
+      );
+      expect(onDateClick).toHaveBeenLastCalledWith(d(24));
+
+      rerender(<Calendar {...props} />);
+      await user.click(screen.getByRole("button", { name }));
+      expect(onDateClick).toHaveBeenLastCalledWith(d(day));
+    },
+  );
 
   it("says when the period has no events", () => {
     const { rerender } = render(
