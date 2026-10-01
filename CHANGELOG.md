@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3
+
+- **Dialog / Sheet** - leave as much room above a `DialogFooter` as under
+  the header also when it is the last child of a `space-y` form (the
+  ConfirmDialog of `useConfirm()` too), instead of adding the margin of the
+  content before it.
+- **Dialog / Sheet** - keep a `DialogFooter` at the bottom when content
+  follows it in a `space-y` form, instead of lifting it by the margin.
+
 ## 0.3.2
 
 - **Dialog** - leave the height of a `DialogFooter` free under the content,

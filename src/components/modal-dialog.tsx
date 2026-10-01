@@ -590,7 +590,15 @@ export default function ModalDialog({
             </div>
           )}
           <div
-            className={cn("flex-1 overflow-y-auto p-6", bodyClassName)}
+            className={cn(
+              "flex-1 overflow-y-auto p-6",
+              // Not the margin of a `space-y` form either: the footer out of
+              // the flow is its last child, the content before it gets one.
+              // With content after the footer, that content is the last one
+              // and the margin stays between the two
+              "[&_:has(+[data-dialog-footer]:last-child)]:mb-0",
+              bodyClassName,
+            )}
             style={
               footerHeight > 0
                 ? { paddingBottom: `calc(${footerHeight}px + 1.5rem)` }
@@ -622,11 +630,14 @@ export function DialogFooter({
   return (
     <div
       className={cn(
-        // Above the home indicator of a phone at the bottom of its screen
-        "absolute inset-x-0 bottom-0 z-10 border-t border-neutral-200 bg-surface px-6 pt-3.25 pb-[calc(0.8125rem+var(--cui-safe-bottom,0px))] dark:border-neutral-800 dark:bg-surface-dark",
+        // Above the home indicator of a phone at the bottom of its screen.
+        // No margin of a `space-y` form with content after it - it would
+        // lift the footer off the bottom
+        "absolute inset-x-0 bottom-0 z-10 m-0 border-t border-neutral-200 bg-surface px-6 pt-3.25 pb-[calc(0.8125rem+var(--cui-safe-bottom,0px))] dark:border-neutral-800 dark:bg-surface-dark",
         slot?.className,
         className,
       )}
+      data-dialog-footer=""
       {...props}
       ref={(element) => {
         const detachRef = attachRef(ref, element);

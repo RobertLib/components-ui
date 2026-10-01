@@ -12,6 +12,7 @@ import {
   DataTable,
   DateTimePicker,
   Dialog,
+  DialogFooter,
   Drawer,
   DrawerProvider,
   Dropdown,
@@ -275,6 +276,22 @@ export function ConfirmCompositionFixture() {
       />
       <output aria-label="Confirmed actions">{confirmations}</output>
     </>
+  );
+}
+
+// Content after the footer of a `space-y` form: the footer stays at the
+// bottom, and the field before it keeps its margin to that content.
+export function FooterFormFixture() {
+  return (
+    <Dialog onClose={() => {}} open title="Edit name">
+      <form className="space-y-4">
+        <Input label="Name" />
+        <DialogFooter>
+          <Button type="submit">Save</Button>
+        </DialogFooter>
+        <p>Saving failed</p>
+      </form>
+    </Dialog>
   );
 }
 

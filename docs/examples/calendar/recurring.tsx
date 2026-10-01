@@ -174,7 +174,7 @@ export default function Recurring() {
             : "Delete a repeating event"
         }
       >
-        <p className="mb-16 text-sm">
+        <p className="text-sm">
           Only this occurrence of “{pending?.event.title}”, or all of them?
         </p>
         <DialogFooter>

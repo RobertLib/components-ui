@@ -13,6 +13,7 @@ import {
   EmptyCheckboxGroupFixture,
   DrawerMenuFixture,
   FilterActivityFixture,
+  FooterFormFixture,
   FormResetActivityFixture,
   FormValidityActivityFixture,
   LargePercentNumberFixture,
@@ -65,6 +66,8 @@ createRoot(container).render(
         />
       ) : params.get("scenario") === "confirm-composition" ? (
         <ConfirmCompositionFixture />
+      ) : params.get("scenario") === "footer-form" ? (
+        <FooterFormFixture />
       ) : params.get("scenario") === "editor-dialog" ? (
         <EditorDialogFixture />
       ) : params.get("scenario") === "empty-checkbox-group" ? (

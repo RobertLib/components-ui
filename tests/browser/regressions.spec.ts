@@ -436,6 +436,69 @@ test("IME confirmation Enter leaves a destructive dialog open", async ({
   await expect(page.getByLabel("Confirmed actions")).toHaveText("1");
 });
 
+test("a confirm dialog's content is as far from its footer as from its header", async ({
+  page,
+}) => {
+  await page.goto("/tests/browser/?scenario=confirm-composition");
+  const dialog = page.getByRole("alertdialog", { name: "Delete record?" });
+  await expect(dialog).toBeVisible();
+
+  const gaps = await dialog.evaluate(async (element) => {
+    await Promise.all(
+      element.getAnimations().map((animation) => animation.finished),
+    );
+    const footer = element.querySelector("[data-dialog-footer]")!;
+    const header = element.querySelector("header")!.getBoundingClientRect();
+    const first = footer.parentElement!.firstElementChild!;
+    const last = footer.previousElementSibling!;
+    return {
+      bottom:
+        footer.getBoundingClientRect().top -
+        last.getBoundingClientRect().bottom,
+      top: first.getBoundingClientRect().top - header.bottom,
+    };
+  });
+  expect(gaps.top).toBeGreaterThan(0);
+  expect(gaps.bottom).toBeCloseTo(gaps.top, 0);
+});
+
+test("content after a dialog's footer keeps the footer at the bottom", async ({
+  page,
+}) => {
+  await page.goto("/tests/browser/?scenario=footer-form");
+  const dialog = page.getByRole("dialog", { name: "Edit name" });
+  await expect(dialog).toBeVisible();
+
+  const layout = await dialog.evaluate(async (element) => {
+    await Promise.all(
+      element.getAnimations().map((animation) => animation.finished),
+    );
+    const footer = element.querySelector("[data-dialog-footer]")!;
+    const form = footer.parentElement!;
+    const header = element.querySelector("header")!.getBoundingClientRect();
+    const field = footer.previousElementSibling!.getBoundingClientRect();
+    const after = footer.nextElementSibling!.getBoundingClientRect();
+    const footerBox = footer.getBoundingClientRect();
+    return {
+      // Inside the border of the dialog, which places the footer
+      bottom:
+        element.getBoundingClientRect().bottom -
+        parseFloat(getComputedStyle(element).borderBottomWidth),
+      footerBottom: footerBox.bottom,
+      between: after.top - field.bottom,
+      fieldMargin: parseFloat(
+        getComputedStyle(footer.previousElementSibling!).marginBottom,
+      ),
+      last: footerBox.top - after.bottom,
+      top: form.getBoundingClientRect().top - header.bottom,
+    };
+  });
+  expect(layout.footerBottom).toBeCloseTo(layout.bottom, 0);
+  expect(layout.fieldMargin).toBeGreaterThan(0);
+  expect(layout.between).toBeCloseTo(layout.fieldMargin, 0);
+  expect(layout.last).toBeCloseTo(layout.top, 0);
+});
+
 test("Tab in a dialog passes over a link in an editor's text", async ({
   page,
 }) => {
