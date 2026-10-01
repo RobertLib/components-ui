@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.3.2
+
+- **Dialog** - leave the height of a `DialogFooter` free under the content,
+  as a Sheet does, instead of a fixed room for it: a taller footer (buttons
+  that wrap) no longer covers the content, and a dialog without a footer
+  has as much padding at the bottom as at the top.
+- **Dialog** - give the footer of a `fullScreenOnMobile` dialog square
+  corners below `md`, where the dialog fills the screen.
+- **Popover / Dropdown** - give the focus back to a `buttonTrigger` after
+  Escape, a pick or Shift+Tab also when it is an `IconButton` with a
+  `tooltip`, instead of moving it to the next control of the page.
+- **Dialog / useConfirm** - give the focus back where the outer dialog
+  would have when a dialog opened from it (the ConfirmDialog of
+  `useConfirm()`) closes after it, instead of losing it to the page. The
+  controls under the inner dialog no longer get the focus while the outer
+  one closes.
+- **DrawerProvider** - slide the open drawer out again with the `shortcut`
+  on phones too, as it slides it in - not while typing in a field.
+- **RichTextEditor** - submit the value it was given with a form sent
+  before the page hydrates, instead of an empty one that cleared the stored
+  text. The editor shows the content once it is hydrated, as before.
+- **RichTextEditor** - put the caret back where the change was on undo and
+  redo also after inline code, underline, clear formatting or removing a
+  link split the text.
+- **RichTextEditor** - upload a pasted picture whose HTML has a `<style>`
+  or `<title>` (a picture copied from Word) instead of dropping it.
+- **RichTextEditor** - cut the text of a link inserted at the caret at
+  `maxLength`, like pasted text; with no room left, nothing is inserted.
+- **sanitizeRichText** - read a lone carriage return as a line break in
+  code blocks and as a new line in other text, so its output sanitizes
+  again to the same HTML.
+- **DataTable** - keep the rows of each `groupBy` group together on the
+  pages of a `clientSide` table, whatever column it is sorted by. The groups
+  follow the direction of their column (ascending unless it is sorted, an
+  empty value last); the sorting orders the rows within them.
+- **DataTable** - write plain decimal texts (`"1234.50"` of an API) with
+  the decimal separator of the locale in the CSV export, in columns with a
+  `numberRange` filter, a `number` editor or a `sum` / `avg` summary. Other
+  texts - with leading zeros, signs or exponents - stay as they are.
+- **DataTable** - sum, average and find the minimum and maximum of bigint
+  values in summaries: of bigints alone exactly, next to other numbers as
+  numbers, as they are sorted.
+- **DataTable** - toggle the sorting from what the headers show: a sort
+  key of no shown sortable column (a hand-edited URL) goes with a click on
+  a header, so a descending header goes on to no sorting.
+- **DataTable** - take the query read back from the URL for the same one
+  when nothing is sorted, also after a descending default sort was turned
+  off, so changes made right after it are no longer dropped with an
+  asynchronous router.
+- **getFieldError / getBaseError** - read the errors of Spring Boot
+  (`{ errors: [{ field, defaultMessage }] }`), express-validator
+  (`{ errors: [{ path, msg }] }`) and Zod's `flatten()`
+  (`{ formErrors, fieldErrors }`).
+- **TreeSelect** - show a `defaultValue` that comes after the field
+  mounted, and follow it until the user picks, as the other fields do. A
+  form reset brings back the current one.
+- **Form fields** - keep their own failing check when the app clears its
+  error with `setCustomValidity("")`: a NumberInput out of `min` / `max`,
+  an incomplete mask, an empty `required` TagsInput, a ColorInput or a date
+  picker no longer submits with React Hook Form's
+  `shouldUseNativeValidation`.
+- **Slider** - move a value off the steps to the next step with the arrow
+  and Page keys instead of skipping one, as a native range input does: 15
+  goes to 20 or 10 with steps of 10.
+- **ColorInput** - write a color whose alpha rounds to opaque without the
+  alpha: `#000000fe` is `rgb(0, 0, 0)` in the rgb format, not
+  `rgba(0, 0, 0, 1)`, and reads back as it is written.
+- **Calendar / DateCalendar / RangeCalendar / pickers** - update today when
+  the date changes while they are open - its highlight, the current-time
+  line, the Today buttons and the range presets - also after the device
+  slept.
+- **DateCalendar** - check the value against the same `min` / `max` days
+  its grid allows, so a day that can be picked is no longer out of range.
+- **DateTimePicker** - round a time or date-time `min` / `max` with seconds
+  into the range (`min="09:30:30"` allows 09:31 on), so the picker allows
+  no time a native input rejects.
+
 ## 0.3.1
 
 - **ContextMenu / Dropdown submenus / Tooltip** - stay in the part of the

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyDataTableQuery,
   createDataTableQuery,
+  isSameQuery,
   readQueryFromSearch,
   resetPagination,
   setFilter,
@@ -271,6 +272,27 @@ describe("URL state", () => {
       { defaults },
     );
     expect(readQueryFromSearch(search, { defaults }).sortBy).toBeNull();
+  });
+
+  it("reads back the same query once a descending default sorting is off", () => {
+    const defaults = { order: "desc" as const, sortBy: "name" };
+    // Turned off, the sorting is ascending again - the URL leaves `order` out
+    const query = toggleSort(createDataTableQuery(defaults), "name");
+    const search = writeQueryToSearch("", query, { defaults });
+
+    expect(query.sort).toEqual([]);
+    expect(isSameQuery(readQueryFromSearch(search, { defaults }), query)).toBe(
+      true,
+    );
+    expect(
+      isSameQuery(query, createDataTableQuery({ ...query, order: "desc" })),
+    ).toBe(true);
+    expect(
+      isSameQuery(
+        createDataTableQuery({ sortBy: "name" }),
+        createDataTableQuery({ order: "desc", sortBy: "name" }),
+      ),
+    ).toBe(false);
   });
 });
 

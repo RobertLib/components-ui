@@ -799,11 +799,17 @@ function wrapRunsIn(element: Element, wrapper: Wrapper) {
   }
 }
 
+// A new line - also the lone carriage return the parser reads as one, so
+// the output parses again as it is
+const NEW_LINE = /\r\n?|\n/;
+
 function copyText(text: string, pre: boolean, output: Document) {
-  if (!pre) return [output.createTextNode(text)];
+  if (!pre) {
+    return [output.createTextNode(text.replace(/\r\n?/g, "\n"))];
+  }
 
   return text
-    .split(/\r?\n/)
+    .split(NEW_LINE)
     .flatMap((line, index) =>
       index === 0
         ? [output.createTextNode(line)]

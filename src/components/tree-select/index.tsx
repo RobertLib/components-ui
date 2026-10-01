@@ -316,11 +316,13 @@ export default function TreeSelect<T extends TreeItem>({
   // A field that turns disabled or read-only closes its popup
   if (open && !canChange) setOpen(false);
 
+  // What the user picked in an uncontrolled field. Until then, and again
+  // after a reset, it shows `defaultValue` - also one that arrived late.
+  const [pickedValues, setPickedValues] = useState<TreeItemId[]>();
   const isControlled = value !== undefined;
-  const [internalValues, setInternalValues] = useState(() =>
-    toValues(defaultValue),
-  );
-  const values = isControlled ? toValues(value) : internalValues;
+  const values = isControlled
+    ? toValues(value)
+    : (pickedValues ?? toValues(defaultValue));
   const valueSet = new Set(values);
   // The props are a union by `multiple` - `commit` passes what the mode takes
   const reportChange = onChange as
@@ -406,7 +408,7 @@ export default function TreeSelect<T extends TreeItem>({
   // `form.reset()` brings back the `defaultValue` of an uncontrolled field
   const formResetRef = useFormReset(() => {
     setSearch("");
-    if (!isControlled) setInternalValues(toValues(defaultValue));
+    if (!isControlled) setPickedValues(undefined);
   }, form);
 
   const comboboxCallbackRef = useCallback(
@@ -427,7 +429,7 @@ export default function TreeSelect<T extends TreeItem>({
   );
 
   const commit = (next: TreeItemId[]) => {
-    if (!isControlled) setInternalValues(next);
+    if (!isControlled) setPickedValues(next);
 
     const picked = next.map((itemId) => index.byId.get(itemId) ?? null);
     if (multiple) reportChange?.(next, picked);

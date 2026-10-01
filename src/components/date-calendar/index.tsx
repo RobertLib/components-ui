@@ -225,6 +225,12 @@ export default function DateCalendar({
     return date ? formatDate(date, locale.formats.date) : day;
   };
 
+  // The days of `min` / `max` - the grid and the validity go by the same
+  const minDate = parseISODate(min);
+  const maxDate = parseISODate(max);
+  const minDay = minDate ? toISODate(minDate) : undefined;
+  const maxDay = maxDate ? toISODate(maxDate) : undefined;
+
   // A day out of `min` / `max`, or a disabled one - of the parent or a
   // default one - keeps the form from being submitted
   const validityMessage =
@@ -234,7 +240,7 @@ export default function DateCalendar({
           getRangeMessage(
             messages.dateTimePicker,
             key,
-            { max, min },
+            { max: maxDay, min: minDay },
             formatValue,
           ) ||
           (isDateDisabled?.(days[index])
@@ -276,8 +282,8 @@ export default function DateCalendar({
         disabled={disabled}
         inline
         isDateDisabled={isDateDisabled}
-        max={parseISODate(max)}
-        min={parseISODate(min)}
+        max={maxDate}
+        min={minDate}
         onSelect={pick}
         readOnly={readOnly}
         selected={

@@ -17,7 +17,15 @@ function trackValidity(input: HTMLInputElement) {
   // pass the call through and restore the method when the field goes.
   const setCustomValidity = function (this: HTMLInputElement, message: string) {
     original.call(this, message);
-    if (this === input) ownsError = false;
+    if (this !== input) return;
+    ownsError = false;
+    // An app clearing its error leaves the constraint of the component in
+    // place - React Hook Form's native validation clears every field its
+    // own rules pass, and then reports it
+    if (!message && previousMessage) {
+      original.call(input, previousMessage);
+      ownsError = true;
+    }
   };
   Object.defineProperty(input, "setCustomValidity", {
     configurable: true,

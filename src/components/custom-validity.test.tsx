@@ -1,8 +1,10 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Activity, StrictMode } from "react";
 import { describe, expect, it } from "vitest";
 import Input from "./input";
 import NumberInput from "./number-input";
+import TagsInput from "./tags-input";
 import DateTimePicker from "./datetime-picker";
 import DateRangePicker from "./date-range-picker";
 
@@ -94,6 +96,39 @@ describe.each(fields)("$name custom validity", ({ render: field }) => {
     },
   );
 
+  it("keeps its error when the app clears its own - React Hook Form's native validation", () => {
+    const form = (valid: boolean) => (
+      <form aria-label="Edit">
+        {field({ disabled: false, readOnly: false, valid })}
+      </form>
+    );
+    const { rerender } = render(form(false));
+    const input = screen.getByLabelText<HTMLInputElement>(/^Value/);
+    const componentMessage = input.validationMessage;
+    expect(componentMessage).not.toBe("");
+
+    // An error of the app replaces the component's
+    input.setCustomValidity("Rejected by the server");
+    expect(input.validationMessage).toBe("Rejected by the server");
+
+    // Clearing it - as React Hook Form does for a field its rules pass -
+    // brings back the component's, which still blocks the submit
+    input.setCustomValidity("");
+    expect(input.reportValidity()).toBe(false);
+    expect(input.validationMessage).toBe(componentMessage);
+    rerender(form(false));
+    expect(screen.getByRole<HTMLFormElement>("form").checkValidity()).toBe(
+      false,
+    );
+
+    // A valid value leaves nothing to bring back
+    rerender(form(true));
+    input.setCustomValidity("");
+    expect(screen.getByRole<HTMLFormElement>("form").checkValidity()).toBe(
+      true,
+    );
+  });
+
   describe.each(["disabled", "readOnly", "fieldset"] as const)(
     "while %s",
     (mode) => {
@@ -144,4 +179,30 @@ describe.each(fields)("$name custom validity", ({ render: field }) => {
       });
     },
   );
+});
+
+describe("TagsInput custom validity", () => {
+  it("stays required when the app clears its own error - React Hook Form's native validation", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Mail">
+        <TagsInput label="To" required />
+      </form>,
+    );
+    const input = screen.getByRole<HTMLInputElement>("textbox");
+    const form = screen.getByRole<HTMLFormElement>("form");
+    const required = input.validationMessage;
+    expect(required).not.toBe("");
+
+    // The field has no native `required` - its own error is all that
+    // blocks the submit
+    input.setCustomValidity("");
+    expect(input.reportValidity()).toBe(false);
+    expect(input.validationMessage).toBe(required);
+    expect(form.checkValidity()).toBe(false);
+
+    await user.type(input, "anna{Enter}");
+    input.setCustomValidity("");
+    expect(form.checkValidity()).toBe(true);
+  });
 });

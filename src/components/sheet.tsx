@@ -168,7 +168,6 @@ export default function Sheet({
       closeOnBackdropClick={closeOnBackdropClick}
       closeOnEscape={closeOnEscape}
       duration={SLIDE_DURATION}
-      fitFooter
       panelClassName={cn(
         "fixed z-50 flex flex-col overflow-hidden border-neutral-200 bg-background shadow-xl transition-[translate,opacity] duration-300 ease-out focus:outline-hidden motion-reduce:transition-opacity dark:border-neutral-800 dark:bg-background-dark",
         sideClasses[side].panel,

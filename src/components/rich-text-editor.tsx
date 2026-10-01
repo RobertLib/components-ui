@@ -519,7 +519,7 @@ function rulesOf(key: string) {
  * browser's (`isOwn`). `key` - see `rulesOf`.
  */
 function normalize(html: string, key: string, isOwn: boolean) {
-  // Nothing to sanitize with on the server - and nothing unsanitized goes out
+  // Nothing to sanitize with on the server - nothing unsanitized is shown
   if (!html || typeof document === "undefined") return "";
 
   const { allowImageDataUrls, formats } = rulesOf(key);
@@ -940,11 +940,12 @@ export interface RichTextEditorProps extends Omit<
   /** Text above the editor - also its accessible name, and that of its toolbar. */
   label?: React.ReactNode;
   /**
-   * The most characters of text - typing, pasting and dropping stop there,
-   * like in a native field (the characters of the text as it shows: line
-   * breaks and images count none). A longer value from outside stays,
-   * counted over the limit; once the user edits it, it keeps its form from
-   * being submitted until it is short enough, like a native field does.
+   * The most characters of text - typing, pasting, dropping and the text of
+   * a new link stop there, like in a native field (the characters of the
+   * text as it shows: line breaks and images count none). A longer value
+   * from outside stays, counted over the limit; once the user edits it, it
+   * keeps its form from being submitted until it is short enough, like a
+   * native field does.
    */
   maxLength?: number;
   /**
@@ -954,7 +955,11 @@ export interface RichTextEditorProps extends Omit<
   maxRows?: number;
   /** The lines of text the empty editor has room for - 8 by default. */
   minRows?: number;
-  /** Submits the HTML in a hidden input of this name. */
+  /**
+   * Submits the HTML in a hidden input of this name - before the page is
+   * hydrated, the value as it was passed (the editor sanitizes it once it
+   * runs in the browser).
+   */
   name?: string;
   /**
    * Called when the focus leaves the editor - moving to its toolbar or link
@@ -1204,6 +1209,10 @@ export default function RichTextEditor({
     : isReported
       ? (reported as string)
       : normalizedHtml;
+  // Until the page is hydrated, the form submits the HTML as it was passed -
+  // a submit then keeps the value instead of emptying it. In an attribute,
+  // it runs nothing, and the server gets back what it rendered.
+  const submittedHtml = canSanitize ? content : passedHtml;
 
   // The toolbar commands fire `input` as well - report each change once
   const reportedHtml = useRef(content);
@@ -1764,10 +1773,17 @@ export default function RichTextEditor({
         return true;
       }, linkRange.current);
     } else if (!linkRange.current || linkRange.current.collapsed) {
-      // No text selected - what was typed becomes the link text
+      // No text selected - what was typed becomes the link text, cut at
+      // `maxLength` like pasted text
+      const editor = editorRef.current;
+      const text = editor
+        ? truncateText(url, Math.max(roomAt(editor, linkRange.current), 0))
+        : url;
+      if (!text) return;
+
       const element = document.createElement("a");
       element.href = href;
-      element.textContent = url;
+      element.textContent = text;
       executeCommand("insertHTML", element.outerHTML);
     } else {
       executeCommand("createLink", href);
@@ -2738,13 +2754,19 @@ export default function RichTextEditor({
     const pastedHtml = event.clipboardData.getData("text/html");
     const pastedText = event.clipboardData.getData("text/plain");
     const range = rangeIn(editor);
+    // The characters of the HTML as it is kept - not the text of its styles
+    // and title (Word's HTML of a copied picture has both)
+    const htmlCount = () =>
+      countHtmlCharacters(
+        sanitizeRichText(pastedHtml, { allowImageDataUrls, formats }),
+      );
 
     // A screenshot, a copied image - the files, not their HTML of no text
     const images = imageFilesOf(event.clipboardData);
     if (
       images.length > 0 &&
       !pastedText.trim() &&
-      countHtmlCharacters(pastedHtml) === 0 &&
+      htmlCount() === 0 &&
       uploadDropped(editor, range, images)
     ) {
       return;
@@ -2752,10 +2774,12 @@ export default function RichTextEditor({
 
     if (!pastedHtml && !pastedText) return;
     // Nothing more fits - like a native field at its `maxLength`
-    const pastedCount = pastedHtml
-      ? countHtmlCharacters(pastedHtml)
-      : countTextCharacters(pastedText);
-    if (pastedCount > 0 && roomAt(editor, range) <= 0) return;
+    if (
+      roomAt(editor, range) <= 0 &&
+      (pastedHtml ? htmlCount() : countTextCharacters(pastedText)) > 0
+    ) {
+      return;
+    }
     getHistory(editor).beforeChange(saveSelection(editor, range));
 
     if (range && closestIn(editor, range.startContainer, "pre")) {
@@ -2903,7 +2927,7 @@ export default function RichTextEditor({
           form={form}
           name={name}
           type="hidden"
-          value={content}
+          value={submittedHtml}
         />
       )}
 
@@ -2937,7 +2961,7 @@ export default function RichTextEditor({
             style={hiddenValidationStyle}
             tabIndex={-1}
             type="text"
-            value={content ? "valid" : ""}
+            value={submittedHtml ? "valid" : ""}
           />
         )}
         {items.length > 0 && !readOnly && (

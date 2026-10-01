@@ -8,8 +8,9 @@ export interface CsvOptions {
   /**
    * The language the values are written in - numbers with its decimal
    * separator (without grouping, so a spreadsheet reads them as numbers),
-   * dates by its date format, booleans as its "Yes" / "No". It also picks
-   * the default `separator`.
+   * also those stored as texts in a number column, dates by its date
+   * format, booleans as its "Yes" / "No". It also picks the default
+   * `separator`.
    */
   locale: Locale;
   /**
@@ -93,17 +94,44 @@ function toTextField(text: string, separator: string) {
     : protectedText;
 }
 
+// A plain decimal number - no leading zeros (`007`), signs, exponents or
+// separators, which identifiers, phone numbers and versions have
+const DECIMAL_TEXT = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+
+/**
+ * A column the table takes for one of numbers - with a `numberRange`
+ * filter, a `number` editor or a `sum` / `avg` summary. Its numbers stored
+ * as texts are written as numbers.
+ */
+const isNumberColumn = <T>(column: Column<T>) =>
+  column.filter === "numberRange" ||
+  column.editor === "number" ||
+  column.summary === "sum" ||
+  column.summary === "avg";
+
 /**
  * A value as a field. Numbers, dates and booleans are written by the table
  * - they cannot start a formula, and need quotes only for the separator
- * (a decimal comma where `,` separates).
+ * (a decimal comma where `,` separates). So is a plain decimal text of a
+ * number column (`"1234.50"` of an API), its digits as they are.
  */
-function toField(value: unknown, locale: Locale, separator: string) {
+function toField(
+  value: unknown,
+  locale: Locale,
+  separator: string,
+  isNumber: boolean,
+) {
   let text: string;
 
   if (typeof value === "number") text = formatCsvNumber(locale.code, value);
   else if (typeof value === "bigint") text = String(value);
-  else if (typeof value === "boolean" || value instanceof Date) {
+  else if (
+    isNumber &&
+    typeof value === "string" &&
+    DECIMAL_TEXT.test(value.trim())
+  ) {
+    text = value.trim().replace(".", getDecimalSeparator(locale.code));
+  } else if (typeof value === "boolean" || value instanceof Date) {
     text = formatCellValue(value, locale) ?? "";
   } else {
     return toTextField(
@@ -118,9 +146,11 @@ function toField(value: unknown, locale: Locale, separator: string) {
 /**
  * The rows as CSV text: a header row with the column names, then a line
  * per row with the values of `columns` in their order - `exportValue` of a
- * column, or the value its cell shows without a `render`. Lines end with
- * CRLF; add a BOM before saving (`downloadCsv` does) so that Excel reads
- * the file as UTF-8.
+ * column, or the value its cell shows without a `render`. A column with a
+ * `numberRange` filter, a `number` editor or a `sum` / `avg` summary writes
+ * its numbers stored as plain decimal texts (`"1234.50"`) as numbers; other
+ * texts stay as they are. Lines end with CRLF; add a BOM before saving
+ * (`downloadCsv` does) so that Excel reads the file as UTF-8.
  *
  * ```ts
  * const csv = createCsv(rows, columns, { locale: useLocale() });
@@ -134,15 +164,17 @@ export function createCsv<T>(
   const header = columns
     .map((column) => toTextField(column.labelTitle ?? column.label, separator))
     .join(separator);
+  const numberColumns = columns.map(isNumberColumn);
   const lines = rows.map((row) =>
     columns
-      .map((column) =>
+      .map((column, index) =>
         toField(
           column.exportValue
             ? column.exportValue(row)
             : getColumnValue(row, column),
           locale,
           separator,
+          numberColumns[index],
         ),
       )
       .join(separator),

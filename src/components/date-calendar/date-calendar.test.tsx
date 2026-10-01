@@ -398,6 +398,44 @@ describe("DateCalendar", () => {
     }
   });
 
+  it("checks the value against the days of min and max the grid shows", () => {
+    const calendar = (min: string) => (
+      <form aria-label="Order">
+        <DateCalendar
+          defaultValue="2026-09-24"
+          label="Day"
+          min={min}
+          name="day"
+        />
+      </form>
+    );
+
+    // The day of a limit with a time - it can be picked, and is valid
+    const { rerender } = render(calendar("2026-09-24T10:00"));
+    expect(day("September 23, 2026")).toBeDisabled();
+    expect(day("September 24, 2026")).toBeEnabled();
+    expect(getForm().checkValidity()).toBe(true);
+
+    // No day at all - no limit, in the grid nor for the form
+    rerender(calendar("2026-9-1"));
+    expect(day("September 1, 2026")).toBeEnabled();
+    expect(getForm().checkValidity()).toBe(true);
+  });
+
+  it("marks the new today after midnight, in a calendar left open", () => {
+    render(<DateCalendar label="Day" />);
+    const today = () => document.querySelector('[aria-current="date"]');
+    expect(today()).toHaveAccessibleName("September 24, 2026");
+
+    // Only `Date` is faked - the page getting the focus looks at the day
+    // again, as after a device slept through midnight
+    vi.setSystemTime(new Date(2026, 8, 25, 0, 1));
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(today()).toHaveAccessibleName("September 25, 2026");
+  });
+
   it("enforces required and gives the focus to the calendar", async () => {
     const user = userEvent.setup();
     render(

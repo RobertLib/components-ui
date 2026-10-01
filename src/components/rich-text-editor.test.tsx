@@ -781,7 +781,7 @@ describe("RichTextEditor on the server", () => {
     );
   }
 
-  it("sends no unsanitized HTML and hydrates without a mismatch", async () => {
+  it("shows no unsanitized HTML, submits the value until it hydrates, and hydrates without a mismatch", async () => {
     // Rendered where there is no DOM to sanitize with
     vi.stubGlobal("document", undefined);
     let serverHtml: string;
@@ -791,12 +791,19 @@ describe("RichTextEditor on the server", () => {
       vi.unstubAllGlobals();
     }
 
-    expect(serverHtml).not.toContain("steal");
-    expect(serverHtml).toContain('<input type="hidden" name="note" value=""/>');
-
     const container = document.createElement("div");
     container.innerHTML = serverHtml;
     document.body.append(container);
+    // The value is only in the attribute of the hidden input - no element
+    // or handler of it is in the page, and the editor shows nothing
+    expect(container.querySelector("img, [onclick]")).toBeNull();
+    expect(container.querySelector("[role=textbox]")?.innerHTML).toBe("");
+    // A submit before the page is hydrated keeps the value
+    expect(
+      new FormData(container.querySelector("form") as HTMLFormElement).get(
+        "note",
+      ),
+    ).toBe(unsafe);
     const consoleError = vi.spyOn(console, "error");
     const onRecoverableError = vi.fn();
 
@@ -1999,6 +2006,30 @@ describe("RichTextEditor history", () => {
     expect(onChange).toHaveBeenLastCalledWith("<ul><li>Plan</li></ul>");
   });
 
+  it("puts the caret back in text its own commands split", () => {
+    render(
+      <RichTextEditor
+        defaultValue="<p>hello world</p>"
+        label="Note"
+        toolbar={["code"]}
+      />,
+    );
+
+    // Code on and off again - the text stays in two text nodes
+    selectText("world", "world");
+    fireEvent.keyDown(editor(), { ctrlKey: true, key: "e" });
+    fireEvent.keyDown(editor(), { ctrlKey: true, key: "e" });
+    expect(editor().innerHTML).toBe("<p>hello world</p>");
+
+    selectText("world", undefined, 3);
+    typeText("X");
+    undoKey();
+    expect(editor().innerHTML).toBe("<p>hello world</p>");
+    const range = document.getSelection()?.getRangeAt(0);
+    expect(range?.startContainer).toBe(textNode("hello world"));
+    expect(range?.startOffset).toBe(9);
+  });
+
   it("undoes a run of typing in one step", () => {
     render(<RichTextEditor defaultValue="<p>a</p>" label="Note" />);
     const text = textNode("a");
@@ -2885,6 +2916,27 @@ describe("RichTextEditor character count", () => {
       expect(execCommand).toHaveBeenLastCalledWith(command, false, inserted);
     },
   );
+
+  it("cuts the text of a new link that does not fit", async () => {
+    const user = userEvent.setup();
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor defaultValue="<p>abc</p>" label="Note" maxLength={5} />,
+    );
+
+    selectText("abc", undefined, 3);
+    await user.click(tool("Link"));
+    await user.type(
+      screen.getByRole("textbox", { name: "Enter the link URL:" }),
+      "example.com{Enter}",
+    );
+    expect(execCommand).toHaveBeenCalledWith(
+      "insertHTML",
+      false,
+      '<a href="https://example.com">ex</a>',
+    );
+  });
 
   it("pastes nothing once the text is at its limit", () => {
     const execCommand = vi.fn(() => true);
@@ -3887,6 +3939,35 @@ describe("RichTextEditor images", () => {
     expect(editor().querySelector("img[data-upload]")).toBeNull();
   });
 
+  it("uploads a pasted picture whose HTML has styles and a title", () => {
+    const uploadImage = vi.fn(() => new Promise<string>(() => {}));
+    render(
+      <RichTextEditor
+        label="Note"
+        toolbar={IMAGE_TOOLS}
+        uploadImage={uploadImage}
+      />,
+    );
+    const file = new File(["png"], "image.png", { type: "image/png" });
+
+    // A picture copied in Word - its text is that of the styles, never kept
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        files: [file],
+        getData: (type: string) =>
+          type === "text/html"
+            ? "<html><head><style>p.MsoNormal{margin:0cm}</style><title>Doc</title></head>" +
+              '<body><img src="file:///C:/Temp/clip_image001.png"></body></html>'
+            : "",
+      },
+    });
+
+    expect(uploadImage).toHaveBeenCalledWith(file, {
+      signal: expect.any(AbortSignal),
+    });
+    expect(editor().querySelector("img[data-upload]")).not.toBeNull();
+  });
+
   it("tells a failed upload and takes its placeholder away", async () => {
     let reject: (reason: unknown) => void = () => {};
     let resolve: (url: string) => void = () => {};
@@ -4509,7 +4590,7 @@ describe("RichTextEditor with its new props on the server", () => {
     } finally {
       vi.unstubAllGlobals();
     }
-    expect(serverHtml).not.toContain("img");
+    expect(serverHtml).not.toContain("<img");
     expect(serverHtml).toContain("0 / 10");
 
     const container = document.createElement("div");

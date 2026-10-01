@@ -261,14 +261,16 @@ export function isSameFilters(
   );
 }
 
-/** Whether two queries ask for the same rows - compared by value. */
+/**
+ * Whether two queries ask for the same rows - compared by value. The
+ * `order` counts only in the sorting - without one it orders nothing.
+ */
 export function isSameQuery(a: DataTableQuery, b: DataTableQuery) {
   if (a === b) return true;
 
   return (
     a.after === b.after &&
     a.before === b.before &&
-    a.order === b.order &&
     a.page === b.page &&
     a.pageSize === b.pageSize &&
     a.search === b.search &&

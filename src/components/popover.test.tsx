@@ -4,6 +4,7 @@ import { Profiler, StrictMode, useLayoutEffect, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Autocomplete from "./autocomplete";
 import Dialog from "./dialog";
+import IconButton from "./icon-button";
 import Popover from "./popover";
 // The public entry point - the prop types of Popover are exported there
 import type { PopoverPopupRole } from "../index";
@@ -955,6 +956,38 @@ describe("Popover with a button as its trigger", () => {
     expect(
       screen.getByRole("dialog", { name: "Sort the table" }),
     ).toBeInTheDocument();
+  });
+
+  it("finds a button rendered inside an element of its own - an IconButton with a tooltip", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Popover
+          buttonTrigger
+          trigger={
+            <IconButton aria-label="Filters" tooltip>
+              F
+            </IconButton>
+          }
+          triggerType="click"
+        >
+          <button type="button">Apply</button>
+        </Popover>
+        <button type="button">Next</button>
+      </>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Filters" });
+    await user.click(trigger);
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Apply" })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(trigger).toHaveFocus();
+
+    await user.tab();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(trigger).toHaveFocus();
   });
 });
 

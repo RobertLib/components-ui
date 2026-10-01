@@ -31,8 +31,9 @@ export interface DrawerProviderProps {
   children: React.ReactNode;
   /**
    * A keyboard shortcut that toggles the drawer - collapses it on desktop,
-   * slides it in on phones - e.g. `"mod+b"` (see the shortcut syntax on the
-   * Kbd page). Off by default. The toggle of the `Navbar` shows it.
+   * slides it in and out again on phones - e.g. `"mod+b"` (see the shortcut
+   * syntax on the Kbd page). Off by default. The toggle of the `Navbar`
+   * shows it.
    */
   shortcut?: string;
   /**

@@ -80,6 +80,36 @@ describe("computeSummary", () => {
     expect(computeSummary("max", shipped, [])).toBeNull();
   });
 
+  it("adds up bigints exactly - next to other numbers as numbers", () => {
+    const big = 2n ** 60n;
+    const values = [
+      { id: 1, value: big },
+      { id: 2, value: 3n },
+      { id: 3, value: null },
+    ];
+    const column: Column<(typeof values)[number]> = {
+      key: "value",
+      label: "Value",
+    };
+
+    expect(computeSummary("sum", column, values)).toBe(big + 3n);
+    expect(computeSummary("min", column, values)).toBe(3n);
+    expect(computeSummary("max", column, values)).toBe(big);
+    expect(computeSummary("avg", column, values)).toBe(Number(big + 3n) / 2);
+
+    const mixed = [
+      { id: 1, value: 2n },
+      { id: 2, value: 0.5 },
+      { id: 3, value: "1.5" },
+    ];
+    const mixedColumn: Column<(typeof mixed)[number]> = {
+      key: "value",
+      label: "Value",
+    };
+    expect(computeSummary("sum", mixedColumn, mixed)).toBe(4);
+    expect(computeSummary("max", mixedColumn, mixed)).toBe(2);
+  });
+
   it("reads the values with getValue", () => {
     const column: Column<Order> = {
       getValue: (order) => order.id * 2,
@@ -104,6 +134,9 @@ describe("formatSummaryValue", () => {
     expect(formatSummaryValue(1234567.891, en)).toBe("1,234,567.891");
     expect(spaced(formatSummaryValue(1234567.891, cs))).toBe("1 234 567,891");
     expect(formatSummaryValue(2 / 3, en, true)).toBe("0.67");
+    expect(formatSummaryValue(12345678901234567890n, en)).toBe(
+      "12,345,678,901,234,567,890",
+    );
   });
 
   it("writes dates by the date format of the language", () => {

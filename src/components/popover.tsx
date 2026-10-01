@@ -198,6 +198,15 @@ function callHandlers<E extends React.SyntheticEvent>(
 const NESTED_CONTROL =
   "a[href], button, input:not([readonly]), select, textarea, [role=button]";
 
+/**
+ * The button given as the trigger in `wrapper` - its Tab stop, as a
+ * component may render the button inside an element of its own (the
+ * Tooltip of an `IconButton`), or else the element it rendered.
+ */
+const findButtonTrigger = (wrapper: HTMLElement) =>
+  getTabbableElements(wrapper)[0] ??
+  (wrapper.firstElementChild as HTMLElement | null);
+
 /** The `aria-*` props of `props` - an `undefined` one does not count. */
 const pickAriaProps = (props: object) =>
   Object.fromEntries(
@@ -539,7 +548,7 @@ export default function Popover({
     const wrapper = popoverRef.current;
     if (!wrapper) return null;
     if (wrapper.hasAttribute("tabindex")) return wrapper;
-    if (isButtonTrigger) return wrapper.firstElementChild as HTMLElement | null;
+    if (isButtonTrigger) return findButtonTrigger(wrapper);
     return getTabbableElements(wrapper)[0] ?? null;
   }, [isButtonTrigger]);
 
@@ -594,7 +603,7 @@ export default function Popover({
     const given = anchorRef.current;
     const target: VirtualAnchor =
       (typeof given === "function" ? given() : given) ??
-      ((isButtonTrigger && wrapper.firstElementChild) || wrapper);
+      ((isButtonTrigger && findButtonTrigger(wrapper)) || wrapper);
 
     let clips: Element[] = [];
     if (target instanceof Element) {

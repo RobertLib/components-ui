@@ -16,6 +16,7 @@ import {
 } from "../../utils/date";
 import { useLocale } from "../../providers/ui-context";
 import useIsHydrated from "../../hooks/use-is-hydrated";
+import useToday from "../../hooks/use-today";
 import type { DateDisabledPredicate } from "./availability";
 
 /** The days from `start` to `end`, both included - `start` is not after `end`. */
@@ -365,7 +366,9 @@ function DayGridContent({
     setMonth(getFirstMonthShowing(next));
   };
 
-  const today = isHydrated ? new Date() : null;
+  // Unknown before the hydration - another day after midnight, also in a
+  // calendar left open
+  const today = useToday();
   const weekdayNames = getWeekdayNames(locale.code, locale.weekStartsOn);
   const longWeekdayNames = getWeekdayNames(
     locale.code,

@@ -43,9 +43,9 @@ import EventTile from "./event-tile";
 import EventTitle from "./event-title";
 import Spinner from "../spinner";
 import useCurrentMinute from "./use-current-minute";
+import useToday from "../../hooks/use-today";
 import useEventMove from "./use-event-move";
 import useIsApplePlatform from "../../hooks/use-is-apple-platform";
-import useIsHydrated from "../../hooks/use-is-hydrated";
 import useSlotDrag, { toTimeRange, type SlotRange } from "./use-slot-drag";
 import useSlotFocus from "./use-slot-focus";
 import {
@@ -439,9 +439,9 @@ export default function TimelineView({
   const dayLabelFormat = createDayFormat(locale);
 
   // Unknown on the server and while a server-rendered page hydrates - its
-  // clock and time zone may differ from the browser's
-  const isHydrated = useIsHydrated();
-  const today = isHydrated ? new Date() : null;
+  // clock and time zone may differ from the browser's. Another day after
+  // midnight, also in a view left open.
+  const today = useToday();
   const isToday = (date: Date) => today !== null && isSameDay(date, today);
   const now = useCurrentMinute(
     nowIndicator && axis.days.some(({ day }) => isToday(day)),

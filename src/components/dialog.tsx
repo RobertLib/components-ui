@@ -106,16 +106,18 @@ export default function Dialog({
     <ModalDialog
       {...props}
       backdropClassName="duration-200"
-      // Room for a DialogFooter - and the home indicator under it
+      // The content clear of the home indicator without a footer too
       bodyClassName={
         fullScreenOnMobile
-          ? "pb-[calc(4.25rem+var(--cui-safe-bottom,0px))]"
-          : "pb-17"
+          ? "pb-[calc(1.5rem+var(--cui-safe-bottom,0px))]"
+          : undefined
       }
       closeDisabled={closeDisabled}
       closeOnBackdropClick={closeOnBackdropClick}
       closeOnEscape={closeOnEscape}
       duration={200}
+      // Square corners where the dialog fills the screen
+      footerClassName={fullScreenOnMobile ? "md:rounded-b-lg" : "rounded-b-lg"}
       openClassName="scale-100 opacity-100"
       panelClassName={
         fullScreenOnMobile

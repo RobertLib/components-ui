@@ -15,6 +15,7 @@ import {
   type ConfirmFunction,
   type ConfirmOptions,
 } from "./confirm-context";
+import Dialog from "../components/dialog";
 import Popover from "../components/popover";
 import Sheet from "../components/sheet";
 
@@ -319,6 +320,64 @@ describe("useConfirm", () => {
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(onSheetClose).not.toHaveBeenCalled();
     expect(remove).toHaveFocus();
+  });
+
+  it("gives the focus back where the dialog it is asked from would have, once that closed first", async () => {
+    const user = userEvent.setup();
+    const save = deferred();
+    const onNextFocus = vi.fn();
+
+    function CustomerDialog() {
+      const confirm = useConfirm();
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)} type="button">
+            Edit
+          </button>
+          <button onFocus={onNextFocus} type="button">
+            Next
+          </button>
+          <Dialog onClose={() => setOpen(false)} open={open} title="Customer">
+            <button
+              onClick={() =>
+                confirm({
+                  // The dialog closes first, the question once it is saved
+                  onConfirm: async () => {
+                    setOpen(false);
+                    await save.promise;
+                  },
+                  title: "Delete the customer?",
+                })
+              }
+              type="button"
+            >
+              Delete
+            </button>
+          </Dialog>
+        </>
+      );
+    }
+
+    render(
+      <ConfirmProvider>
+        <CustomerDialog />
+      </ConfirmProvider>,
+    );
+    const edit = screen.getByRole("button", { name: "Edit" });
+    await user.click(edit);
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    // The question keeps the focus - the page under it does not get it
+    expect(screen.queryByRole("dialog", { name: "Customer" })).toBeNull();
+    expect(edit).not.toHaveFocus();
+    expect(onNextFocus).not.toHaveBeenCalled();
+
+    await act(async () => save.resolve());
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(edit).toHaveFocus();
+    expect(onNextFocus).not.toHaveBeenCalled();
   });
 
   it("returns the same function on every render", async () => {

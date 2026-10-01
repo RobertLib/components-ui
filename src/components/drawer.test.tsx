@@ -583,7 +583,7 @@ describe("Drawer slid in on a phone", () => {
     );
   }
 
-  const renderOnPhone = (header = <WithDialog />) => {
+  const renderOnPhone = (header = <WithDialog />, shortcut?: string) => {
     vi.stubGlobal(
       "matchMedia",
       vi.fn((query: string) => ({
@@ -595,7 +595,7 @@ describe("Drawer slid in on a phone", () => {
     );
     render(
       <UIProvider router={{ pathname: "/", search: "" }}>
-        <DrawerProvider storageKey={null}>
+        <DrawerProvider shortcut={shortcut} storageKey={null}>
           <Toggle />
           <Drawer
             header={header}
@@ -647,6 +647,24 @@ describe("Drawer slid in on a phone", () => {
 
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(toggle).toHaveFocus();
+  });
+
+  it("slides out with the shortcut that slid it in - not while typing", async () => {
+    const user = userEvent.setup();
+    renderOnPhone(<input aria-label="Search" />, "ctrl+b");
+
+    const drawer = screen.getByRole("navigation", { hidden: true });
+    await user.keyboard("{Control>}b{/Control}");
+    expect(drawer).toHaveAttribute("data-state", "open");
+    expect(screen.getByRole("textbox", { name: "Search" })).toHaveFocus();
+
+    await user.keyboard("{Control>}b{/Control}");
+    expect(drawer).toHaveAttribute("data-state", "open");
+
+    await user.tab();
+    expect(screen.getByRole("link", { name: "Users" })).toHaveFocus();
+    await user.keyboard("{Control>}b{/Control}");
+    expect(drawer).toHaveAttribute("data-state", "closed");
   });
 
   it("shows a tooltip of its header - which is in the drawer", async () => {

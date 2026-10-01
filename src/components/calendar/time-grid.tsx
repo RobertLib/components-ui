@@ -42,10 +42,10 @@ import MoreEvents from "./more-events";
 import Spinner from "../spinner";
 import TimedEvents from "./timed-events";
 import useCurrentMinute from "./use-current-minute";
+import useToday from "../../hooks/use-today";
 import useEventMove from "./use-event-move";
 import useIsApplePlatform from "../../hooks/use-is-apple-platform";
 import useSlotDrag, { toTimeRange, type SlotRange } from "./use-slot-drag";
-import useIsHydrated from "../../hooks/use-is-hydrated";
 import useSlotFocus from "./use-slot-focus";
 import {
   formatDate,
@@ -475,9 +475,9 @@ export default function TimeGrid({
     });
 
   // Unknown on the server and while a server-rendered page hydrates - its
-  // clock and time zone may differ from the browser's
-  const isHydrated = useIsHydrated();
-  const today = isHydrated ? new Date() : null;
+  // clock and time zone may differ from the browser's. Another day after
+  // midnight, also in a view left open.
+  const today = useToday();
   const isToday = (date: Date) => today !== null && isSameDay(date, today);
   // The line of the current time - moved on every minute, while the grid
   // shows today

@@ -3,7 +3,11 @@
 // another) and knows nothing of the changes the editor makes to the page
 // itself (tables, lists) - so the editor keeps snapshots of its content.
 
-/** A boundary point as the child indexes from the editor down to it. */
+/**
+ * A boundary point as the child indexes from the editor down to it - of the
+ * children as the HTML of a snapshot parses again (`unitsOf`), and in text
+ * the characters of the whole run of it.
+ */
 interface SavedPoint {
   offset: number;
   path: number[];
@@ -27,33 +31,130 @@ const MAX_ENTRIES = 100;
 // history of a long document keeps fewer steps, not a hundred copies of it
 export const MAX_HISTORY_SIZE = 10_000_000;
 
+const isText = (node: Node | undefined): node is Text =>
+  node?.nodeType === Node.TEXT_NODE;
+
+/**
+ * The children of a node as its HTML parses again - a run of text nodes is
+ * one (the parser merges what the editor's commands split), and a run of
+ * empty ones none.
+ */
+function unitsOf(parent: Node): Node[][] {
+  const units: Node[][] = [];
+  let run: Text[] = [];
+  const flush = () => {
+    if (run.some((text) => text.length > 0)) units.push(run);
+    run = [];
+  };
+
+  for (const child of Array.from(parent.childNodes)) {
+    if (isText(child)) {
+      run.push(child);
+    } else {
+      flush();
+      units.push([child]);
+    }
+  }
+  flush();
+
+  return units;
+}
+
+/** The units of the children of `parent` before its child at `end`. */
+function unitsBefore(parent: Node, end: number) {
+  let units = 0;
+  let runLength = 0;
+
+  for (let index = 0; index < end; index += 1) {
+    const child = parent.childNodes[index];
+    if (isText(child)) {
+      runLength += child.length;
+    } else {
+      // The element, and the run of text before it
+      units += runLength > 0 ? 2 : 1;
+      runLength = 0;
+    }
+  }
+  return units + (runLength > 0 ? 1 : 0);
+}
+
+const indexOf = (node: Node) =>
+  Array.prototype.indexOf.call(node.parentNode?.childNodes ?? [], node);
+
 function pathOf(root: Node, node: Node): number[] | null {
   const path: number[] = [];
 
   for (let current = node; current !== root;) {
     const parent = current.parentNode;
     if (!parent) return null;
-    path.unshift(Array.prototype.indexOf.call(parent.childNodes, current));
+    path.unshift(unitsBefore(parent, indexOf(current)));
     current = parent;
   }
   return path;
 }
 
 function savePoint(root: Node, node: Node, offset: number): SavedPoint | null {
-  const path = pathOf(root, node);
-  return path ? { offset, path } : null;
+  // A point between two text nodes is in the text they become
+  const before = node.childNodes[offset - 1];
+  const after = node.childNodes[offset];
+  const isBetweenTexts = isText(before) && isText(after);
+  const container = isBetweenTexts ? before : node;
+  const position = isBetweenTexts ? before.length : offset;
+
+  if (!isText(container)) {
+    const path = pathOf(root, container);
+    return path ? { offset: unitsBefore(container, position), path } : null;
+  }
+
+  const parent = container.parentNode;
+  const path = parent && pathOf(root, parent);
+  if (!parent || !path) return null;
+
+  const units = unitsOf(parent);
+  const index = units.findIndex((unit) => unit.includes(container));
+  // Empty text is nothing once parsed - the point is between the children
+  if (index === -1) {
+    return { offset: unitsBefore(parent, indexOf(container)), path };
+  }
+
+  let characters = position;
+  for (const text of units[index] as Text[]) {
+    if (text === container) break;
+    characters += text.length;
+  }
+  return { offset: characters, path: [...path, index] };
 }
 
-function resolvePoint(root: Node, { offset, path }: SavedPoint) {
-  let node: Node | undefined = root;
-  for (const index of path) node = node?.childNodes[index];
-  if (!node) return null;
+function resolvePoint(
+  root: Node,
+  { offset, path }: SavedPoint,
+): [Node, number] | null {
+  let node = root;
 
-  const length =
-    node.nodeType === Node.TEXT_NODE
-      ? (node.textContent?.length ?? 0)
-      : node.childNodes.length;
-  return [node, Math.min(offset, length)] as const;
+  for (const [depth, index] of path.entries()) {
+    const unit = unitsOf(node)[index];
+    if (!unit) return null;
+    if (!isText(unit[0])) {
+      node = unit[0];
+      continue;
+    }
+
+    // Text ends a path - the offset is in the characters of its run
+    if (depth < path.length - 1) return null;
+    let rest = offset;
+    for (const text of unit as Text[]) {
+      if (text.length > 0 && rest <= text.length) return [text, rest];
+      rest -= text.length;
+    }
+    const last = unit.findLast((text) => (text as Text).length > 0) as Text;
+    return [last, last.length];
+  }
+
+  const units = unitsOf(node);
+  return [
+    node,
+    offset < units.length ? indexOf(units[offset][0]) : node.childNodes.length,
+  ];
 }
 
 /** The selection as paths from `root` - `null` when it is outside of it. */

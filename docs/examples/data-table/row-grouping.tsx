@@ -19,14 +19,8 @@ export default function RowGrouping() {
       clientSide
       columns={columns}
       data={people}
-      // Sorted by the department first, a page holds whole groups
-      defaultQuery={{
-        pageSize: 25,
-        sort: [
-          { key: "department", order: "asc" },
-          { key: "name", order: "asc" },
-        ],
-      }}
+      // The people of a department together, sorted by name within it
+      defaultQuery={{ pageSize: 25, sortBy: "name" }}
       groupBy="department"
       maxHeight="480px"
     />

@@ -12,6 +12,7 @@ import {
 } from "./parse";
 import usePickerPopup from "./use-picker-popup";
 import { findEnabledDay } from "./availability";
+import useToday from "../../hooks/use-today";
 import { formatMessage } from "../../i18n/format";
 import {
   formatPattern,
@@ -60,23 +61,25 @@ export default function DateTimePanelPicker({
   const hours = time?.hours ?? "00";
   const minutes = time?.minutes ?? "00";
 
-  // A limit without a time allows its whole day
-  const minValue = normalizeDateTime(min, "00:00");
-  const maxValue = normalizeDateTime(max, "23:59");
+  // A limit without a time allows its whole day, one with seconds is
+  // rounded into the range
+  const minValue = normalizeDateTime(min, "min");
+  const maxValue = normalizeDateTime(max, "max");
   const minDay = minValue?.slice(0, 10);
   const maxDay = maxValue?.slice(0, 10);
 
   // The day the time lists set - without a picked one today, moved into the
   // allowed days, or the nearest one that is not disabled. Local date -
-  // toISOString() would give the UTC one.
-  const minDate = parseISODate(min);
-  const maxDate = parseISODate(max);
+  // toISOString() would give the UTC one. Today follows the clock past
+  // midnight.
+  const minDate = parseISODate(minDay);
+  const maxDate = parseISODate(maxDay);
+  const today = useToday() ?? startOfDay(new Date());
   const day =
     datePart ||
     toISODate(
       findEnabledDay(
-        parseISODate(clampValue(toISODate(new Date()), minDay, maxDay)) ??
-          startOfDay(new Date()),
+        parseISODate(clampValue(toISODate(today), minDay, maxDay)) ?? today,
         isDateDisabled,
         minDate,
         maxDate,

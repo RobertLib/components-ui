@@ -232,7 +232,8 @@ const toHex = (channel: number) =>
  * The text of a color in `format` - `#1e90ff`, `rgb(30, 144, 255)`,
  * `hsl(210, 100%, 56%)`. With `withAlpha`, a translucent color keeps its
  * alpha: `#1e90ff80`, `rgba(30, 144, 255, 0.5)`, `hsla(210, 100%, 56%,
- * 0.5)`; an opaque one is written without it.
+ * 0.5)`; an opaque one is written without it - also one whose alpha
+ * rounds to opaque (0.999), so that the text reads back as it is written.
  */
 export function formatColor(
   color: Rgba,
@@ -240,14 +241,17 @@ export function formatColor(
   withAlpha: boolean,
 ) {
   const alpha = withAlpha ? clamp(color.a, 0, 1) : 1;
-  const translucent = alpha < 1;
 
   if (format === "hex") {
     const hex = `#${toHex(color.r)}${toHex(color.g)}${toHex(color.b)}`;
-    return translucent ? `${hex}${toHex(alpha * 255)}` : hex;
+    const alphaHex = toHex(alpha * 255);
+    return alphaHex === "ff" ? hex : `${hex}${alphaHex}`;
   }
 
-  const alphaText = String(round(alpha, 2));
+  // Translucent as written - the 0.996 of `#000000fe` is 1 with two decimals
+  const roundedAlpha = round(alpha, 2);
+  const translucent = roundedAlpha < 1;
+  const alphaText = String(roundedAlpha);
 
   if (format === "rgb") {
     const channels = [color.r, color.g, color.b]

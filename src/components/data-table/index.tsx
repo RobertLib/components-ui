@@ -34,6 +34,7 @@ import { createCsv, downloadCsv } from "./csv";
 import {
   flattenColumns,
   groupRows,
+  sortByGroups,
   summarizeGroup,
   type BodyRowGroup,
 } from "./grouping";
@@ -315,9 +316,9 @@ export interface DataTableProps<T extends { id: RowId }> extends Omit<
    * gets a header row with its value and number of rows, which collapses
    * and expands it, and a row of the column `summary` of all its rows. The
    * groups follow the order of the value (the direction of its column when
-   * it is sorted); the rows keep their order within them. A group of the
-   * page may go on on the next one - its number counts all its rows. Not
-   * `virtualized`.
+   * it is sorted, an empty value last); the sorting orders the rows within
+   * them. The rows of a group come together on the pages - a group may go
+   * on on the next one, its number counts all its rows. Not `virtualized`.
    */
   groupBy?: string;
   /**
@@ -618,16 +619,20 @@ export default function DataTable<T extends { id: RowId }>({
   const searchTerm = enableGlobalSearch ? query.search : "";
 
   // Only sortable columns the user sees sort - a hand-edited URL or an old
-  // bookmark may name others, whose headers could not show or undo it
+  // bookmark may name others, whose headers could not show them; a click on
+  // a header drops them
+  const isShownSortKey = (key: string) =>
+    sortedVisibleColumns.some(
+      (column) => column.sortable && column.key === key,
+    );
   const querySort = getQuerySort(query);
   const sortKey = JSON.stringify(
-    querySort.filter(({ key }) =>
-      sortedVisibleColumns.some(
-        (column) => column.sortable && column.key === key,
-      ),
-    ),
+    querySort.filter(({ key }) => isShownSortKey(key)),
   );
   const sort = useMemo(() => JSON.parse(sortKey) as DataTableSort[], [sortKey]);
+  // The groups of `groupBy` follow the direction of their column when it is
+  // sorted
+  const groupOrder = sort.find(({ key }) => key === groupBy)?.order ?? "asc";
 
   // Client-side: all rows matching the filters and the search, sorted - the
   // expensive part, so it runs again only when they, the columns or these
@@ -638,33 +643,40 @@ export default function DataTable<T extends { id: RowId }>({
   const queryColumns = useQueryColumns(columns);
   const searchColumns = useQueryColumns(visibleColumns);
   const filtersKey = JSON.stringify(query.filters);
-  const matchingRows = useMemo(
-    () =>
-      clientSide
-        ? filterAndSortRows(
-            data,
-            {
-              filters: JSON.parse(filtersKey) as DataTableQuery["filters"],
-              order: sort[0]?.order ?? "asc",
-              search: searchTerm,
-              sort,
-              sortBy: sort[0]?.key ?? null,
-            },
-            queryColumns,
-            { locale, searchColumns },
-          )
-        : null,
-    [
-      clientSide,
+  const matchingRows = useMemo(() => {
+    if (!clientSide) return null;
+
+    const result = filterAndSortRows(
       data,
-      filtersKey,
-      locale,
+      {
+        filters: JSON.parse(filtersKey) as DataTableQuery["filters"],
+        order: sort[0]?.order ?? "asc",
+        search: searchTerm,
+        sort,
+        sortBy: sort[0]?.key ?? null,
+      },
       queryColumns,
-      searchColumns,
-      searchTerm,
-      sort,
-    ],
-  );
+      { locale, searchColumns },
+    );
+    // Grouped, the rows of a group come together - in the order of the
+    // sorting within it - not scattered over the pages
+    const column =
+      groupBy === undefined
+        ? undefined
+        : queryColumns.find((candidate) => candidate.key === groupBy);
+    return column ? sortByGroups(result, column, groupOrder, locale) : result;
+  }, [
+    clientSide,
+    data,
+    filtersKey,
+    groupBy,
+    groupOrder,
+    locale,
+    queryColumns,
+    searchColumns,
+    searchTerm,
+    sort,
+  ]);
   const clientPage =
     matchingRows && pagination
       ? paginateRows(matchingRows, query.page, query.pageSize)
@@ -1698,10 +1710,7 @@ export default function DataTable<T extends { id: RowId }>({
   }, [data, frozenRowIds, rows]);
 
   // Grouped by a column: the groups of the rows of the page, counted and
-  // summed up over all their matching rows, in the direction of the column
-  // when it is sorted
-  const groupOrder =
-    sort.find(({ key }) => key === groupColumn?.key)?.order ?? "asc";
+  // summed up over all their matching rows
   const rowGroups = useMemo(
     () =>
       groupColumn
@@ -2347,7 +2356,17 @@ export default function DataTable<T extends { id: RowId }>({
               }
               onSort={(key, multi) =>
                 updateQuery((current) =>
-                  toggleSort(current, key, { multi: multi && multiSort }),
+                  toggleSort(
+                    // On the sorting the headers show - a column they cannot
+                    // show (a hand-edited URL) would stay in front of it
+                    resetPagination(current, {
+                      sort: getQuerySort(current).filter((item) =>
+                        isShownSortKey(item.key),
+                      ),
+                    }),
+                    key,
+                    { multi: multi && multiSort },
+                  ),
                 )
               }
               ref={theadRef}

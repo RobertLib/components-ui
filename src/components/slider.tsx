@@ -8,7 +8,11 @@ import cn, { joinTokens } from "../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { formatMessage, formatNumber } from "../i18n/format";
-import { getNumberFormat, toCanonical } from "./number-input/number-format";
+import {
+  getNumberFormat,
+  stepValue,
+  toCanonical,
+} from "./number-input/number-format";
 import { useLocale } from "../providers/ui-context";
 import RequiredMark from "./required-mark";
 
@@ -441,7 +445,7 @@ export default function Slider<T extends SliderValue = number>({
   const decimals = Math.max(countDecimals(step), countDecimals(min));
   const lastStep = lastStepOf(max, min, step, decimals);
   // A tenth of the range, in whole steps
-  const pageStep = Math.max(1, Math.round((max - min) / 10 / step)) * step;
+  const pageSteps = Math.max(1, Math.round((max - min) / 10 / step));
   const vertical = orientation === "vertical";
   const styles = sizeStyles[dimProp ?? size ?? "md"];
   // Neither a drag nor a key changes the value
@@ -702,20 +706,26 @@ export default function Slider<T extends SliderValue = number>({
 
     const current = values[index];
     // Right is back in a right-to-left page
-    const forward = !vertical && isRtl(event.currentTarget) ? -step : step;
+    const forward = !vertical && isRtl(event.currentTarget) ? -1 : 1;
+    // `count` steps on - a value off the steps (of the parent) goes to the
+    // next one, as in a native range input: 15 to 20 or 10 with steps of 10
+    const stepBy = (direction: number, count: number) =>
+      step > 0
+        ? stepValue(current, direction > 0 ? 1 : -1, count, { min, step })
+        : current;
     const target =
       event.key === "ArrowRight"
-        ? current + forward
+        ? stepBy(forward, 1)
         : event.key === "ArrowLeft"
-          ? current - forward
+          ? stepBy(-forward, 1)
           : event.key === "ArrowUp"
-            ? current + step
+            ? stepBy(1, 1)
             : event.key === "ArrowDown"
-              ? current - step
+              ? stepBy(-1, 1)
               : event.key === "PageUp"
-                ? current + pageStep
+                ? stepBy(1, pageSteps)
                 : event.key === "PageDown"
-                  ? current - pageStep
+                  ? stepBy(-1, pageSteps)
                   : event.key === "Home"
                     ? min
                     : event.key === "End"

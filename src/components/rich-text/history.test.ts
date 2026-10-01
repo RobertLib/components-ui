@@ -129,4 +129,49 @@ describe("saveSelection", () => {
     expect(restoreSelection(root, saved)).toBeNull();
     expect(saveSelection(root, null)).toBeNull();
   });
+
+  it("restores a selection in text the editor's commands split", () => {
+    const root = document.createElement("div");
+    root.innerHTML = "<p>hello <b>world</b></p>";
+    document.body.append(root);
+    // Split text and empty text nodes - what unwrapping a mark leaves
+    const p = root.querySelector("p") as HTMLElement;
+    const lo = (p.firstChild as Text).splitText(3);
+    const empty = document.createTextNode("");
+    p.insertBefore(empty, p.querySelector("b"));
+    const emptyAfter = p.appendChild(document.createTextNode(""));
+
+    const at = (node: Node, offset: number, end = node, endOffset = offset) => {
+      const range = document.createRange();
+      range.setStart(node, offset);
+      range.setEnd(end, endOffset);
+      return saveSelection(root, range);
+    };
+    const selections = {
+      betweenTexts: at(p, 1),
+      afterBold: at(emptyAfter, 0),
+      inEmptyText: at(empty, 0),
+      inSplitText: at(lo, 1),
+      toBold: at(lo, 0, p.querySelector("b")?.firstChild as Node, 3),
+    };
+
+    // The HTML of the snapshot parses as one text node
+    expect(root.innerHTML).toBe("<p>hello <b>world</b></p>");
+    root.innerHTML = "<p>hello <b>world</b></p>";
+    const text = root.querySelector("p")?.firstChild;
+    const restored = (key: keyof typeof selections) =>
+      restoreSelection(root, selections[key]) as Range;
+
+    expect(restored("inSplitText").startContainer).toBe(text);
+    expect(restored("inSplitText").startOffset).toBe(4);
+    expect(restored("betweenTexts").startContainer).toBe(text);
+    expect(restored("betweenTexts").startOffset).toBe(3);
+    // Empty text is part of the text before it - or nothing, between
+    // elements
+    expect(restored("inEmptyText").startContainer).toBe(text);
+    expect(restored("inEmptyText").startOffset).toBe(6);
+    expect(restored("afterBold").startContainer).toBe(root.querySelector("p"));
+    expect(restored("afterBold").startOffset).toBe(2);
+    expect(restored("toBold").toString()).toBe("lo wor");
+  });
 });

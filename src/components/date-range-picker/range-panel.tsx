@@ -2,9 +2,8 @@ import { useState } from "react";
 import cn from "../../utils/cn";
 import DayGrid, { type DayRange } from "../datetime-picker/day-grid";
 import PresetList from "../datetime-picker/preset-list";
-import useIsHydrated from "../../hooks/use-is-hydrated";
 import { formatPlural } from "../../i18n/format";
-import { startOfDay } from "../../utils/date";
+import useToday from "../../hooks/use-today";
 import { useLocale } from "../../providers/ui-context";
 import {
   clampRange,
@@ -76,7 +75,6 @@ export default function RangePanel({
 }: RangePanelProps) {
   const locale = useLocale();
   const messages = locale.messages.dateRangePicker;
-  const isHydrated = useIsHydrated();
   // The first day picked - the next pick ends the range
   const [anchor, setAnchor] = useState<Date | null>(null);
   // The day under the pointer or in focus - the other end of the range
@@ -167,8 +165,9 @@ export default function RangePanel({
 
   // The presets as ranges inside the limits - `null` for one with nothing
   // left in them. The built-in ones count from today, of the browser - in
-  // a server-rendered calendar they wait for the hydration.
-  const today = isHydrated ? startOfDay(new Date()) : null;
+  // a server-rendered calendar they wait for the hydration, and follow the
+  // day of a calendar left open past midnight.
+  const today = useToday();
   const presetItems = presets.map((preset) => {
     const { label, range } =
       typeof preset === "string"

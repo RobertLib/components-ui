@@ -343,6 +343,44 @@ describe("DateTimePicker in forms", () => {
     expect(field(/Day/)).toBeValid();
   });
 
+  it("rounds limits with seconds into the range, like a native input", () => {
+    render(
+      <UIProvider locale={cs}>
+        <DateTimePicker
+          defaultValue="09:30"
+          label="Start"
+          min="09:30:30"
+          type="time"
+        />
+        <DateTimePicker
+          defaultValue="17:00"
+          label="End"
+          max="17:00:30"
+          type="time"
+        />
+        <DateTimePicker
+          defaultValue="2026-09-24T23:59"
+          label="At"
+          min="2026-09-24T23:59:30"
+          type="datetime-local"
+        />
+      </UIProvider>,
+    );
+
+    const field = (name: RegExp) => screen.getByRole("combobox", { name });
+    // 09:30 is before 09:30:30 - the first whole minute after it is 09:31
+    expect(field(/Start/)).toHaveProperty(
+      "validationMessage",
+      "Zadejte hodnotu 09:31 nebo pozdější.",
+    );
+    expect(field(/End/)).toHaveProperty("validationMessage", "");
+    // Also on to the next day
+    expect(field(/At/)).toHaveProperty(
+      "validationMessage",
+      "Zadejte hodnotu 25.09.2026 00:00 nebo pozdější.",
+    );
+  });
+
   it("keeps a validity message the page set", () => {
     render(
       <DateTimePicker

@@ -659,6 +659,42 @@ describe("TreeSelect in a form", () => {
     expect(field).toHaveTextContent("Phones");
   });
 
+  it("shows a defaultValue arriving later until the user picks - and again after a reset", async () => {
+    const user = userEvent.setup();
+    const field = (defaultValue?: string) => (
+      <form data-testid="form">
+        <TreeSelect
+          defaultValue={defaultValue}
+          items={categories}
+          label="Category"
+          name="category"
+        />
+      </form>
+    );
+    const { rerender } = render(field());
+    const form = screen.getByTestId("form") as HTMLFormElement;
+    expect(formValues(form, "category")).toEqual([""]);
+
+    // The data of an edit form - and changed again
+    rerender(field("phones"));
+    expect(formValues(form, "category")).toEqual(["phones"]);
+    rerender(field("garden"));
+    expect(formValues(form, "category")).toEqual(["garden"]);
+    expect(combobox()).toHaveTextContent("Garden");
+
+    // A pick of the user stays
+    await user.click(combobox());
+    await user.click(item("Electronics"));
+    rerender(field("laptops"));
+    expect(formValues(form, "category")).toEqual(["electronics"]);
+
+    act(() => form.reset());
+    await waitFor(() =>
+      expect(formValues(form, "category")).toEqual(["laptops"]),
+    );
+    expect(combobox()).toHaveTextContent("Laptops");
+  });
+
   it("submits the checked items of a multiple field - parents of checked children too", () => {
     render(
       <form data-testid="form">

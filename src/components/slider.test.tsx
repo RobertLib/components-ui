@@ -218,7 +218,32 @@ describe("Slider", () => {
     expect(onChange).toHaveBeenLastCalledWith(40);
 
     await user.keyboard("{ArrowLeft}");
-    expect(onChange).toHaveBeenLastCalledWith(20);
+    expect(onChange).toHaveBeenLastCalledWith(30);
+  });
+
+  it("steps a value off the steps to the next one - none skipped, as in a native range input", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <Slider aria-label="Volume" onChange={onChange} step={5} value={17} />,
+    );
+
+    await user.tab();
+    // Nearer to 15, which is still the next step down - and 20 the next up
+    for (const [key, next] of [
+      ["{ArrowRight}", 20],
+      ["{ArrowUp}", 20],
+      ["{ArrowLeft}", 15],
+      ["{ArrowDown}", 15],
+      // A tenth of the range is two steps
+      ["{PageUp}", 25],
+      ["{PageDown}", 10],
+      ["{Home}", 0],
+      ["{End}", 100],
+    ] as const) {
+      await user.keyboard(key);
+      expect(onChange).toHaveBeenLastCalledWith(next);
+    }
   });
 
   it("goes up to the last step within a max off the steps", async () => {

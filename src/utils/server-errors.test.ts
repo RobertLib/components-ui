@@ -73,6 +73,51 @@ describe("getFieldError", () => {
     expect(getFieldError(body, "email")).toBe("is invalid");
   });
 
+  it("reads Spring Boot, express-validator and Zod errors", () => {
+    const spring = {
+      error: "Bad Request",
+      errors: [
+        {
+          code: "NotBlank",
+          defaultMessage: "must not be blank",
+          field: "email",
+          objectName: "user",
+        },
+      ],
+      message: "Validation failed for object='user'. Error count: 1",
+      status: 400,
+    };
+    const expressValidator = {
+      errors: [
+        {
+          location: "body",
+          msg: "Invalid value",
+          path: "address.street",
+          type: "field",
+          value: "",
+        },
+      ],
+    };
+    // Before v7 the field was `param`
+    const expressValidator6 = {
+      errors: [{ location: "body", msg: "Too short", param: "name" }],
+    };
+    const zod = {
+      fieldErrors: { firstName: ["Required"] },
+      formErrors: ["Passwords do not match"],
+    };
+
+    expect(getFieldError(spring, "email")).toBe("must not be blank");
+    expect(getFieldError(expressValidator, "address.street")).toBe(
+      "Invalid value",
+    );
+    expect(getFieldError(expressValidator, "street")).toBeUndefined();
+    expect(getFieldError(expressValidator6, "name")).toBe("Too short");
+    expect(getFieldError(zod, "first_name")).toBe("Required");
+    expect(getFieldError({ errors: zod }, "firstName")).toBe("Required");
+    expect(getFieldError(zod, "formErrors")).toBeUndefined();
+  });
+
   it("returns undefined for other errors", () => {
     expect(getFieldError(new Error("Network error"), "email")).toBeUndefined();
     expect(getFieldError(null, "email")).toBeUndefined();
@@ -270,6 +315,36 @@ describe("getBaseError", () => {
         ],
       }),
     ).toBe("Try later");
+  });
+
+  it("takes the formErrors of Zod and a Spring Boot global error", () => {
+    expect(
+      getBaseError({
+        fieldErrors: { email: ["Invalid email"] },
+        formErrors: ["Passwords do not match"],
+      }),
+    ).toBe("Passwords do not match");
+    expect(
+      getBaseError({
+        fieldErrors: { email: ["Invalid email"] },
+        formErrors: [],
+      }),
+    ).toBeUndefined();
+    expect(
+      getBaseError({
+        errors: [
+          { defaultMessage: "must not be blank", field: "email" },
+          { defaultMessage: "Passwords do not match", objectName: "user" },
+        ],
+        message: "Validation failed",
+      }),
+    ).toBe("Passwords do not match");
+    expect(
+      getBaseError({
+        errors: [{ defaultMessage: "must not be blank", field: "email" }],
+        message: "Validation failed",
+      }),
+    ).toBeUndefined();
   });
 
   it("reads a plain list of messages", () => {

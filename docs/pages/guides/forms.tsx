@@ -7,6 +7,9 @@ const errorShapes = `// REST (Rails, Laravel, Django REST framework, ASP.NET, �
 { "errors": { "email": ["has already been taken"], "base": ["…"] } }
 { "errors": [{ "field": "email", "message": "has already been taken" }] }
 { "errors": [{ "source": { "pointer": "/data/attributes/email" }, "detail": "…" }] } // JSON:API
+{ "errors": [{ "field": "email", "defaultMessage": "must not be blank" }] } // Spring Boot
+{ "errors": [{ "path": "email", "msg": "Invalid value" }] } // express-validator
+{ "formErrors": ["…"], "fieldErrors": { "email": ["…"] } } // Zod flatten()
 
 // GraphQL - errors with the field messages in the extensions
 { "errors": [{ "message": "Validation failed", "extensions": { "email": ["…"] } }] }

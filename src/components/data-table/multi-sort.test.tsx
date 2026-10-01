@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
+import { createDataTableQuery } from "./query";
 import type { Column } from "./types";
 
 interface Row {
@@ -148,6 +149,45 @@ describe("DataTable sorting by several columns", () => {
       expect.objectContaining({ sort: [{ key: "team", order: "asc" }] }),
     );
     expect(sortButton("Team")).toHaveAccessibleName("Team");
+  });
+
+  it("goes on from the sorting the headers show", () => {
+    const onQueryChange = vi.fn();
+    // A hand-edited URL of server data - `?sort=secret,-name`
+    const table = (
+      <DataTable
+        columns={columns}
+        data={rows}
+        multiSort
+        onQueryChange={onQueryChange}
+        query={createDataTableQuery({
+          sort: [
+            { key: "secret", order: "asc" },
+            { key: "name", order: "desc" },
+          ],
+        })}
+      />
+    );
+    const { unmount } = render(table);
+
+    expect(header("Name")).toHaveAttribute("aria-sort", "descending");
+    // Descending goes on to no sorting - also of the column no header shows
+    fireEvent.click(sortButton("Name"));
+    expect(onQueryChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sort: [], sortBy: null }),
+    );
+    unmount();
+
+    render(table);
+    fireEvent.click(sortButton("Age"), { shiftKey: true });
+    expect(onQueryChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sort: [
+          { key: "name", order: "desc" },
+          { key: "age", order: "asc" },
+        ],
+      }),
+    );
   });
 
   it("sorts by the sortable columns the user sees only", () => {

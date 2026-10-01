@@ -5,6 +5,7 @@ import PresetList from "./preset-list";
 import { getRangeMessage, isInRange, parseDisplayValue } from "./parse";
 import usePickerPopup from "./use-picker-popup";
 import useIsMobile from "../../hooks/use-is-mobile";
+import useToday from "../../hooks/use-today";
 import { formatMessage } from "../../i18n/format";
 import {
   formatDate,
@@ -84,8 +85,9 @@ export default function DatePicker({
       formatValue,
     ) || getUnavailableMessage(value);
 
-  // Only in the open popup - "today" is the browser's
-  const today = startOfDay(new Date());
+  // Only in the open popup - "today" is the browser's, the next day after
+  // midnight
+  const today = useToday() ?? startOfDay(new Date());
   const hasClear = !!selectedDate && (props.clearable ?? !props.required);
   const presetItems = (presets ?? []).map((preset) => {
     const day = parseISODate(preset.value);

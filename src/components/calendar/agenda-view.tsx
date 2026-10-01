@@ -23,6 +23,7 @@ import {
 } from "../../utils/date";
 import { formatMessage } from "../../i18n/format";
 import useIsHydrated from "../../hooks/use-is-hydrated";
+import useToday from "../../hooks/use-today";
 import { useLocale } from "../../providers/ui-context";
 
 /** An event on a day of the agenda. */
@@ -185,9 +186,10 @@ export default function AgendaView({
   );
 
   // Unknown on the server and while a server-rendered page hydrates - its
-  // clock and time zone may differ from the browser's
+  // clock and time zone may differ from the browser's. Another day after
+  // midnight, also in a view left open.
   const isHydrated = useIsHydrated();
-  const today = isHydrated ? new Date() : null;
+  const today = useToday();
 
   // A new period opens at today - once its events are there, also when
   // they come without `loading`: an empty list does not count yet

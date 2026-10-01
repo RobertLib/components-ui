@@ -78,23 +78,58 @@ export function sanitizePickerLimit(
   return sanitizePickerValue(value, type) || undefined;
 }
 
-/** A time as `HH:mm`, without its seconds - `undefined` for anything else. */
-export const normalizeTime = (value: string | undefined) => {
-  const time = parseTime(value);
-  return time ? `${time.hours}:${time.minutes}` : undefined;
-};
+/** Which limit of a range a value is - `min` or `max`. */
+type Limit = "max" | "min";
+
+/** Whether a time `HH:mm:ss.sss` is past its whole minute. */
+const isPastMinute = (time: string) => /[1-9]/.test(time.slice(5));
 
 /**
- * A date-time as `YYYY-MM-DDTHH:mm`, without its seconds. A date alone gets
- * the time `dayTime` - e.g. the first minute of the day for a `min`.
+ * A time limit as `HH:mm` - `undefined` for anything else. Its seconds
+ * round it into the range, so that no time it allows fails a native input:
+ * a `min` of `09:30:30` is `09:31`, a `max` of `17:00:30` is `17:00`. A
+ * `min` after `23:59` is `24:00`, which no time of the day reaches.
  */
-export const normalizeDateTime = (
-  value: string | undefined,
-  dayTime: string,
-) => {
-  if (parseDate(value)) return `${value}T${dayTime}`;
-  return parseDateTime(value)?.slice(0, 16);
-};
+export function normalizeTime(value: string | undefined, limit: Limit) {
+  const time = parseTime(value);
+  if (!time || !value) return undefined;
+  if (limit === "max" || !isPastMinute(value)) {
+    return `${time.hours}:${time.minutes}`;
+  }
+
+  const minutes = Number(time.hours) * 60 + Number(time.minutes) + 1;
+  return `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
+}
+
+/**
+ * A date-time limit as `YYYY-MM-DDTHH:mm`, its seconds rounded into the
+ * range like by `normalizeTime` - a `min` of `2026-09-24T23:59:30` is
+ * `2026-09-25T00:00`. A date alone allows its whole day: from its first
+ * minute for a `min`, up to its last one for a `max`.
+ */
+export function normalizeDateTime(value: string | undefined, limit: Limit) {
+  if (parseDate(value)) {
+    return `${value}T${limit === "min" ? "00:00" : "23:59"}`;
+  }
+
+  const dateTime = parseDateTime(value);
+  if (!dateTime || limit === "max" || !isPastMinute(dateTime.slice(11))) {
+    return dateTime?.slice(0, 16);
+  }
+
+  // The next minute - also of the next day. In UTC, whose days are all as
+  // long: the limit is a clock time, which no daylight saving change skips.
+  const next = new Date(0);
+  next.setUTCFullYear(
+    Number(dateTime.slice(0, 4)),
+    Number(dateTime.slice(5, 7)) - 1,
+    Number(dateTime.slice(8, 10)),
+  );
+  next.setUTCMinutes(
+    Number(dateTime.slice(11, 13)) * 60 + Number(dateTime.slice(14, 16)) + 1,
+  );
+  return `${padYear(next.getUTCFullYear())}-${pad2(next.getUTCMonth() + 1)}-${pad2(next.getUTCDate())}T${pad2(next.getUTCHours())}:${pad2(next.getUTCMinutes())}`;
+}
 
 /**
  * `value` moved into [`min`, `max`]. Values of one fixed-width format, like

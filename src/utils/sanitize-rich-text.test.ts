@@ -322,6 +322,16 @@ describe("sanitizeRichText of pasted content", () => {
     );
   });
 
+  it("breaks the lines of code at a lone carriage return too", () => {
+    // The parser reads a carriage return as a new line - the output parses
+    // again as it is
+    const html = sanitizeRichText(
+      "<pre>a&#13;b&#13;\nc\nd</pre><p>e&#13;f</p>",
+    );
+    expect(html).toBe("<pre><code>a<br>b<br>c<br>d</code></pre><p>e\nf</p>");
+    expect(sanitizeRichText(html)).toBe(html);
+  });
+
   it("keeps code blocks at the top level only", () => {
     expect(
       sanitizeRichText(

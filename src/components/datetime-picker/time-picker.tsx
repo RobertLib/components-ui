@@ -49,8 +49,9 @@ export default function TimePicker({
   const dayPeriods = getDayPeriods(locale.code);
   const time = parseTime(value);
   // A reversed range (22:00 - 06:00) spans midnight, as for a native input
-  const minTime = normalizeTime(min);
-  const maxTime = normalizeTime(max);
+  // - limits with seconds are rounded into the range
+  const minTime = normalizeTime(min, "min");
+  const maxTime = normalizeTime(max, "max");
 
   /** A time (`HH:mm`) as the field shows it. */
   const formatValue = (hoursAndMinutes: string) => {

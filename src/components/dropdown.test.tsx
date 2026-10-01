@@ -4,6 +4,7 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import Dialog from "./dialog";
 import Dropdown from "./dropdown";
+import IconButton from "./icon-button";
 
 describe("Dropdown", () => {
   it("moves the focus into the menu and announces the active item", async () => {
@@ -608,5 +609,37 @@ describe("Dropdown and Escape", () => {
 
     await user.keyboard("{Escape}");
     expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("gives the focus back to an IconButton with a tooltip - after Escape and a pick", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Dropdown
+          buttonTrigger
+          items={[{ label: "Edit" }, { label: "Delete" }]}
+          trigger={
+            <IconButton aria-label="Actions" tooltip>
+              ⋮
+            </IconButton>
+          }
+        />
+        <button type="button">Next</button>
+      </>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Actions" });
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", { name: "Edit" }));
+    await act(async () => {});
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(trigger).toHaveFocus();
   });
 });

@@ -26,6 +26,7 @@ import MonthView from "./month-view";
 import { normalizeBusinessHours } from "./business-hours";
 import TimelineView from "./timeline-view";
 import useIsHydrated from "../../hooks/use-is-hydrated";
+import useToday from "../../hooks/use-today";
 import {
   SLOT_DURATIONS,
   createEventColorResolver,
@@ -532,6 +533,8 @@ export default function Calendar({
   // markup of the server always matches (see "Server rendering" in the
   // docs). A page rendered in the browser shows them from the start.
   const isHydrated = useIsHydrated();
+  // The day of the Today button - checked again after midnight
+  const today = useToday();
 
   // The order of the tiles of a day and of the Tab key
   const sortedEvents = useMemo(
@@ -596,7 +599,7 @@ export default function Calendar({
         canGoPrevious={canGoPrevious}
         // Today of the server and of the browser may differ - known once
         // the page is hydrated
-        canGoToday={!isHydrated || canNavigateTo(new Date())}
+        canGoToday={!today || canNavigateTo(new Date())}
         currentDate={currentDate}
         maxDate={maxDate}
         minDate={minDate}

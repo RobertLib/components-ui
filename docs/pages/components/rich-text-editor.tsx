@@ -398,10 +398,11 @@ export default function RichTextEditorPage() {
         <Prose>
           <p>
             <code>maxLength</code> works as in a native field: typing, pasting
-            and dropping stop at the limit (pasted content is cut, an IME
-            composition cut back when it ends). A longer value from outside
-            stays and is counted over the limit; once the user edits it, it
-            keeps its form from being submitted until it is short enough.
+            and dropping stop at the limit (pasted content is cut, as is the
+            text of a new link, an IME composition cut back when it ends). A
+            longer value from outside stays and is counted over the limit; once
+            the user edits it, it keeps its form from being submitted until it
+            is short enough.
           </p>
         </Prose>
       </Section>
@@ -571,8 +572,9 @@ export default function RichTextEditorPage() {
         <Callout>
           <p>
             Rendered on the server, the editor is empty until it hydrates - it
-            needs the browser to sanitize its value, and it never sends the
-            unsanitized HTML in its hidden input.
+            needs the browser to sanitize its value. Its hidden input holds the
+            value as it was passed until then, so a form submitted before the
+            page is hydrated keeps it.
           </p>
         </Callout>
       </Section>

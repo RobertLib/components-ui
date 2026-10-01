@@ -292,6 +292,50 @@ describe("Calendar now indicator", () => {
     );
     expect(container.querySelectorAll("[data-now-indicator]")).toHaveLength(2);
   });
+
+  it("draws the line in a view of tomorrow once midnight comes", () => {
+    vi.useFakeTimers({ now: d(24, 23, 59) });
+    const { container } = render(
+      <Calendar
+        dayEndHour={24}
+        dayStartHour={0}
+        initialDate={d(25)}
+        initialView="day"
+      />,
+    );
+
+    const line = () => container.querySelector("[data-now-indicator]");
+    expect(line()).toBeNull();
+    // No timer of the minutes runs for another day - the day changes at
+    // midnight
+    act(() => vi.advanceTimersByTime(2 * 60_000));
+    expect(line()).not.toBeNull();
+  });
+});
+
+describe("Calendar today", () => {
+  const current = () => document.querySelector('[aria-current="date"]');
+
+  it("moves the mark of today at midnight, in a month left open", () => {
+    vi.useFakeTimers({ now: d(24, 23, 59) });
+    render(<Calendar initialDate={d(24)} initialView="month" />);
+    expect(current()).toHaveTextContent("24");
+
+    act(() => vi.advanceTimersByTime(2 * 60_000));
+    expect(current()).toHaveTextContent("25");
+  });
+
+  it("looks at the day again when the page shows - after the device slept", () => {
+    // Only `Date` is faked - the timers wait, as on a sleeping device
+    vi.useFakeTimers({ now: d(24, 12), toFake: ["Date"] });
+    render(<Calendar initialDate={d(24)} initialView="month" />);
+
+    vi.setSystemTime(d(26, 8));
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(current()).toHaveTextContent("26");
+  });
 });
 
 describe("Calendar hidden days", () => {

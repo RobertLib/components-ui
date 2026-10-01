@@ -5,6 +5,7 @@ import {
   isInRange,
   isTimeInRange,
   normalizeDateTime,
+  normalizeTime,
   parseDisplayRange,
   parseDisplayValue,
   snapDateTime,
@@ -345,9 +346,28 @@ describe("value ranges", () => {
     expect(clampValue("18:00", "09:30", "17:00")).toBe("17:00");
     expect(isInRange("2026-W05", "2026-W01", "2026-W10")).toBe(true);
     expect(isInRange("2026-11", undefined, "2026-10")).toBe(false);
-    expect(normalizeDateTime("2026-09-24", "23:59")).toBe("2026-09-24T23:59");
-    expect(normalizeDateTime("2026-09-24T10:15:30", "00:00")).toBe(
+    expect(normalizeDateTime("2026-09-24", "max")).toBe("2026-09-24T23:59");
+    expect(normalizeDateTime("2026-09-24", "min")).toBe("2026-09-24T00:00");
+  });
+
+  it("rounds limits with seconds into the range, like a native input", () => {
+    // No whole minute before 09:30:30 passes a native input with that `min`
+    expect(normalizeTime("09:30:30", "min")).toBe("09:31");
+    expect(normalizeTime("09:30:00.000", "min")).toBe("09:30");
+    expect(normalizeTime("17:00:30", "max")).toBe("17:00");
+    // No time of the day passes it
+    expect(normalizeTime("23:59:30", "min")).toBe("24:00");
+    expect(normalizeTime("9:30", "min")).toBeUndefined();
+
+    expect(normalizeDateTime("2026-09-24T10:15:30", "min")).toBe(
+      "2026-09-24T10:16",
+    );
+    expect(normalizeDateTime("2026-09-24T10:15:30", "max")).toBe(
       "2026-09-24T10:15",
+    );
+    // On to the next day, month and year
+    expect(normalizeDateTime("2026-12-31T23:59:00.5", "min")).toBe(
+      "2027-01-01T00:00",
     );
   });
 });

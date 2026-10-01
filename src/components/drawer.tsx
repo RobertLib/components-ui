@@ -19,6 +19,7 @@ import {
 import Popover from "./popover";
 import Tooltip from "./tooltip";
 import { getTabbableElements } from "../utils/tabbable";
+import useHotkeys from "../hooks/use-hotkeys";
 import useIsMobile from "../hooks/use-is-mobile";
 import { attachRef } from "../hooks/use-form-control";
 import { findActiveLink } from "../providers/active-path";
@@ -245,6 +246,22 @@ const hasContent = (node: React.ReactNode) =>
 const TOOLTIP_DELAY = 200;
 
 /**
+ * The `shortcut` of `DrawerProvider` in the slid-in drawer - a modal dialog
+ * the shortcuts of the page do not reach. Rendered in it, the shortcut
+ * slides the drawer out again - not while typing, like those of the page.
+ */
+function SlideOutShortcut({
+  onSlideOut,
+  shortcut,
+}: {
+  onSlideOut: () => void;
+  shortcut: string;
+}) {
+  useHotkeys([[shortcut, onSlideOut]]);
+  return null;
+}
+
+/**
  * The side navigation of an app, at the start edge of the page (the right
  * one right to left). Collapses to icons on desktop and slides in over the
  * page on phones - the state lives in `DrawerProvider`, `Navbar` toggles
@@ -261,7 +278,7 @@ export default function Drawer({
   ref,
   ...props
 }: DrawerProps) {
-  const { isCollapsed, isOpen, toggleOpen } = useDrawer();
+  const { isCollapsed, isOpen, shortcut, toggleOpen } = useDrawer();
   const messages = useMessages();
   const { pathname, search } = useRouter();
 
@@ -458,6 +475,9 @@ export default function Drawer({
           {/* The header too - a tooltip or popover in it is in the drawer,
               not in the page under it */}
           <OverlayContext value={childContext}>
+            {isOverlaid && shortcut && (
+              <SlideOutShortcut onSlideOut={toggleOpen} shortcut={shortcut} />
+            )}
             {hasContent(headerContent) && (
               <div
                 className={cn(

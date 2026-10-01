@@ -2,6 +2,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
+import { createDataTableQuery } from "./query";
 import type { Column, DataTableColumn } from "./types";
 
 interface Row {
@@ -260,6 +261,56 @@ describe("DataTable row groups", () => {
       screen.getByRole("button", { name: "Team: B (2 rows)" }),
     ).toBeInTheDocument();
     expect(bodyTexts()).toHaveLength(6);
+  });
+
+  it("keeps the rows of a group together on the pages, sorted within it", () => {
+    // Every other row in another group - sorted by the name alone, the pages
+    // would show a part of each group
+    const people = ["a", "b", "c", "d", "e", "f"].map((name, index) => ({
+      ...rows[0],
+      id: index + 1,
+      name,
+      salary: 1,
+      team: index % 2 ? "B" : "A",
+    }));
+    const { rerender } = render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={people}
+        groupBy="team"
+        query={createDataTableQuery({
+          order: "desc",
+          pageSize: 2,
+          sortBy: "name",
+        })}
+      />,
+    );
+
+    expect(bodyTexts()).toEqual(["Team: A (3 rows)", "eA1", "cA1", "Sum3"]);
+
+    rerender(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={people}
+        groupBy="team"
+        query={createDataTableQuery({
+          order: "desc",
+          page: 2,
+          pageSize: 2,
+          sortBy: "name",
+        })}
+      />,
+    );
+    expect(bodyTexts()).toEqual([
+      "Team: A (3 rows)",
+      "aA1",
+      "Sum3",
+      "Team: B (3 rows)",
+      "fB1",
+      "Sum3",
+    ]);
   });
 
   it("groups nothing with server data", () => {

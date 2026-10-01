@@ -268,10 +268,10 @@ export default function DataTablePage() {
             expands it (<code>aria-expanded</code>) - and, when a column has a{" "}
             <code>summary</code>, a row of it over all rows of the group. The
             groups follow the order of the value - the direction of its column
-            when that is sorted, an empty value last - and the rows keep their
-            order in them. The pagination pages the rows: a group may go on on
-            the next page, its number counts all its rows. A grouped table is
-            not <code>virtualized</code>.
+            when that is sorted, an empty value last - and the sorting orders
+            the rows within them. The rows of a group come together on the
+            pages: a group may go on on the next page, its number counts all its
+            rows. A grouped table is not <code>virtualized</code>.
           </p>
         }
         name="data-table/row-grouping"
@@ -478,18 +478,22 @@ export default function DataTablePage() {
             It exports every page of what the user sees: the rows matching the
             filters in their order, the visible columns in theirs, the values as
             the cells show them without a <code>render</code> - dates and
-            booleans by the locale; <code>exportValue</code> gives a column
-            another value, e.g. the text of a chip. The file is UTF-8 with a BOM
-            and separated by <code>;</code> for languages writing a decimal
-            comma, so that a Czech Excel opens it in columns, and by{" "}
-            <code>,</code> otherwise (<code>csvSeparator</code>). Texts with
-            either separator are quoted, and a text a spreadsheet would take for
-            a formula (also after spaces) gets a leading <code>&apos;</code>.
-            With server data <code>onExport(query)</code> returns all rows of
-            the query (see the REST &amp; GraphQL tables) - the button shows a
-            spinner meanwhile. <code>createCsv</code> and{" "}
-            <code>downloadCsv</code> export rows of your choice - here the
-            selected ones.
+            booleans by the locale, numbers with its decimal separator - also
+            plain decimal texts (<code>&quot;1234.50&quot;</code>) of a column
+            with a <code>numberRange</code> filter, a <code>number</code> editor
+            or a <code>sum</code> / <code>avg</code> summary, while other texts
+            (<code>&quot;007&quot;</code>, phone numbers) stay as they are;{" "}
+            <code>exportValue</code> gives a column another value, e.g. the text
+            of a chip. The file is UTF-8 with a BOM and separated by{" "}
+            <code>;</code> for languages writing a decimal comma, so that a
+            Czech Excel opens it in columns, and by <code>,</code> otherwise (
+            <code>csvSeparator</code>). Texts with either separator are quoted,
+            and a text a spreadsheet would take for a formula (also after
+            spaces) gets a leading <code>&apos;</code>. With server data{" "}
+            <code>onExport(query)</code> returns all rows of the query (see the
+            REST &amp; GraphQL tables) - the button shows a spinner meanwhile.{" "}
+            <code>createCsv</code> and <code>downloadCsv</code> export rows of
+            your choice - here the selected ones.
           </p>
         }
         name="data-table/csv-export"
@@ -611,8 +615,9 @@ export default function DataTablePage() {
             <li>
               A <code>sortBy</code> or a column of <code>sort</code> that is not{" "}
               <code>sortable</code> or hidden (a hand-edited URL) sorts nothing
-              client-side and marks no header; hiding a sorted column in the
-              column settings drops it from the sorting.
+              client-side and marks no header; a click on a header sorts by the
+              columns the headers show and drops it, and so does hiding a sorted
+              column in the column settings.
             </li>
           </ul>
         </Prose>

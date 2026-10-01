@@ -18,6 +18,7 @@ import IconButton from "./icon-button";
 import {
   getActiveElement,
   getActiveFocusReturnTargets,
+  hasModalOverlayFrom,
   isEscapeKey,
   isTopmostOverlay,
   lockPageScroll,
@@ -32,16 +33,18 @@ import { useMessages, usePortalContainer } from "../providers/ui-context";
 import { ButtonGroupContext } from "./button-group-context";
 
 /**
- * How a `DialogFooter` in a Sheet makes room for itself: the body of the
- * sheet leaves its height free, so the footer covers no content.
+ * How a `DialogFooter` makes room for itself: the body of its dialog leaves
+ * its height free, so the footer covers no content.
  */
 interface FooterSlot {
+  /** Classes of the footer, e.g. its rounded corners. */
+  className?: string;
   /** Follows the height of `footer` - returns what stops it. */
   observe: (footer: HTMLElement) => () => void;
 }
 
-// Set by a Sheet. A Dialog sets null: the footer of a Dialog opened from a
-// Sheet (a ConfirmDialog) belongs to that Dialog, not to the sheet around.
+// Set by every Dialog and Sheet: the footer of a Dialog opened from a Sheet
+// (a ConfirmDialog) belongs to that Dialog, not to the sheet around.
 const FooterSlotContext = createContext<FooterSlot | null>(null);
 
 const subscribeToNothing = () => () => {};
@@ -91,11 +94,8 @@ export interface ModalDialogProps extends Omit<
   closedClassName?: string;
   /** How long the closing animation takes, in milliseconds. */
   duration: number;
-  /**
-   * The body leaves the height of a `DialogFooter` free. Without it the
-   * footer has the fixed room the body classes give it.
-   */
-  fitFooter?: boolean;
+  /** Classes of a `DialogFooter` in it, e.g. its rounded corners. */
+  footerClassName?: string;
   /** See `DialogProps.onClose`. */
   onClose?: () => void;
   /** See `DialogProps.open`. */
@@ -136,7 +136,7 @@ export default function ModalDialog({
   closeOnBackdropClick = false,
   closeOnEscape = true,
   duration,
-  fitFooter = false,
+  footerClassName,
   onClose,
   open,
   openClassName,
@@ -202,9 +202,12 @@ export default function ModalDialog({
 
   // In the overlay stack shared with popovers, tooltips and the drawer: only
   // the topmost overlay handles Escape - a ConfirmDialog opened from a Dialog
-  // closes alone - and only the topmost modal one traps the focus
+  // closes alone - and only the topmost modal one traps the focus. A
+  // dialog opened from it that closes after it gives the focus back where
+  // this one would have.
   const { childContext, id: dialogId } = useOverlayLayer(isRequestedOpen, {
     getElements: () => [dialogRef.current],
+    getReturnTargets: () => returnFocusRef.current,
     modal: true,
     portaled: true,
   });
@@ -235,7 +238,9 @@ export default function ModalDialog({
   }, [entered, isAnimated, isRequestedOpen]);
 
   // Gone once it has animated out. An uncontrolled dialog gives the focus
-  // back then and tells the parent.
+  // back then and tells the parent. Not the focus while a dialog opened
+  // from it is still open - its focus trap keeps it, and gives it back
+  // where this one would have once it closes.
   useEffect(() => {
     if (!exiting) return;
 
@@ -244,11 +249,13 @@ export default function ModalDialog({
       if (isControlled) return;
 
       focusReturnedRef.current = true;
-      returnFocus(returnFocusRef.current, dialogRef.current);
+      if (!hasModalOverlayFrom(dialogId)) {
+        returnFocus(returnFocusRef.current, dialogRef.current);
+      }
       onCloseRef.current?.();
     }, duration);
     return () => clearTimeout(timer);
-  }, [duration, exiting, isControlled]);
+  }, [dialogId, duration, exiting, isControlled]);
 
   // Uncontrolled mode, unmounted by the parent while open or closing - the
   // focus that went with the dialog goes back where it was, not to the page.
@@ -335,7 +342,8 @@ export default function ModalDialog({
   // the closing animation, when it goes back where it was
   useFocusTrap(isOpen, dialogId, dialogRef);
 
-  // Move the focus into the dialog, and back where it was once it closes
+  // Move the focus into the dialog, and back where it was once it closes -
+  // unless a dialog opened from it is still open (see above)
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!isOpen || !dialog) return;
@@ -360,14 +368,16 @@ export default function ModalDialog({
 
     const targets = returnFocusRef.current;
     return () => {
-      returnFocus(targets, dialog);
+      if (!hasModalOverlayFrom(dialogId)) returnFocus(targets, dialog);
     };
-  }, [isControlled, isOpen]);
+  }, [dialogId, isControlled, isOpen]);
 
-  // The height of the DialogFooter in it, which the body leaves free
+  // The height of the DialogFooter in it, which the body leaves free under
+  // its padding - the content as far from the footer as from the header
   const [footerHeight, setFooterHeight] = useState(0);
   const footerSlot = useMemo<FooterSlot>(
     () => ({
+      className: footerClassName,
       observe: (footer) => {
         const measure = () => setFooterHeight(footer.offsetHeight);
         measure();
@@ -383,7 +393,7 @@ export default function ModalDialog({
         };
       },
     }),
-    [],
+    [footerClassName],
   );
 
   // `swipeToClose`: how far the finger has dragged the panel down, while it
@@ -582,14 +592,12 @@ export default function ModalDialog({
           <div
             className={cn("flex-1 overflow-y-auto p-6", bodyClassName)}
             style={
-              fitFooter && footerHeight > 0
+              footerHeight > 0
                 ? { paddingBottom: `calc(${footerHeight}px + 1.5rem)` }
                 : undefined
             }
           >
-            <FooterSlotContext value={fitFooter ? footerSlot : null}>
-              {children}
-            </FooterSlotContext>
+            <FooterSlotContext value={footerSlot}>{children}</FooterSlotContext>
           </div>
         </div>
       </OverlayContext>
@@ -616,8 +624,7 @@ export function DialogFooter({
       className={cn(
         // Above the home indicator of a phone at the bottom of its screen
         "absolute inset-x-0 bottom-0 z-10 border-t border-neutral-200 bg-surface px-6 pt-3.25 pb-[calc(0.8125rem+var(--cui-safe-bottom,0px))] dark:border-neutral-800 dark:bg-surface-dark",
-        // A sheet has square corners - the ones of a top sheet are clipped
-        !slot && "rounded-b-lg",
+        slot?.className,
         className,
       )}
       {...props}

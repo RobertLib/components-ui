@@ -179,6 +179,36 @@ describe("createCsv", () => {
     ]);
   });
 
+  it("writes the numbers stored as texts of a number column as numbers", () => {
+    const rows = ["1234.50", " -3.5 ", "0", "007", "+1", "1e3", "1.2.3"].map(
+      (amount, id) => ({ amount, code: amount, id }),
+    );
+    const columns: Column<(typeof rows)[number]>[] = [
+      { filter: "numberRange", key: "amount", label: "Amount" },
+      // Not a number column - its texts stay as they are
+      { key: "code", label: "Code" },
+    ];
+
+    expect(lines(createCsv(rows, columns, { locale: cs })).slice(1)).toEqual([
+      "1234,50;1234.50",
+      "-3,5; -3.5 ",
+      "0;0",
+      // Identifiers, signs, exponents and versions are no plain numbers
+      "007;007",
+      "+1;+1",
+      "1e3;1e3",
+      "1.2.3;1.2.3",
+    ]);
+    // A summed column too - quoted where the decimal comma separates
+    expect(
+      createCsv(
+        [{ amount: "2.5", id: 1 }],
+        [{ key: "amount", label: "Amount", summary: "sum" }],
+        { locale: cs, separator: "," },
+      ),
+    ).toBe('Amount\r\n"2,5"');
+  });
+
   it("writes negative numbers with a hyphen-minus in every language", () => {
     const csv = createCsv(
       [{ amount: -1234.5, id: 1 }],

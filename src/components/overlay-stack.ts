@@ -37,6 +37,12 @@ interface OverlayEntry {
    * popover whose panel has closed.
    */
   getFocusFallback?: () => HTMLElement | null | undefined;
+  /**
+   * Where the focus goes once a modal overlay closes - for an overlay opened
+   * from it that closes after it (the ConfirmDialog of `useConfirm()` asked
+   * from a Dialog that closed first).
+   */
+  getReturnTargets?: () => HTMLElement[];
   /** The `useId` of the overlay. */
   id: string;
   /** Traps the focus (Dialog, slid-in Drawer). */
@@ -246,6 +252,14 @@ export const isTopmostOverlay = (
 export const hasModalOverlay = () => stack.some((entry) => entry.modal);
 
 /**
+ * Whether a modal overlay opened from the overlay `id` is still open - the
+ * ConfirmDialog of `useConfirm()` asked from a Dialog that closed under it.
+ * Its focus trap keeps the focus, and gives it back where `id` would have.
+ */
+export const hasModalOverlayFrom = (id: string) =>
+  stack.some((entry) => entry.modal && entry.ancestors.includes(id));
+
+/**
  * Whether something in the overlays `ancestors` (outermost first) is out of
  * reach: a modal overlay they are not part of is open above them - the page
  * under a Dialog, or the Dialog under the ConfirmDialog opened from it.
@@ -337,15 +351,27 @@ const getNeighborStops = (element: HTMLElement) => [
   ...getTabStopsBeside(element, true),
 ];
 
-/** `targets` followed by the Tab stops next to the last of them. */
+/**
+ * `targets` followed by the Tab stops next to the last of them, and by where
+ * the focus of the modal overlay that one is in goes once it closes - for
+ * when that has closed by then too.
+ */
 function withNeighborStops(targets: HTMLElement[]) {
   // Of those still in the page - a button of a popover panel that closed
   // left its trigger
   const outermost = targets.findLast((target) => target.isConnected);
+  if (!outermost) return targets;
 
-  return outermost
-    ? [...new Set([...targets, ...getNeighborStops(outermost)])]
-    : targets;
+  const modal = stack.findLast(
+    (entry) => entry.modal && containsNode(entry, outermost),
+  );
+  return [
+    ...new Set([
+      ...targets,
+      ...getNeighborStops(outermost),
+      ...(modal?.getReturnTargets?.() ?? []),
+    ]),
+  ];
 }
 
 /**
@@ -674,6 +700,8 @@ interface OverlayLayerOptions {
   getElements: () => (Element | null | undefined)[];
   /** See `OverlayEntry.getFocusFallback`. */
   getFocusFallback?: () => HTMLElement | null | undefined;
+  /** See `OverlayEntry.getReturnTargets`. */
+  getReturnTargets?: () => HTMLElement[];
   /** Traps the focus - the caller does that with `useFocusTrap`. */
   modal?: boolean;
   /** See `OverlayEntry.portaled`. */
@@ -693,6 +721,7 @@ export function useOverlayLayer(
     escape = true,
     getElements,
     getFocusFallback,
+    getReturnTargets,
     modal = false,
     portaled = false,
     tooltip = false,
@@ -700,10 +729,20 @@ export function useOverlayLayer(
 ) {
   const id = useId();
   const ancestors = use(OverlayContext);
-  const optionsRef = useRef({ escape, getElements, getFocusFallback });
+  const optionsRef = useRef({
+    escape,
+    getElements,
+    getFocusFallback,
+    getReturnTargets,
+  });
 
   useLayoutEffect(() => {
-    optionsRef.current = { escape, getElements, getFocusFallback };
+    optionsRef.current = {
+      escape,
+      getElements,
+      getFocusFallback,
+      getReturnTargets,
+    };
   });
 
   // Insertion effects run before the layout phase, in which an `autoFocus`
@@ -745,12 +784,16 @@ const createEntry = (
     tooltip,
   }: Pick<OverlayEntry, "modal" | "portaled" | "tooltip">,
   optionsRef: React.RefObject<
-    Pick<OverlayLayerOptions, "escape" | "getElements" | "getFocusFallback">
+    Pick<
+      OverlayLayerOptions,
+      "escape" | "getElements" | "getFocusFallback" | "getReturnTargets"
+    >
   >,
 ): OverlayEntry => ({
   ancestors,
   getElements: () => optionsRef.current.getElements(),
   getFocusFallback: () => optionsRef.current.getFocusFallback?.(),
+  getReturnTargets: () => optionsRef.current.getReturnTargets?.() ?? [],
   id,
   modal,
   portaled,

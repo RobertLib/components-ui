@@ -33,7 +33,7 @@ import {
 } from "../../utils/date";
 import useEventMove from "./use-event-move";
 import useIsApplePlatform from "../../hooks/use-is-apple-platform";
-import useIsHydrated from "../../hooks/use-is-hydrated";
+import useToday from "../../hooks/use-today";
 import { toAriaKeyShortcuts } from "../../utils/shortcut";
 import { useLocale } from "../../providers/ui-context";
 
@@ -328,9 +328,9 @@ export default function MonthView({
 
   const dayLabelFormat = createDayFormat(locale);
   // Unknown on the server and while a server-rendered page hydrates - its
-  // clock and time zone may differ from the browser's
-  const isHydrated = useIsHydrated();
-  const today = isHydrated ? new Date() : null;
+  // clock and time zone may differ from the browser's. Another day after
+  // midnight, also in a view left open.
+  const today = useToday();
   // A grid the arrow keys move in with the day buttons - a table of the
   // days without them
   const isGrid = !!onDateClick;

@@ -102,6 +102,16 @@ describe("formatColor", () => {
     expect(formatColor(dodgerBlue, "rgb", true)).toBe("rgb(30, 144, 255)");
   });
 
+  it("writes an alpha that rounds to opaque without it", () => {
+    const almostOpaque = { ...dodgerBlue, a: 0.996 };
+    expect(formatColor(almostOpaque, "hex", true)).toBe("#1e90fffe");
+    expect(formatColor(almostOpaque, "rgb", true)).toBe("rgb(30, 144, 255)");
+    expect(formatColor(almostOpaque, "hsl", true)).toBe("hsl(210, 100%, 56%)");
+    expect(formatColor({ ...dodgerBlue, a: 0.999 }, "hex", true)).toBe(
+      "#1e90ff",
+    );
+  });
+
   it("writes a paintable color with its alpha", () => {
     expect(toCssColor({ ...dodgerBlue, a: 0.5 })).toBe("rgb(30 144 255 / 0.5)");
   });
@@ -151,5 +161,17 @@ describe("normalizeColor", () => {
     expect(normalizeColor("#1E90FF", "hsl", false)).toBe("hsl(210, 100%, 56%)");
     expect(normalizeColor("  ", "hex", false)).toBe("");
     expect(normalizeColor("nope", "hex", false)).toBeNull();
+  });
+
+  it("reads back what it writes - also an alpha that rounds to opaque", () => {
+    expect(normalizeColor("#000000fe", "rgb", true)).toBe("rgb(0, 0, 0)");
+
+    for (const format of ["hex", "rgb", "hsl"] as const) {
+      for (let alpha = 0; alpha <= 255; alpha++) {
+        const hex = `#1e90ff${alpha.toString(16).padStart(2, "0")}`;
+        const written = normalizeColor(hex, format, true);
+        expect(normalizeColor(written!, format, true)).toBe(written);
+      }
+    }
   });
 });

@@ -2,15 +2,24 @@ import { camelToSnakeCase } from "./case-conversion";
 
 type ErrorDetails = Record<string, unknown>;
 
-/** One entry of an error list - a GraphQL user error or a JSON:API error. */
+/**
+ * One entry of an error list - a GraphQL user error, a JSON:API error, a
+ * Spring Boot field error or an express-validator error.
+ */
 interface ListedError {
   /** Field path of a GraphQL user error, e.g. `"email"` or `["input", "email"]`. */
   field?: string | string[] | null;
   message?: string;
+  /** Spring Boot */
+  defaultMessage?: string;
   /** JSON:API */
   detail?: string;
   source?: { parameter?: string; pointer?: string };
   title?: string;
+  /** express-validator - the message, and the field (`param` before v7) */
+  msg?: string;
+  param?: string;
+  path?: unknown;
 }
 
 /** The field messages of an error, and where they come from. */
@@ -21,6 +30,8 @@ interface Details {
    */
   enveloped: boolean;
   fields: ErrorDetails;
+  /** The general messages next to the fields - `formErrors` of Zod. */
+  formErrors?: unknown;
 }
 
 const isRecord = (value: unknown): value is ErrorDetails =>
@@ -107,7 +118,12 @@ const isErrorMember = (key: string, value: unknown) => {
 const isListedError = (item: unknown): item is ListedError =>
   isRecord(item) &&
   !("extensions" in item) &&
-  ("field" in item || "source" in item || "detail" in item || "title" in item);
+  ("field" in item ||
+    "source" in item ||
+    "detail" in item ||
+    "title" in item ||
+    "defaultMessage" in item ||
+    "msg" in item);
 
 /**
  * A list of validation problems - one such entry is enough, the entries
@@ -135,10 +151,23 @@ const getGraphQLErrors = (error: unknown): unknown[] | undefined => {
 };
 
 /**
+ * The details of Zod's `flatten()` - `{ formErrors: [...], fieldErrors: {
+ * email: [...] } }` - keep the field messages apart from the general ones.
+ */
+const unflatten = (details: Details): Details => {
+  const { fieldErrors, formErrors } = details.fields;
+
+  return isRecord(fieldErrors) && Array.isArray(formErrors)
+    ? { enveloped: false, fields: fieldErrors, formErrors }
+    : details;
+};
+
+/**
  * Finds the validation details of an error, whatever client produced it:
  * - a GraphQL error carries them in the `extensions` of its first error,
  * - a REST error body is either the details object itself
- *   (`{ email: ["is taken"] }`) or wraps it in `errors`.
+ *   (`{ email: ["is taken"] }`) or wraps it in `errors` - also as Zod's
+ *   `flatten()` gives them.
  */
 const getErrorDetails = (error: unknown): Details | undefined => {
   if (!isRecord(error)) return undefined;
@@ -156,12 +185,14 @@ const getErrorDetails = (error: unknown): Details | undefined => {
       : { enveloped: true, fields: extensions };
   }
 
-  if (isRecord(error.errors)) return { enveloped: false, fields: error.errors };
+  if (isRecord(error.errors)) {
+    return unflatten({ enveloped: false, fields: error.errors });
+  }
 
   // Any other Error (network failure, …) has no validation details
   return error instanceof Error
     ? undefined
-    : { enveloped: true, fields: error };
+    : unflatten({ enveloped: true, fields: error });
 };
 
 /**
@@ -255,6 +286,9 @@ const hasFieldMessages = ({ enveloped, fields }: Details) =>
 const getListedErrorPath = (item: ListedError): string[] | null => {
   if (Array.isArray(item.field)) return item.field.map(String);
   if (typeof item.field === "string") return toPath(item.field);
+  // express-validator - a GraphQL error's `path` is a list, no field
+  if (typeof item.path === "string") return toPath(item.path);
+  if (typeof item.param === "string") return toPath(item.param);
 
   const pointer = item.source?.pointer ?? item.source?.parameter;
   if (pointer) {
@@ -285,7 +319,7 @@ const matchesArgumentPath = (path: string[], fieldPath: string[]) =>
   samePath(path.slice(1), fieldPath);
 
 const getListedErrorMessage = (item: ListedError) =>
-  item.message ?? item.detail ?? item.title;
+  item.message ?? item.defaultMessage ?? item.msg ?? item.detail ?? item.title;
 
 /**
  * The message for one form field from a server error, or `undefined`.
@@ -295,8 +329,10 @@ const getListedErrorMessage = (item: ListedError) =>
  *   (`{ email: ["is taken"] }`) or `extensions.problems`,
  * - GraphQL user errors - `[{ field: ["input", "email"], message }]`,
  * - REST bodies - `{ email: ["is taken"] }`, `{ errors: { email: [...] } }`,
- *   `{ errors: [{ field, message }] }` and JSON:API `errors` with a
- *   `source.pointer`.
+ *   `{ errors: [{ field, message }] }`, JSON:API `errors` with a
+ *   `source.pointer`, Spring Boot `{ errors: [{ field, defaultMessage }] }`,
+ *   express-validator `{ errors: [{ path, msg }] }` and Zod's `flatten()`,
+ *   `{ formErrors, fieldErrors: { email: [...] } }`.
  *
  * Field names are matched in camelCase, snake_case and any letter case, and
  * `address.street` (or `address[street]`, `items[0].name`) addresses a
@@ -369,12 +405,13 @@ const firstText = (...values: unknown[]) =>
 
 /**
  * The general message of a server error that is not tied to a field -
- * `base` (Rails), `non_field_errors` (Django REST framework), a plain list
- * of messages (`{ errors: ["…"] }`) or an error list entry without a field
- * (or a JSON:API one pointing at the whole resource, `"/data"`). An error
- * without field messages gives its own message: that of a GraphQL error
- * (`"Not authorized"`), a `detail` (Django REST framework, problem details),
- * a `message`, or the `title` of problem details (ASP.NET).
+ * `base` (Rails), `non_field_errors` (Django REST framework), `formErrors`
+ * (Zod), a plain list of messages (`{ errors: ["…"] }`) or an error list
+ * entry without a field (a Spring Boot global error, or a JSON:API one
+ * pointing at the whole resource, `"/data"`). An error without field
+ * messages gives its own message: that of a GraphQL error (`"Not
+ * authorized"`), a `detail` (Django REST framework, problem details), a
+ * `message`, or the `title` of problem details (ASP.NET).
  */
 export const getBaseError = (error: unknown): string | undefined => {
   const messages = getMessageList(error);
@@ -392,7 +429,8 @@ export const getBaseError = (error: unknown): string | undefined => {
   const base =
     getFirstMessage(details?.fields.base) ??
     getFirstMessage(details?.fields.non_field_errors) ??
-    getFirstMessage(details?.fields.nonFieldErrors);
+    getFirstMessage(details?.fields.nonFieldErrors) ??
+    getFirstMessage(details?.formErrors);
 
   if (base) return base;
 
