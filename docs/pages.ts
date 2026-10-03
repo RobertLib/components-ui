@@ -241,6 +241,12 @@ export const groups: DocsGroup[] = [
         "tree select dropdown hierarchy nested categories folders departments cascader combobox checkbox multiple chips lazy load search",
       ),
       component(
+        "transfer-list",
+        "TransferList",
+        () => import("./pages/components/transfer-list"),
+        "dual list assignment transfer select members searchable",
+      ),
+      component(
         "pin-input",
         "PinInput",
         () => import("./pages/components/pin-input"),
@@ -361,6 +367,12 @@ export const groups: DocsGroup[] = [
         "chart mini chart trend line area series",
       ),
       component(
+        "chart",
+        "Chart",
+        () => import("./pages/components/chart"),
+        "line area bar chart axes legend tooltip series data table graph",
+      ),
+      component(
         "chip",
         "Chip",
         () => import("./pages/components/chip"),
@@ -443,6 +455,12 @@ export const groups: DocsGroup[] = [
         "Dialog",
         () => import("./pages/components/dialog"),
         "modal full screen mobile backdrop escape",
+      ),
+      component(
+        "image-viewer",
+        "ImageViewer",
+        () => import("./pages/components/image-viewer"),
+        "lightbox gallery photo image zoom thumbnails modal",
       ),
       component(
         "sheet",

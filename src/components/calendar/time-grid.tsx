@@ -1,3 +1,4 @@
+import { dateTimeZone } from "../../utils/time-zone";
 import type {
   CalendarEvent,
   CalendarResource,
@@ -125,6 +126,9 @@ export default function TimeGrid({
   getEventColor,
   getEventLabel,
   isEventClickable,
+  canMoveEvent,
+  canResizeEvent,
+  canDropEvent,
   loading,
   maxDate,
   minDate,
@@ -250,6 +254,9 @@ export default function TimeGrid({
     ]),
     onEventDrop,
     onEventResize,
+    canMoveEvent,
+    canResizeEvent,
+    canDropEvent,
     scrollRef,
   });
   const { getEventDisplayTimes, isDragging, isPointerDragging } = move;
@@ -448,7 +455,7 @@ export default function TimeGrid({
       columns[columnIndex].resource?.title,
       getSlotLabel(columns[columnIndex].date, slotFrom(slotIndex)),
     );
-  const dayLabelFormat = createDayFormat(locale);
+  const dayLabelFormat = createDayFormat(locale, dateTimeZone(currentDate));
 
   // The events of each resource - a dragged one in the resource it is
   // dragged to - so a column looks through those of its resource only
@@ -477,11 +484,14 @@ export default function TimeGrid({
   // Unknown on the server and while a server-rendered page hydrates - its
   // clock and time zone may differ from the browser's. Another day after
   // midnight, also in a view left open.
-  const today = useToday();
+  const today = useToday(dateTimeZone(currentDate));
   const isToday = (date: Date) => today !== null && isSameDay(date, today);
   // The line of the current time - moved on every minute, while the grid
   // shows today
-  const now = useCurrentMinute(nowIndicator && days.some(isToday));
+  const now = useCurrentMinute(
+    nowIndicator && days.some(isToday),
+    dateTimeZone(currentDate),
+  );
 
   // Like the month view: on each day the event spans - a moved one on the
   // days it is moved to
@@ -538,7 +548,11 @@ export default function TimeGrid({
   ) => {
     const column = columns[columnIndex];
     const clickable = isClickable(event);
-    const movable = allDayMovable && !inList && !column.disabled;
+    const movable =
+      allDayMovable &&
+      (!canMoveEvent || canMoveEvent(event)) &&
+      !inList &&
+      !column.disabled;
     const dragging = !inList && isDragging(event.id);
     const color = getEventColor(event);
     const title = <EventTitle event={event}>{event.title}</EventTitle>;
@@ -1139,6 +1153,8 @@ export default function TimeGrid({
 
                 <TimedEvents
                   canMove={!!onEventDrop}
+                  canMoveEvent={canMoveEvent}
+                  canResizeEvent={canResizeEvent}
                   canResize={!!onEventResize}
                   day={column.date}
                   disabled={column.disabled}
@@ -1166,8 +1182,12 @@ export default function TimeGrid({
                       clickable: isClickable(event),
                       day: column.date,
                       getGeometry: (type) =>
-                        (type === "move" && onEventDrop) ||
-                        (type === "resize-end" && onEventResize)
+                        (type === "move" &&
+                          onEventDrop &&
+                          (!canMoveEvent || canMoveEvent(event))) ||
+                        (type === "resize-end" &&
+                          onEventResize &&
+                          (!canResizeEvent || canResizeEvent(event)))
                           ? gridGeometry(event, type, columnIndex)
                           : null,
                       timeAxis: "y",

@@ -64,6 +64,43 @@ export interface DateFormats {
  * `{count}`, …) are filled in by the component.
  */
 export interface Messages {
+  chart: {
+    category: string;
+    legend: string;
+    noData: string;
+    noValue: string;
+    showData: string;
+  };
+  imageViewer: {
+    image: string;
+    images: string;
+    loading: string;
+    loadError: string;
+    next: string;
+    noImages: string;
+    position: string;
+    previous: string;
+    resetZoom: string;
+    title: string;
+    zoom: string;
+    zoomIn: string;
+    zoomOut: string;
+  };
+  transferList: {
+    addAll: string;
+    addSelected: string;
+    available: string;
+    maximum: PluralMessage;
+    minimum: PluralMessage;
+    noItems: string;
+    removeAll: string;
+    removeSelected: string;
+    searchAvailable: string;
+    searchSelected: string;
+    selected: string;
+    selectVisible: string;
+  };
+
   common: {
     cancel: string;
     close: string;
@@ -354,6 +391,8 @@ export interface Messages {
     expandRow: string;
     /** The CSV export button of the toolbar. */
     exportCsv: string;
+    /** Shown when CSV export fails. */
+    exportFailed: string;
     filterColumn: string;
     /** The first field of a range filter - `{label}` is the column. */
     filterFrom: string;
@@ -587,6 +626,9 @@ export interface Messages {
      */
     refused: string;
     remove: string;
+    /** An attachment could not be removed. */
+    removeFailed: string;
+    waitForRemoval: string;
     /** The button of a failed upload that tries it again. */
     retry: string;
     /**

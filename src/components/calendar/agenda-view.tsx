@@ -1,3 +1,4 @@
+import { copyDate, dateTimeZone } from "../../utils/time-zone";
 import type { CalendarEvent, CalendarViewProps } from "./types";
 import type { Locale } from "../../i18n/types";
 import { addCalendarDays, daysBetween, getCalendarDay } from "./date-utils";
@@ -60,7 +61,7 @@ function toAgendaItem(
   // The days it shows on - the end is exclusive
   const firstDay = startOfDay(start);
   const lastDay =
-    end > start ? startOfDay(new Date(end.getTime() - 1)) : firstDay;
+    end > start ? startOfDay(copyDate(end, end.getTime() - 1)) : firstDay;
   const days = daysBetween(firstDay, lastDay) + 1;
   const index = daysBetween(firstDay, day) + 1;
 
@@ -103,7 +104,7 @@ function scrollToToday(
 ) {
   if (!scroller || scroller.scrollHeight <= scroller.clientHeight) return;
 
-  const today = startOfDay(new Date());
+  const today = startOfDay(copyDate(range.start, Date.now()));
   const target =
     today >= range.start && today < range.end
       ? Array.from(scroller.querySelectorAll<HTMLElement>("[data-date]")).find(
@@ -130,6 +131,7 @@ function scrollToToday(
 export default function AgendaView({
   businessHours,
   events,
+  currentDate,
   getEventColor,
   getEventLabel,
   hiddenDays,
@@ -157,12 +159,12 @@ export default function AgendaView({
   const rangeEnd = visibleRange.end.getTime();
 
   const agendaDays = useMemo(() => {
-    const timeFormat = createTimeFormat(locale);
+    const timeFormat = createTimeFormat(locale, dateTimeZone(currentDate));
     const result: AgendaDay[] = [];
 
     // Day by day from the first - each at its own start, also after a day
     // a daylight saving change starts at 1:00, and none the time zone skips
-    const first = new Date(rangeStart);
+    const first = copyDate(currentDate, rangeStart);
     for (
       let index = 0;
       addCalendarDays(first, index).getTime() < rangeEnd;
@@ -178,7 +180,7 @@ export default function AgendaView({
     }
 
     return result;
-  }, [events, hiddenDays, locale, rangeEnd, rangeStart]);
+  }, [events, hiddenDays, locale, rangeEnd, rangeStart, currentDate]);
 
   const resourceTitles = useMemo(
     () => new Map(resources?.map((resource) => [resource.id, resource.title])),
@@ -189,7 +191,7 @@ export default function AgendaView({
   // clock and time zone may differ from the browser's. Another day after
   // midnight, also in a view left open.
   const isHydrated = useIsHydrated();
-  const today = useToday();
+  const today = useToday(dateTimeZone(currentDate));
 
   // A new period opens at today - once its events are there, also when
   // they come without `loading`: an empty list does not count yet
@@ -199,12 +201,12 @@ export default function AgendaView({
     if (loading || scrolledRangeRef.current === rangeKey) return;
     scrolledRangeRef.current = agendaDays.length > 0 ? rangeKey : null;
     scrollToToday(scrollRef.current, {
-      end: new Date(rangeEnd),
-      start: new Date(rangeStart),
+      end: copyDate(currentDate, rangeEnd),
+      start: copyDate(currentDate, rangeStart),
     });
   });
 
-  const dayFormat = createDayFormat(locale);
+  const dayFormat = createDayFormat(locale, dateTimeZone(currentDate));
 
   const isClickable = (event: CalendarEvent) =>
     !!onEventClick && (isEventClickable?.(event) ?? true);

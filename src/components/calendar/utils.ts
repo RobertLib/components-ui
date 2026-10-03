@@ -1,3 +1,4 @@
+import { copyDate, dateTimeZone } from "../../utils/time-zone";
 import type { CalendarEvent, CalendarResource } from "./types";
 import type { Locale } from "../../i18n/types";
 import { addCalendarDays, atHour, minutesIntoDay } from "./date-utils";
@@ -37,7 +38,7 @@ export function getAllDayRange(event: { end: Date; start: Date }): {
   }
 
   const toLocalDay = (date: Date) =>
-    dateOf(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+    dateOf(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), date);
   return { end: toLocalDay(event.end), start: toLocalDay(event.start) };
 }
 
@@ -302,22 +303,24 @@ export function getHiddenSide(
  * does not understand ("en_GB") falls back, like in the pickers. Dates use
  * the Gregorian calendar of the grid, including their accessible labels.
  */
-export const createDayFormat = (locale: Locale) =>
+export const createDayFormat = (locale: Locale, timeZone?: string) =>
   new Intl.DateTimeFormat(toIntlLocale(locale.code), {
     calendar: "gregory",
     dateStyle: "full",
+    timeZone,
   });
 
 /**
  * A time - or the times of a range - on the clock of the locale, e.g.
  * "9:00 AM" or "9:00 – 10:00 AM".
  */
-export const createTimeFormat = (locale: Locale) =>
+export const createTimeFormat = (locale: Locale, timeZone?: string) =>
   new Intl.DateTimeFormat(toIntlLocale(locale.code), {
     // A range across midnight includes dates, even with only timeStyle.
     calendar: "gregory",
     hourCycle: usesHour12(locale.formats.time) ? "h12" : "h23",
     timeStyle: "short",
+    timeZone,
   });
 
 /**
@@ -373,7 +376,7 @@ export const withResource = (
  * "Thursday, September 24, 2026, 9:00 – 10:00 AM".
  */
 export const formatTimeRange = (start: Date, end: Date, locale: Locale) =>
-  formatRange(createDateTimeFormat(locale), start, end);
+  formatRange(createDateTimeFormat(locale, dateTimeZone(start)), start, end);
 
 /**
  * Says when events take place, for screen readers: the day and the times,
@@ -384,6 +387,7 @@ export const formatTimeRange = (start: Date, end: Date, locale: Locale) =>
 export function createTimeLabeler(
   locale: Locale,
   resources?: CalendarResource[],
+  timeZone?: string,
 ) {
   const { messages } = locale;
   const resourceTitles = new Map(
@@ -401,14 +405,23 @@ export function createTimeLabeler(
     let time: string;
 
     if (event.allDay) {
-      dayFormat ??= createDayFormat(locale);
+      dayFormat ??= createDayFormat(
+        locale,
+        timeZone ?? dateTimeZone(event.start),
+      );
       // The days the views show it on. The end is exclusive - an event
       // ending at midnight is over the day before.
       const { end, start } = getAllDayRange(event);
-      const lastDay = new Date(Math.max(start.getTime(), end.getTime() - 1));
+      const lastDay = copyDate(
+        start,
+        Math.max(start.getTime(), end.getTime() - 1),
+      );
       time = `${formatRange(dayFormat, startOfDay(start), startOfDay(lastDay))}, ${messages.calendar.allDay}`;
     } else {
-      timeFormat ??= createDateTimeFormat(locale);
+      timeFormat ??= createDateTimeFormat(
+        locale,
+        timeZone ?? dateTimeZone(event.start),
+      );
       time = formatRange(timeFormat, event.start, event.end);
     }
 
@@ -430,8 +443,9 @@ export function createTimeLabeler(
 export function createEventLabeler(
   locale: Locale,
   resources?: CalendarResource[],
+  timeZone?: string,
 ) {
-  const timeOf = createTimeLabeler(locale, resources);
+  const timeOf = createTimeLabeler(locale, resources, timeZone);
 
   return (event: CalendarEvent) =>
     formatMessage(locale.messages.calendar.eventLabel, {
@@ -445,13 +459,16 @@ export function createEventLabeler(
  * on the clock of the locale, "All day" for an all-day event. For
  * `renderEvent`.
  */
-export function createTimeTextFormatter(locale: Locale) {
+export function createTimeTextFormatter(locale: Locale, timeZone?: string) {
   let timeFormat: Intl.DateTimeFormat | undefined;
   const allDay = capitalize(locale.messages.calendar.allDay, locale.code);
 
   return (event: { allDay?: boolean; end: Date; start: Date }) => {
     if (event.allDay) return allDay;
-    timeFormat ??= createTimeFormat(locale);
+    timeFormat ??= createTimeFormat(
+      locale,
+      timeZone ?? dateTimeZone(event.start),
+    );
     return formatRange(timeFormat, event.start, event.end);
   };
 }

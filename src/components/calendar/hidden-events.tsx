@@ -1,3 +1,4 @@
+import { dateTimeZone } from "../../utils/time-zone";
 import type { CalendarEvent, CalendarViewProps } from "./types";
 import cn from "../../utils/cn";
 import EventTile from "./event-tile";
@@ -65,7 +66,7 @@ export default function HiddenEvents({
 }: HiddenEventsProps) {
   const locale = useLocale();
   const { messages } = locale;
-  const timeFormat = createTimeFormat(locale);
+  const timeFormat = createTimeFormat(locale, dateTimeZone(day));
   const timeText = createTimeTextFormatter(locale);
 
   // When an event of the list takes place that day - its start, or "until"

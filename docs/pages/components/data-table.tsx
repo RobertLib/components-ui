@@ -682,6 +682,33 @@ export default function DataTablePage() {
         </Prose>
       </Section>
 
+      <Example
+        name="data-table/extended-api"
+        title="Custom identities, sorting and row permissions"
+        description={
+          <p>
+            <code>getRowId</code> supplies stable string or number identities
+            for rows without <code>id</code>. Keep identities unique and stable
+            across refreshes. <code>isRowSelectable</code> disables selection of
+            ineligible rows, including select-all, Shift ranges and action
+            payloads. With server data, selecting all filtered rows also
+            requires <code>filteredSelection.total</code> to count eligible
+            records. <code>Column.sortFn</code> compares complete rows for
+            client sorting; the table applies ascending/descending direction.
+            This example sorts names by priority. <code>expandedIds</code> and{" "}
+            <code>onExpandedIdsChange</code> control details;{" "}
+            <code>defaultExpandedIds</code> initializes an uncontrolled set.
+          </p>
+        }
+      />
+      <Prose>
+        <p>
+          A failed CSV fetch, serialization or download shows a localized alert
+          and calls <code>onExportError(error)</code>. The export button becomes
+          available for a retry; starting another export clears the previous
+          error.
+        </p>
+      </Prose>
       <Section title="Props">
         <PropsTable of="DataTable" />
         <PropsTable of="Column" />

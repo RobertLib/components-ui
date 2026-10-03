@@ -1,3 +1,4 @@
+import { copyDate, inTimeZone } from "../../utils/time-zone";
 import type {
   CalendarAgendaPeriod,
   CalendarBusinessHours,
@@ -65,6 +66,8 @@ export interface CalendarProps extends Omit<
    * navigation moves by it - pass the same to `getCalendarVisibleRange`.
    */
   agendaPeriod?: CalendarAgendaPeriod;
+  /** IANA time zone used for days, event times, recurrence and callbacks. Defaults to the browser zone. */
+  timeZone?: string;
   /** Classes of the calendar's frame. */
   className?: string;
   /**
@@ -131,6 +134,12 @@ export interface CalendarProps extends Omit<
    * `onEventClick` is not called. Defaults to clickable.
    */
   isEventClickable?: (event: CalendarEvent) => boolean;
+  /** Whether this event may be moved. Defaults to true with `onEventDrop`. */
+  canMoveEvent?: (event: CalendarEvent) => boolean;
+  /** Whether this event may be resized. Defaults to true with `onEventResize`. */
+  canResizeEvent?: (event: CalendarEvent) => boolean;
+  /** Whether proposed times and resource are allowed, for both move and resize. */
+  canDropEvent?: (change: EventTimeChange) => boolean;
   /** Shows a spinner over the view. */
   loading?: boolean;
   /**
@@ -255,7 +264,7 @@ const shiftDate = (
   period: CalendarAgendaPeriod,
   direction: 1 | -1,
 ) => {
-  const newDate = new Date(date);
+  const newDate = copyDate(date);
 
   if (period === "month") {
     // Stay within the target month - Jan 31 + 1 month must not skip February
@@ -266,6 +275,7 @@ const shiftDate = (
       newDate.getFullYear(),
       newDate.getMonth() + 1,
       0,
+      newDate,
     ).getDate();
     newDate.setDate(Math.min(day, daysInMonth));
   } else {
@@ -316,14 +326,18 @@ export default function Calendar({
   currentDate: externalCurrentDate,
   dayEndHour = 22,
   dayStartHour = 7,
-  events = [],
+  events: sourceEvents = [],
   hiddenDays: hiddenDaysProp,
   initialDate,
   initialView,
   isEventClickable,
+  canMoveEvent,
+  canResizeEvent,
+  canDropEvent,
   loading = false,
-  maxDate,
-  minDate,
+  maxDate: sourceMaxDate,
+  minDate: sourceMinDate,
+  timeZone,
   nowIndicator = true,
   onDateClick,
   onEventClick,
@@ -353,7 +367,19 @@ export default function Calendar({
 
   // Use external currentDate if provided, otherwise use internal state
   const isControlled = externalCurrentDate !== undefined;
-  const dateValue = externalCurrentDate ?? internalCurrentDate;
+  const rawDateValue = externalCurrentDate ?? internalCurrentDate;
+  const dateValue = useMemo(
+    () => inTimeZone(rawDateValue, timeZone),
+    [rawDateValue, timeZone],
+  );
+  const minDate = useMemo(
+    () => sourceMinDate && inTimeZone(sourceMinDate, timeZone),
+    [sourceMinDate, timeZone],
+  );
+  const maxDate = useMemo(
+    () => sourceMaxDate && inTimeZone(sourceMaxDate, timeZone),
+    [sourceMaxDate, timeZone],
+  );
 
   // The navigation would silently do nothing
   useEffect(() => {
@@ -489,9 +515,9 @@ export default function Calendar({
 
     const target =
       minDate && date < minDate
-        ? new Date(minDate)
+        ? copyDate(minDate)
         : maxDate && date > maxDate
-          ? new Date(maxDate)
+          ? copyDate(maxDate)
           : date;
     return byDays
       ? resolveVisibleDay(target, hiddenDays, minDate, maxDate)
@@ -524,8 +550,11 @@ export default function Calendar({
   const rangeStart = range.start.getTime();
   const rangeEnd = range.end.getTime();
   const visibleRange = useMemo(
-    () => ({ end: new Date(rangeEnd), start: new Date(rangeStart) }),
-    [rangeEnd, rangeStart],
+    () => ({
+      end: inTimeZone(new Date(rangeEnd), timeZone),
+      start: inTimeZone(new Date(rangeStart), timeZone),
+    }),
+    [rangeEnd, rangeStart, timeZone],
   );
 
   // The events go on the days and hours of the browser's time zone, which
@@ -534,18 +563,22 @@ export default function Calendar({
   // docs). A page rendered in the browser shows them from the start.
   const isHydrated = useIsHydrated();
   // The day of the Today button - checked again after midnight
-  const today = useToday();
+  const today = useToday(timeZone);
 
   // The order of the tiles of a day and of the Tab key
   const sortedEvents = useMemo(
     () =>
-      isHydrated ? sortEvents(expandRecurringEvents(events, visibleRange)) : [],
-    [events, isHydrated, visibleRange],
+      isHydrated
+        ? sortEvents(
+            expandRecurringEvents(sourceEvents, visibleRange, { timeZone }),
+          )
+        : [],
+    [sourceEvents, isHydrated, visibleRange, timeZone],
   );
 
   const getEventLabel = useMemo(
-    () => createEventLabeler(locale, resources),
-    [locale, resources],
+    () => createEventLabeler(locale, resources, timeZone),
+    [locale, resources, timeZone],
   );
   const getEventColor = useMemo(
     () => createEventColorResolver(resources),
@@ -564,6 +597,9 @@ export default function Calendar({
     getEventLabel,
     hiddenDays,
     isEventClickable,
+    canMoveEvent,
+    canResizeEvent,
+    canDropEvent,
     loading,
     maxDate,
     minDate,
@@ -599,14 +635,14 @@ export default function Calendar({
         canGoPrevious={canGoPrevious}
         // Today of the server and of the browser may differ - known once
         // the page is hydrated
-        canGoToday={!today || canNavigateTo(new Date())}
+        canGoToday={!today || canNavigateTo(inTimeZone(new Date(), timeZone))}
         currentDate={currentDate}
         maxDate={maxDate}
         minDate={minDate}
         onDateSelect={byDays ? navigate : changeDate}
         onNext={() => navigate(nextDate)}
         onPrevious={() => navigate(previousDate)}
-        onToday={() => navigate(new Date())}
+        onToday={() => navigate(inTimeZone(new Date(), timeZone))}
         onViewChange={handleViewChange}
         view={view}
         viewOptions={viewOptions}

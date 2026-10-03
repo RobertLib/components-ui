@@ -331,6 +331,19 @@ export default function TreeViewPage() {
         </Callout>
       </Section>
 
+      <Example
+        name="tree-view/cache"
+        title="Refreshing lazy children"
+        description={
+          <p>
+            Change <code>loadChildrenKey</code> after a server mutation or
+            source change. Cached children are discarded, running requests are
+            aborted and expanded branches reload. Changing the loader function
+            alone keeps the cache. <code>onLoadError(error, item)</code> reports
+            a failed branch in addition to the retry control shown by the tree.
+          </p>
+        }
+      />
       <Section title="Props">
         <PropsTable of="TreeView" />
         <PropsTable of="TreeItem" />

@@ -1,3 +1,4 @@
+import { copyDate, inTimeZone } from "../../utils/time-zone";
 import type { CalendarAgendaPeriod, CalendarView } from "./types";
 import type { WeekDay } from "../../i18n/types";
 import { dateOf, existingDayOf, shiftDay, startOfDay } from "../../utils/date";
@@ -12,7 +13,7 @@ export { isSameDay } from "../../utils/date";
  * days after it start at midnight again.
  */
 export const addCalendarDays = (date: Date, days: number) =>
-  dateOf(date.getFullYear(), date.getMonth(), date.getDate() + days);
+  dateOf(date.getFullYear(), date.getMonth(), date.getDate() + days, date);
 
 /**
  * The start of the day `days` days after the day of `date`, like
@@ -20,7 +21,12 @@ export const addCalendarDays = (date: Date, days: number) =>
  * (Samoa went from December 29 to 31 in 2011), which a view leaves out.
  */
 export const getCalendarDay = (date: Date, days: number) =>
-  existingDayOf(date.getFullYear(), date.getMonth(), date.getDate() + days);
+  existingDayOf(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate() + days,
+    date,
+  );
 
 /** Days from the first day of the week `date` falls in to its day. */
 export const daysIntoWeek = (date: Date, weekStartsOn: WeekDay) =>
@@ -49,13 +55,13 @@ export const daysBetween = (from: Date, to: Date) =>
  */
 export function atMinutes(date: Date, minutes: number) {
   const day = startOfDay(date);
-  const result = new Date(day);
+  const result = copyDate(day);
   result.setMinutes(minutes);
 
   // In a gap `Date` moves on by its length - step back to its end
   while (
     minutesIntoDay(day, result) > minutes &&
-    minutesIntoDay(day, new Date(result.getTime() - 60_000)) >= minutes
+    minutesIntoDay(day, copyDate(result, result.getTime() - 60_000)) >= minutes
   ) {
     result.setTime(result.getTime() - 60_000);
   }
@@ -79,7 +85,10 @@ export function minutesIntoDay(day: Date, date: Date) {
 
 /** `date` moved into [`min`, `max`] - `min` wins when they cross. */
 export const clampDate = (date: Date, min: Date, max: Date) =>
-  new Date(Math.max(min.getTime(), Math.min(date.getTime(), max.getTime())));
+  copyDate(
+    date,
+    Math.max(min.getTime(), Math.min(date.getTime(), max.getTime())),
+  );
 
 /**
  * The start of the grid slot at `hours:minutes` on the day of `date`. The
@@ -129,6 +138,8 @@ export interface VisibleRangeOptions {
    * Default `"month"`.
    */
   agendaPeriod?: CalendarAgendaPeriod;
+  /** IANA time zone of the calendar, e.g. `Europe/Prague`. */
+  timeZone?: string;
 }
 
 /**
@@ -149,6 +160,7 @@ export const getVisibleRange = (
   weekStartsOn: WeekDay,
   options?: VisibleRangeOptions,
 ): { start: Date; end: Date } => {
+  if (options?.timeZone) date = inTimeZone(date, options.timeZone);
   if (view === "agenda") {
     const period = normalizeAgendaPeriod(options?.agendaPeriod);
 
@@ -159,8 +171,11 @@ export const getVisibleRange = (
     if (period !== "month") return getVisibleRange(date, period, weekStartsOn);
 
     // The month itself - no days of the weeks around it
-    const start = dateOf(date.getFullYear(), date.getMonth(), 1);
-    return { start, end: dateOf(date.getFullYear(), date.getMonth() + 1, 1) };
+    const start = dateOf(date.getFullYear(), date.getMonth(), 1, date);
+    return {
+      start,
+      end: dateOf(date.getFullYear(), date.getMonth() + 1, 1, date),
+    };
   }
 
   if (view === "day" || view === "timelineDay") {
@@ -178,7 +193,7 @@ export const getVisibleRange = (
     };
   }
 
-  const firstOfMonth = dateOf(date.getFullYear(), date.getMonth(), 1);
+  const firstOfMonth = dateOf(date.getFullYear(), date.getMonth(), 1, date);
   const leading = daysIntoWeek(firstOfMonth, weekStartsOn);
   return {
     start: addCalendarDays(firstOfMonth, -leading),
@@ -202,7 +217,7 @@ export function skipHiddenDays(
   for (let step = 0; step < 7 && hiddenDays.has(day.getDay()); step++) {
     const next = shiftDay(day, direction);
     // The time of `date` stays - it is the date of the calendar
-    day = new Date(date);
+    day = copyDate(date);
     day.setFullYear(next.getFullYear(), next.getMonth(), next.getDate());
   }
   return day;

@@ -14,6 +14,7 @@ import { toISODate } from "../../utils/date";
 export interface DateCellProps {
   /** Its events can be moved to other days - by the pointer or the keys. */
   canMove?: boolean;
+  canMoveEvent?: (event: CalendarEvent) => boolean;
   /** The day of the cell. */
   date: Date;
   /** The day is out of `minDate` - `maxDate` and cannot be picked. */
@@ -212,6 +213,7 @@ function MonthEventTile({
 
 export default function DateCell({
   canMove = false,
+  canMoveEvent,
   date,
   disabled = false,
   draggingId = null,
@@ -296,7 +298,12 @@ export default function DateCell({
           dragging={dragging}
           event={event}
           label={getEventLabel(event)}
-          movable={canMove && fillsCell && !disabled}
+          movable={
+            canMove &&
+            (!canMoveEvent || canMoveEvent(event)) &&
+            fillsCell &&
+            !disabled
+          }
           moveShortcut={moveShortcut}
           onEventClick={onEventClick}
           onTileBlur={onTileBlur}

@@ -1,3 +1,4 @@
+import { copyDate } from "../../utils/time-zone";
 import type { NewEventTimeRange } from "./types";
 import { atMinutes, minutesIntoDay } from "./date-utils";
 import {
@@ -49,7 +50,7 @@ export function toTimeRange(
   const end =
     clockEnd > start
       ? clockEnd
-      : new Date(start.getTime() + (to - from) * 60_000);
+      : copyDate(start, start.getTime() + (to - from) * 60_000);
 
   if (limits) {
     const actualFrom = minutesIntoDay(day, start);

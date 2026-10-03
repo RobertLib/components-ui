@@ -125,6 +125,7 @@ interface TableHeadProps<T> {
   renderSubRow?: (row: T) => React.ReactNode;
   /** The "select all" checkbox - it takes the focus of "Clear selection". */
   selectAllRef: React.RefObject<HTMLInputElement | null>;
+  selectAllDisabled?: boolean;
   /** The header cell of the selection column - its width is measured. */
   selectionColumnRef: React.RefObject<HTMLTableCellElement | null>;
   /** The checkbox column - `multiple` gets a select-all checkbox. */
@@ -167,6 +168,7 @@ export function TableHead<T>({
   ref,
   renderSubRow,
   selectAllRef,
+  selectAllDisabled,
   selectionColumnRef,
   selectionMode,
   sort,
@@ -324,6 +326,7 @@ export function TableHead<T>({
               <input
                 aria-label={messages.dataTable.selectAllRows}
                 checked={isAllSelected}
+                disabled={selectAllDisabled}
                 className="accent-primary-500"
                 onChange={toggleSelectAll}
                 ref={selectAllRef}

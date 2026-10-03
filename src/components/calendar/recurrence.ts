@@ -1,3 +1,4 @@
+import { copyDate, dateTimeZone, inTimeZone } from "../../utils/time-zone";
 import type { CalendarEvent, CalendarRecurrence } from "./types";
 import type { WeekDay } from "../../i18n/types";
 import { dateOf, existingDayOf, startOfDay } from "../../utils/date";
@@ -75,7 +76,7 @@ const isUTCMidnight = (date: Date) => date.getTime() % 86_400_000 === 0;
  */
 function calendarDay(date: Date) {
   return isUTCMidnight(date) && !isLocalMidnight(date)
-    ? dateOf(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+    ? dateOf(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), date)
     : startOfDay(date);
 }
 
@@ -87,10 +88,14 @@ function validList<T>(values: unknown, isValid: (value: unknown) => boolean) {
 }
 
 /** A `CalendarRecurrence` of the app as a `Rule` - `null` when it has no `freq`. */
-function ruleOf(recurrence: CalendarRecurrence): Rule | null {
+function ruleOf(recurrence: CalendarRecurrence, reference?: Date): Rule | null {
   if (!FREQUENCIES.includes(recurrence.freq)) return null;
 
-  const { byWeekday, count, interval, until } = recurrence;
+  const { byWeekday, count, interval } = recurrence;
+  const until =
+    recurrence.until && reference
+      ? inTimeZone(recurrence.until, dateTimeZone(reference))
+      : recurrence.until;
   const weekdays = validList<WeekdayRule>(
     Array.isArray(byWeekday)
       ? byWeekday.map((entry) =>
@@ -159,14 +164,14 @@ function integers(value: string, min: number, max: number) {
  * The `UNTIL` of an `RRULE`: a date (`20261231` - the whole day) or a date
  * and time, in UTC with `Z` or on the local clock without.
  */
-function parseUntil(value: string): Rule["until"] | null {
+function parseUntil(value: string, reference?: Date): Rule["until"] | null {
   const match = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/i.exec(
     value.trim(),
   );
   if (!match) return null;
 
   const [, year, month, day, hours, minutes, seconds, utc] = match;
-  const date = dateOf(Number(year), Number(month) - 1, Number(day));
+  const date = dateOf(Number(year), Number(month) - 1, Number(day), reference);
   if (hours === undefined) return { date, wholeDay: true };
 
   if (utc) {
@@ -185,7 +190,7 @@ function parseUntil(value: string): Rule["until"] | null {
  * `CalendarEvent.recurrence`. `null` for anything else, e.g. `BYHOUR`,
  * which would make occurrences the calendar cannot show.
  */
-function parseRule(text: string): Rule | null {
+function parseRule(text: string, reference?: Date): Rule | null {
   // "RRULE:FREQ=…" - possibly among other lines, like DTSTART
   const line =
     text
@@ -214,7 +219,7 @@ function parseRule(text: string): Rule | null {
         break;
       }
       case "UNTIL": {
-        const until = parseUntil(value);
+        const until = parseUntil(value, reference);
         if (!until) return null;
         rule.until = until;
         break;
@@ -268,10 +273,10 @@ function parseRule(text: string): Rule | null {
 }
 
 /** The rule of an event - `null` when it has none or one the calendar cannot read. */
-function readRule(recurrence: unknown): Rule | null {
-  if (typeof recurrence === "string") return parseRule(recurrence);
+function readRule(recurrence: unknown, reference?: Date): Rule | null {
+  if (typeof recurrence === "string") return parseRule(recurrence, reference);
   if (typeof recurrence === "object" && recurrence !== null) {
-    return ruleOf(recurrence as CalendarRecurrence);
+    return ruleOf(recurrence as CalendarRecurrence, reference);
   }
   return null;
 }
@@ -303,9 +308,9 @@ function isNthWeekday(date: Date, nth: number, scope: "month" | "year") {
     index = date.getDate();
     length = daysInMonth(date.getFullYear(), date.getMonth());
   } else {
-    const firstDay = dateOf(date.getFullYear(), 0, 1);
+    const firstDay = dateOf(date.getFullYear(), 0, 1, date);
     index = daysBetween(firstDay, date) + 1;
-    length = daysBetween(firstDay, dateOf(date.getFullYear() + 1, 0, 1));
+    length = daysBetween(firstDay, dateOf(date.getFullYear() + 1, 0, 1, date));
   }
 
   return nth > 0
@@ -329,6 +334,7 @@ function weekdayDates(
   weekdays: WeekdayRule[],
   year: number,
   month: number | null,
+  reference?: Date,
 ) {
   const scope = month === null ? "year" : "month";
   const months =
@@ -339,7 +345,7 @@ function weekdayDates(
   // does not move the days after it, and a day the time zone skips is none
   for (const monthIndex of months) {
     for (let day = 1; day <= daysInMonth(year, monthIndex); day++) {
-      const date = existingDayOf(year, monthIndex, day);
+      const date = existingDayOf(year, monthIndex, day, reference);
       if (date && matchesWeekday(date, weekdays, scope)) dates.push(date);
     }
   }
@@ -359,7 +365,7 @@ function monthDates(rule: Rule, year: number, month: number, event: Date) {
     const dates = rule.monthDays
       .map((day) => (day > 0 ? day : length + 1 + day))
       .filter((day) => day >= 1 && day <= length)
-      .map((day) => existingDayOf(year, month, day))
+      .map((day) => existingDayOf(year, month, day, event))
       .filter((date) => date !== null);
     const { weekdays } = rule;
     // Without BYMONTH, a yearly ordinal counts weekdays across the year,
@@ -372,11 +378,11 @@ function monthDates(rule: Rule, year: number, month: number, event: Date) {
     );
   }
 
-  if (rule.weekdays) return weekdayDates(rule.weekdays, year, month);
+  if (rule.weekdays) return weekdayDates(rule.weekdays, year, month, event);
 
   const date =
     event.getDate() <= length
-      ? existingDayOf(year, month, event.getDate())
+      ? existingDayOf(year, month, event.getDate(), event)
       : null;
   return date ? [date] : [];
 }
@@ -397,10 +403,10 @@ function yearDates(rule: Rule, year: number, event: Date) {
     ).flat();
   }
 
-  if (rule.weekdays) return weekdayDates(rule.weekdays, year, null);
+  if (rule.weekdays) return weekdayDates(rule.weekdays, year, null, event);
 
   // February 29 only in leap years
-  const date = existingDayOf(year, event.getMonth(), event.getDate());
+  const date = existingDayOf(year, event.getMonth(), event.getDate(), event);
   return date && date.getMonth() === event.getMonth() ? [date] : [];
 }
 
@@ -429,9 +435,9 @@ function periodStart(rule: Rule, event: Date, index: number) {
         step * 7 - daysIntoWeek(event, rule.weekStart),
       );
     case "monthly":
-      return dateOf(event.getFullYear(), event.getMonth() + step, 1);
+      return dateOf(event.getFullYear(), event.getMonth() + step, 1, event);
     default:
-      return dateOf(event.getFullYear() + step, 0, 1);
+      return dateOf(event.getFullYear() + step, 0, 1, event);
   }
 }
 
@@ -516,7 +522,7 @@ function periodDates(rule: Rule, index: number, period: Date, event: Date) {
 
 /** `date` at the clock time of `time`. */
 function atClockOf(date: Date, time: Date) {
-  const result = new Date(date);
+  const result = copyDate(date);
   // A time a daylight saving change skips moves on by the gap, like in
   // iCalendar
   result.setHours(
@@ -559,7 +565,7 @@ function expandEvent<T extends CalendarEvent>(
   range: { end: Date; start: Date },
   replaced: Date[] | undefined,
 ): T[] {
-  const rule = readRule(event.recurrence);
+  const rule = readRule(event.recurrence, event.start);
   if (!rule || !isValidDate(event.start) || !isValidDate(event.end)) {
     return [event];
   }
@@ -576,7 +582,7 @@ function expandEvent<T extends CalendarEvent>(
   // The days it shows on - the end is exclusive
   const days =
     eventEnd > eventStart
-      ? daysBetween(firstDay, new Date(eventEnd.getTime() - 1)) + 1
+      ? daysBetween(firstDay, copyDate(eventEnd, eventEnd.getTime() - 1)) + 1
       : 1;
   // Timed: the clock time of the end, `endDays` after the start's day
   const endDays = daysBetween(eventStart, eventEnd);
@@ -590,7 +596,7 @@ function expandEvent<T extends CalendarEvent>(
     const end = atClockOf(addCalendarDays(start, endDays), eventEnd);
     return end > start || length === 0
       ? end
-      : new Date(start.getTime() + length);
+      : copyDate(start, start.getTime() + length);
   };
 
   // The occurrences left out - an all-day event by their days
@@ -680,7 +686,23 @@ function expandEvent<T extends CalendarEvent>(
 export function expandRecurringEvents<T extends CalendarEvent>(
   events: T[],
   range: { end: Date; start: Date },
+  options?: { timeZone?: string },
 ): T[] {
+  if (options?.timeZone) {
+    const timeZone = options.timeZone;
+    events = events.map((event) => ({
+      ...event,
+      start: inTimeZone(event.start, timeZone),
+      end: inTimeZone(event.end, timeZone),
+      exdates: event.exdates?.map((date) => inTimeZone(date, timeZone)),
+      occurrenceStart:
+        event.occurrenceStart && inTimeZone(event.occurrenceStart, timeZone),
+    }));
+    range = {
+      start: inTimeZone(range.start, timeZone),
+      end: inTimeZone(range.end, timeZone),
+    };
+  }
   // Occurrences the app keeps as events of their own - they replace the
   // occurrence of their series
   const replaced = new Map<string, Date[]>();

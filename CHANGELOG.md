@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0
+
+- **Chart** - add line, area and grouped bar charts with multiple series,
+  axes, a toggleable legend, keyboard tooltips and an accessible data table.
+- **ImageViewer** - add a modal gallery with thumbnails, keyboard navigation,
+  zoom, loading/error feedback and mobile full-screen presentation.
+- **TransferList** - add searchable assignment lists with checked/all-visible
+  transfers, locked options, controlled values and native form validation/reset.
+- **DataTable** - support custom row identities (`getRowId`), per-row selection
+  eligibility, custom column sorting and controlled/default expanded details.
+  CSV failures now show a localized alert and call `onExportError`.
+- **FileUpload** - support controlled attachments and change notifications.
+  Async removal keeps the file until success, displays failures and ignores
+  obsolete responses after reset or attachment refresh.
+- **Calendar** - support named IANA time zones, including date boundaries,
+  formatting and recurrences across daylight saving changes. Add per-event
+  move/resize permission and destination validation for pointer and keyboard.
+- **TreeView / TreeSelect** - invalidate lazy children with `loadChildrenKey`,
+  abort stale requests and report load failures through `onLoadError`.
+
 ## 0.3.3
 
 - **Dialog / Sheet** - leave as much room above a `DialogFooter` as under

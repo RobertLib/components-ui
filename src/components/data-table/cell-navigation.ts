@@ -1,3 +1,4 @@
+import { defaultRowId } from "./row-key";
 import type { Column, RowId } from "./types";
 
 /** A cell of the body, by its row and column. */
@@ -58,16 +59,19 @@ export function getCellMove(event: React.KeyboardEvent): CellMove | null {
  * rows whose cell there cannot be edited. `null` when there is none that
  * way - the focus stays.
  */
-export function findMoveTarget<T extends { id: RowId }>(
+export function findMoveTarget<T>(
   rows: T[],
   columns: Column<T>[],
   isEditable: (column: Column<T>, row: T) => boolean,
   rowIndex: number,
   columnIndex: number,
   move: CellMove,
+  getRowId: (row: T) => RowId = defaultRowId,
 ): CellPosition | null {
   const at = (row: T, column: Column<T>) =>
-    isEditable(column, row) ? { columnKey: column.key, rowId: row.id } : null;
+    isEditable(column, row)
+      ? { columnKey: column.key, rowId: getRowId(row) }
+      : null;
 
   /** The first editable cell of a row from `start` in `step`'s direction. */
   const inRow = (row: T, start: number, step: -1 | 1) => {

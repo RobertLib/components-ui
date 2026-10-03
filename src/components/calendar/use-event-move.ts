@@ -48,6 +48,9 @@ interface UseEventMoveOptions {
   geometryKey: string;
   /** An event was moved. */
   onEventDrop?: (change: EventTimeChange) => void;
+  canMoveEvent?: (event: CalendarEvent) => boolean;
+  canResizeEvent?: (event: CalendarEvent) => boolean;
+  canDropEvent?: (change: EventTimeChange) => boolean;
   /** An event was resized. */
   onEventResize?: (change: EventTimeChange) => void;
   /**
@@ -111,7 +114,10 @@ function getCurrentEvent(options: UseEventMoveOptions, context: MoveContext) {
   }
 
   const current = options.events.find((event) => event.id === context.event.id);
+  const permitted =
+    context.type === "move" ? options.canMoveEvent : options.canResizeEvent;
   return current &&
+    (!permitted || permitted(current)) &&
     sameDisplay(current, context.event) &&
     !!current.allDay === !!context.event.allDay
     ? current
@@ -247,6 +253,23 @@ export default function useEventMove(options: UseEventMoveOptions) {
   const describe = (event: CalendarEvent, display: EventDisplay) =>
     optionsRef.current.describe(event, display);
 
+  const canPlace = (
+    event: CalendarEvent,
+    display: EventDisplay,
+    hasResources: boolean,
+  ) => {
+    const check = optionsRef.current.canDropEvent;
+    return (
+      !check ||
+      check({
+        event,
+        newStart: display.start,
+        newEnd: display.end,
+        ...(hasResources && { newResourceId: display.resourceId }),
+      })
+    );
+  };
+
   /** Reports a change - a move or a resize. */
   const commit = (
     context: MoveContext,
@@ -261,12 +284,18 @@ export default function useEventMove(options: UseEventMoveOptions) {
       newStart: display.start,
       ...(hasResources && { newResourceId: display.resourceId }),
     };
+    if (
+      optionsRef.current.canDropEvent &&
+      !optionsRef.current.canDropEvent(change)
+    )
+      return false;
     const { onEventDrop, onEventResize } = optionsRef.current;
     if (context.type === "move") {
       onEventDrop?.(change);
     } else {
       onEventResize?.(change);
     }
+    return true;
   };
 
   /** Puts the event the keys move down where it is shown. */
@@ -277,7 +306,8 @@ export default function useEventMove(options: UseEventMoveOptions) {
 
     if (
       sameDisplay(display, origin) ||
-      !getCurrentEvent(optionsRef.current, session)
+      !getCurrentEvent(optionsRef.current, session) ||
+      !canPlace(event, display, geometry.hasResources)
     ) {
       cancelKeyboard(true);
       return;
@@ -291,7 +321,7 @@ export default function useEventMove(options: UseEventMoveOptions) {
       id: event.id,
       until: Date.now() + 2000,
     };
-    commit(session, display, geometry.hasResources);
+    if (!commit(session, display, geometry.hasResources)) return;
     optionsRef.current.announce(
       formatMessage(
         type === "move" ? messages.calendar.moved : messages.calendar.resized,
@@ -342,6 +372,11 @@ export default function useEventMove(options: UseEventMoveOptions) {
       scrollSideways: geometry.scrollSideways,
       onMove: (offset) => {
         const next = geometry.compute(geometry.toSteps(offset));
+        if (!canPlace(event, next, geometry.hasResources)) {
+          current = null;
+          setDragState(null);
+          return;
+        }
         if (current && sameDisplay(next, current)) return;
 
         if (!current && geometry.cursor) {
@@ -470,7 +505,8 @@ export default function useEventMove(options: UseEventMoveOptions) {
 
     const nextSteps = { x: steps.x + step.x, y: steps.y + step.y };
     const display = geometry.compute(nextSteps);
-    // At an edge - nothing changes
+    // At an edge or a refused destination - nothing changes
+    if (!canPlace(event, display, geometry.hasResources)) return;
     if (sameDisplay(display, session.display)) return;
 
     steps = nextSteps;

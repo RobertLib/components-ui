@@ -3,6 +3,9 @@ import { createPortal } from "react-dom";
 import shadowStyles from "./fixture.css?inline";
 import {
   Button,
+  Chart,
+  ImageViewer,
+  TransferList,
   Calendar,
   Checkbox,
   CheckboxGroup,
@@ -42,6 +45,95 @@ import {
   type DateTimePickerType,
   type UploadedFile,
 } from "../../src";
+
+export function NewComponentsFixture() {
+  const [open, setOpen] = useState(false);
+  const [saved, setSaved] = useState("");
+  const image = (fill: string) =>
+    `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><rect width="900" height="600" fill="${fill}"/><circle cx="450" cy="300" r="150" fill="white"/></svg>`)}`;
+  return (
+    <div className="mx-auto max-w-4xl space-y-6 p-4">
+      <Chart
+        data={[
+          { label: "January", sales: 10, cost: 5 },
+          { label: "February", sales: 20, cost: 12 },
+          { label: "March", sales: 30, cost: 15 },
+        ]}
+        description="Sales and costs by month."
+        series={[
+          { key: "sales", label: "Sales" },
+          { key: "cost", label: "Cost", color: "warning" },
+        ]}
+        title="Monthly results"
+      />
+      <form
+        aria-label="Assignment"
+        className="space-y-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSaved(
+            new FormData(event.currentTarget).getAll("members").join(","),
+          );
+        }}
+      >
+        <TransferList
+          label="Project members"
+          max={2}
+          name="members"
+          options={[
+            { value: "a", label: "Anna" },
+            { value: "b", label: "Béta" },
+            { value: "c", label: "Locked", disabled: true },
+          ]}
+          required
+        />
+        <Button type="submit">Save members</Button>
+        <Button type="reset" variant="outline">
+          Reset members
+        </Button>
+        <output aria-label="Saved members">{saved}</output>
+      </form>
+      <Button onClick={() => setOpen(true)}>Open gallery</Button>
+      <ImageViewer
+        images={[
+          {
+            src: image("#0f766e"),
+            alt: "Teal picture",
+            caption: "First caption",
+          },
+          {
+            src: image("#1d4ed8"),
+            alt: "Blue picture",
+            caption: "Second caption",
+          },
+        ]}
+        onOpenChange={setOpen}
+        open={open}
+        title="Picture gallery"
+      />
+    </div>
+  );
+}
+
+export function NamedZoneFixture() {
+  return (
+    <Calendar
+      events={[
+        {
+          id: "meeting",
+          title: "Prague meeting",
+          start: new Date("2026-03-22T08:00:00Z"),
+          end: new Date("2026-03-22T09:00:00Z"),
+          recurrence: { freq: "weekly" },
+        },
+      ]}
+      initialDate={new Date("2026-03-29T12:00:00Z")}
+      initialView="day"
+      onEventClick={() => {}}
+      timeZone="Europe/Prague"
+    />
+  );
+}
 
 const loadedPickerValues = {
   date: ["2026-02-31", "2026-09-24"],

@@ -19,6 +19,8 @@ import {
   LargePercentNumberFixture,
   LoadedPickerValueFixture,
   MenuFixture,
+  NewComponentsFixture,
+  NamedZoneFixture,
   PinCompositionFixture,
   ShadowPopoverFixture,
   ShadowKeyboardFixture,
@@ -38,7 +40,11 @@ if (!container) throw new Error("The browser fixture root is missing.");
 createRoot(container).render(
   <UIProvider locale={en}>
     <main>
-      {params.get("scenario") === "loaded-picker-value" ? (
+      {params.get("scenario") === "new-components" ? (
+        <NewComponentsFixture />
+      ) : params.get("scenario") === "named-zone" ? (
+        <NamedZoneFixture />
+      ) : params.get("scenario") === "loaded-picker-value" ? (
         <LoadedPickerValueFixture
           type={
             params.get("kind") === "time"

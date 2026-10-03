@@ -14,6 +14,7 @@ const isSameForQuery = <T>(a: Column<T>[], b: Column<T>[]) =>
       column.key === other.key &&
       column.filter === other.filter &&
       column.filterFn === other.filterFn &&
+      column.sortFn === other.sortFn &&
       column.getValue === other.getValue
     );
   });

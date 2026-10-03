@@ -176,6 +176,8 @@ export interface Column<T> {
   resizable?: boolean;
   /** Makes the header label a sort toggle. */
   sortable?: boolean;
+  /** Client-side ascending comparison of rows; descending reverses it. */
+  sortFn?: (a: T, b: T) => number;
   /**
    * Adds the column to the summary row under the table - computed from all
    * rows matching the filters of a `clientSide` table (the loaded rows with

@@ -1,5 +1,11 @@
 import { ChevronDown, X } from "lucide-react";
-import { useCallback, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useId,
+  useInsertionEffect,
+  useRef,
+  useState,
+} from "react";
 import Chip, { type ChipSize } from "../chip";
 import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "../form-description";
@@ -106,6 +112,10 @@ interface BaseTreeSelectProps<T extends TreeItem> extends Omit<
    * field is in the page, also with the popup closed.
    */
   loadChildren?: (item: T, options: { signal: AbortSignal }) => Promise<T[]>;
+  /** Change to discard cached children, including those of a closed popup. */
+  loadChildrenKey?: string | number;
+  /** A lazy load failed; the popup also offers retry. */
+  onLoadError?: (error: unknown, item: T) => void;
   /**
    * `multiple` only: the most chips shown - the others are one "+3 more"
    * chip. All of them by default.
@@ -278,6 +288,8 @@ export default function TreeSelect<T extends TreeItem>({
   items,
   label,
   loadChildren,
+  loadChildrenKey,
+  onLoadError,
   maxChips,
   multiple = false,
   name,
@@ -313,6 +325,14 @@ export default function TreeSelect<T extends TreeItem>({
     () => new Map(),
   );
 
+  const [previousLoadKey, setPreviousLoadKey] = useState(loadChildrenKey);
+  const activeLoaded =
+    previousLoadKey === loadChildrenKey ? loaded : new Map<TreeItemId, T[]>();
+  if (previousLoadKey !== loadChildrenKey) {
+    setPreviousLoadKey(loadChildrenKey);
+    setLoaded(new Map());
+  }
+
   // A field that turns disabled or read-only closes its popup
   if (open && !canChange) setOpen(false);
 
@@ -330,14 +350,18 @@ export default function TreeSelect<T extends TreeItem>({
 
   // Every item known - also those loaded - and the tree of the popup
   const loads = new Map<TreeItemId, LoadState<T>>(
-    [...loaded].map(([itemId, children]) => [
+    [...activeLoaded].map(([itemId, children]) => [
       itemId,
       { children, status: "loaded" },
     ]),
   );
   const index = indexTree(items, loads, false);
-  const treeItems = withLoadedChildren(items, loaded, new Set());
+  const treeItems = withLoadedChildren(items, activeLoaded, new Set());
 
+  const activeLoadKey = useRef(loadChildrenKey);
+  useInsertionEffect(() => {
+    activeLoadKey.current = loadChildrenKey;
+  });
   const loadAndKeep = loadChildren
     ? (item: T, options: { signal: AbortSignal }) =>
         loadChildren(index.byId.get(item.id) ?? item, options).then(
@@ -345,7 +369,10 @@ export default function TreeSelect<T extends TreeItem>({
             const list = Array.isArray(children) ? children : [];
             // A loader may finish after the popup closed and aborted it.
             // Its result must not replace children from a later opening.
-            if (!options.signal.aborted) {
+            if (
+              !options.signal.aborted &&
+              activeLoadKey.current === loadChildrenKey
+            ) {
               setLoaded((previous) => new Map(previous).set(item.id, list));
             }
             return list;
@@ -967,6 +994,8 @@ export default function TreeSelect<T extends TreeItem>({
             id={treeId}
             items={treeItems}
             loadChildren={loadAndKeep}
+            loadChildrenKey={loadChildrenKey}
+            onLoadError={onLoadError}
             onCheckedChange={multiple ? commit : undefined}
             onExpandedChange={setExpanded}
             // Also a click on the item picked already closes the popup

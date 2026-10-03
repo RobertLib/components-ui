@@ -134,6 +134,29 @@ const fixtures: Record<string, () => React.ReactElement> = {
     />
   ),
   Chip: () => <ui.Chip onRemove={noop}>Paid</ui.Chip>,
+  Chart: () => (
+    <ui.Chart
+      data={[{ label: "One", value: 10 }]}
+      series={[{ key: "value", label: "Value" }]}
+      title="Results"
+      type="area"
+    />
+  ),
+  ImageViewer: () => (
+    <ui.ImageViewer
+      defaultOpen
+      images={[{ src: "/one.png", alt: "Landscape" }]}
+    />
+  ),
+  TransferList: () => (
+    <ui.TransferList
+      defaultValue={["brno"]}
+      label="Cities"
+      name="cities"
+      options={options}
+      required
+    />
+  ),
   CircularProgress: () => (
     <ui.CircularProgress aria-label="Quota" showPercentage value={40} />
   ),

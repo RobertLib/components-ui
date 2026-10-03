@@ -1,3 +1,4 @@
+import { dateTimeZone } from "../../utils/time-zone";
 import type { CalendarEvent, CalendarViewProps } from "./types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import cn from "../../utils/cn";
@@ -69,6 +70,9 @@ export default function MonthView({
   getEventLabel,
   hiddenDays,
   isEventClickable,
+  canMoveEvent,
+  canResizeEvent,
+  canDropEvent,
   loading,
   maxDate,
   minDate,
@@ -132,6 +136,9 @@ export default function MonthView({
       maxDate,
     ]),
     onEventDrop,
+    canMoveEvent,
+    canResizeEvent,
+    canDropEvent,
     scrollRef,
   });
   const { dragState, getEventDisplayTimes } = move;
@@ -147,7 +154,7 @@ export default function MonthView({
 
     // Counted from the 1st, a day no time zone skips - and the days before
     // it in its week
-    const firstOfMonth = dateOf(year, month, 1);
+    const firstOfMonth = dateOf(year, month, 1, currentDate);
     const leading = daysIntoWeek(firstOfMonth, locale.weekStartsOn);
 
     // Where the events are shown - a moved one where it would go
@@ -326,11 +333,11 @@ export default function MonthView({
     setFocusedDate(next);
   };
 
-  const dayLabelFormat = createDayFormat(locale);
+  const dayLabelFormat = createDayFormat(locale, dateTimeZone(currentDate));
   // Unknown on the server and while a server-rendered page hydrates - its
   // clock and time zone may differ from the browser's. Another day after
   // midnight, also in a view left open.
-  const today = useToday();
+  const today = useToday(dateTimeZone(currentDate));
   // A grid the arrow keys move in with the day buttons - a table of the
   // days without them
   const isGrid = !!onDateClick;
@@ -425,6 +432,7 @@ export default function MonthView({
                 return (
                   <DateCell
                     canMove={canMove}
+                    canMoveEvent={canMoveEvent}
                     date={day.date}
                     disabled={day.disabled}
                     draggingId={dragState?.event.id ?? null}

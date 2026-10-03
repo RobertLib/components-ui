@@ -151,6 +151,10 @@ export interface TreeViewProps<T extends TreeItem = TreeItem> extends Omit<
    * children are kept; `signal` aborts when the tree unmounts.
    */
   loadChildren?: (item: T, options: { signal: AbortSignal }) => Promise<T[]>;
+  /** Change to discard loaded children and reload expanded items; pending loads abort. */
+  loadChildrenKey?: string | number;
+  /** A lazy load failed. The row also offers retry. */
+  onLoadError?: (error: unknown, item: T) => void;
   /**
    * Submits the checked items with the form - the selected ones in a tree
    * without checkboxes - as one value per item, like checkboxes of one
@@ -330,6 +334,8 @@ export default function TreeView<T extends TreeItem>({
   form,
   items,
   loadChildren,
+  loadChildrenKey,
+  onLoadError,
   name,
   onBlur,
   onCheckedChange,
@@ -358,8 +364,11 @@ export default function TreeView<T extends TreeItem>({
   const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();
   const disabled = disabledProp || fieldsetDisabled;
 
-  const { forgetError, forgetErrors, load, loads } =
-    useLazyChildren(loadChildren);
+  const { forgetError, forgetErrors, load, loads } = useLazyChildren(
+    loadChildren,
+    loadChildrenKey,
+    onLoadError,
+  );
   const index = indexTree(items, loads, disabled);
 
   // A tree of links given nothing to select is a navigation: the item of

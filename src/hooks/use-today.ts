@@ -1,9 +1,10 @@
-import { useSyncExternalStore } from "react";
+import { inTimeZone } from "../utils/time-zone";
+import { useCallback, useSyncExternalStore } from "react";
 import { shiftDay, startOfDay } from "../utils/date";
 
 // The components showing today - one timer and one pair of listeners for
 // all of them
-const dayListeners = new Set<() => void>();
+const dayListeners = new Map<() => void, string | undefined>();
 let stopWatchingDays: (() => void) | undefined;
 
 /**
@@ -17,14 +18,20 @@ function watchDays() {
 
   const check = () => {
     clearTimeout(timer);
-    dayListeners.forEach((listener) => listener());
+    dayListeners.forEach((_, listener) => listener());
     // A listener may have stopped the watch
     if (stopped) return;
     // A little past the start of the next day - a timer may fire a moment
     // early. A day is 23 or 25 hours long when the clocks change.
     timer = setTimeout(
       check,
-      shiftDay(new Date(), 1).getTime() - Date.now() + 20,
+      Math.min(
+        ...[...dayListeners.values()].map((zone) =>
+          shiftDay(inTimeZone(new Date(), zone), 1).getTime(),
+        ),
+      ) -
+        Date.now() +
+        20,
     );
   };
   check();
@@ -40,9 +47,10 @@ function watchDays() {
   };
 }
 
-function subscribeToDays(callback: () => void) {
-  dayListeners.add(callback);
-  stopWatchingDays ??= watchDays();
+function subscribeToDays(callback: () => void, timeZone?: string) {
+  dayListeners.set(callback, timeZone);
+  stopWatchingDays?.();
+  stopWatchingDays = watchDays();
 
   return () => {
     dayListeners.delete(callback);
@@ -53,7 +61,8 @@ function subscribeToDays(callback: () => void) {
 }
 
 /** The start of today - the same number all through the day. */
-const getDay = () => startOfDay(new Date()).getTime();
+const getDay = (timeZone?: string) =>
+  startOfDay(inTimeZone(new Date(), timeZone)).getTime();
 
 const getNothing = () => null;
 
@@ -63,7 +72,12 @@ const getNothing = () => null;
  * `useCurrentMinute`. `null` on the server and while a server-rendered page
  * hydrates, like there.
  */
-export default function useToday(): Date | null {
-  const day = useSyncExternalStore(subscribeToDays, getDay, getNothing);
-  return day === null ? null : new Date(day);
+export default function useToday(timeZone?: string): Date | null {
+  const subscribe = useCallback(
+    (callback: () => void) => subscribeToDays(callback, timeZone),
+    [timeZone],
+  );
+  const snapshot = useCallback(() => getDay(timeZone), [timeZone]);
+  const day = useSyncExternalStore(subscribe, snapshot, getNothing);
+  return day === null ? null : inTimeZone(new Date(day), timeZone);
 }

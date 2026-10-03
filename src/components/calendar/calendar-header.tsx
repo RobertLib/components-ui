@@ -1,3 +1,5 @@
+import { dateOf } from "../../utils/date";
+import { dateTimeZone } from "../../utils/time-zone";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import Button from "../button";
@@ -117,7 +119,9 @@ export default function CalendarHeader({
       case "day":
         // The full day - for screen readers, the date field shows it
         return capitalize(
-          createDayFormat(locale).format(currentDate),
+          createDayFormat(locale, dateTimeZone(currentDate)).format(
+            currentDate,
+          ),
           locale.code,
         );
       default: {
@@ -145,7 +149,15 @@ export default function CalendarHeader({
             min={minDate && toISODate(minDate)}
             onChange={(event) => {
               const selectedDate = parseISODate(event.target.value);
-              if (selectedDate) onDateSelect?.(selectedDate);
+              if (selectedDate)
+                onDateSelect?.(
+                  dateOf(
+                    selectedDate.getFullYear(),
+                    selectedDate.getMonth(),
+                    selectedDate.getDate(),
+                    currentDate,
+                  ),
+                );
             }}
             // The calendar always shows a date
             clearable={false}

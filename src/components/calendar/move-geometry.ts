@@ -1,3 +1,4 @@
+import { copyDate } from "../../utils/time-zone";
 import type { CalendarEvent } from "./types";
 import {
   addCalendarDays,
@@ -94,7 +95,7 @@ export function shiftEventByDays(
     const range = getAllDayRange(event);
     if (range.start !== event.start) {
       const shiftUTC = (date: Date) => {
-        const shifted = new Date(date);
+        const shifted = copyDate(date);
         shifted.setUTCDate(shifted.getUTCDate() + days);
         return shifted;
       };
@@ -110,7 +111,8 @@ export function shiftEventByDays(
 
   const start = shiftByDays(event.start, days);
   return {
-    end: new Date(
+    end: copyDate(
+      start,
       start.getTime() + event.end.getTime() - event.start.getTime(),
     ),
     start,
@@ -250,9 +252,12 @@ export function createGridGeometry({
           : endLimit) - length;
       // A shorter target day may have no room for the unchanged duration.
       if (latest < earliest) return unchanged;
-      const start = new Date(clamp(desired.getTime(), earliest, latest));
+      const start = copyDate(
+        desired,
+        clamp(desired.getTime(), earliest, latest),
+      );
       return {
-        end: new Date(start.getTime() + length),
+        end: copyDate(start, start.getTime() + length),
         resourceId: targetResource,
         start,
       };
@@ -280,7 +285,7 @@ export function createGridGeometry({
       return {
         end: event.end,
         resourceId,
-        start: start.getTime() > latest ? new Date(latest) : start,
+        start: start.getTime() > latest ? copyDate(event.start, latest) : start,
       };
     }
 
@@ -298,7 +303,7 @@ export function createGridGeometry({
       event.start.getTime() + minDuration * 60_000,
     );
     return {
-      end: end.getTime() < earliest ? new Date(earliest) : end,
+      end: end.getTime() < earliest ? copyDate(event.end, earliest) : end,
       resourceId,
       start: event.start,
     };
@@ -673,7 +678,8 @@ export function createTimelineGeometry({
         return unchanged;
       }
       return {
-        end: new Date(
+        end: copyDate(
+          start,
           start.getTime() + event.end.getTime() - event.start.getTime(),
         ),
         resourceId: targetResource,
@@ -700,7 +706,7 @@ export function createTimelineGeometry({
       return {
         end: event.end,
         resourceId,
-        start: start.getTime() > latest ? new Date(latest) : start,
+        start: start.getTime() > latest ? copyDate(event.start, latest) : start,
       };
     }
 
@@ -713,7 +719,7 @@ export function createTimelineGeometry({
       event.start.getTime() + minDuration * 60_000,
     );
     return {
-      end: end.getTime() < earliest ? new Date(earliest) : end,
+      end: end.getTime() < earliest ? copyDate(event.end, earliest) : end,
       resourceId,
       start: event.start,
     };

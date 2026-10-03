@@ -165,6 +165,19 @@ export default function TreeSelectPage() {
         </Callout>
       </Section>
 
+      <Example
+        name="tree-select/cache"
+        title="Refreshing lazy options"
+        description={
+          <p>
+            <code>loadChildrenKey</code> invalidates both popup children and the
+            cached labels of selected values. Running requests abort and stale
+            results are ignored. Expand a branch to load its refreshed children.{" "}
+            <code>onLoadError(error, item)</code> reports a failed branch while
+            preserving the popup's retry control.
+          </p>
+        }
+      />
       <Section title="Props">
         <PropsTable of="TreeSelect" />
       </Section>

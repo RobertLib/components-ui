@@ -300,6 +300,12 @@ export interface CalendarViewProps {
    * `onEventClick` is not called. Defaults to clickable.
    */
   isEventClickable?: (event: CalendarEvent) => boolean;
+  /** Whether this event may be moved. Defaults to true with `onEventDrop`. */
+  canMoveEvent?: (event: CalendarEvent) => boolean;
+  /** Whether this event may be resized. Defaults to true with `onEventResize`. */
+  canResizeEvent?: (event: CalendarEvent) => boolean;
+  /** Whether proposed times and resource are allowed, for both move and resize. */
+  canDropEvent?: (change: EventTimeChange) => boolean;
   /** Shows a spinner over the view. */
   loading?: boolean;
   /** Days after it are disabled. */

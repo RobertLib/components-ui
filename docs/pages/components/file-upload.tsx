@@ -203,9 +203,9 @@ export default function FileUploadPage() {
         <Prose>
           <p>
             The form cannot be submitted while files are being checked by an
-            async <code>validate</code>, queued or uploading - also when the
-            field is optional or already has an attachment. A disabled or
-            read-only field does not block submission.
+            async <code>validate</code>, queued, uploading or being removed -
+            also when the field is optional or already has an attachment. A
+            disabled or read-only field does not block submission.
           </p>
           <p>
             With a <code>name</code>, <code>required</code> counts the files the
@@ -310,6 +310,24 @@ export default function FileUploadPage() {
         <CodeBlock code={failedUpload} />
       </Section>
 
+      <Example
+        name="file-upload/controlled"
+        title="Controlled attachments and asynchronous removal"
+        description={
+          <p>
+            <code>attachments</code> is the authoritative stored list; apply{" "}
+            <code>onAttachmentsChange</code> to reflect uploads and removals.
+            Queued and running uploads remain internal. Updated attachments
+            replace stored rows even after interaction. <code>onRemove</code>{" "}
+            may return a promise: the file stays with a spinner until success,{" "}
+            <code>false</code> retains it, and rejection shows an error for
+            retry. Submission waits for pending removals. Responses from before
+            a reset or an attachment metadata refresh cannot remove the newer
+            file. Use stable attachment <code>id</code> values when controlling
+            the list.
+          </p>
+        }
+      />
       <Section title="Props">
         <PropsTable of="FileUpload" />
         <PropsTable of="UploadedFile" />

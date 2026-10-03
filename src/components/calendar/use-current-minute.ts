@@ -1,3 +1,4 @@
+import { inTimeZone } from "../../utils/time-zone";
 import { useSyncExternalStore } from "react";
 
 const MINUTE = 60_000;
@@ -34,11 +35,16 @@ const getNothing = () => null;
  * and the time zone of the server may differ from the browser's), and while
  * `enabled` is false - then it runs no timer.
  */
-export default function useCurrentMinute(enabled = true): Date | null {
+export default function useCurrentMinute(
+  enabled = true,
+  timeZone?: string,
+): Date | null {
   const minute = useSyncExternalStore(
     enabled ? subscribeToMinutes : subscribeToNothing,
     enabled ? getMinute : getNothing,
     getNothing,
   );
-  return minute === null ? null : new Date(minute * MINUTE);
+  return minute === null
+    ? null
+    : inTimeZone(new Date(minute * MINUTE), timeZone);
 }

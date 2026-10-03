@@ -1,3 +1,4 @@
+import { dateTimeZone } from "../../utils/time-zone";
 import type {
   CalendarEvent,
   CalendarResource,
@@ -131,6 +132,9 @@ export default function TimelineView({
   getEventLabel,
   hiddenDays,
   isEventClickable,
+  canMoveEvent,
+  canResizeEvent,
+  canDropEvent,
   loading,
   maxDate,
   minDate,
@@ -268,6 +272,9 @@ export default function TimelineView({
     ]),
     onEventDrop,
     onEventResize,
+    canMoveEvent,
+    canResizeEvent,
+    canDropEvent,
     scrollRef,
   });
   const { getEventDisplayTimes, isDragging, isPointerDragging } = move;
@@ -436,15 +443,16 @@ export default function TimelineView({
   const selectedRange = slotDragState ?? keyboardRange;
 
   const getSlotLabel = createSlotLabeler(locale);
-  const dayLabelFormat = createDayFormat(locale);
+  const dayLabelFormat = createDayFormat(locale, dateTimeZone(currentDate));
 
   // Unknown on the server and while a server-rendered page hydrates - its
   // clock and time zone may differ from the browser's. Another day after
   // midnight, also in a view left open.
-  const today = useToday();
+  const today = useToday(dateTimeZone(currentDate));
   const isToday = (date: Date) => today !== null && isSameDay(date, today);
   const now = useCurrentMinute(
     nowIndicator && axis.days.some(({ day }) => isToday(day)),
+    dateTimeZone(currentDate),
   );
   // The line of the current time - within the hours shown of today
   const nowX = now && isShownTime(now) ? xOf(now) : null;
@@ -529,8 +537,13 @@ export default function TimelineView({
     // The events of a disabled day stay as they are
     const onEnabledDay = !axis.days.find((item) => isSameDay(item.day, day))
       ?.disabled;
-    const movable = !!onEventDrop && onEnabledDay;
-    const resizable = !!onEventResize && !event.allDay && onEnabledDay;
+    const movable =
+      !!onEventDrop && onEnabledDay && (!canMoveEvent || canMoveEvent(event));
+    const resizable =
+      !!onEventResize &&
+      !event.allDay &&
+      onEnabledDay &&
+      (!canResizeEvent || canResizeEvent(event));
     const keyMovable = movable || resizable;
     const title = (
       <EventTitle className="min-w-0 truncate font-medium" event={event}>

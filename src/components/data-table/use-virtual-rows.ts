@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import type { RowId } from "./types";
-import { getRowKey } from "./row-key";
+import { defaultRowId, getRowKey } from "./row-key";
 
 // Rows rendered before the table is measured - also by the server
 const INITIAL_ROWS = 30;
@@ -32,6 +32,7 @@ interface VirtualRowsOptions<T> {
   bodyRef: React.RefObject<HTMLElement | null>;
   /** Rows to show. */
   data: T[];
+  getRowId?: (row: T) => RowId;
   /** Renders only the rows in view - otherwise all of them. */
   enabled: boolean;
   /** Height of a row until rows are measured - by the density. */
@@ -137,11 +138,12 @@ function findAnchor({ offsets, rowHeights }: RowsLayout, top: number) {
  * Rows gone (a filter, another page of a server) must not pile up, nor
  * weigh in the height the rows not measured yet are estimated at.
  */
-function pruneHeights<T extends { id: RowId }>(
+function pruneHeights<T>(
   heights: ReadonlyMap<string, number>,
   data: T[],
+  getRowId: (row: T) => RowId,
 ) {
-  const ids = new Set(data.map((row) => getRowKey(row.id)));
+  const ids = new Set(data.map((row) => getRowKey(getRowId(row))));
   const next = new Map(
     [...heights].filter(([key]) =>
       ids.has(key.endsWith(SUB_ROW) ? key.slice(0, -SUB_ROW.length) : key),
@@ -157,9 +159,10 @@ function pruneHeights<T extends { id: RowId }>(
  * Rendered rows are measured - rows of different heights and expanded
  * details included - and the room of the others is estimated from them.
  */
-export default function useVirtualRows<T extends { id: RowId }>({
+export default function useVirtualRows<T>({
   bodyRef,
   data,
+  getRowId = defaultRowId,
   enabled,
   estimatedHeight,
   expandedRows,
@@ -226,7 +229,7 @@ export default function useVirtualRows<T extends { id: RowId }>({
   const [measuredData, setMeasuredData] = useState(data);
   if (heights.size > 0 && measuredData !== data) {
     setMeasuredData(data);
-    setHeights((previous) => pruneHeights(previous, data));
+    setHeights((previous) => pruneHeights(previous, data, getRowId));
   }
 
   /** Put on each rendered row - it is measured while it is in the page. */
@@ -272,7 +275,7 @@ export default function useVirtualRows<T extends { id: RowId }>({
     const tableRows = new Int32Array(count + 1);
 
     for (let index = 0; index < count; index++) {
-      const { id } = data[index];
+      const id = getRowId(data[index]);
       const key = getRowKey(id);
       const isExpanded = hasSubRows && expandedRows.has(id);
 
@@ -291,6 +294,7 @@ export default function useVirtualRows<T extends { id: RowId }>({
     enabled,
     estimatedHeight,
     expandedRows,
+    getRowId,
     hasSubRows,
     heights,
   ]);

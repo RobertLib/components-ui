@@ -142,7 +142,7 @@ function getCellContent<T>(
     shown.value) as React.ReactNode;
 }
 
-interface TableRowProps<T extends { id: RowId }> {
+interface TableRowProps<T> {
   /** Content of the sticky actions cell. */
   actions?: (row: T) => React.ReactNode;
   /** `aria-rowindex` of a virtualized row. */
@@ -215,6 +215,8 @@ interface TableRowProps<T extends { id: RowId }> {
   renderSubRow?: (row: T) => React.ReactNode;
   /** The row. */
   row: T;
+  getRowId: (row: T) => RowId;
+  selectable: boolean;
   /** Position of the row in the rows of the table. */
   rowIndex: number;
   /**
@@ -237,7 +239,7 @@ interface TableRowProps<T extends { id: RowId }> {
 }
 
 /** A row of the table body, with its detail row when expanded. */
-export function TableRow<T extends { id: RowId }>({
+export function TableRow<T>({
   actions,
   ariaRowIndex,
   cellLayouts,
@@ -270,6 +272,8 @@ export function TableRow<T extends { id: RowId }>({
   onStartEdit,
   renderSubRow,
   row,
+  getRowId,
+  selectable,
   rowIndex,
   rowTabIndex,
   tabStopColumnKey,
@@ -345,7 +349,9 @@ export function TableRow<T extends { id: RowId }>({
             "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-400",
           getRowClassName?.(row),
         )}
-        data-measure-key={measureRef ? getMeasureKey(row.id, false) : undefined}
+        data-measure-key={
+          measureRef ? getMeasureKey(getRowId(row), false) : undefined
+        }
         data-row-index={rowIndex}
         data-selected={isSelected ? "" : undefined}
         data-state={renderSubRow ? (isExpanded ? "open" : "closed") : undefined}
@@ -354,7 +360,8 @@ export function TableRow<T extends { id: RowId }>({
           rowTabIndex === undefined
             ? undefined
             : (event) => {
-                if (event.target === event.currentTarget) onRowFocus?.(row.id);
+                if (event.target === event.currentTarget)
+                  onRowFocus?.(getRowId(row));
               }
         }
         onKeyDown={
@@ -397,7 +404,7 @@ export function TableRow<T extends { id: RowId }>({
               className={density === "compact" ? undefined : "mt-0.75"}
               data-state={isExpanded ? "open" : "closed"}
               id={expandId}
-              onClick={() => toggleRowExpansion(row.id)}
+              onClick={() => toggleRowExpansion(getRowId(row))}
               title={expandLabel}
             >
               {isExpanded ? (
@@ -430,6 +437,7 @@ export function TableRow<T extends { id: RowId }>({
               aria-label={messages.dataTable.selectRow}
               aria-labelledby={labelledBy(selectId)}
               checked={isSelected}
+              disabled={!selectable}
               className="accent-primary-500"
               id={selectId}
               // The change of a checkbox comes with its click - Shift also
@@ -463,7 +471,7 @@ export function TableRow<T extends { id: RowId }>({
           const layout = cellLayouts[column.key] ?? DEFAULT_CELL_LAYOUT;
           const sticky = isSticky(layout);
           const cellId = columnIndex === 0 ? rowLabelId : undefined;
-          const state = cellStates.get(getCellKey(row.id, column.key));
+          const state = cellStates.get(getCellKey(getRowId(row), column.key));
           const isPending = state?.status === "pending";
           // A cell being saved stays a tab stop, but cannot be edited again
           // until the save is done
@@ -627,21 +635,21 @@ export function TableRow<T extends { id: RowId }>({
                         wasTapped &&
                         !(event.target as Element).closest(CELL_CONTROL)
                       ) {
-                        onStartEdit(row.id, column.key);
+                        onStartEdit(getRowId(row), column.key);
                       }
                     }
                   : undefined
               }
               onDoubleClick={
                 canEdit && !isEditing
-                  ? () => onStartEdit(row.id, column.key)
+                  ? () => onStartEdit(getRowId(row), column.key)
                   : undefined
               }
               onFocus={
                 isEditableCell
                   ? (event) => {
                       // Also the field of the cell - the tab stop stays here
-                      onCellFocus(row.id, column.key);
+                      onCellFocus(getRowId(row), column.key);
                       if (event.target === event.currentTarget) {
                         revealCell(event.currentTarget, sticky);
                       }
@@ -658,7 +666,7 @@ export function TableRow<T extends { id: RowId }>({
                         (event.key === "Enter" || event.key === "F2")
                       ) {
                         event.preventDefault();
-                        onStartEdit(row.id, column.key);
+                        onStartEdit(getRowId(row), column.key);
                         return;
                       }
                       const move = getCellMove(event);
@@ -712,7 +720,7 @@ export function TableRow<T extends { id: RowId }>({
           }
           className="bg-neutral-50 dark:bg-neutral-900"
           data-measure-key={
-            measureRef ? getMeasureKey(row.id, true) : undefined
+            measureRef ? getMeasureKey(getRowId(row), true) : undefined
           }
           data-row-index={rowIndex}
           id={detailId}

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useInsertionEffect,
+  useRef,
+  useState,
+} from "react";
 import logger from "../../utils/logger";
 import type { LoadState, LoadStates } from "./tree-model";
 import type { TreeItem, TreeItemId } from "./types";
@@ -23,14 +29,35 @@ const callLoadChildren = <T>(
  */
 export default function useLazyChildren<T extends TreeItem>(
   loadChildren: LoadChildren<T> | undefined,
+  cacheKey?: string | number,
+  onLoadError?: (error: unknown, item: T) => void,
 ) {
   const [loads, setLoads] = useState<LoadStates<T>>(() => new Map());
   const loadChildrenRef = useRef(loadChildren);
+  const errorRef = useRef(onLoadError);
+  const [previousCacheKey, setPreviousCacheKey] = useState(cacheKey);
+  const currentLoads =
+    cacheKey === previousCacheKey ? loads : new Map<TreeItemId, LoadState<T>>();
+  if (cacheKey !== previousCacheKey) {
+    setPreviousCacheKey(cacheKey);
+    setLoads(new Map());
+  }
   // The loads on their way - aborted when the tree unmounts
   const running = useRef(new Map<TreeItemId, AbortController>());
+  const activeCacheKey = useRef(cacheKey);
 
-  useEffect(() => {
+  useInsertionEffect(() => {
     loadChildrenRef.current = loadChildren;
+    errorRef.current = onLoadError;
+    if (activeCacheKey.current !== cacheKey) {
+      const obsolete = [...running.current.values()];
+      running.current.clear();
+      activeCacheKey.current = cacheKey;
+      // Abort listeners can update their owner's state, after commit.
+      queueMicrotask(() =>
+        obsolete.forEach((controller) => controller.abort()),
+      );
+    }
   });
 
   useEffect(() => {
@@ -39,7 +66,7 @@ export default function useLazyChildren<T extends TreeItem>(
       controllers.forEach((controller) => controller.abort());
       controllers.clear();
     };
-  }, []);
+  }, [cacheKey]);
 
   const setLoad = useCallback(
     (id: TreeItemId, load: LoadState<T>) =>
@@ -54,12 +81,14 @@ export default function useLazyChildren<T extends TreeItem>(
       if (!loader || running.current.has(item.id)) return;
 
       const controller = new AbortController();
+      const key = activeCacheKey.current;
       running.current.set(item.id, controller);
       setLoad(item.id, { status: "loading" });
 
       callLoadChildren(loader, item, controller.signal).then(
         (children) => {
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted || key !== activeCacheKey.current)
+            return;
           running.current.delete(item.id);
           setLoad(item.id, {
             children: Array.isArray(children) ? children : [],
@@ -67,10 +96,12 @@ export default function useLazyChildren<T extends TreeItem>(
           });
         },
         (error: unknown) => {
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted || key !== activeCacheKey.current)
+            return;
           running.current.delete(item.id);
           logger.error("TreeView: loadChildren failed", error);
           setLoad(item.id, { status: "error" });
+          errorRef.current?.(error, item);
         },
       );
     },
@@ -107,5 +138,5 @@ export default function useLazyChildren<T extends TreeItem>(
     [],
   );
 
-  return { forgetError, forgetErrors, load, loads };
+  return { forgetError, forgetErrors, load, loads: currentLoads };
 }

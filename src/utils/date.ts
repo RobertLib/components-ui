@@ -1,3 +1,4 @@
+import { copyDate, zonedDay } from "./time-zone";
 import { toIntlLocale } from "../i18n/format";
 import type { DatePatternToken, WeekDay } from "../i18n/types";
 
@@ -18,10 +19,13 @@ export const toISOTime = (date: Date) =>
  * Local midnight of a calendar day - also of the years 0 - 99, which
  * `new Date(year, …)` would take for 1900 - 1999.
  */
-export function dateOf(year: number, monthIndex: number, day: number) {
-  const date = new Date(2000, 0, 1);
-  date.setFullYear(year, monthIndex, day);
-  return date;
+export function dateOf(
+  year: number,
+  monthIndex: number,
+  day: number,
+  reference?: Date,
+) {
+  return zonedDay(year, monthIndex, day, reference);
 }
 
 /**
@@ -30,8 +34,13 @@ export function dateOf(year: number, monthIndex: number, day: number) {
  * `dateOf` takes for the day after it. `day` may lie outside the month (`0`,
  * `32`), as for `dateOf`.
  */
-export function existingDayOf(year: number, monthIndex: number, day: number) {
-  const date = dateOf(year, monthIndex, day);
+export function existingDayOf(
+  year: number,
+  monthIndex: number,
+  day: number,
+  reference?: Date,
+) {
+  const date = dateOf(year, monthIndex, day, reference);
   // The same day in UTC, which skips none
   const calendarDay = new Date(0);
   calendarDay.setUTCFullYear(year, monthIndex, day);
@@ -54,10 +63,15 @@ export function shiftDay(
 
   // A time zone skips a single day - the next step finds one
   for (let step = 0; step < 7; step++) {
-    const result = existingDayOf(year, monthIndex, day + step * direction);
+    const result = existingDayOf(
+      year,
+      monthIndex,
+      day + step * direction,
+      date,
+    );
     if (result) return result;
   }
-  return dateOf(year, monthIndex, day);
+  return dateOf(year, monthIndex, day, date);
 }
 
 /** Whether `year`-`month`-`day` (month 1 - 12) is a real day of the calendar. */
@@ -85,10 +99,10 @@ export function parseISODate(value: string | null | undefined): Date | null {
 }
 
 export const startOfDay = (date: Date) =>
-  dateOf(date.getFullYear(), date.getMonth(), date.getDate());
+  dateOf(date.getFullYear(), date.getMonth(), date.getDate(), date);
 
 export const addDays = (date: Date, days: number) => {
-  const result = new Date(date);
+  const result = copyDate(date);
   result.setDate(result.getDate() + days);
   return result;
 };
@@ -100,8 +114,8 @@ export const addDays = (date: Date, days: number) => {
 export function addMonths(date: Date, offset: number) {
   const year = date.getFullYear();
   const monthIndex = date.getMonth() + offset;
-  const lastDay = dateOf(year, monthIndex + 1, 0).getDate();
-  return dateOf(year, monthIndex, Math.min(date.getDate(), lastDay));
+  const lastDay = dateOf(year, monthIndex + 1, 0, date).getDate();
+  return dateOf(year, monthIndex, Math.min(date.getDate(), lastDay), date);
 }
 
 export const isSameDay = (a: Date, b: Date) =>
@@ -123,13 +137,14 @@ export function startOfWeek(date: Date, weekStartsOn: WeekDay) {
 export function getMonthDays(month: Date, weekStartsOn: WeekDay) {
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
-  const daysInMonth = dateOf(year, monthIndex + 1, 0).getDate();
-  const leading = (dateOf(year, monthIndex, 1).getDay() - weekStartsOn + 7) % 7;
+  const daysInMonth = dateOf(year, monthIndex + 1, 0, month).getDate();
+  const leading =
+    (dateOf(year, monthIndex, 1, month).getDay() - weekStartsOn + 7) % 7;
 
   const days: (Date | null)[] = Array.from({ length: leading }, () => null);
 
   for (let day = 1; day <= daysInMonth; day++) {
-    days.push(existingDayOf(year, monthIndex, day));
+    days.push(existingDayOf(year, monthIndex, day, month));
   }
 
   return days;
@@ -141,7 +156,7 @@ export function getISOWeek(date: Date) {
   // Thursday of the same week decides the year
   target.setDate(target.getDate() + 3 - ((target.getDay() + 6) % 7));
 
-  const firstThursday = dateOf(target.getFullYear(), 0, 4);
+  const firstThursday = dateOf(target.getFullYear(), 0, 4, target);
   firstThursday.setDate(
     firstThursday.getDate() + 3 - ((firstThursday.getDay() + 6) % 7),
   );

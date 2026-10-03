@@ -1,7 +1,7 @@
 {
   "name": "components-ui",
   "private": true,
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "React + Tailwind CSS component library with localization, router integration and REST / GraphQL friendly data components.",
   "license": "MIT",
   "repository": {
@@ -58,6 +58,7 @@
     "tailwindcss": "^4.3.0"
   },
   "dependencies": {
+    "@date-fns/tz": "^1.5.0",
     "lucide-react": "^1.47.0"
   },
   "devDependencies": {

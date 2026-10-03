@@ -63,7 +63,7 @@ function findBodyRow(body: Element, element: Element) {
   return row;
 }
 
-interface TableBodyProps<T extends { id: RowId }> {
+interface TableBodyProps<T> {
   /** Content of the sticky actions cell of a row. */
   actions?: (row: T) => React.ReactNode;
   /** Layouts by column key - also of `expand`, `selection` and `actions`. */
@@ -72,6 +72,8 @@ interface TableBodyProps<T extends { id: RowId }> {
   cellStates: ReadonlyMap<string, CellEditState<T>>;
   /** The rows to show. */
   data: T[];
+  getRowId: (row: T) => RowId;
+  isRowSelectable?: (row: T) => boolean;
   /** Height of the rows. */
   density: DataTableDensity;
   /** Id of the text describing editable cells to screen readers. */
@@ -148,11 +150,13 @@ interface TableBodyProps<T extends { id: RowId }> {
   virtualized: boolean;
 }
 
-export function TableBody<T extends { id: RowId }>({
+export function TableBody<T>({
   actions,
   cellLayouts,
   cellStates,
   data,
+  getRowId,
+  isRowSelectable,
   density,
   editHintId,
   editingCell,
@@ -227,7 +231,7 @@ export function TableBody<T extends { id: RowId }>({
   const keepIndexes = keptRowIds.flatMap((rowId) =>
     rowId === null || rowId === undefined
       ? []
-      : [data.findIndex((row) => row.id === rowId)],
+      : [data.findIndex((row) => getRowId(row) === rowId)],
   );
 
   // Where the focus is in the rows. When its row goes away - it sorted
@@ -279,6 +283,7 @@ export function TableBody<T extends { id: RowId }>({
   const { measureRef, segments, tableRowsBefore } = useVirtualRows({
     bodyRef,
     data,
+    getRowId,
     enabled: virtualized && !groups,
     estimatedHeight: ESTIMATED_ROW_HEIGHTS[density],
     expandedRows,
@@ -302,7 +307,7 @@ export function TableBody<T extends { id: RowId }>({
 
   if (hasEditableColumns) {
     const activeIndex = activeCell
-      ? data.findIndex((row) => row.id === activeCell.rowId)
+      ? data.findIndex((row) => getRowId(row) === activeCell.rowId)
       : -1;
     const activeColumn = sortedVisibleColumns.find(
       (column) => column.key === activeCell?.columnKey,
@@ -321,7 +326,7 @@ export function TableBody<T extends { id: RowId }>({
           isEditable(candidate, data[index]),
         );
         if (column) {
-          tabStop = { columnKey: column.key, rowId: data[index].id };
+          tabStop = { columnKey: column.key, rowId: getRowId(data[index]) };
           break;
         }
       }
@@ -335,14 +340,14 @@ export function TableBody<T extends { id: RowId }>({
     const activeIndex =
       activeRowId === null
         ? -1
-        : data.findIndex((row) => row.id === activeRowId);
+        : data.findIndex((row) => getRowId(row) === activeRowId);
     const focusableIndexes = renderedIndexes.filter(
       (index) => getRowHref?.(data[index]) === undefined,
     );
     rowTabStop = focusableIndexes.includes(activeIndex)
       ? activeRowId
       : focusableIndexes.length > 0
-        ? data[focusableIndexes[0]].id
+        ? getRowId(data[focusableIndexes[0]])
         : null;
   }
 
@@ -352,7 +357,7 @@ export function TableBody<T extends { id: RowId }>({
 
   /** The element of a body cell - or row - when it is rendered. */
   const findCellElement = ({ columnKey, rowId }: FocusTarget) => {
-    const index = data.findIndex((row) => row.id === rowId);
+    const index = data.findIndex((row) => getRowId(row) === rowId);
     // A row of this body - not of a table nested in a detail
     const rowElement = bodyRef.current?.querySelector(
       `:scope > tr[data-row-index="${index}"]`,
@@ -410,8 +415,8 @@ export function TableBody<T extends { id: RowId }>({
     }
     if (!target || target === row) return;
 
-    setActiveRowId(target.id);
-    focusTarget({ columnKey: null, rowId: target.id });
+    setActiveRowId(getRowId(target));
+    focusTarget({ columnKey: null, rowId: getRowId(target) });
   };
 
   useLayoutEffect(() => {
@@ -423,7 +428,7 @@ export function TableBody<T extends { id: RowId }>({
     const body = bodyRef.current;
     if (
       !body?.contains(body.ownerDocument.activeElement) ||
-      !data.some((row) => row.id === pending.rowId)
+      !data.some((row) => getRowId(row) === pending.rowId)
     ) {
       pendingFocusRef.current = null;
       return;
@@ -444,6 +449,7 @@ export function TableBody<T extends { id: RowId }>({
       data.indexOf(row),
       sortedVisibleColumns.indexOf(column),
       move,
+      getRowId,
     );
     if (!target) return;
 
@@ -565,7 +571,7 @@ export function TableBody<T extends { id: RowId }>({
         density={density}
         editHintId={editHintId}
         editingColumnKey={
-          editingCell?.rowId === row.id ? editingCell.columnKey : null
+          editingCell?.rowId === getRowId(row) ? editingCell.columnKey : null
         }
         getColumnSample={getColumnSample}
         getRowBackgroundColor={getRowBackgroundColor}
@@ -575,10 +581,10 @@ export function TableBody<T extends { id: RowId }>({
         href={href}
         idPrefix={idPrefix}
         isEditable={isEditable}
-        isExpanded={expandedRows.has(row.id)}
+        isExpanded={expandedRows.has(getRowId(row))}
         isMobile={isMobile}
-        isSelected={selectedIds.has(row.id)}
-        key={getRowKey(row.id)}
+        isSelected={selectedIds.has(getRowId(row))}
+        key={getRowKey(getRowId(row))}
         locale={locale}
         measureRef={measureRef}
         onCancelEdit={onCancelEdit}
@@ -591,15 +597,19 @@ export function TableBody<T extends { id: RowId }>({
         onStartEdit={onStartEdit}
         renderSubRow={renderSubRow}
         row={row}
+        getRowId={getRowId}
+        selectable={!isRowSelectable || isRowSelectable(row)}
         rowIndex={index}
         rowTabIndex={
           hasFocusableRows && href === undefined
-            ? rowTabStop === row.id
+            ? rowTabStop === getRowId(row)
               ? 0
               : -1
             : undefined
         }
-        tabStopColumnKey={tabStop?.rowId === row.id ? tabStop.columnKey : null}
+        tabStopColumnKey={
+          tabStop?.rowId === getRowId(row) ? tabStop.columnKey : null
+        }
         toggleRowExpansion={toggleRowExpansion}
         toggleRowSelection={toggleRowSelection}
       />
@@ -715,7 +725,7 @@ export function TableBody<T extends { id: RowId }>({
           element: target,
           rowIndex: Number(index),
         };
-        if (row.id !== focusedRowId) setFocusedRowId(row.id);
+        if (getRowId(row) !== focusedRowId) setFocusedRowId(getRowId(row));
       }}
       ref={bodyRef}
     >

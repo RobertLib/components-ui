@@ -529,6 +529,8 @@ function FileItem({
   localeCode,
   messages,
   onRemove,
+  removing,
+  removalError,
   onRetry,
   preview,
 }: {
@@ -538,6 +540,8 @@ function FileItem({
   localeCode: string;
   messages: Messages;
   onRemove: () => void;
+  removing: boolean;
+  removalError?: string;
   onRetry: () => void;
   preview: boolean;
 }) {
@@ -603,9 +607,12 @@ function FileItem({
             {fileUpload.queued}
           </div>
         )}
-        {failed && (
-          <div className="text-sm text-danger-700 dark:text-danger-400">
-            {file.error}
+        {(failed || removalError) && (
+          <div
+            className="text-sm text-danger-700 dark:text-danger-400"
+            role={removalError ? "alert" : undefined}
+          >
+            {removalError ?? file.error}
           </div>
         )}
       </div>
@@ -638,6 +645,7 @@ function FileItem({
             }
             color={pending ? "default" : "danger"}
             onClick={onRemove}
+            loading={removing}
           >
             <X size={16} />
           </IconButton>
@@ -690,6 +698,10 @@ export interface FileUploadProps<
    * action follows a save, which has kept them.
    */
   defaultAttachments?: UploadedFile[];
+  /** Controlled attached files; queued and uploading files stay internal. */
+  attachments?: UploadedFile[];
+  /** The attached list after an upload or removal. Use with `attachments`. */
+  onAttachmentsChange?: (attachments: UploadedFile[]) => void;
   /** Help text under the field, e.g. the accepted types and sizes. */
   description?: React.ReactNode;
   /**
@@ -757,11 +769,14 @@ export interface FileUploadProps<
    */
   onFilesChange?: (files: File[]) => void;
   /**
+   * Called before removal. A promise keeps the file with a spinner until it
+   * settles; rejection or `false` retains it. Also notified when a new file replaces
+   * an old one (that replacement is already complete).
    * Called when the user removes a file from the list - or replaces it with
    * a new one, without `multiple`. Not for the files a form reset drops (see
    * `defaultAttachments`), nor for a failed or cancelled upload.
    */
-  onRemove?: (file: UploadedFile) => void;
+  onRemove?: (file: UploadedFile) => unknown;
   /** Called with the result of `upload` once a file is stored. */
   onUpload?: (result: TResult) => void;
   /**
@@ -831,6 +846,8 @@ export default function FileUpload<
   TResult extends UploadedFile = UploadedFile,
 >({
   accept,
+  attachments,
+  onAttachmentsChange,
   "aria-describedby": ariaDescribedBy,
   className,
   concurrency = DEFAULT_CONCURRENCY,
@@ -896,7 +913,7 @@ export default function FileUpload<
   } | null>(null);
 
   const [files, setFiles] = useState<ListedFile[]>(() =>
-    toListedFiles(defaultAttachments),
+    toListedFiles(attachments ?? defaultAttachments),
   );
   // Independent picks with `multiple` may still be checked after another
   // pick has finished. Every current check must settle before submitting.
@@ -912,7 +929,29 @@ export default function FileUpload<
 
   if (defaultKey !== appliedDefaultKey) {
     setAppliedDefaultKey(defaultKey);
-    if (!interacted) setFiles(toListedFiles(defaultAttachments));
+    if (!interacted && attachments === undefined)
+      setFiles(toListedFiles(defaultAttachments));
+  }
+
+  const [removing, setRemoving] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const removingRef = useRef(new Set<string>());
+  const [removalErrors, setRemovalErrors] = useState<Record<string, string>>(
+    {},
+  );
+  const controlledAttachmentsKey =
+    attachments === undefined ? null : attachmentsKey(attachments);
+  const [appliedAttachmentsKey, setAppliedAttachmentsKey] = useState(
+    controlledAttachmentsKey,
+  );
+  if (controlledAttachmentsKey !== appliedAttachmentsKey) {
+    setAppliedAttachmentsKey(controlledAttachmentsKey);
+    if (attachments !== undefined)
+      setFiles([
+        ...toListedFiles(attachments),
+        ...files.filter((file) => file.status !== "done" || file.file),
+      ]);
   }
 
   // The list as of the last change - read by the uploads, which outlive the
@@ -926,6 +965,8 @@ export default function FileUpload<
   const latest = useRef({
     concurrency,
     onError,
+    attachments,
+    onAttachmentsChange,
     onFilesChange,
     onRemove,
     onUpload,
@@ -946,6 +987,8 @@ export default function FileUpload<
     latest.current = {
       concurrency,
       onError,
+      attachments,
+      onAttachmentsChange,
       onFilesChange,
       onRemove,
       onUpload,
@@ -1183,23 +1226,43 @@ export default function FileUpload<
       };
 
       // A single file field holds the new file only
-      const replaced = multiple
-        ? []
-        : filesRef.current.filter((listed) => listed.key !== key);
+      const replaced =
+        multiple || latest.current.attachments !== undefined
+          ? []
+          : filesRef.current.filter((listed) => listed.key !== key);
       replaced.forEach(release);
       session.current.uploaded++;
       commit(
-        multiple
-          ? filesRef.current.map((listed) =>
-              listed.key === key ? uploaded : listed,
-            )
-          : [uploaded],
+        latest.current.attachments !== undefined
+          ? filesRef.current.filter((listed) => listed.key !== key)
+          : multiple
+            ? filesRef.current.map((listed) =>
+                listed.key === key ? uploaded : listed,
+              )
+            : [uploaded],
       );
-      report(({ onRemove, onUpload }) => {
+      report(({ attachments, onAttachmentsChange, onRemove, onUpload }) => {
         setInteracted(true);
+        const list =
+          attachments === undefined
+            ? filesRef.current
+                .filter((listed) => listed.status === "done")
+                .map(toUploadedFile)
+            : multiple
+              ? [...attachments, toUploadedFile(uploaded)]
+              : [toUploadedFile(uploaded)];
+        onAttachmentsChange?.(list);
         onUpload?.(result);
         replaced.forEach((listed) => {
-          if (listed.status === "done") onRemove?.(toUploadedFile(listed));
+          if (listed.status !== "done" || !onRemove) return;
+          const outcome = attempt(() => onRemove(toUploadedFile(listed)));
+          if ("thrown" in outcome) {
+            logger.error("Replaced file cleanup failed", outcome.thrown);
+          } else if (isPromiseLike(outcome.value)) {
+            void Promise.resolve(outcome.value).catch((error) => {
+              logger.error("Replaced file cleanup failed", error);
+            });
+          }
         });
       });
     }
@@ -1441,7 +1504,10 @@ export default function FileUpload<
     const current = filesRef.current;
     current.forEach(release);
     session.current = { failed: 0, uploaded: 0 };
-    commit(toListedFiles(defaultAttachments));
+    commit(toListedFiles(attachments ?? defaultAttachments));
+    setRemoving(new Set());
+    removingRef.current.clear();
+    setRemovalErrors({});
     setInteracted(false);
     setRefused([]);
     if (pickedFiles(current).length > 0) latest.current.onFilesChange?.([]);
@@ -1521,22 +1587,95 @@ export default function FileUpload<
   });
 
   const handleRemove = (file: ListedFile) => {
-    release(file);
-    // The input of the fallback cannot lose one file - it holds this one
-    // only (the others have no remove button)
-    if (isFallback && file.file && inputRef.current) {
-      inputRef.current.value = "";
+    if (removingRef.current.has(file.key)) return;
+    const round = generation.current;
+    const isCurrent = () => {
+      const current = filesRef.current.find(
+        (listed) => listed.key === file.key,
+      );
+      return (
+        !!current &&
+        attachmentsKey([toUploadedFile(current)]) ===
+          attachmentsKey([toUploadedFile(file)])
+      );
+    };
+    const complete = () => {
+      if (!mounted.current || round !== generation.current || !isCurrent())
+        return;
+      release(file);
+      if (isFallback && file.file && inputRef.current)
+        inputRef.current.value = "";
+      const attachmentIndex = filesRef.current
+        .filter((listed) => listed.status === "done")
+        .findIndex((listed) => listed.key === file.key);
+      if (
+        latest.current.attachments === undefined ||
+        file.status !== "done" ||
+        file.file
+      )
+        commit(filesRef.current.filter(({ key }) => key !== file.key));
+      setInteracted(true);
+      if (isPending(file)) {
+        endSessionWhenIdle();
+        startUploads();
+      } else if (file.status === "done") {
+        report(({ attachments, onAttachmentsChange, onFilesChange }) => {
+          if (file.file) {
+            onFilesChange?.(pickedFiles(filesRef.current));
+            return;
+          }
+          const list =
+            attachments === undefined
+              ? filesRef.current
+                  .filter((listed) => listed.status === "done")
+                  .map(toUploadedFile)
+              : attachments.filter((item, index) =>
+                  file.id && item.id
+                    ? item.id !== file.id
+                    : index !== attachmentIndex,
+                );
+          onAttachmentsChange?.(list);
+        });
+      }
+    };
+    if (file.status !== "done" || !onRemove) {
+      complete();
+      return;
     }
-    commit(filesRef.current.filter(({ key }) => key !== file.key));
-    setInteracted(true);
-
-    if (isPending(file)) {
-      endSessionWhenIdle();
-      startUploads();
-    } else if (file.status === "done") {
-      onRemove?.(toUploadedFile(file));
-      if (file.file) onFilesChange?.(pickedFiles(filesRef.current));
+    setRemovalErrors((previous) => ({ ...previous, [file.key]: "" }));
+    const outcome = attempt(() => onRemove(toUploadedFile(file)));
+    const fail = (error: unknown) => {
+      if (!mounted.current || round !== generation.current || !isCurrent())
+        return;
+      logger.error("File removal failed", error);
+      setRemovalErrors((previous) => ({
+        ...previous,
+        [file.key]: messages.fileUpload.removeFailed,
+      }));
+    };
+    if ("thrown" in outcome) {
+      fail(outcome.thrown);
+      return;
     }
+    if (!isPromiseLike(outcome.value)) {
+      if (outcome.value !== false) complete();
+      return;
+    }
+    removingRef.current.add(file.key);
+    setRemoving((previous) => new Set(previous).add(file.key));
+    void Promise.resolve(outcome.value)
+      .then((accepted) => {
+        if (accepted !== false) complete();
+      }, fail)
+      .finally(() => {
+        if (!mounted.current || round !== generation.current) return;
+        removingRef.current.delete(file.key);
+        setRemoving((previous) => {
+          const next = new Set(previous);
+          next.delete(file.key);
+          return next;
+        });
+      });
   };
 
   const handleRetry = (file: ListedFile) => {
@@ -1559,9 +1698,11 @@ export default function FileUpload<
   const validationMessage =
     checkingPicks > 0
       ? messages.fileUpload.waitForValidation
-      : files.some(isPending)
-        ? messages.fileUpload.waitForUpload
-        : "";
+      : removing.size > 0
+        ? messages.fileUpload.waitForRemoval
+        : files.some(isPending)
+          ? messages.fileUpload.waitForUpload
+          : "";
   const validates = !!required || !!validationMessage;
 
   // Retained inputs are available in hidden commits. A newly mounted one
@@ -1623,6 +1764,8 @@ export default function FileUpload<
           localeCode={locale.code}
           messages={messages}
           onRemove={() => handleRemove(file)}
+          removing={removing.has(file.key)}
+          removalError={removalErrors[file.key]}
           onRetry={() => handleRetry(file)}
           preview={preview}
         />

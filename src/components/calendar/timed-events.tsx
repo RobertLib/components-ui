@@ -19,6 +19,8 @@ import EventTitle from "./event-title";
 export interface TimedEventsProps {
   /** Events can be moved (`onEventDrop`). */
   canMove: boolean;
+  canMoveEvent?: (event: CalendarEvent) => boolean;
+  canResizeEvent?: (event: CalendarEvent) => boolean;
   /** Events can be resized (`onEventResize`). */
   canResize: boolean;
   /** The day of the column. */
@@ -84,6 +86,8 @@ export interface TimedEventsProps {
 /** The tiles of the timed events of a day column in the week or day view. */
 export default function TimedEvents({
   canMove,
+  canMoveEvent,
+  canResizeEvent,
   canResize,
   day,
   disabled = false,
@@ -154,9 +158,12 @@ export default function TimedEvents({
     // One day's grid cannot move or resize an event over several, and the
     // events of a disabled day stay as they are
     const draggable = !disabled && !spansMidnight(event);
-    const movable = canMove && draggable;
+    const movable =
+      canMove && draggable && (!canMoveEvent || canMoveEvent(event));
+    const resizable =
+      canResize && draggable && (!canResizeEvent || canResizeEvent(event));
     // The keys move or resize it too
-    const keyMovable = !!onTileKeyDown && (canMove || canResize) && draggable;
+    const keyMovable = !!onTileKeyDown && (movable || resizable);
     const title = (
       <EventTitle
         className="min-w-0 truncate font-medium"
@@ -196,8 +203,7 @@ export default function TimedEvents({
         eventDay={day}
         eventId={event.id}
         handles={
-          canResize &&
-          draggable && (
+          resizable && (
             <>
               <div
                 className={cn(handleClassName, "top-0")}

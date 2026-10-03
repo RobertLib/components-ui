@@ -1115,12 +1115,15 @@ export function filterAndSortRows<T>(
     // A stable sort - rows equal in every column keep their order
     keyed.sort((a, b) => {
       for (let index = 0; index < sortColumns.length; index++) {
-        const order = compareSortKeys(
-          a.keys[index],
-          b.keys[index],
-          collator,
-          sortColumns[index].direction,
-        );
+        const custom = sortColumns[index].column.sortFn;
+        const order = custom
+          ? (custom(a.row, b.row) || 0) * sortColumns[index].direction
+          : compareSortKeys(
+              a.keys[index],
+              b.keys[index],
+              collator,
+              sortColumns[index].direction,
+            );
         if (order !== 0) return order;
       }
       return 0;

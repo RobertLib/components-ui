@@ -271,12 +271,11 @@ export default function CalendarPage() {
                 skipped. <code>exdates</code> leaves occurrences out.
               </p>
               <p>
-                The clock is the one of the browser's time zone - the calendar
-                knows no other. A series planned at 9:00 in Prague is 3:00 in
-                New York and stays 3:00 there, also in the weeks the two zones
-                change to summer time on different days (it is 8:00 in Prague
-                then). A series that must keep the clock of its own time zone
-                everywhere is expanded on the server, as events of their own.{" "}
+                Recurrences use <code>timeZone</code> when supplied, otherwise
+                the browser's zone. Set <code>timeZone="Europe/Prague"</code>
+                to keep a Prague meeting at its planned clock time across DST.
+                If series in one calendar need different recurrence zones,
+                expand them on the server and pass their individual occurrences.{" "}
                 <code>until</code> given as a UTC midnight (
                 <code>new Date("2026-12-31")</code>) includes that day - unless
                 it is at the clock time of the event, the start of the last
@@ -419,6 +418,31 @@ export default function CalendarPage() {
         </Prose>
       </Section>
 
+      <Example
+        name="calendar/time-zone-permissions"
+        title="Time zones and event permissions"
+        description={
+          <p>
+            <code>timeZone</code> accepts an IANA zone such as{" "}
+            <code>Europe/Prague</code>. It controls day boundaries, labels,
+            navigation, the current-time marker and recurrence clock time; omit
+            it to use the browser zone. Pass the same zone as the fourth
+            argument options of{" "}
+            <code>
+              getCalendarVisibleRange(date, view, weekStartsOn, {`{ timeZone }`}
+              )
+            </code>{" "}
+            when fetching events. Input Dates represent instants; returned Dates
+            preserve UTC serialization. <code>canMoveEvent</code> and{" "}
+            <code>canResizeEvent</code> restrict individual events.{" "}
+            <code>canDropEvent</code> validates the proposed time/resource for
+            both moving and resizing, by pointer or keyboard, and is checked
+            again before committing. A series repeats in the calendar zone;
+            expand on the server when different series must retain different
+            zones.
+          </p>
+        }
+      />
       <Section title="Props">
         <PropsTable of="Calendar" />
         <PropsTable of="CalendarEvent" />
