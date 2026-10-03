@@ -72,6 +72,14 @@ export default function ColorInputPage() {
             an invalid draft blocks submission. Typing still calls{" "}
             <code>onChange</code> only on Enter or blur.
           </p>
+          <p>
+            <code>value</code> and <code>defaultValue</code> accept the same
+            formats. Their colors are displayed and submitted in the configured{" "}
+            <code>format</code>, with alpha only when enabled. An invalid
+            incoming color stays visible for correction and blocks submission.
+            Whitespace is an empty color, so <code>required</code> applies.
+            Normalizing an incoming value does not call <code>onChange</code>.
+          </p>
         </Prose>
         <CodeBlock code={typed} plain />
       </Section>

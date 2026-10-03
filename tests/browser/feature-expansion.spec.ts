@@ -31,6 +31,127 @@ test("phone country, repeated fields, submit and reset", async ({ page }) => {
   await expect(contact2).toHaveCount(0);
 });
 
+test("required phone drafts without digits cannot submit before blur", async ({
+  page,
+}) => {
+  const phone = page.getByRole("textbox", { name: /^Phone/ });
+  const saved = page.getByLabel("Saved profile");
+  for (const text of ["+", "abc", "   "]) {
+    await phone.fill(text);
+    await phone.press("Enter");
+    await expect(saved).toHaveText("");
+    await expect(phone).toBeFocused();
+    expect(
+      await phone.evaluate(
+        (element) => (element as HTMLInputElement).validity.valid,
+      ),
+    ).toBe(false);
+  }
+  await phone.fill("777999999");
+  await phone.press("Enter");
+  await expect(saved).toContainText('"phone":"+420777999999"');
+});
+
+test("a controlled phone keeps its accepted country after rejected edits and external changes", async ({
+  page,
+}) => {
+  await page.goto("/tests/browser/?scenario=input-validation");
+  const phone = page.getByRole("textbox", { name: /^Controlled phone/ });
+  const country = page.getByRole("combobox");
+  const form = page.getByRole("form", { name: "Input validation" });
+  const isValid = () =>
+    form.evaluate((element) => (element as HTMLFormElement).checkValidity());
+  await phone.fill("+421905123456");
+  await expect(phone).toHaveValue("+420777123456");
+  await expect(country).toHaveValue("CZ");
+  expect(await isValid()).toBe(true);
+
+  await page.getByRole("button", { name: "Replace phone" }).click();
+  await expect(phone).toHaveValue("+421905123456");
+  await expect(country).toHaveValue("SK");
+  expect(await isValid()).toBe(true);
+  await page.getByRole("button", { name: "Replace phone" }).click();
+  await expect(country).toHaveValue("CZ");
+  expect(await isValid()).toBe(true);
+  await phone.press("Enter");
+  await expect(page.getByLabel("Saved values")).toContainText(
+    '"phone":"+420777123456"',
+  );
+});
+
+test("an overflowing color draft blocks native submission and blur restores its previous value", async ({
+  page,
+}) => {
+  await page.goto("/tests/browser/?scenario=input-validation");
+  const color = page.getByRole("textbox", { name: /^Color/ });
+  const form = page.getByRole("form", { name: "Input validation" });
+  await color.fill("hsl(1e308turn 100% 50%)");
+  await form.evaluate((element) =>
+    (element as HTMLFormElement).requestSubmit(),
+  );
+  expect(
+    await color.evaluate(
+      (element) => (element as HTMLInputElement).validity.valid,
+    ),
+  ).toBe(false);
+  await expect(page.getByLabel("Saved values")).toHaveText("");
+  await color.press("Tab");
+  await expect(color).toHaveValue("#ff0000");
+  await expect(page.getByRole("alert")).toContainText("is not a color");
+  await form.evaluate((element) =>
+    (element as HTMLFormElement).requestSubmit(),
+  );
+  await expect(page.getByLabel("Saved values")).toContainText(
+    '"color":"#ff0000"',
+  );
+});
+
+for (const controlled of [false, true]) {
+  test(`prefilled ${controlled ? "controlled" : "uncontrolled"} inputs normalize values and validate external updates`, async ({
+    page,
+  }) => {
+    await page.goto(
+      `/tests/browser/?scenario=prefilled-inputs&controlled=${controlled}`,
+    );
+    const form = page.getByRole("form", { name: "Prefilled inputs" });
+    const color = page.getByRole("textbox", { name: /^Color/ });
+    const saved = page.getByLabel("Saved values");
+    const submissions = page.getByLabel("Submissions");
+    const submit = () =>
+      form.evaluate((element) => (element as HTMLFormElement).requestSubmit());
+    await expect(page.getByRole("combobox")).toHaveValue("SK");
+    await expect(page.getByRole("textbox", { name: /^Phone/ })).toHaveValue(
+      "+421905123456",
+    );
+    await expect(color).toHaveValue("rgb(255, 0, 0)");
+    await submit();
+    await expect(submissions).toHaveText("1");
+    await expect(saved).toContainText('"phone":"+421905123456"');
+    await expect(saved).toContainText('"color":"rgb(255, 0, 0)"');
+
+    await page.getByRole("button", { name: "Toggle alpha" }).click();
+    await expect(color).toHaveValue("rgba(255, 0, 0, 0.5)");
+    await submit();
+    await expect(submissions).toHaveText("2");
+    await expect(saved).toContainText('"color":"rgba(255, 0, 0, 0.5)"');
+
+    for (const button of ["Load invalid color", "Load empty color"]) {
+      await page.getByRole("button", { name: button }).click();
+      await submit();
+      await expect(submissions).toHaveText("2");
+      expect(
+        await color.evaluate(
+          (element) => (element as HTMLInputElement).validity.valid,
+        ),
+      ).toBe(false);
+    }
+    await page.getByRole("button", { name: "Load valid color" }).click();
+    await submit();
+    await expect(submissions).toHaveText("3");
+    await expect(saved).toContainText('"color":"rgba(255, 0, 0, 0.5)"');
+  });
+}
+
 test("retained steps keep nodes, file selections and values across layout changes", async ({
   page,
 }) => {

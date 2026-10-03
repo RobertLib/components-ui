@@ -461,8 +461,8 @@ interface NestedErrorResource {
 }
 
 /**
- * Extracts all error messages of nested records (any list of records in the
- * error details, however deeply nested), e.g. Rails' nested attributes:
+ * Extracts all error messages of nested records in objects and lists in the
+ * error details, however deeply nested, e.g. Rails' nested attributes:
  * `{ items: [{ name: "Item 1", errors: { price: ["must be positive"] } }] }`
  * gives `["Item 1: must be positive"]`. Messages of deeper records name the
  * whole path, e.g. `"Order 1 › Item A: must be positive"`.
@@ -473,14 +473,19 @@ export const getNestedErrors = (error: unknown): string[] => {
   if (!details) return [];
 
   const allErrors: string[] = [];
+  // Track only the current path: a shared record can belong to two parents,
+  // while a cyclic reference must not recurse indefinitely.
+  const ancestors = new WeakSet<object>();
 
   // Helper function to extract errors from a resource
   const extractResourceErrors = (
     resource: NestedErrorResource,
     parentName?: string,
   ): void => {
+    if (ancestors.has(resource)) return;
+    ancestors.add(resource);
     // The path of names from the top record, e.g. "Order 1 › Item A"
-    const ownName = resource.name || resource.model_name || "";
+    const ownName = firstText(resource.name, resource.model_name);
     const resourceName = [parentName, ownName].filter(Boolean).join(" › ");
 
     // Add direct errors from this resource
@@ -500,32 +505,23 @@ export const getNestedErrors = (error: unknown): string[] => {
 
     // Check for records nested in this one
     Object.entries(resource).forEach(([key, value]) => {
-      if (
-        Array.isArray(value) &&
-        key !== "errors" &&
-        value.length > 0 &&
-        typeof value[0] === "object"
-      ) {
-        value.forEach((nestedResource) => {
-          if (nestedResource && typeof nestedResource === "object") {
-            extractResourceErrors(
-              nestedResource as NestedErrorResource,
-              resourceName,
-            );
-          }
-        });
-      }
+      if (key === "errors") return;
+      const nested = Array.isArray(value) ? value : [value];
+      nested.forEach((nestedResource) => {
+        if (isRecord(nestedResource)) {
+          extractResourceErrors(nestedResource, resourceName);
+        }
+      });
     });
+    ancestors.delete(resource);
   };
 
   Object.entries(details).forEach(([key, value]) => {
-    if (Array.isArray(value) && key !== "base") {
-      value.forEach((resource) => {
-        if (resource && typeof resource === "object") {
-          extractResourceErrors(resource as NestedErrorResource);
-        }
-      });
-    }
+    if (key === "base") return;
+    const resources = Array.isArray(value) ? value : [value];
+    resources.forEach((resource) => {
+      if (isRecord(resource)) extractResourceErrors(resource);
+    });
   });
 
   return allErrors;

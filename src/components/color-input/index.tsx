@@ -45,7 +45,7 @@ export interface ColorInputProps extends Omit<
    * label, description or error message.
    */
   className?: string;
-  /** Initial color of an uncontrolled field - `""` for none. */
+  /** Initial color in any supported format, normalized to `format`; `""` for none. */
   defaultValue?: string;
   /** Help text under the field - it describes the field for screen readers. */
   description?: React.ReactNode;
@@ -104,7 +104,7 @@ export interface ColorInputProps extends Omit<
    * `label` to name them for screen readers.
    */
   swatches?: (string | ColorSwatch)[];
-  /** Color of a controlled field - `""` for none. */
+  /** Controlled color in any supported format, normalized to `format`; `""` for none. */
   value?: string;
 }
 
@@ -185,20 +185,24 @@ export default function ColorInput({
   // after a reset, it shows `defaultValue` - also one that arrived late.
   const [enteredValue, setEnteredValue] = useState<string>();
   const isControlled = controlledValue !== undefined;
-  const value = isControlled
+  const providedValue = isControlled
     ? controlledValue
     : (enteredValue ?? defaultValue ?? "");
+  const normalizedValue = normalizeColor(providedValue, format, alpha);
+  // Keep an invalid incoming value visible so it can be corrected, while
+  // validating it and withholding it from the submitted value.
+  const value = normalizedValue ?? providedValue;
 
   // The text being typed - `null` while the field shows the value. A new
   // value (a pick, a reset) replaces it.
   const [text, setText] = useState<string | null>(null);
-  const [textValue, setTextValue] = useState(value);
+  const [textValue, setTextValue] = useState(providedValue);
   // The last typed text that is no color - said under the field until the
   // typing goes on or the value changes
   const [rejected, setRejected] = useState<string | null>(null);
 
-  if (value !== textValue) {
-    setTextValue(value);
+  if (providedValue !== textValue) {
+    setTextValue(providedValue);
     setText(null);
     setRejected(null);
   }
@@ -227,12 +231,14 @@ export default function ColorInput({
   const rejectedId = `${inputId}-rejected`;
   // Keep Enter/blur as the onChange boundary, but submit the value visible
   // in the field even when requestSubmit() runs before either event.
-  const formValue = text === null ? value : normalizeColor(text, format, alpha);
+  const displayed = text ?? value;
+  const formValue =
+    text === null ? normalizedValue : normalizeColor(text, format, alpha);
   const validityMessage =
-    formValue === null || (required && text && !formValue)
+    formValue === null || (required && displayed && !formValue)
       ? formatMessage(messages.colorInput.invalid, {
           example: EXAMPLES[format],
-          text: text?.trim() ?? "",
+          text: displayed.trim(),
         })
       : "";
   const invalid =
@@ -462,7 +468,7 @@ export default function ColorInput({
           required={required}
           spellCheck={false}
           type="text"
-          value={text ?? value}
+          value={displayed}
         />
       </div>
 

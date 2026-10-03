@@ -443,6 +443,57 @@ describe("getBaseError", () => {
 });
 
 describe("getNestedErrors", () => {
+  it("finds lists beneath object wrappers and preserves their record names", () => {
+    const body = {
+      errors: {
+        order: {
+          name: "Order 1",
+          details: {
+            items: [
+              { name: "Item A", errors: { price: ["must be positive"] } },
+            ],
+          },
+        },
+      },
+    };
+    expect(getNestedErrors(body)).toEqual([
+      "Order 1 › Item A: must be positive",
+    ]);
+  });
+
+  it("collects errors of singular records nested inside a list", () => {
+    const body = {
+      errors: {
+        orders: [
+          {
+            name: "Order 1",
+            item: { name: "Item A", errors: { price: ["must be positive"] } },
+          },
+        ],
+      },
+    };
+    expect(getNestedErrors(body)).toEqual([
+      "Order 1 › Item A: must be positive",
+    ]);
+  });
+
+  it("ignores cyclic references without dropping a shared record's other paths", () => {
+    const item = { name: "Item A", errors: { price: ["must be positive"] } };
+    const order: Record<string, unknown> = { name: "Order 1", item };
+    order.self = order;
+    expect(
+      getNestedErrors({
+        errors: {
+          orders: [order, { name: "Order 2", item }],
+          base: ["General error"],
+        },
+      }),
+    ).toEqual([
+      "Order 1 › Item A: must be positive",
+      "Order 2 › Item A: must be positive",
+    ]);
+  });
+
   it("collects the messages of nested records", () => {
     const body = {
       errors: {

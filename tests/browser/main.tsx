@@ -32,7 +32,10 @@ import {
   UpdatingMenuFixture,
 } from "./fixtures";
 import "./fixture.css";
-import FeatureExpansion from "./feature-expansion";
+import FeatureExpansion, {
+  InputValidationFixture,
+  PrefilledInputsFixture,
+} from "./feature-expansion";
 
 const params = new URLSearchParams(window.location.search);
 const container = document.getElementById("root");
@@ -41,7 +44,13 @@ if (!container) throw new Error("The browser fixture root is missing.");
 createRoot(container).render(
   <UIProvider locale={en}>
     <main>
-      {params.get("scenario") === "feature-expansion" ? (
+      {params.get("scenario") === "prefilled-inputs" ? (
+        <PrefilledInputsFixture
+          controlled={params.get("controlled") === "true"}
+        />
+      ) : params.get("scenario") === "input-validation" ? (
+        <InputValidationFixture />
+      ) : params.get("scenario") === "feature-expansion" ? (
         <FeatureExpansion />
       ) : params.get("scenario") === "new-components" ? (
         <NewComponentsFixture />

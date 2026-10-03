@@ -112,10 +112,11 @@ export default function PhoneInput({
       /^[1-9]\d{0,3}$/.test(entry.callingCode) &&
       entries.findIndex((candidate) => candidate.code === entry.code) === index,
   );
+  // An accepted international value takes precedence over a previous pick.
+  // The pick still disambiguates countries sharing a calling prefix.
   const requestedCountry =
     country ??
-    pickedCountry ??
-    detectPhoneCountry(current, allowed, defaultCountry);
+    detectPhoneCountry(current, allowed, pickedCountry ?? defaultCountry);
   const selected =
     allowed.find((entry) => entry.code === requestedCountry) ??
     allowed.find((entry) => entry.code === defaultCountry) ??
@@ -123,9 +124,15 @@ export default function PhoneInput({
   const selectedCountry = selected?.code ?? "";
   const normalized = selected ? normalizePhone(current, selected) : current;
   const valid = !!selected && isInternationalPhone(normalized, selected);
+  const displayed = draft?.value === current ? draft.text : normalized;
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Native required checks the visible draft, which can contain text but
+  // normalize to an empty submitted number even with validate=false.
   const message =
-    !disabled && !readOnly && validate && current && !valid
+    !disabled &&
+    !readOnly &&
+    displayed &&
+    ((validate && !valid) || (required && !normalized))
       ? messages.invalid
       : "";
   useCustomValidity(inputRef, message);
@@ -163,7 +170,6 @@ export default function PhoneInput({
       isValid: isInternationalPhone(nextValue, detectedEntry),
     });
   };
-  const displayed = draft?.value === current ? draft.text : normalized;
   return (
     <div
       className={cn("flex items-start gap-2", className)}

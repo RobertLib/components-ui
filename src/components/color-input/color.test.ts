@@ -79,6 +79,20 @@ describe("parseColor", () => {
       expect(parseColor(text), text).toBeNull();
     }
   });
+  it.each([
+    "hsl(1e309 100% 50%)",
+    "hsl(-1e309deg 100% 50%)",
+    "hsl(1e308turn 100% 50%)",
+    "hsl(1e308rad 100% 50%)",
+    "rgb(1e309 0 0)",
+    "rgb(0 0 0 / 1e309)",
+    "hsl(0 1e309% 50%)",
+  ])("refuses numeric overflow in %s", (text) => {
+    expect(parseColor(text)).toBeNull();
+    for (const format of ["hex", "rgb", "hsl"] as const) {
+      expect(normalizeColor(text, format, true)).toBeNull();
+    }
+  });
 });
 
 describe("formatColor", () => {
@@ -156,6 +170,21 @@ describe("the picker's colors", () => {
 });
 
 describe("normalizeColor", () => {
+  it.each([
+    ["rgb(255 255 254.99999999999997)", "#ffffff"],
+    ["rgb(254.99999999999997 255 255)", "#ffffff"],
+    ["rgb(1e-15 0 0)", "#000000"],
+    ["rgb(0 1e-15 0)", "#000000"],
+    ["hsl(0 100% 1e-320%)", "#000000"],
+  ])("keeps colors near black and white paintable: %s", (text, hex) => {
+    for (const format of ["hex", "rgb", "hsl"] as const) {
+      const written = normalizeColor(text, format, true);
+      expect(written).not.toBeNull();
+      expect(parseColor(written!)).not.toBeNull();
+      expect(normalizeColor(written!, "hex", true)).toBe(hex);
+    }
+  });
+
   it("writes a typed color in the format of the field - empty stays empty", () => {
     expect(normalizeColor("rgb(30 144 255)", "hex", false)).toBe("#1e90ff");
     expect(normalizeColor("#1E90FF", "hsl", false)).toBe("hsl(210, 100%, 56%)");

@@ -1,10 +1,18 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ColorInput from ".";
+import { normalizeColor, parseColor } from "./color";
 import { cs } from "../../i18n/cs";
 import UIProvider from "../../providers/ui-provider";
 
@@ -33,6 +41,139 @@ describe("ColorInput", () => {
     );
     expect(swatchButton()).toHaveAttribute("aria-haspopup", "dialog");
     expect(swatchButton()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it.each(
+    (["value", "defaultValue"] as const).flatMap((prop) =>
+      ["not-a-color", "hsl(1e308turn 100% 50%)", "   "].map(
+        (value) => [prop, value] as const,
+      ),
+    ),
+  )("blocks native submission for invalid incoming %s=%j", (prop, value) => {
+    const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    const onChange = vi.fn();
+    render(
+      <form aria-label="Theme" onSubmit={onSubmit}>
+        <ColorInput
+          {...{ [prop]: value }}
+          label="Color"
+          name="color"
+          onChange={onChange}
+          required
+        />
+      </form>,
+    );
+    act(() => getForm().requestSubmit());
+    expect(field()).toBeInvalid();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(new FormData(getForm()).get("color")).toBe("");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it.each(["value", "defaultValue"] as const)(
+    "submits a paintable HSL color for an incoming %s near white",
+    (prop) => {
+      const onSubmit = vi.fn((event: React.FormEvent) =>
+        event.preventDefault(),
+      );
+      render(
+        <form aria-label="Theme" onSubmit={onSubmit}>
+          <ColorInput
+            {...{ [prop]: "rgb(255 255 254.99999999999997)" }}
+            format="hsl"
+            label="Color"
+            name="color"
+            required
+          />
+        </form>,
+      );
+      act(() => getForm().requestSubmit());
+      expect(onSubmit).toHaveBeenCalledOnce();
+      const submitted = new FormData(getForm()).get("color") as string;
+      expect(field()).toHaveValue(submitted);
+      expect(parseColor(submitted)).not.toBeNull();
+      expect(normalizeColor(submitted, "hex", false)).toBe("#ffffff");
+    },
+  );
+
+  it.each(["value", "defaultValue"] as const)(
+    "normalizes incoming %s for display and submission as format and alpha change",
+    (prop) => {
+      const onChange = vi.fn();
+      const content = (format: "rgb" | "hsl", alpha = false) => (
+        <form aria-label="Theme">
+          <ColorInput
+            {...{ [prop]: "#ff000080" }}
+            alpha={alpha}
+            format={format}
+            label="Color"
+            name="color"
+            onChange={onChange}
+          />
+        </form>
+      );
+      const { rerender } = render(content("rgb"));
+      expect(field()).toHaveValue("rgb(255, 0, 0)");
+      expect(new FormData(getForm()).get("color")).toBe("rgb(255, 0, 0)");
+      rerender(content("rgb", true));
+      expect(field()).toHaveValue("rgba(255, 0, 0, 0.5)");
+      expect(new FormData(getForm()).get("color")).toBe("rgba(255, 0, 0, 0.5)");
+      rerender(content("hsl", true));
+      expect(field()).toHaveValue("hsla(0, 100%, 50%, 0.5)");
+      expect(new FormData(getForm()).get("color")).toBe(
+        "hsla(0, 100%, 50%, 0.5)",
+      );
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
+
+  it("validates external controlled updates and allows optional whitespace as empty", () => {
+    const content = (value: string) => (
+      <form aria-label="Theme">
+        <ColorInput label="Color" name="color" value={value} />
+      </form>
+    );
+    const { rerender } = render(content("#fff"));
+    expect(field()).toHaveValue("#ffffff");
+    expect(getForm().checkValidity()).toBe(true);
+    rerender(content("not-a-color"));
+    expect(field()).toHaveValue("not-a-color");
+    expect(getForm().checkValidity()).toBe(false);
+    rerender(content("   "));
+    expect(field()).toHaveValue("");
+    expect(new FormData(getForm()).get("color")).toBe("");
+    expect(getForm().checkValidity()).toBe(true);
+  });
+
+  it("replaces a pending draft when a controlled value changes to an equivalent color", () => {
+    const content = (value: string) => (
+      <form aria-label="Theme">
+        <ColorInput label="Color" name="color" value={value} />
+      </form>
+    );
+    const { rerender } = render(content("#ff0000"));
+    fireEvent.change(field(), { target: { value: "#00f" } });
+    expect(new FormData(getForm()).get("color")).toBe("#0000ff");
+    rerender(content("#f00"));
+    expect(field()).toHaveValue("#ff0000");
+    expect(new FormData(getForm()).get("color")).toBe("#ff0000");
+  });
+
+  it("restores validation of an invalid default after editing and resetting", async () => {
+    render(
+      <form aria-label="Theme">
+        <ColorInput defaultValue="not-a-color" label="Color" name="color" />
+      </form>,
+    );
+    expect(getForm().checkValidity()).toBe(false);
+    fireEvent.change(field(), { target: { value: "#fff" } });
+    fireEvent.blur(field());
+    expect(field()).toHaveValue("#ffffff");
+    expect(getForm().checkValidity()).toBe(true);
+    act(() => getForm().reset());
+    await waitFor(() => expect(field()).toHaveValue("not-a-color"));
+    expect(getForm().checkValidity()).toBe(false);
+    expect(new FormData(getForm()).get("color")).toBe("");
   });
 
   it("writes a typed color in its format once it is taken - on leaving or Enter", async () => {
@@ -106,6 +247,32 @@ describe("ColorInput", () => {
     // Typing again takes the message back
     await user.type(field(), "0");
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("blocks overflowing color drafts on submit and preserves the previous color on blur", () => {
+    const onChange = vi.fn();
+    const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    render(
+      <form aria-label="Theme" onSubmit={onSubmit}>
+        <ColorInput
+          defaultValue="#ff0000"
+          label="Color"
+          name="color"
+          onChange={onChange}
+        />
+      </form>,
+    );
+    fireEvent.change(field(), {
+      target: { value: "hsl(1e308turn 100% 50%)" },
+    });
+    act(() => getForm().requestSubmit());
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(field()).toBeInvalid();
+    fireEvent.blur(field());
+    expect(field()).toHaveValue("#ff0000");
+    expect(new FormData(getForm()).get("color")).toBe("#ff0000");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("is not a color");
   });
 
   it("drops the typed text on Escape", async () => {

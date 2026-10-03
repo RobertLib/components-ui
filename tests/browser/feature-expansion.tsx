@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   Button,
   Chart,
+  ColorInput,
   DataTable,
   Input,
   Menubar,
@@ -11,6 +12,100 @@ import {
   Stepper,
   FileUpload,
 } from "../../src";
+
+export function InputValidationFixture() {
+  const [phone, setPhone] = useState("+420777123456");
+  const [saved, setSaved] = useState("");
+  return (
+    <form
+      aria-label="Input validation"
+      className="mx-auto max-w-xl space-y-4 p-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        setSaved(
+          JSON.stringify(Object.fromEntries(new FormData(event.currentTarget))),
+        );
+      }}
+    >
+      <PhoneInput
+        countries={[
+          { code: "CZ", callingCode: "420" },
+          { code: "SK", callingCode: "421" },
+        ]}
+        label="Controlled phone"
+        name="phone"
+        value={phone}
+      />
+      <Button
+        onClick={() =>
+          setPhone((current) =>
+            current.startsWith("+420") ? "+421905123456" : "+420777123456",
+          )
+        }
+      >
+        Replace phone
+      </Button>
+      <ColorInput defaultValue="#ff0000" label="Color" name="color" />
+      <Button type="submit">Save values</Button>
+      <output aria-label="Saved values">{saved}</output>
+    </form>
+  );
+}
+
+export function PrefilledInputsFixture({
+  controlled,
+}: {
+  controlled: boolean;
+}) {
+  const [color, setColor] = useState("#ff000080");
+  const [alpha, setAlpha] = useState(false);
+  const [saved, setSaved] = useState("");
+  const [submissions, setSubmissions] = useState(0);
+  const valueProp = controlled ? "value" : "defaultValue";
+  return (
+    <form
+      aria-label="Prefilled inputs"
+      className="mx-auto max-w-xl space-y-4 p-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        setSaved(
+          JSON.stringify(Object.fromEntries(new FormData(event.currentTarget))),
+        );
+        setSubmissions((count) => count + 1);
+      }}
+    >
+      <PhoneInput
+        {...{ [valueProp]: "00 (421) 905 123 456" }}
+        countries={[
+          { code: "CZ", callingCode: "420" },
+          { code: "SK", callingCode: "421" },
+        ]}
+        defaultCountry="CZ"
+        label="Phone"
+        name="phone"
+      />
+      <ColorInput
+        {...{ [valueProp]: color }}
+        alpha={alpha}
+        format="rgb"
+        label="Color"
+        name="color"
+        required
+      />
+      <Button onClick={() => setColor("hsl(1e308turn 100% 50%)")}>
+        Load invalid color
+      </Button>
+      <Button onClick={() => setColor("   ")}>Load empty color</Button>
+      <Button onClick={() => setColor("#ff000080")}>Load valid color</Button>
+      <Button onClick={() => setAlpha((current) => !current)}>
+        Toggle alpha
+      </Button>
+      <Button type="submit">Save values</Button>
+      <output aria-label="Saved values">{saved}</output>
+      <output aria-label="Submissions">{submissions}</output>
+    </form>
+  );
+}
 
 const people = Array.from({ length: 300 }, (_, id) => ({
   id,

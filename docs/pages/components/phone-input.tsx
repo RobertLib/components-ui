@@ -16,7 +16,9 @@ export default function PhoneInputPage() {
             selected calling prefix; an international value beginning with + or
             00 can select its country. With <code>name</code>, the form submits
             one normalized value such as +420777123456. Changing the country
-            retains the national digits.
+            retains the national digits. Spaces and parentheses in the calling
+            prefix are accepted too, including in <code>value</code> and{" "}
+            <code>defaultValue</code>.
           </p>
         }
       />

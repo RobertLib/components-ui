@@ -39,7 +39,8 @@ const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
 
 /** A number of CSS - `50`, `.5`, `1e2`; `null` for anything else. */
 function readNumber(text: string) {
-  return NUMBER.test(text) ? Number(text) : null;
+  const value = NUMBER.test(text) ? Number(text) : NaN;
+  return Number.isFinite(value) ? value : null;
 }
 
 /** A number or a percentage, as a fraction of `full` - `50%` of 255. */
@@ -70,7 +71,7 @@ function readHue(text: string) {
   const hue = match ? readNumber(match[1]) : null;
   if (hue === null) return null;
   const degrees = hue * units[(match?.[2] ?? "deg").toLowerCase()];
-  return ((degrees % 360) + 360) % 360;
+  return Number.isFinite(degrees) ? ((degrees % 360) + 360) % 360 : null;
 }
 
 /**
@@ -168,8 +169,10 @@ function rgbToHsl({ r, g, b }: Rgba) {
   const min = Math.min(red, green, blue);
   const lightness = (max + min) / 2;
   const delta = max - min;
-  const saturation =
-    delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+  // Subtract from the channel endpoints directly: 1 - abs(2 * l - 1)
+  // can round to zero for a non-gray color very close to black or white.
+  const range = lightness > 0.5 ? 1 - max + (1 - min) : max + min;
+  const saturation = delta === 0 ? 0 : delta / range;
   return {
     h: hueOf(red, green, blue, max, delta),
     l: lightness * 100,

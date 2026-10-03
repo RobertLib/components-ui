@@ -51,13 +51,19 @@ export const PHONE_COUNTRIES: readonly PhoneCountry[] = Object.entries({
   ZA: "27",
 }).map(([code, callingCode]) => ({ code, callingCode }));
 
+/** Read the same digits and international marker for normalization and detection. */
+function readPhoneInput(text: string) {
+  const input = text.trim().replace(/^00/, "+");
+  return {
+    digits: input.replace(/\D/g, ""),
+    international: input.startsWith("+"),
+  };
+}
+
 /** Normalize international or national input. National trunk prefixes stay as typed. */
 export function normalizePhone(text: string, country: PhoneCountry) {
-  const input = text.trim().replace(/^00/, "+");
-  const digits = input.replace(/\D/g, "");
-  return digits
-    ? `+${input.startsWith("+") ? "" : country.callingCode}${digits}`
-    : "";
+  const { digits, international } = readPhoneInput(text);
+  return digits ? `+${international ? "" : country.callingCode}${digits}` : "";
 }
 
 /** Longest matching prefix; shared prefixes retain the selected country. */
@@ -66,9 +72,10 @@ export function detectPhoneCountry(
   countries: readonly PhoneCountry[],
   fallback: string,
 ) {
-  if (!value.startsWith("+")) return fallback;
+  const { digits, international } = readPhoneInput(value);
+  if (!international) return fallback;
   const matches = countries
-    .filter((country) => value.startsWith(`+${country.callingCode}`))
+    .filter((country) => digits.startsWith(country.callingCode))
     .sort((a, b) => b.callingCode.length - a.callingCode.length);
   const first = matches[0];
   return (

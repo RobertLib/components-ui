@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2
+
+- **PhoneInput** - block digitless drafts in required fields before blur, including with `validate=false`; keep the detected country and validation aligned with accepted controlled values, including incoming international prefixes with spaces or parentheses.
+- **ColorInput** - reject overflowing numeric colors and hue conversions instead of accepting or submitting an invalid color containing `NaN`; validate incoming values and normalize their display and submission to the configured format and alpha setting. Keep HSL conversions finite for colors close to black or white.
+- **getNestedErrors** - collect errors beneath object wrappers and from singular nested records as well as lists; preserve parent names and stop cyclic references.
+- **Tests** - wait for asynchronous loading state to settle before retrying a failed `Autocomplete` load.
+
 ## 0.4.1
 
 - **PhoneInput, Menubar, RepeatableField** - add international telephone fields with configurable country lists, application menus and repeated form groups with add/remove/reorder, form reset and validation.

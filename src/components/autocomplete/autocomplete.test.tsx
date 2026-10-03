@@ -385,7 +385,9 @@ describe("Autocomplete with static options", () => {
     render(<Autocomplete label="City" loadMore={loadMore} options={cities} />);
 
     await user.click(screen.getByRole("combobox", { name: /City/ }));
-    scrollListToEnd();
+    await act(async () => {
+      scrollListToEnd();
+    });
 
     await waitFor(() =>
       expect(consoleError).toHaveBeenCalledWith(
@@ -411,7 +413,11 @@ describe("Autocomplete with static options", () => {
     render(<Autocomplete label="City" loadMore={loadMore} options={cities} />);
 
     await user.click(screen.getByRole("combobox", { name: /City/ }));
-    scrollListToEnd();
+    // The error is logged before finally clears loading. Drain the promise
+    // chain and React's commit before dispatching the retry scroll.
+    await act(async () => {
+      scrollListToEnd();
+    });
 
     await waitFor(() =>
       expect(consoleError).toHaveBeenCalledWith(
@@ -421,7 +427,9 @@ describe("Autocomplete with static options", () => {
     );
     expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
 
-    scrollListToEnd();
+    await act(async () => {
+      scrollListToEnd();
+    });
     await waitFor(() => expect(loadMore).toHaveBeenCalledTimes(2));
     expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
   });
