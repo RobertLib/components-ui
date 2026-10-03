@@ -12,9 +12,15 @@ const timeZoneTests = [
 ];
 
 // Unit and component tests of the library - `npm test`. The React Compiler
-// runs here too, so the tests exercise the code the package ships.
-export default defineConfig({
-  plugins: [react(), babel({ presets: [reactCompilerPreset()] })],
+// runs by default, so the tests exercise the code the package ships.
+// `test:source` runs the same suite without it, like a source copy in Vite.
+export default defineConfig(({ mode }) => ({
+  plugins: [
+    react(),
+    ...(mode === "source-copy"
+      ? []
+      : [babel({ presets: [reactCompilerPreset()] })]),
+  ],
   test: {
     css: false,
     environment: "jsdom",
@@ -44,4 +50,4 @@ export default defineConfig({
       },
     ],
   },
-});
+}));

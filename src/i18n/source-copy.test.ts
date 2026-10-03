@@ -43,7 +43,7 @@ export default cs;`,
       `import {
   UIProvider, useMessages, useLocale, en, cs, createLocale,
   formatMessage, formatPlural, type AppMessages,
-} from "./index";
+} from "./components/ui";
 
 const base = {
   ...en,
@@ -101,7 +101,7 @@ export const app = <UIProvider locale={cs} messages={{
     moduleResolution: ts.ModuleResolutionKind.Bundler,
     jsx: ts.JsxEmit.ReactJSX,
     lib: ["lib.es2023.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"],
-    types: ["node"],
+    types: ["react", "react-dom"],
   };
   const host = ts.createCompilerHost(options);
   const { fileExists, readFile, getSourceFile } = host;

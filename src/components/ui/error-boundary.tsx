@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import Alert from "./alert";
 import Button from "./button";
 import logger from "../../utils/logger";
+import isDevelopment from "../../utils/is-development";
 import { useMessages } from "../../providers/ui-context";
 
 export interface ErrorBoundaryProps {
@@ -55,19 +56,6 @@ const haveKeysChanged = (
 ) =>
   previous.length !== next.length ||
   previous.some((key, index) => !Object.is(key, next[index]));
-
-/**
- * Whether the app runs in development - bundlers replace
- * `process.env.NODE_ENV`, like for the logger.
- */
-function isDevelopment() {
-  try {
-    return process.env.NODE_ENV !== "production";
-  } catch {
-    // `process` is not defined and nothing replaced it
-    return true;
-  }
-}
 
 function DefaultFallback({
   error,

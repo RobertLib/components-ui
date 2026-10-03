@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.6
+
+- **Source copies** - export clean sources and the license with `npm run export:source`, without tests or an application entry file. Document the ES2023 TypeScript definitions and preserving application translations during updates; package installation remains the default guide.
+- **Source portability** - share development-mode detection without requiring Node types. Preserve Autocomplete and TreeView row memoization and expensive derived data without the React Compiler, including stable DataTable pagination.
+- **Validation** - typecheck and build exported sources in a standalone Vite app, and run the component tests both with and without the React Compiler.
+
 ## 0.4.5
 
 - **DataTable / TreeView** - share search-match ranges and highlight decomposed accents consistently, including texts where Unicode expansions and removed accents leave the total length unchanged.

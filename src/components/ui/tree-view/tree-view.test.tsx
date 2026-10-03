@@ -70,6 +70,28 @@ function mockRightToLeft() {
 }
 
 describe("TreeView", () => {
+  it("renders only the rows affected by keyboard focus, also while filtering", async () => {
+    const user = userEvent.setup();
+    const items = [
+      { id: "first", label: "Item one" },
+      { id: "second", label: "Item two" },
+      { id: "third", label: "Item three" },
+    ];
+    const renderLabel = vi.fn((item: TreeItem) => item.label);
+    render(<TreeView filter="item" items={items} renderLabel={renderLabel} />);
+
+    act(() => screen.getByRole("treeitem", { name: "Item one" }).focus());
+    renderLabel.mockClear();
+    await user.keyboard("{ArrowDown}");
+
+    expect(screen.getByRole("treeitem", { name: "Item two" })).toHaveFocus();
+    expect(renderLabel).toHaveBeenCalledTimes(2);
+    expect(renderLabel.mock.calls.map(([item]) => item.id)).toEqual([
+      "first",
+      "second",
+    ]);
+  });
+
   it("preserves focus moved outside its shadow root during removal of the focused item", () => {
     const host = document.createElement("div");
     const outside = document.createElement("div");

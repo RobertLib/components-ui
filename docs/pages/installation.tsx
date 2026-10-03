@@ -3,7 +3,7 @@ import CodeBlock from "../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 
 const installGit = `# a tagged version from your git host - npm builds dist/ on install
-npm install git+https://github.com/RobertLib/components-ui.git#v0.4.5
+npm install git+https://github.com/RobertLib/components-ui.git#v0.4.6
 
 # the latest commit of a branch
 npm install git+https://github.com/RobertLib/components-ui.git#main
@@ -30,8 +30,8 @@ resolve: {
 },`;
 
 const installTarball = `# a copy instead of a link - like an install from a registry
-cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.4.5.tgz
-cd ../my-app && npm install ../components-ui/components-ui-0.4.5.tgz`;
+cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.4.6.tgz
+cd ../my-app && npm install ../components-ui/components-ui-0.4.6.tgz`;
 
 const installRegistry = `# in the library: set a scoped name, remove "private": true, then
 npm publish --registry https://npm.your-company.com
@@ -66,6 +66,13 @@ import {
 const sourceCss = `/* src/index.css */
 @import "tailwindcss";
 @import "./ui-styles.css";`;
+
+const sourceTypeScript = `// tsconfig.json - source copies need these API definitions
+{
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  }
+}`;
 
 const css = `/* src/index.css (or app/globals.css in Next.js) */
 @import "tailwindcss";
@@ -224,11 +231,27 @@ export default function Installation() {
       <Section title="Copying the source">
         <Prose>
           <p>
-            Copy the following folders into your project's <code>src/</code>,
-            keeping their relative locations. Include the shared hooks,
-            providers, utilities and locales: the components import them. Leave
-            out <code>*.test.ts</code>, <code>*.test.tsx</code> and{" "}
-            <code>src/test/</code>.
+            As an alternative to installing the package, generate a clean copy
+            in the library repository:
+          </p>
+        </Prose>
+        <CodeBlock code="npm run export:source" plain />
+        <Prose>
+          <p>
+            Merge the generated <code>dist-source/src/</code> into your
+            project's <code>src/</code> and keep{" "}
+            <code>dist-source/LICENSE</code> with the library. The export
+            excludes tests and the package entry file, and names the stylesheet{" "}
+            <code>ui-styles.css</code>. It regenerates <code>dist-source/</code>{" "}
+            on every run; when updating your app, keep its own translation
+            catalogs.
+          </p>
+          <p>
+            You can also copy the following folders manually, keeping their
+            relative locations. Include the shared hooks, providers, utilities
+            and locales: the components import them. Leave out{" "}
+            <code>*.test.ts</code>, <code>*.test.tsx</code> and{" "}
+            <code>src/test/</code>, and keep the library's <code>LICENSE</code>.
           </p>
         </Prose>
         <CodeBlock code={sourceStructure} plain />
@@ -252,6 +275,19 @@ export default function Installation() {
           </p>
         </Prose>
         <CodeBlock code={sourceCss} />
+        <Prose>
+          <p>
+            Include ES2023 and browser API definitions in your TypeScript
+            configuration. This is a <code>lib</code> setting, not a requirement
+            to emit ES2023 JavaScript. Source copies need React's types but do
+            not need Node types, import aliases or the React Compiler. The
+            compiler is optional: expensive queries and list rows have their own
+            memoization. <code>npm run test:source</code> checks the exported
+            sources in a standalone Vite app and runs the tests without the
+            compiler.
+          </p>
+        </Prose>
+        <CodeBlock code={sourceTypeScript} />
         <Prose>
           <p>
             Add your application's translations to <code>i18n/en.ts</code> and{" "}
@@ -338,17 +374,20 @@ export default function Installation() {
               <strong>Vite</strong> - works as shown above.
             </li>
             <li>
-              <strong>Next.js (App Router)</strong> - the components, hooks and
-              providers are marked <code>"use client"</code>: server components
-              can render the components, which then run on the client. The
-              helper functions that need no React (
-              <code>readQueryFromSearch</code> and the other DataTable query
-              helpers, <code>getFieldError</code>, <code>formatMessage</code>,{" "}
-              <code>cn</code>, <code>getColorSchemeScript</code>, …) work in
-              server components too. Import the styles in{" "}
-              <code>app/globals.css</code> and render the providers in a client
-              component (see <Link to="/routing">Routing</Link> for the Next.js
-              adapter).
+              <strong>Next.js (App Router)</strong> - in the built package, the
+              components, hooks and providers are marked{" "}
+              <code>"use client"</code>: server components can render the
+              components, which then run on the client. The helper functions
+              that need no React (<code>readQueryFromSearch</code> and the other
+              DataTable query helpers, <code>getFieldError</code>,{" "}
+              <code>formatMessage</code>, <code>cn</code>,{" "}
+              <code>getColorSchemeScript</code>, …) work in server components
+              too. Import the styles in <code>app/globals.css</code> and render
+              the providers in a client component (see{" "}
+              <Link to="/routing">Routing</Link> for the Next.js adapter).
+              Source files do not contain this directive: import interactive UI
+              from a component marked <code>"use client"</code> when copying
+              into an App Router project.
             </li>
             <li>
               <strong>TypeScript</strong> - the type declarations are included;

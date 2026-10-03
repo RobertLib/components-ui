@@ -704,10 +704,13 @@ export default function DataTable<T>({
     searchTerm,
     sort,
   ]);
-  const clientPage =
-    matchingRows && pagination
-      ? paginateRows(matchingRows, query.page, query.pageSize)
-      : null;
+  const clientPage = useMemo(
+    () =>
+      matchingRows && pagination
+        ? paginateRows(matchingRows, query.page, query.pageSize)
+        : null,
+    [matchingRows, pagination, query.page, query.pageSize],
+  );
   const rows = clientPage?.rows ?? matchingRows ?? data;
   const rowsTotal = matchingRows?.length ?? total;
   const page = clientPage?.page ?? (matchingRows ? 1 : query.page);

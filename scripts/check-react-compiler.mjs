@@ -1,7 +1,7 @@
 // Fails when the React Compiler cannot compile a component or hook of the
 // library. The compiler skips such a function without a word - it still
-// works, but without the memoization the components rely on (a DataTable
-// sorted all its rows again on every render). Runs in `npm run lint`.
+// works, but without the additional memoization of the compiled package.
+// Source copies are also tested without the compiler. Runs in `npm run lint`.
 import babel from "@babel/core";
 import reactCompiler from "babel-plugin-react-compiler";
 import { readdirSync, readFileSync } from "node:fs";

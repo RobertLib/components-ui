@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -25,7 +32,7 @@ describe.each([
     { label: "Team", value: "team" },
   ];
 
-  it("starts and resets unselected, but allows choosing the empty option", () => {
+  it("starts and resets unselected, but allows choosing the empty option", async () => {
     const field = () => (
       <form aria-label="Order">
         <Control label="Plan" name="plan" options={options} required />
@@ -45,7 +52,9 @@ describe.each([
 
     act(() => form.reset());
     rerender(field());
-    expect(radio("None")).not.toBeChecked();
+    // Reset settles in a later task so every event listener can cancel it.
+    // An intervening render must still end with no selection.
+    await waitFor(() => expect(radio("None")).not.toBeChecked());
     expect(radio("Team")).not.toBeChecked();
     expect(form.checkValidity()).toBe(false);
     expect(new FormData(form).has("plan")).toBe(false);

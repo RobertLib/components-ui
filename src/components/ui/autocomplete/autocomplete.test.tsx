@@ -1704,6 +1704,22 @@ describe("Autocomplete fields", () => {
     });
     expect(renderOption).toHaveBeenCalledTimes(3);
   });
+
+  it("uses the latest selection callback in memoized option rows", async () => {
+    const user = userEvent.setup();
+    const previous = vi.fn();
+    const current = vi.fn();
+    const { rerender } = render(
+      <Autocomplete label="City" onChange={previous} options={cities} />,
+    );
+    await user.click(screen.getByRole("combobox", { name: "City:" }));
+
+    rerender(<Autocomplete label="City" onChange={current} options={cities} />);
+    await user.click(screen.getByRole("option", { name: "Plzeň" }));
+
+    expect(previous).not.toHaveBeenCalled();
+    expect(current).toHaveBeenCalledWith(cities[1].value, null);
+  });
 });
 
 describe("Autocomplete loading more static options", () => {

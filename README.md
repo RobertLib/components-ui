@@ -46,7 +46,7 @@ Requirements: React 19, Tailwind CSS 4.3 or newer and a bundler that sets
    page):
 
    ```sh
-   npm install git+https://github.com/RobertLib/components-ui.git#v0.4.5
+   npm install git+https://github.com/RobertLib/components-ui.git#v0.4.6
    ```
 
    If npm reports that the `prepare` script of `components-ui` is not allowed
@@ -98,11 +98,26 @@ You can also copy the library into your project's `src/`. All library
 components and their internal helpers are in `src/components/ui/`, leaving
 `src/components/` available for your application components.
 
+To generate a clean copy in this repository, run:
+
+```sh
+npm run export:source
+```
+
+Merge the generated `dist-source/src/` into your project's `src/` and keep
+`dist-source/LICENSE` with the copied library. The export omits tests and
+the package entry point, and names the stylesheet `ui-styles.css`, so it
+does not replace your application's entry file. Each export regenerates
+`dist-source/`; when updating an app, keep its own `i18n/en.ts` and
+`i18n/cs.ts` catalogs.
+
+Alternatively, copy the folders manually:
+
 Copy `src/components/ui/` together with `src/providers/`, `src/hooks/`,
 `src/utils/` and `src/i18n/`, keeping those relative locations. Leave out
 `*.test.ts`, `*.test.tsx` and `src/test/`. Copy `src/styles.css` as
 `src/ui-styles.css` and install `lucide-react` alongside React and Tailwind.
-Use local imports:
+Keep the library's `LICENSE` with the copy. Use local imports:
 
 ```tsx
 // src/App.tsx
@@ -118,6 +133,23 @@ import { Button, UIProvider, cs } from "./components/ui";
 Keep `components/ui/index.ts` when copying the folder: it exports all public
 components, providers, locales, hooks and helpers. You can keep your project's
 entry file. Updates to a source copy need to be copied manually.
+
+For source copies, include the browser APIs and ES2023 definitions in your
+TypeScript configuration (this does not require `target: "ES2023"`):
+
+```json
+{
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  }
+}
+```
+
+The source needs React's TypeScript types, but does not need Node types,
+project-specific import aliases or the React Compiler. The compiler is
+optional; the source includes memoization for expensive queries and list
+rows. `npm run test:source` checks an exported copy in a standalone Vite
+app and runs the library's tests without the compiler.
 
 ### Application translations
 
@@ -185,9 +217,11 @@ Keep your application catalogs when updating `i18n/ui/` from the library.
 | `npm run lint`          | Oxlint, React Compiler and canonical Tailwind class checks             |
 | `npm run lint:tailwind` | canonical Tailwind classes in the library, docs and browser fixtures   |
 | `npm test`              | the unit and component tests (Vitest)                                  |
+| `npm run test:source`   | exported sources in Vite and the tests without React Compiler          |
 | `npm run test:browser`  | browser regressions in Chromium, Firefox and WebKit                    |
 | `npm run build:lib`     | the package: `dist/` - a module per source file, the styles, the types |
 | `npm run build:docs`    | the docs as a static site in `dist-docs/`                              |
+| `npm run export:source` | a clean source copy and license in `dist-source/`                      |
 | `npm run format`        | Prettier (with Tailwind class sorting)                                 |
 
 The Tailwind check uses the installed Tailwind version and `docs/styles.css`

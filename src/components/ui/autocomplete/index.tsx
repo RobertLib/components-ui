@@ -1,9 +1,11 @@
 import { ChevronDown, X } from "lucide-react";
 import {
+  memo,
   useCallback,
   useEffect,
   useId,
   useInsertionEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -648,11 +650,10 @@ interface OptionRowProps {
 }
 
 /**
- * An option of the list. A component of its own, so that the compiler
- * memoizes every row - moving the highlight renders the two rows it moves
- * between, not the whole list.
+ * Moving the highlight renders only the rows it moves between, including
+ * in source copies built without the React Compiler.
  */
-function OptionRow({
+const OptionRow = memo(function OptionRow({
   active,
   ariaLabel,
   content,
@@ -721,7 +722,7 @@ function OptionRow({
         ))}
     </li>
   );
-}
+});
 
 /**
  * A searchable select - single or multiple, with static `options` or
@@ -1334,13 +1335,17 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // (phone, notes, …). The static list is matched ignoring case and
   // diacritics, so "cilovy" still finds "Cílový" - unless `filterOptions`
   // picks the options itself.
-  const filteredOptions = asSelect
-    ? baseOptions
-    : filterOptions
-      ? filterOptions(baseOptions, searchTerm)
-      : isAsync
+  const filteredOptions = useMemo(
+    () =>
+      asSelect
         ? baseOptions
-        : defaultFilterOptions(baseOptions, searchTerm);
+        : filterOptions
+          ? filterOptions(baseOptions, searchTerm)
+          : isAsync
+            ? baseOptions
+            : defaultFilterOptions(baseOptions, searchTerm),
+    [asSelect, baseOptions, filterOptions, isAsync, searchTerm],
+  );
 
   const isLoadingList = isStale || loadingFirstPage;
 
@@ -1821,6 +1826,20 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       selectedValues.filter((selected) => !sameValue(selected, removedValue)),
     );
   };
+
+  // Memoized rows keep their event props while using the latest selection,
+  // options and callbacks. Layout effects update them before user events.
+  const rowCallbacks = { onHover: handleHover, onSelect: handleSelect };
+  const rowCallbacksRef = useRef(rowCallbacks);
+  useLayoutEffect(() => {
+    rowCallbacksRef.current = rowCallbacks;
+  });
+  const [rowHandlers] = useState(() => ({
+    onHover: (event: React.MouseEvent, index: number) =>
+      rowCallbacksRef.current.onHover(event, index),
+    onSelect: (option: AutocompleteOption) =>
+      rowCallbacksRef.current.onSelect(option),
+  }));
 
   // `allowCustomValue`: the typed text (without the spaces around it) -
   // `null` while the field shows its value - and the option it names, which
@@ -2680,8 +2699,8 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
         index={index}
         key={rowKeys[index]}
         measureRef={measureRef}
-        onHover={handleHover}
-        onSelect={handleSelect}
+        onHover={rowHandlers.onHover}
+        onSelect={rowHandlers.onSelect}
         option={option}
         posInSet={listRows ? positionInSet : undefined}
         renderOption={renderOption}

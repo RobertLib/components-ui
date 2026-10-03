@@ -1,9 +1,11 @@
 import { ChevronRight } from "lucide-react";
 import {
+  memo,
   useCallback,
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -369,7 +371,11 @@ export default function TreeView<T extends TreeItem>({
     loadChildrenKey,
     onLoadError,
   );
-  const index = indexTree(items, loads, disabled);
+  const index = useMemo(
+    () => indexTree(items, loads, disabled),
+    [items, loads, disabled],
+  );
+  const navigationItems = useMemo(() => hasLinks(items), [items]);
 
   // A tree of links given nothing to select is a navigation: the item of
   // the current page is marked, and a click follows its link without
@@ -382,12 +388,15 @@ export default function TreeView<T extends TreeItem>({
     defaultSelected === undefined &&
     !onSelectedChange &&
     name === undefined &&
-    hasLinks(items);
+    navigationItems;
   const selectionMode =
     selectionModeProp ?? (checkable || isNavigation ? "none" : "single");
 
   // The item of the current page - its ancestors expand
-  const currentId = findCurrentItem(index.byId, pathname, search);
+  const currentId = useMemo(
+    () => findCurrentItem(index.byId, pathname, search),
+    [index.byId, pathname, search],
+  );
 
   // Expanded
   const isExpandedControlled = expandedProp !== undefined;
@@ -399,7 +408,7 @@ export default function TreeView<T extends TreeItem>({
   const expandedIds: readonly TreeItemId[] = isExpandedControlled
     ? expandedProp
     : internalExpanded;
-  const expandedSet = new Set(expandedIds);
+  const expandedSet = useMemo(() => new Set(expandedIds), [expandedIds]);
 
   // The current page moved into a collapsed part of an uncontrolled tree -
   // it expands, like the groups of the Drawer
@@ -426,8 +435,10 @@ export default function TreeView<T extends TreeItem>({
     ? selectedProp
     : internalSelected;
   // A tree that selects nothing shows no selection - also of a `selected`
-  const selectedSet =
-    selectionMode === "none" ? EMPTY_IDS : new Set(selectedIds);
+  const selectedSet = useMemo(
+    () => (selectionMode === "none" ? EMPTY_IDS : new Set(selectedIds)),
+    [selectionMode, selectedIds],
+  );
 
   // Checked
   const isIndependent = checkMode === "independent";
@@ -438,23 +449,33 @@ export default function TreeView<T extends TreeItem>({
   const checkedIds: readonly TreeItemId[] = isCheckedControlled
     ? checkedProp
     : internalChecked;
-  const checkedSet = new Set(checkedIds);
-  const checkStates = !checkable
-    ? null
-    : isIndependent
-      ? getIndependentCheckStates(items, loads, checkedSet)
-      : getCheckStates(items, loads, checkedSet);
+  const checkedSet = useMemo(() => new Set(checkedIds), [checkedIds]);
+  const checkStates = useMemo(
+    () =>
+      !checkable
+        ? null
+        : isIndependent
+          ? getIndependentCheckStates(items, loads, checkedSet)
+          : getCheckStates(items, loads, checkedSet),
+    [checkable, isIndependent, items, loads, checkedSet],
+  );
   // The value as the tree shows it - in a cascade the parents of checked
   // children included, independently exactly the checked ids
-  const checkedValue =
-    checkStates && !isIndependent
-      ? getCheckedIds(checkStates, checkedSet)
-      : checkedIds;
+  const checkedValue = useMemo(
+    () =>
+      checkStates && !isIndependent
+        ? getCheckedIds(checkStates, checkedSet)
+        : checkedIds,
+    [checkStates, isIndependent, checkedSet, checkedIds],
+  );
 
   // Filter - the user may collapse parts of the filtered tree, until the
   // filter changes
   const term = filter?.trim() ?? "";
-  const filterResult = term ? filterTree(items, loads, term) : null;
+  const filterResult = useMemo(
+    () => (term ? filterTree(items, loads, term) : null),
+    [items, loads, term],
+  );
   const [filterCollapsed, setFilterCollapsed] = useState({
     ids: EMPTY_IDS,
     term,
@@ -462,19 +483,30 @@ export default function TreeView<T extends TreeItem>({
   const collapsedInFilter =
     filterCollapsed.term === term ? filterCollapsed.ids : EMPTY_IDS;
 
-  const rows = getVisibleRows(items, {
-    canLoad: !!loadChildren,
-    expanded: expandedSet,
-    filterCollapsed: collapsedInFilter,
-    loads,
-    shown: filterResult?.shown,
-  });
-  const rowIndexById = new Map(rows.map((row, rowIndex) => [row.id, rowIndex]));
+  const canLoad = !!loadChildren;
+  const rows = useMemo(
+    () =>
+      getVisibleRows(items, {
+        canLoad,
+        expanded: expandedSet,
+        filterCollapsed: collapsedInFilter,
+        loads,
+        shown: filterResult?.shown,
+      }),
+    [items, canLoad, expandedSet, collapsedInFilter, loads, filterResult],
+  );
+  const rowIndexById = useMemo(
+    () => new Map(rows.map((row, rowIndex) => [row.id, rowIndex])),
+    [rows],
+  );
 
   // Virtualized: the rows in view of the tree, which scrolls itself
   const isCoarsePointer = useMediaQuery("(pointer: coarse)");
   const rowHeight = rowHeightProp ?? (isCoarsePointer ? 40 : 32);
-  const flatRows = virtualized ? getFlatRows(rows) : null;
+  const flatRows = useMemo(
+    () => (virtualized ? getFlatRows(rows) : null),
+    [virtualized, rows],
+  );
   const { containerRef, range, scrollToIndex } = useVirtualRange({
     count: flatRows?.entries.length ?? 0,
     enabled: virtualized,
@@ -1345,7 +1377,7 @@ function renderRow<T extends TreeItem>(
     dropIndicator?.rowIndex === rowIndex && !dropIndicator.status;
 
   return (
-    <TreeRowView
+    <MemoTreeRowView
       checkable={context.checkable}
       checked={context.checkStates?.get(row.id)}
       current={row.id === context.currentId}
@@ -1694,8 +1726,8 @@ interface TreeRowViewProps<T extends TreeItem> {
 
 /**
  * The row of an item - the tree item itself. A component of its own with
- * stable props, so that the compiler memoizes every row: moving the focus
- * renders the two rows it moves between, not the whole tree.
+ * stable props: moving the focus renders only the rows it moves between,
+ * also without the React Compiler.
  */
 function TreeRowView<T extends TreeItem>({
   checkable,
@@ -1900,6 +1932,9 @@ function TreeRowView<T extends TreeItem>({
     </div>
   );
 }
+
+// Preserve the item's generic type across React.memo's component wrapper.
+const MemoTreeRowView = memo(TreeRowView) as typeof TreeRowView;
 
 interface HighlightedTextProps {
   /** `[start, end)` ranges of `text` to highlight. */
