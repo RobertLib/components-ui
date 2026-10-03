@@ -12,8 +12,8 @@ import {
   type SnackbarApi,
   type SnackbarId,
 } from "./snackbar-context";
-import Dialog from "../components/dialog";
-import { LIVE_REGION_DELAY } from "../components/toast";
+import Dialog from "../components/ui/dialog";
+import { LIVE_REGION_DELAY } from "../components/ui/toast";
 
 /** Hands the API `useSnackbar()` returns to `onApi`. */
 function Capture({ onApi }: { onApi: (api: SnackbarApi) => void }) {

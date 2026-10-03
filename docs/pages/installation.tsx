@@ -3,7 +3,7 @@ import CodeBlock from "../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 
 const installGit = `# a tagged version from your git host - npm builds dist/ on install
-npm install git+https://github.com/RobertLib/components-ui.git#v0.4.2
+npm install git+https://github.com/RobertLib/components-ui.git#v0.4.3
 
 # the latest commit of a branch
 npm install git+https://github.com/RobertLib/components-ui.git#main
@@ -30,8 +30,8 @@ resolve: {
 },`;
 
 const installTarball = `# a copy instead of a link - like an install from a registry
-cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.4.2.tgz
-cd ../my-app && npm install ../components-ui/components-ui-0.4.2.tgz`;
+cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.4.3.tgz
+cd ../my-app && npm install ../components-ui/components-ui-0.4.3.tgz`;
 
 const installRegistry = `# in the library: set a scoped name, remove "private": true, then
 npm publish --registry https://npm.your-company.com
@@ -43,6 +43,28 @@ const registryImports = `import { Button, UIProvider } from "@your-company/compo
 
 const registryCss = `@import "tailwindcss";
 @import "@your-company/components-ui/styles.css";`;
+
+const sourceStructure = `src/
+  components/ui/    copy src/components/ui/ from the library
+    index.ts        named exports for the whole public API
+  providers/        copy src/providers/
+  hooks/            copy src/hooks/
+  utils/            copy src/utils/
+  i18n/             copy src/i18n/
+  ui-styles.css     copy src/styles.css under this name`;
+
+const sourceImports = `// src/App.tsx - local imports for the provider example below
+import {
+  Button,
+  ConfirmProvider,
+  cs,
+  SnackbarProvider,
+  UIProvider,
+} from "./components/ui";`;
+
+const sourceCss = `/* src/index.css */
+@import "tailwindcss";
+@import "./ui-styles.css";`;
 
 const css = `/* src/index.css (or app/globals.css in Next.js) */
 @import "tailwindcss";
@@ -191,11 +213,44 @@ export default function Installation() {
         <CodeBlock className="mt-4" code={registryCss} />
         <Callout>
           <p>
-            You can also copy <code>src/</code> into a project - it has no
-            imports outside itself except React and lucide-react. You lose easy
-            updates, though.
+            You can also copy the source into your project, as described below.
+            All library components live in <code>components/ui/</code>, so your
+            application components can use <code>components/</code>.
           </p>
         </Callout>
+      </Section>
+
+      <Section title="Copying the source">
+        <Prose>
+          <p>
+            Copy the following folders into your project's <code>src/</code>,
+            keeping their relative locations. Include the shared hooks,
+            providers, utilities and locales: the components import them. Leave
+            out <code>*.test.ts</code>, <code>*.test.tsx</code> and{" "}
+            <code>src/test/</code>.
+          </p>
+        </Prose>
+        <CodeBlock code={sourceStructure} plain />
+        <Prose>
+          <p>
+            Install <code>lucide-react</code> alongside React and Tailwind, then
+            import from <code>./components/ui</code>. Keep its{" "}
+            <code>index.ts</code> when copying: it exports all public
+            components, providers, locales, hooks and helpers. You can keep your
+            application's existing entry file.
+          </p>
+        </Prose>
+        <CodeBlock code="npm install lucide-react" plain />
+        <CodeBlock className="mt-4" code={sourceImports} />
+        <Prose>
+          <p>
+            Import the copied stylesheet after Tailwind. Its{" "}
+            <code>@source</code> scans the folders next to it, including{" "}
+            <code>components/ui/</code>. Updates to a source copy need to be
+            copied manually.
+          </p>
+        </Prose>
+        <CodeBlock code={sourceCss} />
       </Section>
 
       <Section title="2. Import the styles">

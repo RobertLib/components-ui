@@ -15,9 +15,9 @@ import {
   type ConfirmFunction,
   type ConfirmOptions,
 } from "./confirm-context";
-import Dialog from "../components/dialog";
-import Popover from "../components/popover";
-import Sheet from "../components/sheet";
+import Dialog from "../components/ui/dialog";
+import Popover from "../components/ui/popover";
+import Sheet from "../components/ui/sheet";
 
 /** A delete button that asks first and shows the answer. */
 function DeleteButton({ options }: { options?: Partial<ConfirmOptions> }) {

@@ -45,7 +45,7 @@ Requirements: React 19, Tailwind CSS 4.3 or newer and a bundler that sets
    page):
 
    ```sh
-   npm install git+https://github.com/RobertLib/components-ui.git#v0.4.2
+   npm install git+https://github.com/RobertLib/components-ui.git#v0.4.3
    ```
 
    If npm reports that the `prepare` script of `components-ui` is not allowed
@@ -91,6 +91,33 @@ See the [Installation](https://robertlib.github.io/components-ui/#/installation)
 of the docs for the details (the React Router, Next.js and TanStack Router
 adapters, custom locales).
 
+## Copying the source
+
+You can also copy the library into your project's `src/`. All library
+components and their internal helpers are in `src/components/ui/`, leaving
+`src/components/` available for your application components.
+
+Copy `src/components/ui/` together with `src/providers/`, `src/hooks/`,
+`src/utils/` and `src/i18n/`, keeping those relative locations. Leave out
+`*.test.ts`, `*.test.tsx` and `src/test/`. Copy `src/styles.css` as
+`src/ui-styles.css` and install `lucide-react` alongside React and Tailwind.
+Use local imports:
+
+```tsx
+// src/App.tsx
+import { Button, UIProvider, cs } from "./components/ui";
+```
+
+```css
+/* src/index.css */
+@import "tailwindcss";
+@import "./ui-styles.css";
+```
+
+Keep `components/ui/index.ts` when copying the folder: it exports all public
+components, providers, locales, hooks and helpers. You can keep your project's
+entry file. Updates to a source copy need to be copied manually.
+
 ## Development
 
 | Script                  | What it does                                                           |
@@ -132,8 +159,10 @@ Failures keep a screenshot and trace in `test-results/`; open the HTML report
 with `npx playwright show-report`.
 
 ```
-src/          the library - components, providers, i18n, hooks, utils, styles.css
-  index.ts    the public API
+src/          the library
+  components/ui/  all UI components and their internal helpers
+  providers/, i18n/, hooks/, utils/, styles.css
+  index.ts    the package entry point (re-exports components/ui/index.ts)
 docs/         the documentation site (not published)
   pages/      one file per page, registered in docs/pages.ts
   examples/   the live examples - rendered and shown from the same file

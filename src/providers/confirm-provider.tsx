@@ -1,5 +1,5 @@
 import { useCallback, useInsertionEffect, useRef, useState } from "react";
-import ConfirmDialog from "../components/confirm-dialog";
+import ConfirmDialog from "../components/ui/confirm-dialog";
 import logger from "../utils/logger";
 import {
   ConfirmContext,

@@ -1,0 +1,151 @@
+import { describe, expect, it } from "vitest";
+import { computeSummary, formatSummaryValue } from "./summary";
+import { cs } from "../../../i18n/cs";
+import { en } from "../../../i18n/en";
+import type { Column } from "./types";
+
+interface Order {
+  amount: number | string | null;
+  id: number;
+  shipped: Date | null;
+}
+
+const orders: Order[] = [
+  { amount: 10, id: 1, shipped: new Date(2026, 8, 24) },
+  { amount: "2.5", id: 2, shipped: new Date(2026, 0, 5) },
+  { amount: null, id: 3, shipped: null },
+  { amount: "n/a", id: 4, shipped: new Date(2026, 11, 31) },
+];
+
+const amount: Column<Order> = { key: "amount", label: "Amount" };
+const shipped: Column<Order> = { key: "shipped", label: "Shipped" };
+
+describe("computeSummary", () => {
+  it("adds up, averages and compares the numbers - also numbers stored as text", () => {
+    expect(computeSummary("sum", amount, orders)).toBe(12.5);
+    expect(computeSummary("avg", amount, orders)).toBe(6.25);
+    expect(computeSummary("min", amount, orders)).toBe(2.5);
+    expect(computeSummary("max", amount, orders)).toBe(10);
+  });
+
+  it("counts the rows", () => {
+    expect(computeSummary("count", amount, orders)).toBe(4);
+  });
+
+  it("takes the earliest and the latest date of a column without numbers", () => {
+    expect(computeSummary("min", shipped, orders)).toEqual(
+      new Date(2026, 0, 5),
+    );
+    expect(computeSummary("max", shipped, orders)).toEqual(
+      new Date(2026, 11, 31),
+    );
+  });
+
+  it("takes the dates of an API - ISO texts - as they are", () => {
+    const texts = [
+      { id: 1, value: "2026-05-01" },
+      { id: 2, value: "2026-01-15" },
+      { id: 3, value: null },
+      { id: 4, value: "2026-12-31T09:00:00+02:00" },
+      { id: 5, value: "no date" },
+    ];
+    const column: Column<(typeof texts)[number]> = {
+      key: "value",
+      label: "Value",
+    };
+
+    expect(computeSummary("min", column, texts)).toBe("2026-01-15");
+    expect(computeSummary("max", column, texts)).toBe(
+      "2026-12-31T09:00:00+02:00",
+    );
+    // A day starts at the local midnight - midnight in UTC is after 1 AM
+    // east of Greenwich
+    const days = [
+      { id: 1, value: "2026-09-24T01:00" },
+      { id: 2, value: "2026-09-24" },
+    ];
+    expect(computeSummary("max", column, days)).toBe("2026-09-24T01:00");
+    expect(computeSummary("min", column, days)).toBe("2026-09-24");
+    // Invalid dates are no dates
+    expect(
+      computeSummary("min", shipped, [
+        { amount: null, id: 1, shipped: new Date("x") },
+      ]),
+    ).toBeNull();
+  });
+
+  it("has a sum of nothing, and no average of it", () => {
+    expect(computeSummary("sum", amount, [])).toBe(0);
+    expect(computeSummary("avg", amount, [])).toBeNull();
+    expect(computeSummary("max", shipped, [])).toBeNull();
+  });
+
+  it("adds up bigints exactly - next to other numbers as numbers", () => {
+    const big = 2n ** 60n;
+    const values = [
+      { id: 1, value: big },
+      { id: 2, value: 3n },
+      { id: 3, value: null },
+    ];
+    const column: Column<(typeof values)[number]> = {
+      key: "value",
+      label: "Value",
+    };
+
+    expect(computeSummary("sum", column, values)).toBe(big + 3n);
+    expect(computeSummary("min", column, values)).toBe(3n);
+    expect(computeSummary("max", column, values)).toBe(big);
+    expect(computeSummary("avg", column, values)).toBe(Number(big + 3n) / 2);
+
+    const mixed = [
+      { id: 1, value: 2n },
+      { id: 2, value: 0.5 },
+      { id: 3, value: "1.5" },
+    ];
+    const mixedColumn: Column<(typeof mixed)[number]> = {
+      key: "value",
+      label: "Value",
+    };
+    expect(computeSummary("sum", mixedColumn, mixed)).toBe(4);
+    expect(computeSummary("max", mixedColumn, mixed)).toBe(2);
+  });
+
+  it("reads the values with getValue", () => {
+    const column: Column<Order> = {
+      getValue: (order) => order.id * 2,
+      key: "double",
+      label: "Double",
+    };
+
+    expect(computeSummary("sum", column, orders)).toBe(20);
+  });
+
+  it("returns what a function makes of the rows", () => {
+    expect(
+      computeSummary((rows) => `${rows.length} orders`, amount, orders),
+    ).toBe("4 orders");
+  });
+});
+
+describe("formatSummaryValue", () => {
+  const spaced = (value: React.ReactNode) => String(value).replace(/\s/g, " ");
+
+  it("writes numbers as the language does - averages with two decimals", () => {
+    expect(formatSummaryValue(1234567.891, en)).toBe("1,234,567.891");
+    expect(spaced(formatSummaryValue(1234567.891, cs))).toBe("1 234 567,891");
+    expect(formatSummaryValue(2 / 3, en, true)).toBe("0.67");
+    expect(formatSummaryValue(12345678901234567890n, en)).toBe(
+      "12,345,678,901,234,567,890",
+    );
+  });
+
+  it("writes dates by the date format of the language", () => {
+    expect(formatSummaryValue(new Date(2026, 8, 24), cs)).toBe("24.09.2026");
+  });
+
+  it("shows nothing for no value and elements as they are", () => {
+    expect(formatSummaryValue(null, en)).toBeNull();
+    expect(formatSummaryValue(Number.NaN, en)).toBeNull();
+    expect(formatSummaryValue("5 teams", en)).toBe("5 teams");
+  });
+});

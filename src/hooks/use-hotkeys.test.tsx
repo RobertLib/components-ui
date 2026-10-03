@@ -2,12 +2,12 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import ContextMenu from "../components/context-menu";
-import Dialog from "../components/dialog";
-import Dropdown from "../components/dropdown";
-import { useOverlay } from "../components/overlay-stack";
-import Popover from "../components/popover";
-import Tooltip from "../components/tooltip";
+import ContextMenu from "../components/ui/context-menu";
+import Dialog from "../components/ui/dialog";
+import Dropdown from "../components/ui/dropdown";
+import { useOverlay } from "../components/ui/overlay-stack";
+import Popover from "../components/ui/popover";
+import Tooltip from "../components/ui/tooltip";
 import useHotkeys, { type Hotkey, type UseHotkeysOptions } from "./use-hotkeys";
 
 function Shortcuts({

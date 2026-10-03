@@ -1,5 +1,5 @@
 import { createContext, use, type RefObject } from "react";
-import type { ToastAction, ToastVariant } from "../components/toast";
+import type { ToastAction, ToastVariant } from "../components/ui/toast";
 
 /** Identifies a toast of `SnackbarProvider` - for `closeSnackbar(id)`. */
 export type SnackbarId = number;

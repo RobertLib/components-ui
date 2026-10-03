@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3
+
+- **Source layout** - move all library components and their supporting files into `src/components/ui/`, preserving their internal folders. Export the full public API from `components/ui/index.ts` so source copies can use `import { Button } from "./components/ui"`. Update imports and the source-copy installation guide; package imports from `components-ui` stay the same.
+
 ## 0.4.2
 
 - **PhoneInput** - block digitless drafts in required fields before blur, including with `validate=false`; keep the detected country and validation aligned with accepted controlled values, including incoming international prefixes with spaces or parentheses.

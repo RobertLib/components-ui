@@ -3,7 +3,7 @@ import {
   hasOverlayAbove,
   isBelowModalOverlay,
   OverlayContext,
-} from "../components/overlay-stack";
+} from "../components/ui/overlay-stack";
 import { matchesShortcut } from "../utils/shortcut";
 
 /** Options of one shortcut of `useHotkeys`. */

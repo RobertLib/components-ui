@@ -20,7 +20,7 @@ const REACT = /^(react|react-dom|lucide-react)($|\/)/;
 /**
  * Finds the modules that use React - directly or through another such module
  * (a hook built on a hook). They get the "use client" directive below; the
- * entry only re-exports, so it stays a plain module.
+ * entries only re-export, so they stay plain modules.
  */
 const clientModules = new Set<string>();
 const findClientModules = (): Plugin => ({
@@ -58,7 +58,12 @@ export default defineConfig({
   build: {
     emptyOutDir: true,
     lib: {
-      entry: "src/index.ts",
+      // Both public APIs re-export client components and server helpers.
+      // Keep both as entries so neither becomes a "use client" boundary.
+      entry: {
+        index: "src/index.ts",
+        "components/ui/index": "src/components/ui/index.ts",
+      },
       fileName: (_format, entryName) => `${entryName}.js`,
       formats: ["es"],
     },

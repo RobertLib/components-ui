@@ -10,7 +10,7 @@ import {
   type SnackbarId,
   type SnackbarPosition,
 } from "./snackbar-context";
-import { LIVE_REGION_DELAY } from "../components/toast";
+import { LIVE_REGION_DELAY } from "../components/ui/toast";
 
 /** Hands the API `useSnackbar()` returns to `onApi`. */
 function Capture({ onApi }: { onApi: (api: SnackbarApi) => void }) {

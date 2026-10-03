@@ -2,12 +2,13 @@ import CodeBlock from "../../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../../components/doc-page";
 
 const structure = `src/                     the library (what gets published)
-  components/            one file or folder per component
+  components/ui/         one file or folder per UI component
+    index.ts             the public API for source copies and package imports
   providers/             UIProvider (locale + router), DrawerProvider, SnackbarProvider
   i18n/                  Locale / Messages types, en.ts, cs.ts, formatting helpers
   hooks/, utils/         shared hooks and helpers (dates, server errors, …)
   styles.css             theme tokens and the CSS the components need
-  index.ts               the public API - everything a project can import
+  index.ts               the package entry point - re-exports components/ui/index.ts
 docs/                    this documentation site (not published)
   pages/                 one file per page, listed in docs/pages.ts
   examples/              the live examples - shown and run from the same file
@@ -24,8 +25,8 @@ npm run format       # Prettier, with Tailwind class sorting
 npm run build:lib    # the package: dist/ (a module per source file), styles.css, types
 npm run build:docs   # the docs as a static site in dist-docs/`;
 
-const newComponent = `// src/components/badge.tsx
-import cn from "../utils/cn";
+const newComponent = `// src/components/ui/badge.tsx
+import cn from "../../utils/cn";
 
 export interface BadgeProps extends React.ComponentProps<"span"> {
   /** Number shown in the badge - hidden when 0. */
@@ -47,7 +48,7 @@ npm version minor
 # 2. push the commit and the tag
 git push --follow-tags
 # 3. projects update the dependency to the new tag
-npm install git+https://github.com/RobertLib/components-ui.git#v0.4.2`;
+npm install git+https://github.com/RobertLib/components-ui.git#v0.4.3`;
 
 export default function ContributingGuide() {
   return (
@@ -85,12 +86,14 @@ export default function ContributingGuide() {
         <Prose>
           <ol>
             <li>
-              Create it in <code>src/components/</code>. Export its props
+              Create it in <code>src/components/ui/</code>. Export its props
               interface as <code>NameProps</code> and describe every prop with a
               JSDoc comment - the docs build the prop table from them.
             </li>
             <li>
-              Export the component and its types from <code>src/index.ts</code>.
+              Export the component and its types from{" "}
+              <code>src/components/ui/index.ts</code>. The package's{" "}
+              <code>src/index.ts</code> re-exports this API.
             </li>
             <li>
               Put every text it renders into <code>Messages</code> (

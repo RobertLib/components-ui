@@ -13,7 +13,7 @@ import Toast, {
   LIVE_REGION_DELAY,
   type ToastAction,
   type ToastVariant,
-} from "../components/toast";
+} from "../components/ui/toast";
 import {
   SnackbarContext,
   ToastRegionContext,

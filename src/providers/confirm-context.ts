@@ -1,5 +1,5 @@
 import { createContext, use, useCallback } from "react";
-import type { ConfirmDialogProps } from "../components/confirm-dialog";
+import type { ConfirmDialogProps } from "../components/ui/confirm-dialog";
 
 /**
  * What `confirm()` asks - the props of `ConfirmDialog`, which it shows (all
