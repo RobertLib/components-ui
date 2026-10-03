@@ -16,7 +16,7 @@ import cn from "../../../utils/cn";
 import IconButton from "../icon-button";
 import Popover from "../popover";
 import Switch from "../switch";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import { attachRef } from "../../../hooks/use-form-control";
 import { isEscapeKey } from "../overlay-stack";
 import { useMessages } from "../../../providers/ui-context";
@@ -138,7 +138,7 @@ export function TableHeader<T>({
   showClearFilters,
   toolbar,
 }: TableHeaderProps<T>) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
 
   const [isSearchOpen, setIsSearchOpen] = useState(
     defaultSearchOpen || Boolean(search),

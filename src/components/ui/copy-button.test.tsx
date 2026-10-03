@@ -4,7 +4,7 @@ import { Activity } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CopyButton from "./copy-button";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import UIProvider from "../../providers/ui-provider";
 
 afterEach(() => {

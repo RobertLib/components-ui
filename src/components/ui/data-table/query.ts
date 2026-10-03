@@ -1,10 +1,10 @@
 import { foldSearchText } from "../../../utils/remove-diacritics";
 import columnRecord from "./column-record";
-import { toIntlLocale } from "../../../i18n/format";
+import { toIntlLocale } from "../../../i18n/ui/format";
 import { formatCellValue } from "./format-value";
 import { toISODate, toISOTime } from "../../../utils/date";
 import type { Column } from "./types";
-import type { Locale } from "../../../i18n/types";
+import type { Locale } from "../../../i18n/ui/types";
 
 export type SortOrder = "asc" | "desc";
 

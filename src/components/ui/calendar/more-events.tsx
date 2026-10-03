@@ -1,7 +1,7 @@
 import Popover from "../popover";
-import { formatMessage, formatPlural } from "../../../i18n/format";
+import { formatMessage, formatPlural } from "../../../i18n/ui/format";
 import { useLocale } from "../../../providers/ui-context";
-import type { PluralMessage } from "../../../i18n/types";
+import type { PluralMessage } from "../../../i18n/ui/types";
 
 interface MoreEventsProps {
   /** The tiles of the events the list shows. */
@@ -29,7 +29,7 @@ export default function MoreEvents({
   message,
 }: MoreEventsProps) {
   const locale = useLocale();
-  const { calendar } = locale.messages;
+  const { calendar } = locale.messages.ui;
   const text = formatPlural(locale.code, message ?? calendar.more, count);
 
   return (

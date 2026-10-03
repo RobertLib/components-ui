@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import Avatar from "./avatar";
 import AvatarGroup from "./avatar-group";
 import UIProvider from "../../providers/ui-provider";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 
 const people = [
   "Jana Nováková",

@@ -14,7 +14,7 @@ import {
   useFormReset,
 } from "../../hooks/use-form-control";
 import useCustomValidity from "../../hooks/use-custom-validity";
-import { toIntlLocale } from "../../i18n/format";
+import { toIntlLocale } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 import cn from "../../utils/cn";
 import Input, { type InputProps } from "./input";
@@ -94,7 +94,7 @@ export default function PhoneInput({
   ...props
 }: PhoneInputProps) {
   const locale = useLocale();
-  const messages = locale.messages.phoneInput;
+  const messages = locale.messages.ui.phoneInput;
   const generatedId = useId();
   const id = providedId ?? generatedId;
   const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();

@@ -9,8 +9,8 @@ import userEvent from "@testing-library/user-event";
 import { Profiler } from "react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import Calendar, { type CalendarEvent, type CalendarProps } from ".";
-import { createLocale } from "../../../i18n/format";
-import { en } from "../../../i18n/en";
+import { createLocale } from "../../../i18n/ui/format";
+import { en } from "../../../i18n/ui/en";
 import UIProvider from "../../../providers/ui-provider";
 
 /** A day of September 2026 - the 24th is a Thursday. */

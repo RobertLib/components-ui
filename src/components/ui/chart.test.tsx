@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import Chart from "./chart";
 import UIProvider from "../../providers/ui-provider";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 
 const series = [
   { key: "sales", label: "Sales" },

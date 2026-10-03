@@ -2,7 +2,7 @@ import { Children, cloneElement, isValidElement } from "react";
 import cn from "../../utils/cn";
 import Tooltip from "./tooltip";
 import type { AvatarProps, AvatarShape, AvatarSize } from "./avatar";
-import { formatNumber, formatPlural } from "../../i18n/format";
+import { formatNumber, formatPlural } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 
 export interface AvatarGroupProps extends React.ComponentProps<"div"> {
@@ -98,7 +98,7 @@ export default function AvatarGroup({
   const restText = `+${formatNumber(locale.code, restCount)}`;
   const restName = formatPlural(
     locale.code,
-    locale.messages.avatar.more,
+    locale.messages.ui.avatar.more,
     restCount,
   );
   const restClassName = cn(
@@ -144,7 +144,7 @@ export default function AvatarGroup({
                     ? [
                         formatPlural(
                           locale.code,
-                          locale.messages.avatar.more,
+                          locale.messages.ui.avatar.more,
                           unlistedCount,
                         ),
                       ]

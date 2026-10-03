@@ -1,7 +1,7 @@
 import { createContext, use, useMemo } from "react";
 import DefaultLink from "./default-link";
-import { en } from "../i18n/en";
-import type { Locale, Messages } from "../i18n/types";
+import { en } from "../i18n/ui/en";
+import type { Locale, Messages } from "../i18n/ui/types";
 import {
   browserBack,
   browserNavigate,
@@ -54,7 +54,7 @@ export function usePortalContainer(): () => HTMLElement {
     document.body;
 }
 
-/** The texts of the active locale. */
+/** Application texts at the root; library texts are in `useMessages().ui`. */
 export function useMessages(): Messages {
   return useLocale().messages;
 }

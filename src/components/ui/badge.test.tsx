@@ -3,7 +3,7 @@ import { Bell } from "lucide-react";
 import { describe, expect, it } from "vitest";
 import Badge, { type BadgeColor, type BadgePlacement } from "./badge";
 import IconButton from "./icon-button";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import UIProvider from "../../providers/ui-provider";
 import { colorOf, contrast } from "../../test/contrast";
 

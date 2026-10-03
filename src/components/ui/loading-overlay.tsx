@@ -52,7 +52,7 @@ export default function LoadingOverlay({
   visible = false,
   ...props
 }: LoadingOverlayProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const regionRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   // The element that had the focus in the content when it was covered

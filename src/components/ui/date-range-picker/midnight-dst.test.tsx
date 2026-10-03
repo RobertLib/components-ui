@@ -11,8 +11,8 @@ import {
 } from "vitest";
 import DateRangePicker, { type DateRangePresetKey } from ".";
 import RangeCalendar from "../range-calendar";
-import { createLocale } from "../../../i18n/format";
-import { en } from "../../../i18n/en";
+import { createLocale } from "../../../i18n/ui/format";
+import { en } from "../../../i18n/ui/en";
 import UIProvider from "../../../providers/ui-provider";
 import { getPresetRange } from "./range";
 

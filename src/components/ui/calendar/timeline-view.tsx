@@ -55,7 +55,7 @@ import {
   getWeekdayNames,
   startOfDay,
 } from "../../../utils/date";
-import { formatMessage, toIntlLocale } from "../../../i18n/format";
+import { formatMessage, toIntlLocale } from "../../../i18n/ui/format";
 import { toAriaKeyShortcuts } from "../../../utils/shortcut";
 import { useLocale } from "../../../providers/ui-context";
 
@@ -1004,7 +1004,7 @@ export default function TimelineView({
       {onSlotDragEnd && (
         <div aria-live="polite" className="sr-only">
           {keyboardTimes &&
-            formatMessage(locale.messages.calendar.rangeSelected, {
+            formatMessage(locale.messages.ui.calendar.rangeSelected, {
               range: withResource(
                 locale,
                 rows[selection?.day ?? 0]?.resource?.title,

@@ -5,7 +5,7 @@ import EdgeShadow from "./edge-shadow";
 import Spinner from "../spinner";
 import useIsMobile from "../../../hooks/use-is-mobile";
 import useVirtualRows, { getMeasureKey } from "./use-virtual-rows";
-import { formatMessage, formatPlural } from "../../../i18n/format";
+import { formatMessage, formatPlural } from "../../../i18n/ui/format";
 import { SummaryCells } from "./table-summary";
 import {
   DEFAULT_CELL_LAYOUT,
@@ -185,7 +185,7 @@ export function TableBody<T>({
   virtualized,
 }: TableBodyProps<T>) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const idPrefix = useId();
   const bodyRef = useRef<HTMLTableSectionElement>(null);
 

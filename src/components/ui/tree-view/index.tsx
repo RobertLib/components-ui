@@ -355,7 +355,7 @@ export default function TreeView<T extends TreeItem>({
   virtualized = false,
   ...props
 }: TreeViewProps<T>) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const { Link, pathname, search } = useRouter();
   const baseId = useId();
   const movingDescriptionId = `${baseId}-moving`;

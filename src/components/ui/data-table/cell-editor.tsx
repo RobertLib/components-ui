@@ -78,7 +78,7 @@ export default function CellEditor<T>({
   row,
   sampleValue,
 }: CellEditorFieldProps<T>) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   // The value the editing started from, and its field - a refetch that
   // changes the cell meanwhile changes neither
   const [startValue] = useState(initialValue);

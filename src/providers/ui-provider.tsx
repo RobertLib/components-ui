@@ -1,7 +1,7 @@
 import { use, useMemo, useState } from "react";
-import { deepMerge, toIntlLocale } from "../i18n/format";
-import { en } from "../i18n/en";
-import type { DeepPartial, Locale, Messages } from "../i18n/types";
+import { deepMerge, toIntlLocale } from "../i18n/ui/format";
+import { en } from "../i18n/ui/en";
+import type { DeepPartial, Locale, Messages } from "../i18n/ui/types";
 import type { RouterAdapter } from "./router";
 import { UIContext, type PortalContainer } from "./ui-context";
 
@@ -14,7 +14,7 @@ export interface UIProviderProps {
    * locale of a surrounding `UIProvider`, or `en`.
    */
   locale?: Locale;
-  /** Overrides individual texts of `locale`. */
+  /** Overrides app texts at the root and library texts under `ui`. */
   messages?: DeepPartial<Messages>;
   /**
    * Where popovers, tooltips, menus, dialogs, sheets, toasts and backdrops

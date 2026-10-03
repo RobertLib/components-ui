@@ -25,7 +25,7 @@ import Select from "./select";
 import Switch from "./switch";
 import TagsInput from "./tags-input";
 import Textarea from "./textarea";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import UIProvider from "../../providers/ui-provider";
 
 const sizes = [
@@ -310,7 +310,7 @@ describe("Field sizes", () => {
 describe("Label suffix", () => {
   it("follows the labels as the locale says", () => {
     render(
-      <UIProvider messages={{ form: { labelSuffix: " :" } }}>
+      <UIProvider messages={{ ui: { form: { labelSuffix: " :" } } }}>
         <Input label="Nom" />
         <Textarea label="Note" />
         <Select label="Taille" options={sizes} />
@@ -326,7 +326,7 @@ describe("Label suffix", () => {
 
   it("can be left out", () => {
     render(
-      <UIProvider messages={{ form: { labelSuffix: "" } }}>
+      <UIProvider messages={{ ui: { form: { labelSuffix: "" } } }}>
         <Input label="Name" required />
       </UIProvider>,
     );

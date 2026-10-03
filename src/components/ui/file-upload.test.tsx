@@ -12,7 +12,7 @@ import { Activity, StrictMode, Suspense, use, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import FileUpload, { type UploadedFile } from "./file-upload";
 import UIProvider from "../../providers/ui-provider";
 
@@ -436,7 +436,7 @@ describe("FileUpload", () => {
       expect(
         form.querySelector<HTMLInputElement>("input[type=text]")
           ?.validationMessage,
-      ).toBe(cs.messages.fileUpload.waitForValidation);
+      ).toBe(cs.messages.ui.fileUpload.waitForValidation);
       rerender(view(true));
       expect(form.checkValidity()).toBe(true);
       rerender(view(false));
@@ -446,7 +446,7 @@ describe("FileUpload", () => {
       expect(
         form.querySelector<HTMLInputElement>("input[type=text]")
           ?.validationMessage,
-      ).toBe(cs.messages.fileUpload.waitForUpload);
+      ).toBe(cs.messages.ui.fileUpload.waitForUpload);
       rerender(view(true));
       expect(form.checkValidity()).toBe(true);
       rerender(view(false));

@@ -2,9 +2,9 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Calendar, { type CalendarBusinessHours, type CalendarEvent } from ".";
-import { createLocale } from "../../../i18n/format";
-import { cs } from "../../../i18n/cs";
-import { en } from "../../../i18n/en";
+import { createLocale } from "../../../i18n/ui/format";
+import { cs } from "../../../i18n/ui/cs";
+import { en } from "../../../i18n/ui/en";
 import UIProvider from "../../../providers/ui-provider";
 
 /** A day of September 2026 - the 24th is a Thursday. */

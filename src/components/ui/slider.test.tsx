@@ -11,7 +11,7 @@ import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import Slider from "./slider";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import UIProvider from "../../providers/ui-provider";
 
 const press = { button: 0, isPrimary: true, pointerId: 1 };

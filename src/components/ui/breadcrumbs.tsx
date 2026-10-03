@@ -68,7 +68,7 @@ export default function Breadcrumbs({
   ...props
 }: BreadcrumbsProps) {
   const { Link } = useRouter();
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const [isExpanded, setIsExpanded] = useState(false);
   const listRef = useRef<HTMLOListElement>(null);
   // The ellipsis was pressed - the crumbs it brings take the focus

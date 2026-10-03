@@ -12,7 +12,7 @@ import { attachRef, useFormReset } from "../../../hooks/use-form-control";
 import useCustomValidity from "../../../hooks/use-custom-validity";
 import cn from "../../../utils/cn";
 import { flushSync } from "react-dom";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import { getStepNumberFormat, stepValue, toCanonical } from "./number-format";
 import { InputBase } from "../input";
 import { useLocale, useMessages } from "../../../providers/ui-context";
@@ -223,7 +223,7 @@ export default function NumberInput({
   ...props
 }: NumberInputProps) {
   const locale = useLocale();
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const platform = useSyncExternalStore(
     noSubscription,
     getMobilePlatform,

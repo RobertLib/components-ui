@@ -1,6 +1,6 @@
 import type { DayRange } from "../datetime-picker/day-grid";
-import type { WeekDay } from "../../../i18n/types";
-import { formatMessage } from "../../../i18n/format";
+import type { WeekDay } from "../../../i18n/ui/types";
+import { formatMessage } from "../../../i18n/ui/format";
 import {
   dateOf,
   formatDate,

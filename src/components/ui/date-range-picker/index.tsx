@@ -5,7 +5,7 @@ import { getRangeMessage, parseDisplayRange } from "../datetime-picker/parse";
 import usePickerPopup from "../datetime-picker/use-picker-popup";
 import useIsMobile from "../../../hooks/use-is-mobile";
 import { useFormControl } from "../../../hooks/use-form-control";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import { useLocale } from "../../../providers/ui-context";
 import {
   formatDate,
@@ -216,7 +216,7 @@ export default function DateRangePicker({
   ...inputProps
 }: DateRangePickerProps) {
   const locale = useLocale();
-  const messages = locale.messages.dateRangePicker;
+  const messages = locale.messages.ui.dateRangePicker;
   const isMobile = useIsMobile();
 
   // The range as one string - `start/end` - which the form control and the
@@ -275,7 +275,7 @@ export default function DateRangePicker({
   // "DD.MM.RRRR – DD.MM.RRRR" - as the locale writes the tokens
   const datePlaceholder = formatPlaceholder(
     pattern,
-    locale.messages.dateTimePicker.placeholderTokens,
+    locale.messages.ui.dateTimePicker.placeholderTokens,
   );
   const rangePlaceholder = `${datePlaceholder}${RANGE_SEPARATOR}${datePlaceholder}`;
 
@@ -297,13 +297,13 @@ export default function DateRangePicker({
   };
   const validityMessage =
     getRangeMessage(
-      locale.messages.dateTimePicker,
+      locale.messages.ui.dateTimePicker,
       days?.start,
       { min: dayLimit(limits.min) },
       formatDay,
     ) ||
     getRangeMessage(
-      locale.messages.dateTimePicker,
+      locale.messages.ui.dateTimePicker,
       days?.end,
       { max: dayLimit(limits.max) },
       formatDay,
@@ -312,7 +312,7 @@ export default function DateRangePicker({
       range,
       limits,
       pattern,
-      locale.messages.dateTimePicker.outOfRangeText,
+      locale.messages.ui.dateTimePicker.outOfRangeText,
     ) ||
     getUnavailableMessage(range);
 

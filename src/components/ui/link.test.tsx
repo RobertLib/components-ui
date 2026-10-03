@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import Link from "./link";
 import UIProvider from "../../providers/ui-provider";
 import type { LinkComponentProps } from "../../providers/router";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 
 /** A router link that navigates in memory, marked to be told apart. */
 function renderWithRouter(children: React.ReactNode) {

@@ -7,7 +7,7 @@ import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
-import { formatMessage, formatNumber } from "../../i18n/format";
+import { formatMessage, formatNumber } from "../../i18n/ui/format";
 import {
   getNumberFormat,
   stepValue,
@@ -415,7 +415,7 @@ export default function Slider<T extends SliderValue = number>({
   ...props
 }: SliderProps<T>) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
 
   // The thumbs are no native fields - a disabled fieldset around them
   // leaves them alone unless told

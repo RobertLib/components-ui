@@ -14,7 +14,7 @@ import { foldSearchText } from "../../utils/remove-diacritics";
 import { getActiveElement } from "./overlay-stack";
 import useCustomValidity from "../../hooks/use-custom-validity";
 import usePointerMoved from "../../hooks/use-pointer-moved";
-import { formatMessage, formatPlural } from "../../i18n/format";
+import { formatMessage, formatPlural } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
 
@@ -185,7 +185,7 @@ export default function TagsInput({
   ...props
 }: TagsInputProps) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   // The portaled suggestions are outside the fieldset of the input.
   const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();
   const disabled = disabledProp || fieldsetDisabled;

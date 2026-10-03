@@ -168,7 +168,7 @@ export function isShortcut(
   );
 }
 
-/** Names of the modifier keys - see `Messages.richTextEditor.keys`. */
+/** Names of the modifier keys - see `Messages.ui.richTextEditor.keys`. */
 interface KeyNames {
   alt: string;
   ctrl: string;

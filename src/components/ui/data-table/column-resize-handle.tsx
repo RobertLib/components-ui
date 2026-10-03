@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import cn from "../../../utils/cn";
 import { clampWidth, MAX_COLUMN_WIDTH } from "./cell-layout";
-import { formatMessage, formatPlural } from "../../../i18n/format";
+import { formatMessage, formatPlural } from "../../../i18n/ui/format";
 import { useLocale } from "../../../providers/ui-context";
 
 /** Whether an element is laid out right to left - `dir="rtl"` around it. */
@@ -84,7 +84,7 @@ export default function ColumnResizeHandle({
   width,
 }: ColumnResizeHandleProps) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const dragRef = useRef<Drag | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const latestOnDrag = useRef(onDrag);

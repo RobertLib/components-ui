@@ -3,9 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Calendar, { type CalendarEvent } from ".";
 import { normalizeBusinessHours, getOffHours } from "./business-hours";
-import { cs } from "../../../i18n/cs";
-import { en } from "../../../i18n/en";
-import { createLocale } from "../../../i18n/format";
+import { cs } from "../../../i18n/ui/cs";
+import { en } from "../../../i18n/ui/en";
+import { createLocale } from "../../../i18n/ui/format";
 import UIProvider from "../../../providers/ui-provider";
 
 /** A day of September 2026 - the 24th is a Thursday. */

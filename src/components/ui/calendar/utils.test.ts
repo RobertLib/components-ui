@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CalendarEvent } from "./types";
-import { createLocale } from "../../../i18n/format";
-import { cs } from "../../../i18n/cs";
-import { en } from "../../../i18n/en";
+import { createLocale } from "../../../i18n/ui/format";
+import { cs } from "../../../i18n/ui/cs";
+import { en } from "../../../i18n/ui/en";
 import {
   createDateTimeFormat,
   createDayFormat,

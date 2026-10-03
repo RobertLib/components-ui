@@ -1,6 +1,6 @@
 import { copyDate, inTimeZone } from "../../../utils/time-zone";
 import type { CalendarAgendaPeriod, CalendarView } from "./types";
-import type { WeekDay } from "../../../i18n/types";
+import type { WeekDay } from "../../../i18n/ui/types";
 import {
   dateOf,
   existingDayOf,

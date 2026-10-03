@@ -13,7 +13,7 @@ import hasLabel from "./has-label";
 import Popover from "../popover";
 import useIsMobile from "../../../hooks/use-is-mobile";
 import useCustomValidity from "../../../hooks/use-custom-validity";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import { getTabbableElements } from "../../../utils/tabbable";
 import { getNextTabStop } from "../overlay-stack";
 import { useMessages } from "../../../providers/ui-context";
@@ -145,7 +145,7 @@ export default function PickerField({
   validityMessage,
   value,
 }: PickerFieldProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const isMobile = useIsMobile();
   const popupId = useId();
   const Icon = icon === "clock" ? Clock : Calendar;

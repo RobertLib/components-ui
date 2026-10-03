@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import Header from "./header";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import UIProvider from "../../providers/ui-provider";
 
 describe("Header", () => {
@@ -31,7 +31,7 @@ describe("Header", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: cs.messages.common.loading,
+        name: cs.messages.ui.common.loading,
       }),
     ).toBeInTheDocument();
   });

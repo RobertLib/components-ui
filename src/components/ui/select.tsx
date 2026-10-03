@@ -122,7 +122,7 @@ export default function Select({
   required,
   ...props
 }: SelectProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const { fieldRef, handleChange, value } = useFormControl({
     ...props,
     ref,

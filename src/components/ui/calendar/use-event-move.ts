@@ -9,7 +9,7 @@ import { daysBetween } from "./date-utils";
 import { isDragPress, startPointerDrag } from "./pointer-drag";
 import { isRtl } from "./utils";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import { shiftDay, toISODate } from "../../../utils/date";
 import { useLocale } from "../../../providers/ui-context";
 
@@ -147,7 +147,7 @@ const followDay = (day: Date, from: Date, to: Date) =>
  * when it gets to another place, not with every pixel.
  */
 export default function useEventMove(options: UseEventMoveOptions) {
-  const { messages } = useLocale();
+  const messages = useLocale().messages.ui;
   const [dragState, setDragState] = useState<DragState | null>(null);
   // A drag outlives the render it started in - it reads the latest options
   const optionsRef = useRef(options);

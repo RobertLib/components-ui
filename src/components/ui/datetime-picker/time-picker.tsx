@@ -9,7 +9,7 @@ import {
 } from "./parse";
 import TimeLists from "./time-lists";
 import usePickerPopup from "./use-picker-popup";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import {
   formatPattern,
   formatPlaceholder,
@@ -34,7 +34,7 @@ export default function TimePicker({
   ...props
 }: CustomPickerProps) {
   const locale = useLocale();
-  const messages = locale.messages.dateTimePicker;
+  const messages = locale.messages.ui.dateTimePicker;
   const {
     close,
     contentRef,

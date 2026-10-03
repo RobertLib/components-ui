@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import Progress, { CircularProgress } from "./progress";
 import UIProvider from "../../providers/ui-provider";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 
 describe("Progress", () => {
   it("is named by its label and described by its description", () => {

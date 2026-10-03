@@ -6,7 +6,7 @@ import { createRef, useState } from "react";
 import { Info, Search } from "lucide-react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyMask, type MaskedValue } from "./input-mask";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import Input from "./input";
 import UIProvider from "../../providers/ui-provider";
 

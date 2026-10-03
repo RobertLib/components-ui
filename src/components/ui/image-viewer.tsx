@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import cn from "../../utils/cn";
-import { formatMessage } from "../../i18n/format";
+import { formatMessage } from "../../i18n/ui/format";
 import { useMessages } from "../../providers/ui-context";
 import Dialog from "./dialog";
 import IconButton from "./icon-button";
@@ -75,7 +75,7 @@ export default function ImageViewer({
   title,
   ...props
 }: ImageViewerProps) {
-  const messages = useMessages().imageViewer;
+  const messages = useMessages().ui.imageViewer;
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const [internalIndex, setInternalIndex] = useState(defaultIndex);
   const open = controlledOpen ?? internalOpen;

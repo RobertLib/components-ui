@@ -12,9 +12,9 @@ import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DateCalendar from ".";
-import { cs } from "../../../i18n/cs";
-import { en } from "../../../i18n/en";
-import { createLocale } from "../../../i18n/format";
+import { cs } from "../../../i18n/ui/cs";
+import { en } from "../../../i18n/ui/en";
+import { createLocale } from "../../../i18n/ui/format";
 import UIProvider from "../../../providers/ui-provider";
 
 /** Lets the frames the grid schedules (focus) run. */

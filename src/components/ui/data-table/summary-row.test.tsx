@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import DataTable from ".";
-import { cs } from "../../../i18n/cs";
+import { cs } from "../../../i18n/ui/cs";
 import UIProvider from "../../../providers/ui-provider";
 import type { Column } from "./types";
 

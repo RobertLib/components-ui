@@ -1,3 +1,5 @@
+import type appMessages from "../en";
+
 /**
  * Recursively optional version of `T` - used for overriding a few texts or
  * formats of a locale without restating the rest.
@@ -19,6 +21,26 @@ export type DeepPartial<T> = {
 export type PluralMessage = Partial<Record<Intl.LDMLPluralRule, string>> & {
   other: string;
 };
+
+/** Application texts: strings, plural messages and nested groups. */
+export interface MessageCatalog {
+  [key: string]: string | PluralMessage | MessageCatalog;
+}
+
+/**
+ * The keys of a default catalog, with strings widened and plural categories
+ * chosen independently by each language. A plural message is one text.
+ */
+export type MessageShape<T> = T extends string
+  ? string
+  : T extends PluralMessage
+    ? keyof T extends Intl.LDMLPluralRule
+      ? PluralMessage
+      : { [K in keyof T]: MessageShape<T[K]> }
+    : { [K in keyof T]: MessageShape<T[K]> };
+
+/** Inferred from i18n/en.ts - add app texts there, without editing types. */
+export type AppMessages = MessageShape<typeof appMessages>;
 
 /** Day of the week as returned by `Date#getDay()`: 0 = Sunday … 6 = Saturday. */
 export type WeekDay = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -63,7 +85,7 @@ export interface DateFormats {
  * Every text the components render. Placeholders in curly braces (`{label}`,
  * `{count}`, …) are filled in by the component.
  */
-export interface Messages {
+export interface UIMessages {
   phoneInput: { country: string; invalid: string };
   repeatableField: {
     add: string;
@@ -950,6 +972,9 @@ export interface Messages {
   };
 }
 
+/** Application texts at the root, with library texts under `ui`. */
+export type Messages = AppMessages & { ui: UIMessages };
+
 /**
  * Everything language- and region-specific in one object: the texts, the
  * date formats and the first day of the week. Pass it to `UIProvider`.
@@ -962,7 +987,7 @@ export interface Locale {
   code: string;
   /** Display patterns of the date and time pickers. */
   formats: DateFormats;
-  /** Texts of the components. */
+  /** Texts of the components and the application. */
   messages: Messages;
   /** First day of the week in the calendar and the pickers. */
   weekStartsOn: WeekDay;

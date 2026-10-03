@@ -80,9 +80,9 @@ import {
   formatNumber,
   formatPlural,
   pluralForm,
-} from "../../../i18n/format";
+} from "../../../i18n/ui/format";
 import { useLocale } from "../../../providers/ui-context";
-import type { PluralMessage } from "../../../i18n/types";
+import type { PluralMessage } from "../../../i18n/ui/types";
 import type {
   CellEditResult,
   Column,
@@ -557,7 +557,7 @@ export default function DataTable<T>({
   ...props
 }: DataTableProps<T>) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   // The root element - also for the `ref` prop

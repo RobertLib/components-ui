@@ -1,7 +1,7 @@
 import { UserCircle } from "lucide-react";
 import { useState } from "react";
 import cn from "../../utils/cn";
-import { formatMessage } from "../../i18n/format";
+import { formatMessage } from "../../i18n/ui/format";
 import { useMessages } from "../../providers/ui-context";
 
 export type AvatarSize = "sm" | "md" | "lg" | "xl";
@@ -174,7 +174,7 @@ export default function Avatar({
   status,
   ...props
 }: AvatarProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const showImage = src && failedSrc !== src;
   const initials = name ? getInitials(name) : "";

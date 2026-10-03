@@ -21,7 +21,7 @@ import { foldSearchText } from "../../../utils/remove-diacritics";
 import usePointerMoved from "../../../hooks/use-pointer-moved";
 import Spinner from "../spinner";
 import useDebouncedValue from "../../../hooks/use-debounced-value";
-import { formatMessage, formatPlural } from "../../../i18n/format";
+import { formatMessage, formatPlural } from "../../../i18n/ui/format";
 import {
   attachRef,
   isAriaInvalid,
@@ -784,7 +784,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   ...props
 }: AutocompleteProps<TItem>) {
   const locale = useLocale();
-  const messages = useMessages();
+  const messages = useMessages().ui;
 
   // A select is no native field, and the list opens from the field around
   // the input - a disabled fieldset around them leaves them alone unless told

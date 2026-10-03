@@ -1,6 +1,6 @@
 import { copyDate, dateTimeZone } from "../../../utils/time-zone";
 import type { CalendarEvent, CalendarViewProps } from "./types";
-import type { Locale } from "../../../i18n/types";
+import type { Locale } from "../../../i18n/ui/types";
 import { addCalendarDays, daysBetween, getCalendarDay } from "./date-utils";
 import {
   createDayFormat,
@@ -22,7 +22,7 @@ import {
   startOfDay,
   toISODate,
 } from "../../../utils/date";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import useIsHydrated from "../../../hooks/use-is-hydrated";
 import useToday from "../../../hooks/use-today";
 import { useLocale } from "../../../providers/ui-context";
@@ -56,7 +56,7 @@ function toAgendaItem(
   locale: Locale,
   timeFormat: Intl.DateTimeFormat,
 ): AgendaItem {
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const { end, start } = event.allDay ? getAllDayRange(event) : event;
   // The days it shows on - the end is exclusive
   const firstDay = startOfDay(start);
@@ -151,7 +151,7 @@ export default function AgendaView({
   visibleRange,
 }: CalendarViewProps) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const headingId = useId();
   const scrollRef = useRef<HTMLDivElement>(null);
 

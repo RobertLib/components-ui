@@ -211,7 +211,7 @@ export default function SegmentedControl<
 }: SegmentedControlProps<T>) {
   const dim = dimProp ?? size ?? "md";
   const vertical = orientation === "vertical";
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const { fieldRef, handleChange, hasValue, value } =
     useFormControl<HTMLInputElement>({
       defaultValue,

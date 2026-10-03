@@ -76,7 +76,7 @@ function DefaultFallback({
   error: Error;
   reset: () => void;
 }) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
 
   return (
     <div className="container mx-auto space-y-4 p-6">

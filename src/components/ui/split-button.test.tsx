@@ -2,7 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import SplitButton from "./split-button";
 import UIProvider from "../../providers/ui-provider";
 

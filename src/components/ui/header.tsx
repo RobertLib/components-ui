@@ -45,7 +45,7 @@ export default function Header({
   ...props
 }: HeaderProps) {
   const router = useRouter();
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const Heading = `h${headingLevel}` as const;
 
   return (

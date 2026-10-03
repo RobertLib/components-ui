@@ -1,6 +1,6 @@
 import cn from "../../utils/cn";
-import { toIntlLocale } from "../../i18n/format";
-import type { Locale } from "../../i18n/types";
+import { toIntlLocale } from "../../i18n/ui/format";
+import type { Locale } from "../../i18n/ui/types";
 import { useLocale } from "../../providers/ui-context";
 import { usesHour12 } from "../../utils/date";
 
@@ -406,7 +406,7 @@ export default function Timeline({
                       {item.title}
                       {item.pending && (
                         <span className="sr-only">
-                          , {locale.messages.timeline.pending}
+                          , {locale.messages.ui.timeline.pending}
                         </span>
                       )}
                     </div>

@@ -11,8 +11,8 @@ import { renderToString } from "react-dom/server";
 import { createRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import NumberInput from ".";
-import { cs } from "../../../i18n/cs";
-import { en } from "../../../i18n/en";
+import { cs } from "../../../i18n/ui/cs";
+import { en } from "../../../i18n/ui/en";
 import UIProvider from "../../../providers/ui-provider";
 
 const spinbutton = (name: RegExp | string = /Quantity/) =>

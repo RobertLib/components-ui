@@ -3,7 +3,7 @@ import CodeBlock from "../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 
 const installGit = `# a tagged version from your git host - npm builds dist/ on install
-npm install git+https://github.com/RobertLib/components-ui.git#v0.4.3
+npm install git+https://github.com/RobertLib/components-ui.git#v0.4.4
 
 # the latest commit of a branch
 npm install git+https://github.com/RobertLib/components-ui.git#main
@@ -30,8 +30,8 @@ resolve: {
 },`;
 
 const installTarball = `# a copy instead of a link - like an install from a registry
-cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.4.3.tgz
-cd ../my-app && npm install ../components-ui/components-ui-0.4.3.tgz`;
+cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.4.4.tgz
+cd ../my-app && npm install ../components-ui/components-ui-0.4.4.tgz`;
 
 const installRegistry = `# in the library: set a scoped name, remove "private": true, then
 npm publish --registry https://npm.your-company.com
@@ -50,7 +50,8 @@ const sourceStructure = `src/
   providers/        copy src/providers/
   hooks/            copy src/hooks/
   utils/            copy src/utils/
-  i18n/             copy src/i18n/
+  i18n/             application catalogs: en.ts and cs.ts (initially empty)
+    ui/             UI locales, localization types and formatting helpers
   ui-styles.css     copy src/styles.css under this name`;
 
 const sourceImports = `// src/App.tsx - local imports for the provider example below
@@ -251,6 +252,18 @@ export default function Installation() {
           </p>
         </Prose>
         <CodeBlock code={sourceCss} />
+        <Prose>
+          <p>
+            Add your application's translations to <code>i18n/en.ts</code> and{" "}
+            <code>i18n/cs.ts</code>, then read them with{" "}
+            <code>useMessages()</code>. Library texts are under{" "}
+            <code>useMessages().ui</code>. Types come from the English catalog,
+            and <code>UIProvider</code> switches the language of your app and
+            the UI together. See <Link to="/localization">Localization</Link>{" "}
+            for the full recipe. Keep your application catalogs when copying
+            updates to <code>i18n/ui/</code>.
+          </p>
+        </Prose>
       </Section>
 
       <Section title="2. Import the styles">

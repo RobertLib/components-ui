@@ -1,9 +1,9 @@
 import { formatCellValue } from "./format-value";
 import { getColumnValue, toNumber } from "./query";
-import { toIntlLocale } from "../../../i18n/format";
+import { toIntlLocale } from "../../../i18n/ui/format";
 import { parseISODate } from "../../../utils/date";
 import type { Column, ColumnSummary } from "./types";
-import type { Locale } from "../../../i18n/types";
+import type { Locale } from "../../../i18n/ui/types";
 
 // `2026-09-24`, `2026-09-24T10:30`, `2026-09-24T08:30:00Z` - the dates of an
 // API, which sends them as texts

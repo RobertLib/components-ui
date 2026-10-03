@@ -1,6 +1,6 @@
 import { copyDate, dateTimeZone } from "../../../utils/time-zone";
 import type { CalendarEvent, CalendarResource } from "./types";
-import type { Locale } from "../../../i18n/types";
+import type { Locale } from "../../../i18n/ui/types";
 import { addCalendarDays, atHour, minutesIntoDay } from "./date-utils";
 import {
   capitalize,
@@ -9,7 +9,7 @@ import {
   startOfDay,
   usesHour12,
 } from "../../../utils/date";
-import { formatMessage, toIntlLocale } from "../../../i18n/format";
+import { formatMessage, toIntlLocale } from "../../../i18n/ui/format";
 
 // What `new Date("2026-09-24")` gives
 const isUTCMidnight = (date: Date) => date.getTime() % 86_400_000 === 0;
@@ -369,7 +369,10 @@ export const withResource = (
 ) =>
   resource === undefined
     ? time
-    : formatMessage(locale.messages.calendar.resourceTime, { resource, time });
+    : formatMessage(locale.messages.ui.calendar.resourceTime, {
+        resource,
+        time,
+      });
 
 /**
  * The day and the times from `start` to `end` for screen readers, e.g.
@@ -389,7 +392,7 @@ export function createTimeLabeler(
   resources?: CalendarResource[],
   timeZone?: string,
 ) {
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const resourceTitles = new Map(
     resources?.map((resource) => [resource.id, resource.title]),
   );
@@ -448,7 +451,7 @@ export function createEventLabeler(
   const timeOf = createTimeLabeler(locale, resources, timeZone);
 
   return (event: CalendarEvent) =>
-    formatMessage(locale.messages.calendar.eventLabel, {
+    formatMessage(locale.messages.ui.calendar.eventLabel, {
       time: timeOf(event),
       title: event.title,
     });
@@ -461,7 +464,7 @@ export function createEventLabeler(
  */
 export function createTimeTextFormatter(locale: Locale, timeZone?: string) {
   let timeFormat: Intl.DateTimeFormat | undefined;
-  const allDay = capitalize(locale.messages.calendar.allDay, locale.code);
+  const allDay = capitalize(locale.messages.ui.calendar.allDay, locale.code);
 
   return (event: { allDay?: boolean; end: Date; start: Date }) => {
     if (event.allDay) return allDay;

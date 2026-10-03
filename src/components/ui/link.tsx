@@ -86,7 +86,7 @@ export default function Link({
   ...props
 }: LinkProps) {
   const { Link: RouterLink } = useRouter();
-  const messages = useMessages();
+  const messages = useMessages().ui;
 
   const classes = cn(
     "cui-link transition-colors motion-reduce:transition-none",

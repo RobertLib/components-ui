@@ -221,7 +221,7 @@ export default function Chip({
   variant = "default",
   ...props
 }: ChipProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const contentId = useId();
   const removeButtonId = `${contentId}-remove`;
 

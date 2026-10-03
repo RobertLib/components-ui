@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeSummary, formatSummaryValue } from "./summary";
-import { cs } from "../../../i18n/cs";
-import { en } from "../../../i18n/en";
+import { cs } from "../../../i18n/ui/cs";
+import { en } from "../../../i18n/ui/en";
 import type { Column } from "./types";
 
 interface Order {

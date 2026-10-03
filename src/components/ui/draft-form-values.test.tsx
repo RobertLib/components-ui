@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import ColorInput from "./color-input";
 import DateRangePicker from "./date-range-picker";
 import DateTimePicker, { type DateTimePickerType } from "./datetime-picker";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import UIProvider from "../../providers/ui-provider";
 
 const cases = [

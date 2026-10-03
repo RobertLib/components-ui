@@ -23,8 +23,10 @@ const de = createLocale(en, {
     week: "[KW] WW YYYY",
   },
   messages: {
-    autocomplete: { noResults: "Keine Ergebnisse" },
-    pagination: { range: "{from}–{to} von {total}" },
+    ui: {
+      autocomplete: { noResults: "Keine Ergebnisse" },
+      pagination: { range: "{from}–{to} von {total}" },
+    },
   },
   weekStartsOn: 1,
 });

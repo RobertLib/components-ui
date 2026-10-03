@@ -11,7 +11,7 @@ import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { toLatinDigit } from "./input-mask";
-import { formatMessage } from "../../i18n/format";
+import { formatMessage } from "../../i18n/ui/format";
 import { useMessages } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
 
@@ -234,7 +234,7 @@ export default function PinInput({
   value,
   ...props
 }: PinInputProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const length =
     lengthProp ??
     (groups ? groups.reduce((sum, size) => sum + Math.max(0, size), 0) : 6);

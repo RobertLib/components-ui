@@ -1,5 +1,5 @@
 import cn from "../../utils/cn";
-import { formatMessage, toIntlLocale } from "../../i18n/format";
+import { formatMessage, toIntlLocale } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 
 export type SparklineColor =
@@ -165,7 +165,7 @@ export default function Sparkline({
   ...props
 }: SparklineProps) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const values = data.filter(isValue);
   const lowest = values.reduce((low, value) => Math.min(low, value), Infinity);
   const highest = values.reduce(

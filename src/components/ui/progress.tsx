@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { cn, joinTokens } from "../../utils/cn";
-import { toIntlLocale } from "../../i18n/format";
+import { toIntlLocale } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 
 export type ProgressColor =

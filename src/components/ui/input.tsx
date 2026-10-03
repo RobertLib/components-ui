@@ -14,7 +14,7 @@ import {
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Button from "./button";
 import cn, { joinTokens } from "../../utils/cn";
-import { formatMessage } from "../../i18n/format";
+import { formatMessage } from "../../i18n/ui/format";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { getPasswordStrength } from "./password-strength";
@@ -281,7 +281,7 @@ export function InputBase({
 }: InputBaseProps) {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // The input is needed here too - for the clear button and a click on an

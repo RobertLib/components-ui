@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DateRangePicker, { type DateRange, type DateRangePickerProps } from ".";
-import { cs } from "../../../i18n/cs";
+import { cs } from "../../../i18n/ui/cs";
 import UIProvider from "../../../providers/ui-provider";
 
 /** Lets the frames the popup schedules (focus, scrolling) run. */

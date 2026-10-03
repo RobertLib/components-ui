@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import cn from "../../../utils/cn";
-import { toIntlLocale } from "../../../i18n/format";
+import { toIntlLocale } from "../../../i18n/ui/format";
 import {
   addMonths,
   dateOf,
@@ -155,7 +155,7 @@ function DayGridContent({
   selection,
 }: DayGridProps & { isHydrated: boolean }) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const isRangeMode = range !== undefined;
   const isMultiple = selection !== undefined;
   const selectionKeys = new Set(selection?.map(toISODate));

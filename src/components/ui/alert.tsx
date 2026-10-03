@@ -190,7 +190,7 @@ export default function Alert({
   variant = "subtle",
   ...props
 }: AlertProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const alertRef = useRef<HTMLDivElement>(null);
   // Where the focus goes once the alert closed from its button is gone
   const focusAfterClose = useRef<HTMLElement | null>(null);

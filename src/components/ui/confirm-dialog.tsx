@@ -104,7 +104,7 @@ export default function ConfirmDialog({
   title,
   ...props
 }: ConfirmDialogProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const messageId = useId();
   const fieldId = useId();
   const confirmButtonRef = useRef<HTMLButtonElement>(null);

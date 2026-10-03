@@ -279,7 +279,7 @@ export default function Drawer({
   ...props
 }: DrawerProps) {
   const { isCollapsed, isOpen, shortcut, toggleOpen } = useDrawer();
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const { pathname, search } = useRouter();
 
   const menuNodes = getMenuNodes(items);

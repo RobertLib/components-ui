@@ -50,7 +50,7 @@ export default function SplitButton({
   variant,
   ...props
 }: SplitButtonProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const outer = use(ButtonGroupContext);
   const generatedId = useId();
   const buttonId = id ?? generatedId;

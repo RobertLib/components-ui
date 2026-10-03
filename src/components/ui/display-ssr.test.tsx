@@ -14,7 +14,7 @@ import Skeleton from "./skeleton";
 import Stat from "./stat";
 import VisuallyHidden from "./visually-hidden";
 import UIProvider from "../../providers/ui-provider";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 
 function Page() {
   return (

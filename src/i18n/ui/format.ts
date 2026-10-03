@@ -1,4 +1,4 @@
-import logger from "../utils/logger";
+import logger from "../../utils/logger";
 import type { DeepPartial, Locale, PluralMessage } from "./types";
 
 type MessageParams = Record<string, string | number>;

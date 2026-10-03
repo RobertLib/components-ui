@@ -6,7 +6,7 @@ import { Truck } from "lucide-react";
 import { describe, expect, it, vi } from "vitest";
 import Chip from "./chip";
 import UIProvider from "../../providers/ui-provider";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 
 describe("Chip", () => {
   it("is phrasing content that fits into a paragraph", () => {

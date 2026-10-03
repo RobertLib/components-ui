@@ -4,7 +4,7 @@ import { createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import Stepper from "./stepper";
 import UIProvider from "../../providers/ui-provider";
 

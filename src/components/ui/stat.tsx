@@ -2,7 +2,7 @@ import { Minus, TrendingDown, TrendingUp } from "lucide-react";
 import cn from "../../utils/cn";
 import Skeleton from "./skeleton";
 import Sparkline, { type SparklineProps } from "./sparkline";
-import { toIntlLocale } from "../../i18n/format";
+import { toIntlLocale } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 
 type StatTrend = "up" | "down" | "neutral";

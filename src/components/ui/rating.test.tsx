@@ -7,7 +7,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import Rating, { type RatingColor } from "./rating";
 import { colorOf, contrast, pageBackgrounds } from "../../test/contrast";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import UIProvider from "../../providers/ui-provider";
 
 const getForm = () => screen.getByRole<HTMLFormElement>("form");

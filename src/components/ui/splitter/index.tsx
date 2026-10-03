@@ -13,7 +13,7 @@ import cn from "../../../utils/cn";
 import logger from "../../../utils/logger";
 import { getTabbableElements } from "../../../utils/tabbable";
 import { attachRef } from "../../../hooks/use-form-control";
-import { formatMessage, toIntlLocale } from "../../../i18n/format";
+import { formatMessage, toIntlLocale } from "../../../i18n/ui/format";
 import { useLocale } from "../../../providers/ui-context";
 import {
   clamp,
@@ -613,7 +613,7 @@ export default function Splitter({
                 aria-controls={paneId(handle)}
                 aria-label={
                   paneLabels?.[handle] ??
-                  formatMessage(locale.messages.splitter.resizePane, {
+                  formatMessage(locale.messages.ui.splitter.resizePane, {
                     number: handle + 1,
                   })
                 }

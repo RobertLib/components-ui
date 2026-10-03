@@ -3,7 +3,7 @@ import Pagination, {
   type PaginationDirection,
 } from "../pagination";
 import Select from "../select";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import {
   getQuerySort,
   isSameFilters,
@@ -46,7 +46,7 @@ export function TableFooter({
   total,
   updateQuery,
 }: TableFooterProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const paginationWordId = useId();
 
   const sizes = pageSizeOptions.includes(query.pageSize)

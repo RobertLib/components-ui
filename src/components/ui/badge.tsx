@@ -1,5 +1,5 @@
 import cn from "../../utils/cn";
-import { formatMessage, formatNumber } from "../../i18n/format";
+import { formatMessage, formatNumber } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 
 export type BadgeColor =
@@ -157,7 +157,7 @@ export default function Badge({
     dot || !hasCount
       ? null
       : count > limit
-        ? formatMessage(locale.messages.badge.overflow, {
+        ? formatMessage(locale.messages.ui.badge.overflow, {
             max: formatNumber(locale.code, limit),
           })
         : formatNumber(locale.code, count);

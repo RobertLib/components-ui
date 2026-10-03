@@ -14,7 +14,7 @@ import {
   isWeekUnavailable,
   type DateDisabledPredicate,
 } from "./availability";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import {
   addDays,
   formatPattern,
@@ -72,7 +72,7 @@ function WeekGrid({
   selected,
 }: WeekGridProps) {
   const locale = useLocale();
-  const messages = locale.messages.dateTimePicker;
+  const messages = locale.messages.ui.dateTimePicker;
   const current = getISOWeek(new Date());
   // The buttons show the week as the week format of the locale does -
   // without the year: "W39", "KW 39"
@@ -344,7 +344,7 @@ export default function WeekPicker({
   ...props
 }: CustomPickerProps) {
   const locale = useLocale();
-  const messages = locale.messages.dateTimePicker;
+  const messages = locale.messages.ui.dateTimePicker;
   const {
     close,
     contentRef,

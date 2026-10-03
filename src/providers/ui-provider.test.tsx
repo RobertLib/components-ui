@@ -9,8 +9,8 @@ import Header from "../components/ui/header";
 import useDataTableQuery from "../components/ui/data-table/use-data-table-query";
 import Pagination from "../components/ui/pagination";
 import Tabs from "../components/ui/tabs";
-import { cs } from "../i18n/cs";
-import { en } from "../i18n/en";
+import { cs } from "../i18n/ui/cs";
+import { en } from "../i18n/ui/en";
 import type { LinkComponentProps } from "./router";
 import UIProvider from "./ui-provider";
 
@@ -85,7 +85,10 @@ describe("UIProvider", () => {
 
   it("uses the locale and message overrides", () => {
     render(
-      <UIProvider locale={cs} messages={{ breadcrumbs: { home: "Úvod" } }}>
+      <UIProvider
+        locale={cs}
+        messages={{ ui: { breadcrumbs: { home: "Úvod" } } }}
+      >
         <Breadcrumbs items={[{ label: "Faktury" }]} />
         <Pagination
           currentPage={2}

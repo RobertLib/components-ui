@@ -1,5 +1,5 @@
 import logger from "../../../utils/logger";
-import { toIntlLocale } from "../../../i18n/format";
+import { toIntlLocale } from "../../../i18n/ui/format";
 
 /** The characters a locale writes numbers with, and what to ignore around them. */
 interface NumberSymbols {

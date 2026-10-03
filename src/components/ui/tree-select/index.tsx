@@ -14,7 +14,7 @@ import Popover from "../popover";
 import TreeView from "../tree-view";
 import { getActiveElement, getNextTabStop } from "../overlay-stack";
 import { getTabbableElements } from "../../../utils/tabbable";
-import { formatPlural, toIntlLocale } from "../../../i18n/format";
+import { formatPlural, toIntlLocale } from "../../../i18n/ui/format";
 import {
   attachRef,
   isAriaInvalid,
@@ -308,7 +308,7 @@ export default function TreeSelect<T extends TreeItem>({
   ...props
 }: TreeSelectProps<T>) {
   const locale = useLocale();
-  const messages = useMessages();
+  const messages = useMessages().ui;
 
   // The combobox is no native field - a disabled fieldset around it leaves
   // it alone unless told

@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import Calendar, { type CalendarEvent } from ".";
-import type { WeekDay } from "../../../i18n/types";
-import { createLocale } from "../../../i18n/format";
-import { en } from "../../../i18n/en";
+import type { WeekDay } from "../../../i18n/ui/types";
+import { createLocale } from "../../../i18n/ui/format";
+import { en } from "../../../i18n/ui/en";
 import { getVisibleRange } from "./date-utils";
 import { shiftEventByDays } from "./move-geometry";
 import { isOnDay } from "./utils";

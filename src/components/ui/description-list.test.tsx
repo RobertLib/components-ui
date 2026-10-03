@@ -23,7 +23,7 @@ describe("DescriptionList", () => {
 
   it("follows the terms with the label suffix of the locale", () => {
     render(
-      <UIProvider messages={{ form: { labelSuffix: " :" } }}>
+      <UIProvider messages={{ ui: { form: { labelSuffix: " :" } } }}>
         <DescriptionList items={[{ desc: "Jana Nováková", term: "Nom" }]} />
       </UIProvider>,
     );

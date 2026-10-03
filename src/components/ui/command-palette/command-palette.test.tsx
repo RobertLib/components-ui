@@ -4,7 +4,7 @@ import { useState } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import CommandPalette, { type CommandPaletteItem } from ".";
-import { cs } from "../../../i18n/cs";
+import { cs } from "../../../i18n/ui/cs";
 import UIProvider from "../../../providers/ui-provider";
 
 function createItems() {

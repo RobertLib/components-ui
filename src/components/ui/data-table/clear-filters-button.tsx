@@ -25,7 +25,7 @@ export default function ClearFiltersButton({
   inFilterRow = false,
   onClear,
 }: ClearFiltersButtonProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   // A button disabled with the focus in it drops the focus to the page -
   // it stays focusable (`aria-disabled`) until the focus moves on
   const [hasFocus, setHasFocus] = useState(false);

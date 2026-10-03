@@ -10,7 +10,7 @@ import {
   type SortOrder,
 } from "./query";
 import type { Column, ColumnGroup, DataTableColumn } from "./types";
-import type { Locale } from "../../../i18n/types";
+import type { Locale } from "../../../i18n/ui/types";
 
 /** The columns of `columns` with the groups of their headers. */
 export interface FlatColumns<T> {

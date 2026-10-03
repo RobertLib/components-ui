@@ -10,7 +10,7 @@ import {
 import PickerField from "./picker-field";
 import usePickerPopup from "./use-picker-popup";
 import { isMonthUnavailable, type DateDisabledPredicate } from "./availability";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import {
   formatPattern,
   formatPlaceholder,
@@ -60,7 +60,7 @@ function MonthGrid({
   selected,
 }: MonthGridProps) {
   const locale = useLocale();
-  const messages = locale.messages.dateTimePicker;
+  const messages = locale.messages.ui.dateTimePicker;
   const monthNames = getMonthNames(locale.code);
   const rows = Array.from({ length: 12 / COLUMNS }, (_, row) =>
     Array.from({ length: COLUMNS }, (_, column) => row * COLUMNS + column),
@@ -292,7 +292,7 @@ export default function MonthPicker({
   ...props
 }: CustomPickerProps) {
   const locale = useLocale();
-  const messages = locale.messages.dateTimePicker;
+  const messages = locale.messages.ui.dateTimePicker;
   const {
     close,
     contentRef,

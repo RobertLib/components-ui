@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import DataTable, { type DataTableProps } from ".";
 import ConfirmProvider from "../../../providers/confirm-provider";
 import UIProvider from "../../../providers/ui-provider";
-import { cs } from "../../../i18n/cs";
+import { cs } from "../../../i18n/ui/cs";
 import { useConfirm } from "../../../providers/confirm-context";
 import type { Column, RowId } from "./types";
 

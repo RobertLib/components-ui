@@ -13,7 +13,7 @@ import {
 import usePickerPopup from "./use-picker-popup";
 import { findEnabledDay } from "./availability";
 import useToday from "../../../hooks/use-today";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import {
   formatPattern,
   formatPlaceholder,
@@ -41,7 +41,7 @@ export default function DateTimePanelPicker({
   ...props
 }: CustomPickerProps) {
   const locale = useLocale();
-  const messages = locale.messages.dateTimePicker;
+  const messages = locale.messages.ui.dateTimePicker;
   const {
     close,
     contentRef,

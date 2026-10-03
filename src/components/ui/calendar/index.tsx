@@ -36,7 +36,7 @@ import {
 } from "./utils";
 import { useLocale } from "../../../providers/ui-context";
 import WeekView from "./week-view";
-import type { WeekDay } from "../../../i18n/types";
+import type { WeekDay } from "../../../i18n/ui/types";
 
 export type {
   CalendarAgendaPeriod,

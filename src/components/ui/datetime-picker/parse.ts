@@ -13,8 +13,8 @@ import {
   withoutMonth,
   type DayPeriods,
 } from "../../../utils/date";
-import { formatMessage } from "../../../i18n/format";
-import type { Messages } from "../../../i18n/types";
+import { formatMessage } from "../../../i18n/ui/format";
+import type { UIMessages } from "../../../i18n/ui/types";
 import type { DateTimePickerType } from ".";
 
 /** Splits `HH:mm` (optionally with seconds) into its parts. */
@@ -162,7 +162,7 @@ export const isTimeInRange = (time: string, min?: string, max?: string) =>
  * values.
  */
 export function getRangeMessage(
-  messages: Messages["dateTimePicker"],
+  messages: UIMessages["dateTimePicker"],
   value: string | undefined,
   { max, min }: { max?: string; min?: string },
   format: (limit: string) => string,

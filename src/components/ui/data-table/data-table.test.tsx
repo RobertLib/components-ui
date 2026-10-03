@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
 import { createDataTableQuery, type DataTableQuery } from "./query";
 import useDataTableQuery from "./use-data-table-query";
-import { cs } from "../../../i18n/cs";
+import { cs } from "../../../i18n/ui/cs";
 import UIProvider from "../../../providers/ui-provider";
 import type { Column } from "./types";
 import type { RouterAdapter } from "../../../providers/router";

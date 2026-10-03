@@ -2,7 +2,7 @@ import { useState } from "react";
 import cn from "../../../utils/cn";
 import DayGrid, { type DayRange } from "../datetime-picker/day-grid";
 import PresetList from "../datetime-picker/preset-list";
-import { formatPlural } from "../../../i18n/format";
+import { formatPlural } from "../../../i18n/ui/format";
 import useToday from "../../../hooks/use-today";
 import { useLocale } from "../../../providers/ui-context";
 import {
@@ -74,7 +74,7 @@ export default function RangePanel({
   value,
 }: RangePanelProps) {
   const locale = useLocale();
-  const messages = locale.messages.dateRangePicker;
+  const messages = locale.messages.ui.dateRangePicker;
   // The first day picked - the next pick ends the range
   const [anchor, setAnchor] = useState<Date | null>(null);
   // The day under the pointer or in focus - the other end of the range

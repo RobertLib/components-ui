@@ -14,7 +14,7 @@ import {
   useFieldsetDisabled,
   useFormReset,
 } from "../../hooks/use-form-control";
-import { formatPlural } from "../../i18n/format";
+import { formatPlural } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 import Input from "./input";
 import Checkbox from "./checkbox";
@@ -111,7 +111,7 @@ export default function TransferList({
   ...props
 }: TransferListProps) {
   const locale = useLocale();
-  const messages = locale.messages.transferList;
+  const messages = locale.messages.ui.transferList;
   const generatedId = useId();
   const groupId = id ?? generatedId;
   const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();

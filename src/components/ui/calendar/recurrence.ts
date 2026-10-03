@@ -1,6 +1,6 @@
 import { copyDate, dateTimeZone, inTimeZone } from "../../../utils/time-zone";
 import type { CalendarEvent, CalendarRecurrence } from "./types";
-import type { WeekDay } from "../../../i18n/types";
+import type { WeekDay } from "../../../i18n/ui/types";
 import { dateOf, existingDayOf, startOfDay } from "../../../utils/date";
 import {
   addCalendarDays,

@@ -11,7 +11,7 @@ import Chip from "./chip";
 import Link from "./link";
 import Tabs from "./tabs";
 import Timeline from "./timeline";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import Pagination from "./pagination";
 import Spinner from "./spinner";
 import Stepper from "./stepper";

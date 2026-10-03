@@ -11,7 +11,7 @@ import {
   getEventTooltipText,
   getHiddenSide,
 } from "./utils";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import { startOfDay } from "../../../utils/date";
 import { useLocale } from "../../../providers/ui-context";
 
@@ -65,7 +65,7 @@ export default function HiddenEvents({
   view,
 }: HiddenEventsProps) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const timeFormat = createTimeFormat(locale, dateTimeZone(day));
   const timeText = createTimeTextFormatter(locale);
 

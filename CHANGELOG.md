@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+- **Application localization** - keep application texts at the root of `useMessages()` and library texts under `useMessages().ui`. Application catalogs live directly in `src/i18n/en.ts` and `cs.ts`; UI locales, localization types and formatting helpers live in `src/i18n/ui/`. Both share `UIProvider`, placeholders and plural helpers. Infer application keys from the default catalog and check translations without maintaining another type definition. Provider overrides follow the same root / `ui` shape. Document source-copy setup and fallback translations.
+
 ## 0.4.3
 
 - **Source layout** - move all library components and their supporting files into `src/components/ui/`, preserving their internal folders. Export the full public API from `components/ui/index.ts` so source copies can use `import { Button } from "./components/ui"`. Update imports and the source-copy installation guide; package imports from `components-ui` stay the same.

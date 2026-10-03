@@ -13,7 +13,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RangeCalendar from ".";
 import type { DateRange } from "../date-range-picker";
-import { cs } from "../../../i18n/cs";
+import { cs } from "../../../i18n/ui/cs";
 import UIProvider from "../../../providers/ui-provider";
 
 /** Lets the frames the grid schedules (focus) run. */

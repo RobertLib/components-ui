@@ -72,7 +72,7 @@ export default function CalendarHeader({
   viewOptions,
 }: CalendarHeaderProps) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   // The agenda shows a period of its own, the timeline a day or a week
   const period =
     view === "agenda"

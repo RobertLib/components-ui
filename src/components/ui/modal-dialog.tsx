@@ -157,7 +157,7 @@ export default function ModalDialog({
   // The `onClose` of the last render - an uncontrolled dialog calls it once
   // it has animated out
   const onCloseRef = useRef(onClose);
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const getPortalContainer = usePortalContainer();
 
   useLayoutEffect(() => {

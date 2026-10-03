@@ -1,8 +1,8 @@
 import { formatCellValue, toJson } from "./format-value";
 import { getColumnValue, toNumber } from "./query";
-import { toIntlLocale } from "../../../i18n/format";
+import { toIntlLocale } from "../../../i18n/ui/format";
 import type { Column } from "./types";
-import type { Locale } from "../../../i18n/types";
+import type { Locale } from "../../../i18n/ui/types";
 
 export interface CsvOptions {
   /**

@@ -1,5 +1,5 @@
 import type { BusinessSchedule } from "./business-hours";
-import type { WeekDay } from "../../../i18n/types";
+import type { WeekDay } from "../../../i18n/ui/types";
 
 /**
  * `month`, `week` and `day` - the grids; `agenda` - a list of the events of

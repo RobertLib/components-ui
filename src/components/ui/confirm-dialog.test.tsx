@@ -12,7 +12,7 @@ import ConfirmDialog from "./confirm-dialog";
 import ConfirmProvider from "../../providers/confirm-provider";
 import { useAlert, useConfirm } from "../../providers/confirm-context";
 import UIProvider from "../../providers/ui-provider";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

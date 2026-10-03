@@ -172,7 +172,7 @@ export default function RadioGroup({
   variant = "default",
   ...props
 }: RadioGroupProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const { fieldRef, handleChange, hasValue, value } = useFormControl({
     defaultValue,
     form,

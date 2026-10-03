@@ -20,7 +20,7 @@ import {
 } from "./choice-options";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
-import { formatPlural } from "../../i18n/format";
+import { formatPlural } from "../../i18n/ui/format";
 import { ignoreChange, keepCheckboxState } from "./read-only-choice";
 import { useLocale } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
@@ -410,7 +410,7 @@ export default function CheckboxGroup<
   ...props
 }: CheckboxGroupProps<T>) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
 
   // What the user picked in an uncontrolled group. Until then, and again
   // after a reset, it shows `defaultValue` - also one that arrived late.

@@ -4,7 +4,7 @@ import CalendarField from "./calendar-field";
 import DayGrid from "../datetime-picker/day-grid";
 import useCalendarField from "./use-calendar-field";
 import { getRangeMessage } from "../datetime-picker/parse";
-import { formatMessage, formatPlural } from "../../../i18n/format";
+import { formatMessage, formatPlural } from "../../../i18n/ui/format";
 import { formatDate, parseISODate, toISODate } from "../../../utils/date";
 import { useLocale } from "../../../providers/ui-context";
 import type { DateDisabledPredicate } from "../datetime-picker/availability";
@@ -157,7 +157,7 @@ export default function DateCalendar({
   ...props
 }: DateCalendarProps) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const generatedId = useId();
   const groupId = id ?? generatedId;
 

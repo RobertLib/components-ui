@@ -12,7 +12,7 @@ import WeekPicker from "./week-picker";
 import { isValueUnavailable, type DateDisabledPredicate } from "./availability";
 import { parseTime, sanitizePickerLimit, sanitizePickerValue } from "./parse";
 import { isAriaInvalid, useFormControl } from "../../../hooks/use-form-control";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import {
   formatDate,
   formatPattern,
@@ -22,7 +22,7 @@ import {
 } from "../../../utils/date";
 import { useLocale } from "../../../providers/ui-context";
 import type { CustomPickerProps, DateTimePickerPreset } from "./types";
-import type { Locale } from "../../../i18n/types";
+import type { Locale } from "../../../i18n/ui/types";
 import RequiredMark from "../required-mark";
 
 export type { DateTimePickerPreset } from "./types";
@@ -291,7 +291,7 @@ export default function DateTimePicker({
   const nativeMessage =
     mode === "native" &&
     isValueUnavailable(String(value ?? ""), type, isDateDisabled)
-      ? formatMessage(locale.messages.dateTimePicker.unavailable, {
+      ? formatMessage(locale.messages.ui.dateTimePicker.unavailable, {
           value: formatValue(String(value), type, locale),
         })
       : "";
@@ -310,7 +310,7 @@ export default function DateTimePicker({
     placeholder ||
     formatPlaceholder(
       getPattern(locale, type),
-      locale.messages.dateTimePicker.placeholderTokens,
+      locale.messages.ui.dateTimePicker.placeholderTokens,
     );
 
   if (mode === "native") {
@@ -328,7 +328,7 @@ export default function DateTimePicker({
             htmlFor={inputId}
           >
             {label}
-            {locale.messages.form.labelSuffix} {required && <RequiredMark />}
+            {locale.messages.ui.form.labelSuffix} {required && <RequiredMark />}
           </label>
         )}
 

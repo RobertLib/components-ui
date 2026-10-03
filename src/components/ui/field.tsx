@@ -85,7 +85,7 @@ export default function Field({
   required,
   ...props
 }: FieldProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const generatedId = useId();
   const controlId = id ?? generatedId;
   const labelId = `${controlId}-label`;

@@ -209,7 +209,7 @@ export default function Stepper({
   steps,
   ...props
 }: StepperProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const idPrefix = useId();
   const isMobile = useIsMobile();
   const isVertical =

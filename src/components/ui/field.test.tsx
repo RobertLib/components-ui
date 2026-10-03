@@ -97,7 +97,7 @@ describe("Field", () => {
 
   it("follows the label suffix of the locale", () => {
     render(
-      <UIProvider messages={{ form: { labelSuffix: " :" } }}>
+      <UIProvider messages={{ ui: { form: { labelSuffix: " :" } } }}>
         <Field label="Couleur">
           {(controlProps) => <input {...controlProps} />}
         </Field>

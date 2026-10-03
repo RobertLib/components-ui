@@ -491,18 +491,26 @@ export {
 } from "../../providers/confirm-context";
 
 // Localization
-export { cs } from "../../i18n/cs";
-export { en } from "../../i18n/en";
-export { createLocale, formatMessage, formatPlural } from "../../i18n/format";
+export { cs } from "../../i18n/ui/cs";
+export { en } from "../../i18n/ui/en";
+export {
+  createLocale,
+  formatMessage,
+  formatPlural,
+} from "../../i18n/ui/format";
 export type {
+  AppMessages,
   DateFormats,
   DatePatternToken,
   DeepPartial,
   Locale,
+  MessageCatalog,
   Messages,
+  MessageShape,
   PluralMessage,
+  UIMessages,
   WeekDay,
-} from "../../i18n/types";
+} from "../../i18n/ui/types";
 
 // Hooks & utilities
 export {

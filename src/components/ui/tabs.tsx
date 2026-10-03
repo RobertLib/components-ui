@@ -373,7 +373,7 @@ export default function Tabs({
   ...props
 }: TabsProps) {
   const { Link, pathname, search } = useRouter();
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const baseId = useId();
   const isVertical = orientation === "vertical";
   const isLinkList = isLinkTab(items[0] ?? { href: "" });

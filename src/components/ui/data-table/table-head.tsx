@@ -30,7 +30,7 @@ import {
   MIN_COLUMN_WIDTH,
   type CellLayout,
 } from "./cell-layout";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import { useMessages } from "../../../providers/ui-context";
 import type {
   DataTableFilterValue,
@@ -176,7 +176,7 @@ export function TableHead<T>({
   stickyTop,
   toggleSelectAll,
 }: TableHeadProps<T>) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const idPrefix = useId();
 
   // Touch devices have no hover, so the labelInfo popover opens on tap there.

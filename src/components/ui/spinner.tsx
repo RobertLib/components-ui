@@ -27,7 +27,7 @@ export default function Spinner({
   size = "md",
   ...props
 }: SpinnerProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
 
   return (
     <div

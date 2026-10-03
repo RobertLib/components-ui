@@ -10,7 +10,8 @@ of any backend or router.
 - **Any router** - links and navigation go through a small adapter: React
   Router, Next.js, TanStack Router or plain links.
 - **Localized** - English and Czech built in, any other language as a locale
-  object; dates, month and weekday names come from `Intl`.
+  object; source copies include typed catalogs for your application's texts
+  under the same provider. Dates, month and weekday names come from `Intl`.
 - **Themable** - Tailwind CSS v4 color tokens you override in one `@theme`
   block, dark mode included.
 - **Typed and documented** - strict TypeScript, every prop described in the
@@ -45,7 +46,7 @@ Requirements: React 19, Tailwind CSS 4.3 or newer and a bundler that sets
    page):
 
    ```sh
-   npm install git+https://github.com/RobertLib/components-ui.git#v0.4.3
+   npm install git+https://github.com/RobertLib/components-ui.git#v0.4.4
    ```
 
    If npm reports that the `prepare` script of `components-ui` is not allowed
@@ -118,6 +119,63 @@ Keep `components/ui/index.ts` when copying the folder: it exports all public
 components, providers, locales, hooks and helpers. You can keep your project's
 entry file. Updates to a source copy need to be copied manually.
 
+### Application translations
+
+The copied source is ready to translate your app with the same system as
+the UI. Add texts to `src/i18n/en.ts` and their translations to
+`src/i18n/cs.ts`; both catalogs start empty. Types and autocomplete are
+inferred from the English catalog, so no type file needs updating.
+UI translations, localization types and formatting helpers live in
+`src/i18n/ui/`.
+
+```ts
+// src/i18n/en.ts
+import type { MessageCatalog } from "./ui/types";
+
+const en = {
+  dashboard: { title: "Dashboard", welcome: "Hello, {name}!" },
+} satisfies MessageCatalog;
+
+export default en;
+```
+
+```ts
+// src/i18n/cs.ts
+import type { AppMessages } from "./ui/types";
+
+const cs: AppMessages = {
+  dashboard: { title: "Přehled", welcome: "Ahoj, {name}!" },
+};
+
+export default cs;
+```
+
+```tsx
+// src/components/Dashboard.tsx
+import { formatMessage, useMessages } from "./ui";
+
+export default function Dashboard() {
+  const messages = useMessages();
+  return (
+    <section>
+      <h1>{messages.dashboard.title}</h1>
+      <p>{formatMessage(messages.dashboard.welcome, { name: "Jana" })}</p>
+    </section>
+  );
+}
+```
+
+Render it inside `<UIProvider locale={cs}>`. Changing the provider's locale
+switches the app and UI texts together. Application texts are at the root
+of `useMessages()`; library texts are under `useMessages().ui`, for example
+`messages.ui.common.cancel`. Provider overrides follow the same shape.
+Plurals use the existing
+`formatPlural` helper and can have different categories in each language.
+TypeScript reports missing translations; the
+[Localization](https://robertlib.github.io/components-ui/#/localization)
+guide also shows how to fall back to English for incomplete catalogs.
+Keep your application catalogs when updating `i18n/ui/` from the library.
+
 ## Development
 
 | Script                  | What it does                                                           |
@@ -161,7 +219,9 @@ with `npx playwright show-report`.
 ```
 src/          the library
   components/ui/  all UI components and their internal helpers
-  providers/, i18n/, hooks/, utils/, styles.css
+  i18n/       application catalogs: en.ts and cs.ts
+    ui/       UI locales, localization types and formatting helpers
+  providers/, hooks/, utils/, styles.css
   index.ts    the package entry point (re-exports components/ui/index.ts)
 docs/         the documentation site (not published)
   pages/      one file per page, registered in docs/pages.ts

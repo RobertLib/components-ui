@@ -9,7 +9,7 @@ import {
   type ColorFormat,
   type Hsva,
 } from "./color";
-import { formatMessage, formatNumber } from "../../../i18n/format";
+import { formatMessage, formatNumber } from "../../../i18n/ui/format";
 import { getNumberFormat } from "../number-input/number-format";
 import { useLocale } from "../../../providers/ui-context";
 
@@ -243,7 +243,7 @@ export default function ColorPicker({
   value,
 }: ColorPickerProps) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const percent = (share: number) =>
     getNumberFormat(locale.code, {
       maximumFractionDigits: 0,

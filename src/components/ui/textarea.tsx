@@ -3,7 +3,11 @@ import {
   isAriaInvalid,
   useFormControl,
 } from "../../hooks/use-form-control";
-import { formatMessage, formatNumber, formatPlural } from "../../i18n/format";
+import {
+  formatMessage,
+  formatNumber,
+  formatPlural,
+} from "../../i18n/ui/format";
 import {
   useCallback,
   useEffect,
@@ -154,7 +158,7 @@ export default function Textarea({
 }: TextareaProps) {
   const [isFocused, setIsFocused] = useState(false);
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const shadowRef = useRef<HTMLTextAreaElement | null>(null);

@@ -98,7 +98,7 @@ export default function Accordion({
   ...props
 }: AccordionProps) {
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const headerId = useId();
   const contentId = useId();
   const group = use(AccordionGroupContext);

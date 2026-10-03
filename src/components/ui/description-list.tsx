@@ -78,7 +78,7 @@ export default function DescriptionList({
   termWidth,
   ...props
 }: DescriptionListProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const isGrid = columns > 1;
 
   const renderTerm = (item: DescriptionListItem) => (

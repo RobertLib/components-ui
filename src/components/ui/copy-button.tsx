@@ -43,7 +43,7 @@ export default function CopyButton({
   variant,
   ...props
 }: CopyButtonProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const { copied, copy, error, reset } = useClipboard({ timeout });
 
   // A failure is shown as long as a success - then the button offers

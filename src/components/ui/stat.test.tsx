@@ -3,7 +3,7 @@ import { Banknote } from "lucide-react";
 import { describe, expect, it } from "vitest";
 import Stat from "./stat";
 import UIProvider from "../../providers/ui-provider";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 
 describe("Stat", () => {
   it("is a term with its value and change", () => {

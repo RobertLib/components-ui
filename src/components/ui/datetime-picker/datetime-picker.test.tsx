@@ -3,9 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import DateTimePicker from ".";
-import { cs } from "../../../i18n/cs";
-import { en } from "../../../i18n/en";
-import { createLocale } from "../../../i18n/format";
+import { cs } from "../../../i18n/ui/cs";
+import { en } from "../../../i18n/ui/en";
+import { createLocale } from "../../../i18n/ui/format";
 import UIProvider from "../../../providers/ui-provider";
 
 /** Lets the frames the popup schedules (focus, scrolling) run. */

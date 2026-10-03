@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import Sparkline, { type SparklineColor } from "./sparkline";
 import Stat from "./stat";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 import UIProvider from "../../providers/ui-provider";
 import { colorOf, contrast, pageBackgrounds } from "../../test/contrast";
 

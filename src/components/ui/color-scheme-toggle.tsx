@@ -56,7 +56,7 @@ export default function ColorSchemeToggle({
   tooltipPosition = "bottom",
   ...props
 }: ColorSchemeToggleProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const { colorScheme, setColorScheme } = useColorScheme({
     defaultColorScheme,
     storageKey,

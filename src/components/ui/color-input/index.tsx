@@ -21,7 +21,7 @@ import {
 import FormDescription from "../form-description";
 import FormError from "../form-error";
 import Popover from "../popover";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import { useMessages } from "../../../providers/ui-context";
 import RequiredMark from "../required-mark";
 
@@ -175,7 +175,7 @@ export default function ColorInput({
   value: controlledValue,
   ...props
 }: ColorInputProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   // The portaled picker is outside the fieldset that disables its input.
   const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();
   const disabled = disabledProp || fieldsetDisabled;

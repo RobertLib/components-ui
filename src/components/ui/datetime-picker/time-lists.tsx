@@ -286,7 +286,7 @@ export default function TimeLists({
   onEscape,
 }: TimeListsProps) {
   const locale = useLocale();
-  const messages = locale.messages.dateTimePicker;
+  const messages = locale.messages.ui.dateTimePicker;
   const dayPeriods = getDayPeriods(locale.code);
   const minuteOptions = getMinuteOptions(minuteStep);
 

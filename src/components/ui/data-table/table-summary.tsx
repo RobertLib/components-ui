@@ -44,7 +44,7 @@ export function SummaryCells<T>({
   values,
 }: SummaryCellsProps<T>) {
   const locale = useLocale();
-  const labels = locale.messages.dataTable.summary;
+  const labels = locale.messages.ui.dataTable.summary;
   const densityClass = DENSITY_CLASSES[density];
 
   const leadingCell = (key: string) => {

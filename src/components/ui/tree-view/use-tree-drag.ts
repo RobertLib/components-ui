@@ -5,8 +5,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { formatMessage, formatPlural } from "../../../i18n/format";
-import type { PluralMessage } from "../../../i18n/types";
+import { formatMessage, formatPlural } from "../../../i18n/ui/format";
+import type { PluralMessage } from "../../../i18n/ui/types";
 import { useLocale, useMessages } from "../../../providers/ui-context";
 import { isFromControl, isRtl, levelAt } from "./dom";
 import {
@@ -169,7 +169,7 @@ export default function useTreeDrag<T extends TreeItem>(
   options: TreeDragOptions<T>,
 ) {
   const locale = useLocale();
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const [session, setSession] = useState<MoveSession | null>(null);
   // What the live region says - the count tells a repeated text apart
   const [announcement, setAnnouncement] = useState({ count: 0, text: "" });

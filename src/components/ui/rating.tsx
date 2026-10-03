@@ -8,7 +8,7 @@ import { useCallback, useId, useRef, useState } from "react";
 import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
-import { formatNumber, formatPlural } from "../../i18n/format";
+import { formatNumber, formatPlural } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
 
@@ -208,7 +208,7 @@ export default function Rating({
   ...props
 }: RatingProps) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
 
   // The slider is no native field - a disabled fieldset around it leaves it
   // alone unless told

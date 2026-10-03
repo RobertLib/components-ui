@@ -7,7 +7,7 @@ import {
 import Button from "./button";
 import { useEffect, useId, useState } from "react";
 import cn from "../../utils/cn";
-import { formatMessage, formatNumber } from "../../i18n/format";
+import { formatMessage, formatNumber } from "../../i18n/ui/format";
 import Select from "./select";
 import { useLocale } from "../../providers/ui-context";
 
@@ -215,7 +215,7 @@ export default function Pagination({
   ...props
 }: PaginationProps) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const controlsId = useId();
   const [jumpText, setJumpText] = useState("");
 

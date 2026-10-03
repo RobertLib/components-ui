@@ -5,7 +5,7 @@ import RangePanel from "../date-range-picker/range-panel";
 import useCalendarField from "../date-calendar/use-calendar-field";
 import useIsMobile from "../../../hooks/use-is-mobile";
 import { getRangeMessage } from "../datetime-picker/parse";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import { formatDate, parseISODate, toISODate } from "../../../utils/date";
 import { useLocale } from "../../../providers/ui-context";
 import {
@@ -189,7 +189,7 @@ export default function RangeCalendar({
   ...props
 }: RangeCalendarProps) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const isMobile = useIsMobile();
   const generatedId = useId();
   const groupId = id ?? generatedId;

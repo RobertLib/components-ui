@@ -19,7 +19,7 @@ const editor = () => screen.getByRole("textbox", { name: /Note/ });
 describe("RichTextEditor", () => {
   it("follows the label with the label suffix of the locale", () => {
     render(
-      <UIProvider messages={{ form: { labelSuffix: " :" } }}>
+      <UIProvider messages={{ ui: { form: { labelSuffix: " :" } } }}>
         <RichTextEditor label="Note" />
       </UIProvider>,
     );
@@ -1524,7 +1524,9 @@ describe("RichTextEditor toolbar", () => {
 
     vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
     render(
-      <UIProvider messages={{ richTextEditor: { keys: { ctrl: "Strg" } } }}>
+      <UIProvider
+        messages={{ ui: { richTextEditor: { keys: { ctrl: "Strg" } } } }}
+      >
         <RichTextEditor label="Note" />
       </UIProvider>,
     );
@@ -1540,7 +1542,9 @@ describe("RichTextEditor toolbar", () => {
     render(
       <UIProvider
         messages={{
-          richTextEditor: { keys: { ctrl: "Strg", shift: "Umschalt" } },
+          ui: {
+            richTextEditor: { keys: { ctrl: "Strg", shift: "Umschalt" } },
+          },
         }}
       >
         <RichTextEditor label="Note" />

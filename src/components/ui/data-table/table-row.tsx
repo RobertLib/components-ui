@@ -29,7 +29,7 @@ import { getColumnValue } from "./query";
 import { getMeasureKey } from "./use-virtual-rows";
 import { useRouter } from "../../../providers/ui-context";
 import type { Column, DataTableDensity, RowId } from "./types";
-import type { Locale } from "../../../i18n/types";
+import type { Locale } from "../../../i18n/ui/types";
 
 const MAX_CELL_TEXT_LENGTH = 80;
 
@@ -283,7 +283,7 @@ export function TableRow<T>({
   toggleRowExpansion,
   toggleRowSelection,
 }: TableRowProps<T>) {
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const { Link } = useRouter();
   // A tap on an editable cell that has the focus already starts editing -
   // touch screens have no double-click to speak of

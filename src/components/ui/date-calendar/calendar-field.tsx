@@ -104,7 +104,7 @@ export default function CalendarField({
   validityMessage,
   wrapperRef,
 }: CalendarFieldProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const labelId = `${id}-label`;
   const errorId = error ? `${id}-error` : undefined;
   const descriptionId = description ? `${id}-description` : undefined;

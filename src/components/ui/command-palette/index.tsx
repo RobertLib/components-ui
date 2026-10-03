@@ -18,7 +18,7 @@ import { isSafeHref } from "../../../utils/sanitize-rich-text";
 import useDebouncedValue from "../../../hooks/use-debounced-value";
 import useHotkeys from "../../../hooks/use-hotkeys";
 import useIsApplePlatform from "../../../hooks/use-is-apple-platform";
-import { formatPlural } from "../../../i18n/format";
+import { formatPlural } from "../../../i18n/ui/format";
 import {
   matchesShortcut,
   parseShortcut,
@@ -338,7 +338,7 @@ function PaletteContent({
   placeholder,
 }: PaletteContentProps) {
   const locale = useLocale();
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const { navigate } = useRouter();
 
   const [query, setQuery] = useState("");
@@ -718,7 +718,7 @@ export default function CommandPalette({
   title,
   ...props
 }: CommandPaletteProps) {
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const isControlled = open !== undefined;
   const isOpen = isControlled ? open : internalOpen;

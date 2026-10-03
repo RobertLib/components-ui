@@ -1,5 +1,5 @@
 import { formatDate, getDayPeriods } from "../../../utils/date";
-import type { Locale } from "../../../i18n/types";
+import type { Locale } from "../../../i18n/ui/types";
 
 /** An object in a list has no text of its own - its JSON tells what it is. */
 export function toJson(value: unknown) {
@@ -28,7 +28,7 @@ export function formatCellValue(
     return String(value);
   }
   if (typeof value === "boolean") {
-    return value ? locale.messages.common.yes : locale.messages.common.no;
+    return value ? locale.messages.ui.common.yes : locale.messages.ui.common.no;
   }
 
   if (value instanceof Date) {

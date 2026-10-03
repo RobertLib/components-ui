@@ -1,6 +1,6 @@
 import { copyDate, zonedDay, dateTimeZone } from "./time-zone";
-import { toIntlLocale } from "../i18n/format";
-import type { DatePatternToken, WeekDay } from "../i18n/types";
+import { toIntlLocale } from "../i18n/ui/format";
+import type { DatePatternToken, WeekDay } from "../i18n/ui/types";
 
 export const pad2 = (value: number) => String(value).padStart(2, "0");
 

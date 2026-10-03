@@ -59,7 +59,7 @@ export default function Navbar({
     useDrawer();
   const isApple = useIsApplePlatform();
   const isMobile = useIsMobile();
-  const messages = useMessages();
+  const messages = useMessages().ui;
 
   const toggleLabel = isMobile
     ? messages.navbar.toggleMenu

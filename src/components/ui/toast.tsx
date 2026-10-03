@@ -194,7 +194,7 @@ export default function Toast({
   const toastRef = useRef<HTMLDivElement>(null);
   const generatedId = useId();
   const toastId = id ?? generatedId;
-  const messages = useMessages();
+  const messages = useMessages().ui;
   const region = use(ToastRegionContext);
   // Changed by `updateSnackbar` - the time on screen starts over
   const revision = use(ToastRevisionContext);

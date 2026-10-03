@@ -28,14 +28,14 @@ import {
   formatNumber,
   formatPlural,
   toIntlLocale,
-} from "../../i18n/format";
+} from "../../i18n/ui/format";
 import {
   attachRef,
   useFieldsetDisabled,
   useFormReset,
 } from "../../hooks/use-form-control";
 import { useLocale } from "../../providers/ui-context";
-import type { Messages } from "../../i18n/types";
+import type { UIMessages } from "../../i18n/ui/types";
 import RequiredMark from "./required-mark";
 
 const MAX_FILE_SIZE = 200; // MB
@@ -542,7 +542,7 @@ function FileItem({
   canChange: boolean;
   file: ListedFile;
   localeCode: string;
-  messages: Messages;
+  messages: UIMessages;
   onRemove: () => void;
   removing: boolean;
   removalError?: string;
@@ -885,7 +885,7 @@ export default function FileUpload<
   ...props
 }: Readonly<FileUploadProps<TResult>>) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const generatedId = useId();
   const groupId = id ?? generatedId;
   const labelId = `${groupId}-label`;

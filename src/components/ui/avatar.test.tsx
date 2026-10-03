@@ -4,7 +4,7 @@ import Avatar from "./avatar";
 import AvatarGroup from "./avatar-group";
 import { colorOf, contrast } from "../../test/contrast";
 import UIProvider from "../../providers/ui-provider";
-import { cs } from "../../i18n/cs";
+import { cs } from "../../i18n/ui/cs";
 
 describe("Avatar", () => {
   it("shows the picture, named after the person", () => {

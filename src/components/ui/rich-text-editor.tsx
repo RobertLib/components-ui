@@ -38,7 +38,11 @@ import Button from "./button";
 import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
-import { formatMessage, formatNumber, formatPlural } from "../../i18n/format";
+import {
+  formatMessage,
+  formatNumber,
+  formatPlural,
+} from "../../i18n/ui/format";
 import { getActiveElement } from "./overlay-stack";
 import sanitizeRichText, {
   isSafeHref,
@@ -1112,7 +1116,7 @@ export default function RichTextEditor({
   ...props
 }: RichTextEditorProps) {
   const locale = useLocale();
-  const { messages } = locale;
+  const messages = locale.messages.ui;
   const texts = messages.richTextEditor;
   const labelId = useId();
   const labelTextId = useId();

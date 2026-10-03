@@ -7,7 +7,7 @@ import {
   useFormReset,
 } from "../../hooks/use-form-control";
 import useCustomValidity from "../../hooks/use-custom-validity";
-import { formatMessage, formatPlural } from "../../i18n/format";
+import { formatMessage, formatPlural } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 import cn, { joinTokens } from "../../utils/cn";
 import Button from "./button";
@@ -98,7 +98,7 @@ export default function RepeatableField<T>({
   ...props
 }: RepeatableFieldProps<T>) {
   const locale = useLocale();
-  const messages = locale.messages.repeatableField;
+  const messages = locale.messages.ui.repeatableField;
   const generatedId = useId();
   const id = providedId ?? generatedId;
   const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();

@@ -2,9 +2,9 @@ import { act, render, screen, within } from "@testing-library/react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { cs } from "../../i18n/cs";
-import { en } from "../../i18n/en";
-import { createLocale } from "../../i18n/format";
+import { cs } from "../../i18n/ui/cs";
+import { en } from "../../i18n/ui/en";
+import { createLocale } from "../../i18n/ui/format";
 import Timeline, { type TimelineItem } from "./timeline";
 import UIProvider from "../../providers/ui-provider";
 

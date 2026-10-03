@@ -5,7 +5,8 @@ const structure = `src/                     the library (what gets published)
   components/ui/         one file or folder per UI component
     index.ts             the public API for source copies and package imports
   providers/             UIProvider (locale + router), DrawerProvider, SnackbarProvider
-  i18n/                  Locale / Messages types, en.ts, cs.ts, formatting helpers
+  i18n/                  application catalogs: en.ts and cs.ts
+    ui/                  UI locales, Locale / Messages types, formatting helpers
   hooks/, utils/         shared hooks and helpers (dates, server errors, …)
   styles.css             theme tokens and the CSS the components need
   index.ts               the package entry point - re-exports components/ui/index.ts
@@ -48,7 +49,7 @@ npm version minor
 # 2. push the commit and the tag
 git push --follow-tags
 # 3. projects update the dependency to the new tag
-npm install git+https://github.com/RobertLib/components-ui.git#v0.4.3`;
+npm install git+https://github.com/RobertLib/components-ui.git#v0.4.4`;
 
 export default function ContributingGuide() {
   return (
@@ -96,9 +97,11 @@ export default function ContributingGuide() {
               <code>src/index.ts</code> re-exports this API.
             </li>
             <li>
-              Put every text it renders into <code>Messages</code> (
-              <code>src/i18n/types.ts</code>) with an English and a Czech
-              translation, and read it with <code>useMessages()</code>.
+              Put every text it renders into <code>UIMessages</code> (
+              <code>src/i18n/ui/types.ts</code>) with an English and a Czech
+              translation in <code>src/i18n/ui/</code>, and read it with{" "}
+              <code>useMessages().ui</code>. Application texts belong in{" "}
+              <code>src/i18n/</code>.
             </li>
             <li>
               Render links with <code>useRouter().Link</code> and navigate with{" "}

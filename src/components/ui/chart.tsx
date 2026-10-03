@@ -2,7 +2,7 @@ import { finiteSum, sectorPath } from "./chart/geometry";
 import { useId, useState } from "react";
 import { attachRef } from "../../hooks/use-form-control";
 import cn from "../../utils/cn";
-import { toIntlLocale } from "../../i18n/format";
+import { toIntlLocale } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 import EmptyState from "./empty-state";
 import Button from "./button";
@@ -106,7 +106,7 @@ export default function Chart({
   ...props
 }: ChartProps) {
   const locale = useLocale();
-  const { chart: messages } = locale.messages;
+  const { chart: messages } = locale.messages.ui;
   const id = useId();
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
   const [active, setActive] = useState<number | null>(null);

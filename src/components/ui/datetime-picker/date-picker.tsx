@@ -6,7 +6,7 @@ import { getRangeMessage, isInRange, parseDisplayValue } from "./parse";
 import usePickerPopup from "./use-picker-popup";
 import useIsMobile from "../../../hooks/use-is-mobile";
 import useToday from "../../../hooks/use-today";
-import { formatMessage } from "../../../i18n/format";
+import { formatMessage } from "../../../i18n/ui/format";
 import {
   formatDate,
   formatPlaceholder,
@@ -34,7 +34,7 @@ export default function DatePicker({
   ...props
 }: CustomPickerProps) {
   const locale = useLocale();
-  const messages = locale.messages.dateTimePicker;
+  const messages = locale.messages.ui.dateTimePicker;
   const isMobile = useIsMobile();
   const {
     close,
