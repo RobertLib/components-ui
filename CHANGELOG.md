@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.1
+
+- **PhoneInput, Menubar, RepeatableField** - add international telephone fields with configurable country lists, application menus and repeated form groups with add/remove/reorder, form reset and validation.
+- **Chart** - add stacked bars/areas, mixed series, pie and donut charts; fix the scale for flat nonzero data.
+- **DataTable** - combine virtualization with grouped rows, support nested groups, controlled collapse state and server group counts/summaries.
+- **Stepper** - add `keepMounted` to retain fields and component state across step and responsive layout changes; reveal invalid inactive steps.
+- **FileUpload** - recursively read dropped folders, retain relative paths and report failed reads with `onDropError`.
+- **RichTextEditor** - add custom toolbar tools, shortcuts and safe insertion commands with additional built-in formats.
+- **TransferList** - add consistent field sizes and invalid-state styling.
+- **ImageViewer** - keep gallery keyboard navigation working when Safari retains focus in the dialog header after a pointer click.
+- **Calendar** - use native `Intl` time-zone rules; remove `@date-fns/tz`. No new runtime dependencies are required.
+- Update API documentation and examples for the new behavior.
+
 ## 0.4.0
 
 - **Chart** - add line, area and grouped bar charts with multiple series,

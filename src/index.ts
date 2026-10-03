@@ -1,9 +1,28 @@
+export {
+  default as Menubar,
+  type MenubarProps,
+  type MenubarMenu,
+} from "./components/menubar";
+export {
+  default as RepeatableField,
+  type RepeatableFieldProps,
+  type RepeatableFieldItem,
+  type RepeatableFieldItemProps,
+} from "./components/repeatable-field";
+export {
+  default as PhoneInput,
+  PHONE_COUNTRIES,
+  type PhoneCountry,
+  type PhoneInputProps,
+  type PhoneInputValue,
+} from "./components/phone-input";
 // Public API of the library - everything a project imports comes from here.
 
 // Components
 export {
   default as Chart,
   type ChartProps,
+  type ChartType,
   type ChartSeries,
   type ChartDataPoint,
   type ChartColor,
@@ -157,6 +176,7 @@ export {
   type DataTableColumn,
   type DataTableColumnState,
   type DataTableDensity,
+  type DataTableGroupMetadata,
   type DataTableProps,
   type DataTableSelectionMode,
   type FilteredSelectionConfig,
@@ -354,6 +374,8 @@ export {
 export {
   default as RichTextEditor,
   type RichTextEditorProps,
+  type RichTextCustomTool,
+  type RichTextToolContext,
   type RichTextImageUpload,
   type RichTextTool,
   type RichTextToolbarItem,
@@ -607,3 +629,5 @@ export {
   type Shortcut,
   type ShortcutEvent,
 } from "./utils/shortcut";
+
+export { getDataTableGroupKey } from "./components/data-table/grouping";

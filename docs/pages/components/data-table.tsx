@@ -262,20 +262,50 @@ export default function DataTablePage() {
         collapsed
         description={
           <p>
-            <code>{'groupBy="department"'}</code> groups the rows of a{" "}
-            <code>clientSide</code> table by a column: each group has a header
-            row with its value and number of rows - a button that collapses and
-            expands it (<code>aria-expanded</code>) - and, when a column has a{" "}
+            <code>{'groupBy="department"'}</code> groups the rows of a table by
+            a column: each group has a header row with its value and number of
+            rows - a button that collapses and expands it (
+            <code>aria-expanded</code>) - and, when a column has a{" "}
             <code>summary</code>, a row of it over all rows of the group. The
             groups follow the order of the value - the direction of its column
             when that is sorted, an empty value last - and the sorting orders
             the rows within them. The rows of a group come together on the
             pages: a group may go on on the next page, its number counts all its
-            rows. A grouped table is not <code>virtualized</code>.
+            rows. Grouping works with <code>virtualized</code>, including
+            headers and summary rows.
           </p>
         }
         name="data-table/row-grouping"
         title="Grouped rows"
+      />
+      <Example
+        collapsed
+        name="data-table/nested-grouping"
+        title="Nested virtualized groups"
+        description={
+          <p>
+            A <code>groupBy</code> array groups at successive levels. Each
+            parent retains its full count and summary; collapsing it hides its
+            descendants. Use <code>collapsedGroupKeys</code> and{" "}
+            <code>onCollapsedGroupKeysChange</code> to control collapse state,
+            with <code>getDataTableGroupKey</code> for stable path keys.
+          </p>
+        }
+      />
+      <Example
+        collapsed
+        name="data-table/server-grouping"
+        title="Server group metadata"
+        description={
+          <p>
+            Without <code>clientSide</code>, only loaded rows are grouped. Pass{" "}
+            <code>groupMetadata</code> keyed by{" "}
+            <code>getDataTableGroupKey([groupValue, ...nestedValues])</code> to
+            supply full server counts and summary values. Filtering, sorting and
+            pagination remain server operations; the server should page
+            consistently within its grouping order.
+          </p>
+        }
       />
       <Example
         collapsed
@@ -711,6 +741,7 @@ export default function DataTablePage() {
       </Prose>
       <Section title="Props">
         <PropsTable of="DataTable" />
+        <PropsTable of="DataTableGroupMetadata" />
         <PropsTable of="Column" />
         <PropsTable of="ColumnGroup" />
         <PropsTable of="DataTableColumnState" />

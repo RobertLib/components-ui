@@ -65,7 +65,7 @@ export default defineConfig({
     minify: false,
     outDir: "dist",
     rolldownOptions: {
-      external: [REACT, /^@date-fns\/tz($|\/)/],
+      external: [REACT],
       output: {
         // One file per source module: a bundler takes only what an app
         // imports, and the directive below can mark single modules

@@ -21,6 +21,18 @@ export default function ChartPage() {
           </p>
         }
       />
+      <Example
+        name="chart/extended"
+        title="Stacking, mixed series and radial charts"
+        description={
+          <p>
+            <code>stacked</code> combines bars or areas, with positive and
+            negative values stacked separately. <code>type="mixed"</code> reads
+            each series' <code>type</code>. Pie and donut charts use positive
+            values of the first series and let their legends toggle categories.
+          </p>
+        }
+      />
       <Section title="Scale and formatting">
         <Prose>
           <p>

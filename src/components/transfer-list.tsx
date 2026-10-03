@@ -10,6 +10,7 @@ import cn, { joinTokens } from "../utils/cn";
 import { foldSearchText } from "../utils/remove-diacritics";
 import {
   attachRef,
+  isAriaInvalid,
   useFieldsetDisabled,
   useFormReset,
 } from "../hooks/use-form-control";
@@ -55,6 +56,8 @@ export interface TransferListProps extends Omit<
   selectedLabel?: React.ReactNode;
   /** Help text under the lists. */
   description?: React.ReactNode;
+  /** Size of the searches, checkboxes and transfer buttons. Defaults to md. */
+  dim?: "xs" | "sm" | "md" | "lg";
   /** Validation message, also marking the field invalid. */
   error?: string;
   /** Disable interaction, validation and submission. */
@@ -88,6 +91,7 @@ export default function TransferList({
   className,
   defaultValue = [],
   description,
+  dim = "md",
   disabled: disabledProp,
   error,
   form,
@@ -219,6 +223,7 @@ export default function TransferList({
         </legend>
         {searchable && (
           <Input
+            dim={dim}
             aria-label={
               side === "available"
                 ? messages.searchAvailable
@@ -231,6 +236,7 @@ export default function TransferList({
           />
         )}
         <Checkbox
+          dim={dim}
           disabled={eligible.length === 0}
           indeterminate={partial}
           checked={checked}
@@ -258,6 +264,7 @@ export default function TransferList({
           {items.map((option) => (
             <li className="py-1" key={valueKey(option.value)}>
               <Checkbox
+                dim={dim}
                 checked={marked.has(option.value)}
                 description={option.description}
                 disabled={option.disabled}
@@ -286,6 +293,11 @@ export default function TransferList({
       aria-invalid={shownError ? "true" : props["aria-invalid"]}
       aria-labelledby={label ? `${groupId}-label` : props["aria-labelledby"]}
       className={cn("flex flex-col gap-2", className)}
+      data-invalid={
+        shownError || validationMessage || isAriaInvalid(props["aria-invalid"])
+          ? ""
+          : undefined
+      }
       data-disabled={disabled ? "" : undefined}
       data-readonly={readOnly ? "" : undefined}
       id={groupId}
@@ -325,6 +337,9 @@ export default function TransferList({
         )}
         <div className="flex items-center justify-center gap-2 sm:flex-col">
           <IconButton
+            size={
+              dim === "xs" || dim === "sm" ? "sm" : dim === "lg" ? "lg" : "md"
+            }
             aria-label={messages.addSelected}
             disabled={
               !canChange ||
@@ -341,6 +356,9 @@ export default function TransferList({
             />
           </IconButton>
           <IconButton
+            size={
+              dim === "xs" || dim === "sm" ? "sm" : dim === "lg" ? "lg" : "md"
+            }
             aria-label={messages.addAll}
             disabled={
               !canChange ||
@@ -355,6 +373,9 @@ export default function TransferList({
             />
           </IconButton>
           <IconButton
+            size={
+              dim === "xs" || dim === "sm" ? "sm" : dim === "lg" ? "lg" : "md"
+            }
             aria-label={messages.removeSelected}
             disabled={
               !canChange ||
@@ -370,6 +391,9 @@ export default function TransferList({
             />
           </IconButton>
           <IconButton
+            size={
+              dim === "xs" || dim === "sm" ? "sm" : dim === "lg" ? "lg" : "md"
+            }
             aria-label={messages.removeAll}
             disabled={!canChange || eligibleSelected.length === 0}
             onClick={() => remove(true)}

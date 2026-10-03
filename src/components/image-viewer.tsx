@@ -68,6 +68,7 @@ export default function ImageViewer({
   loop = true,
   onClose,
   onIndexChange,
+  onKeyDown,
   onOpenChange,
   open: controlledOpen,
   thumbnails = true,
@@ -118,33 +119,30 @@ export default function ImageViewer({
       open={open}
       size="full"
       title={title ?? messages.title}
+      onKeyDown={(event) => {
+        onKeyDown?.(event);
+        if (
+          event.defaultPrevented ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.nativeEvent.isComposing
+        )
+          return;
+        const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          select(index + ((event.key === "ArrowRight") !== rtl ? 1 : -1));
+        } else if (event.key === "Home") {
+          event.preventDefault();
+          select(0);
+        } else if (event.key === "End") {
+          event.preventDefault();
+          select(images.length - 1);
+        }
+      }}
     >
-      <div
-        {...props}
-        className={cn("flex min-h-0 flex-col gap-3", className)}
-        onKeyDown={(event) => {
-          props.onKeyDown?.(event);
-          if (
-            event.defaultPrevented ||
-            event.altKey ||
-            event.ctrlKey ||
-            event.metaKey ||
-            event.nativeEvent.isComposing
-          )
-            return;
-          const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
-          if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-            event.preventDefault();
-            select(index + ((event.key === "ArrowRight") !== rtl ? 1 : -1));
-          } else if (event.key === "Home") {
-            event.preventDefault();
-            select(0);
-          } else if (event.key === "End") {
-            event.preventDefault();
-            select(images.length - 1);
-          }
-        }}
-      >
+      <div {...props} className={cn("flex min-h-0 flex-col gap-3", className)}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <IconButton

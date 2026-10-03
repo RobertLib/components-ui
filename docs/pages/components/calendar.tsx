@@ -387,17 +387,17 @@ export default function CalendarPage() {
 
       <Callout title="Server rendering">
         <p>
-          The calendar puts events on the days and hours of the browser's time
-          zone, which the server does not know - so a page rendered on the
-          server (e.g. Next.js) shows the view without its events, and they
-          follow right after the hydration, in any time zone; so does the mark
-          of today. The view itself is rendered on the server: pass{" "}
-          <code>initialDate</code> (or <code>currentDate</code>) - without it
-          the calendar opens on today, and "today" of the server and of the
-          browser may differ. Make it a date of the same day in both, e.g.{" "}
-          <code>new Date(2026, 8, 24)</code> built where the component renders,
-          or noon of the day - a midnight made in the time zone of the server
-          may be the day before in the browser.
+          The calendar puts events on the days and hours of the selected time
+          zone (the browser zone by default), which the server does not know -
+          so a page rendered on the server (e.g. Next.js) shows the view without
+          its events, and they follow right after the hydration, in any time
+          zone; so does the mark of today. The view itself is rendered on the
+          server: pass <code>initialDate</code> (or <code>currentDate</code>) -
+          without it the calendar opens on today, and "today" of the server and
+          of the browser may differ. Make it a date of the same day in both,
+          e.g. <code>new Date(2026, 8, 24)</code> built where the component
+          renders, or noon of the day - a midnight made in the time zone of the
+          server may be the day before in the browser.
         </p>
       </Callout>
 

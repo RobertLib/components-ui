@@ -50,6 +50,8 @@ export interface StepperProps extends Omit<
   React.ComponentProps<"div">,
   "children"
 > {
+  /** Keep all step contents mounted and hidden when inactive, including across responsive layout changes. Defaults to false. */
+  keepMounted?: boolean;
   /** Classes of the wrapper - it has a bottom margin (`mb-6`). */
   className?: string;
   /** Id of the active step. */
@@ -199,6 +201,7 @@ function StepMarker({
 export default function Stepper({
   className,
   currentStepId,
+  keepMounted = false,
   onBlur,
   onFocus,
   onStepClick,
@@ -222,6 +225,14 @@ export default function Stepper({
   // current step instead of being lost.
   const focusInContentRef = useRef(false);
   const previousStepIdRef = useRef(currentStepId);
+  const invalidFieldRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const field = invalidFieldRef.current;
+    if (field && field.isConnected && !field.closest("[hidden]")) {
+      invalidFieldRef.current = null;
+      field.focus();
+    }
+  }, [currentStepId]);
 
   useLayoutEffect(() => {
     const previousStepId = previousStepIdRef.current;
@@ -556,6 +567,115 @@ export default function Stepper({
     </ol>
   );
 
+  const retained = (
+    <ol
+      className={isVertical ? "space-y-6" : "grid gap-4"}
+      style={
+        isVertical
+          ? undefined
+          : {
+              gridTemplateColumns: `repeat(${Math.max(1, steps.length)}, minmax(0, 1fr))`,
+            }
+      }
+    >
+      {steps.map((step, index) => {
+        const info = describeStep(step, index);
+        const content = (
+          <>
+            <span className={circleClassName(info)}>
+              <StepMarker
+                hasError={info.hasError}
+                icon={step.icon}
+                isActive={info.isActive}
+                number={info.number}
+              />
+            </span>
+            <span className={titleClassName(info)}>
+              {step.title}
+              {step.optional && (
+                <span className="block text-xs" id={info.optionalId}>
+                  {messages.stepper.optional}
+                </span>
+              )}
+              {step.description && (
+                <span
+                  className="block text-xs font-normal"
+                  id={info.descriptionId}
+                >
+                  {step.description}
+                </span>
+              )}
+              {info.state && (
+                <span className="sr-only" id={info.stateId}>
+                  {info.state}
+                </span>
+              )}
+            </span>
+          </>
+        );
+        return (
+          <li className={isVertical ? "space-y-3" : "contents"} key={step.id}>
+            <div style={isVertical ? undefined : { order: index }}>
+              {isNavigable ? (
+                <button
+                  aria-current={info.isActive ? "step" : undefined}
+                  aria-describedby={info.describedBy}
+                  aria-label={info.label}
+                  className="flex items-center gap-3 rounded text-start focus-visible:outline-2 focus-visible:outline-primary-500"
+                  data-current={info.isActive ? "" : undefined}
+                  data-disabled={info.isClickable ? undefined : ""}
+                  disabled={!info.isClickable}
+                  id={info.buttonId}
+                  onClick={() => handleStepClick(step.id)}
+                  type="button"
+                >
+                  {content}
+                </button>
+              ) : (
+                <div
+                  aria-current={info.isActive ? "step" : undefined}
+                  className="flex items-center gap-3"
+                  data-current={info.isActive ? "" : undefined}
+                >
+                  {content}
+                </div>
+              )}
+            </div>
+            {hasContent(step.content) && (
+              <div
+                hidden={!info.isActive}
+                onInvalidCapture={(event) => {
+                  if (info.isActive || event.defaultPrevented) return;
+                  event.preventDefault();
+                  if (
+                    !invalidFieldRef.current &&
+                    event.target instanceof HTMLElement
+                  ) {
+                    invalidFieldRef.current = event.target;
+                    onStepClick?.(step.id);
+                  }
+                }}
+                style={
+                  isVertical
+                    ? undefined
+                    : { order: steps.length, gridColumn: "1 / -1" }
+                }
+              >
+                {renderContent(
+                  step,
+                  index,
+                  isVertical
+                    ? "ps-12 focus:outline-hidden"
+                    : "focus:outline-hidden",
+                )}
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+
   return (
     <div
       {...props}
@@ -564,7 +684,7 @@ export default function Stepper({
       onBlur={handleBlur}
       onFocus={handleFocus}
     >
-      {isVertical ? vertical : horizontal}
+      {keepMounted ? retained : isVertical ? vertical : horizontal}
     </div>
   );
 }

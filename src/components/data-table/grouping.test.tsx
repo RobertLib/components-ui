@@ -313,11 +313,11 @@ describe("DataTable row groups", () => {
     ]);
   });
 
-  it("groups nothing with server data", () => {
+  it("groups the loaded server page", () => {
     const warn = vi.spyOn(console, "warn");
     render(<DataTable columns={columns} data={rows} groupBy="team" />);
 
-    expect(screen.queryByRole("button", { name: /^Team:/ })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Team:/ })).toHaveLength(3);
     expect(warn).not.toHaveBeenCalled();
   });
 });

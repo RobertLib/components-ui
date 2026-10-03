@@ -17,6 +17,38 @@ const end = new Date(2026, 8, 24, 10);
 
 /** Each exported component with the props that take its special paths. */
 const fixtures: Record<string, () => React.ReactElement> = {
+  Menubar: () => (
+    <ui.Menubar
+      menus={[
+        { id: "file", label: "File", items: [{ label: "New", onClick: noop }] },
+      ]}
+    />
+  ),
+  PhoneInput: () => (
+    <ui.PhoneInput
+      defaultCountry="CZ"
+      defaultValue="+420777123456"
+      label="Phone"
+      name="phone"
+      required
+    />
+  ),
+  RepeatableField: () => (
+    <ui.RepeatableField
+      name="contacts"
+      min={1}
+      defaultValue={[{ id: "one", value: "Adam" }]}
+      createItem={() => ""}
+      renderItem={(item) => (
+        <ui.Input
+          label="Name"
+          name={`${item.name}.name`}
+          value={item.value}
+          onChange={(event) => item.onChange(event.target.value)}
+        />
+      )}
+    />
+  ),
   Accordion: () => <ui.Accordion title="Details">Content</ui.Accordion>,
   AccordionGroup: () => (
     <ui.AccordionGroup>

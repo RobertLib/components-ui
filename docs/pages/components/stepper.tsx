@@ -59,11 +59,12 @@ export default function StepperPage() {
           <p>
             The <code>content</code> of the current step is shown right under it
             - a vertical wizard, with the fields and the buttons of each step in
-            its content. Only the content of the current step is rendered, so
-            keep the values of the steps in state (or a form library). When the
-            step changes while the focus is in the content of the last one - a
-            "Next" button - the focus moves to the content of the new step,
-            which is a group named after it, instead of being lost.
+            its content. By default only the content of the current step is
+            rendered, so keep the values of the steps in state (or a form
+            library). When the step changes while the focus is in the content of
+            the last one - a "Next" button - the focus moves to the content of
+            the new step, which is a group named after it, instead of being
+            lost.
           </p>
         }
         name="stepper/vertical-wizard"
@@ -82,14 +83,27 @@ export default function StepperPage() {
         title="Responsive"
       />
 
+      <Example
+        name="stepper/retained"
+        title="Preserving native form fields"
+        description={
+          <p>
+            <code>keepMounted</code> retains every step's content and hides
+            inactive groups. Uncontrolled inputs, files and component state
+            survive step and orientation changes. All fields participate in
+            FormData and validation; provide <code>onStepClick</code> to reveal
+            and focus an invalid hidden step.
+          </p>
+        }
+      />
       <Callout title="Responsive layout and server rendering">
         <p>
           The layout of <code>orientation="responsive"</code> follows{" "}
           <code>useIsMobile()</code>. A page rendered on the server starts
           horizontal and switches to the column once it hydrates on a phone -
-          its content is then mounted again, like when a tablet turns across the
-          breakpoint. Keep the values of the steps in state, as a wizard does
-          anyway.
+          without <code>keepMounted</code>, its content is then mounted again,
+          like when a tablet turns across the breakpoint. With{" "}
+          <code>keepMounted</code>, the same content nodes are retained.
         </p>
       </Callout>
 

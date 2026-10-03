@@ -143,6 +143,9 @@ export const sortByGroups = <T>(
 
 /** A group as the body renders it - see `TableBody`. */
 export interface BodyRowGroup {
+  children?: BodyRowGroup[];
+  columnLabel?: string;
+  level?: number;
   /** The group is collapsed - its rows are not shown. */
   collapsed: boolean;
   /** The number of rows of the group - of every page. */
@@ -170,4 +173,76 @@ export function summarizeGroup<T>(columns: Column<T>[], rows: T[]) {
   }
 
   return hasValues ? values : null;
+}
+
+/** Stable key of a grouping path; use it for server counts and summaries. */
+export const getDataTableGroupKey = (values: readonly unknown[]) =>
+  JSON.stringify(values.map(toText));
+
+/** A row group at any depth. Parent groups retain all rows for their summaries. */
+export interface NestedRowGroup<T> extends RowGroup<T> {
+  children?: NestedRowGroup<T>[];
+  columnLabel: string;
+  level: number;
+}
+
+/** Group a loaded page against all known matching rows, at every requested level. */
+export function groupRowsBy<T>(
+  rows: T[],
+  allRows: T[],
+  columns: Column<T>[],
+  sort: readonly { key: string; order: SortOrder }[],
+  locale: Locale,
+  path: unknown[] = [],
+): NestedRowGroup<T>[] {
+  const [column, ...rest] = columns;
+  if (!column) return [];
+  return groupRows(
+    rows,
+    allRows,
+    column,
+    sort.find((entry) => entry.key === column.key)?.order ?? "asc",
+    locale,
+  ).map((group) => {
+    const values = [...path, getColumnValue(group.rows[0], column)];
+    return {
+      ...group,
+      key: getDataTableGroupKey(values),
+      columnLabel: column.labelTitle ?? column.label,
+      level: values.length - 1,
+      children: rest.length
+        ? groupRowsBy(group.rows, group.allRows, rest, sort, locale, values)
+        : undefined,
+    };
+  });
+}
+
+/** Put nested groups together before pagination, retaining the existing sort within each leaf. */
+export function sortByGroupColumns<T>(
+  rows: T[],
+  columns: Column<T>[],
+  sort: readonly { key: string; order: SortOrder }[],
+  locale: Locale,
+): T[] {
+  const flatten = (groups: NestedRowGroup<T>[]): T[] =>
+    groups.flatMap((group) =>
+      group.children ? flatten(group.children) : group.rows,
+    );
+  return columns.length
+    ? flatten(groupRowsBy(rows, rows, columns, sort, locale))
+    : rows;
+}
+
+/** Extra table rows emitted by visible groups: headers and summary rows. */
+export function countGroupRows(groups: readonly BodyRowGroup[] | null): number {
+  return (
+    groups?.reduce(
+      (count, group) =>
+        count +
+        1 +
+        (group.summary ? 1 : 0) +
+        (group.children ? countGroupRows(group.children) : 0),
+      0,
+    ) ?? 0
+  );
 }

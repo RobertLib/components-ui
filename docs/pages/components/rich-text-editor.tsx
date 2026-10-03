@@ -579,8 +579,25 @@ export default function RichTextEditorPage() {
         </Callout>
       </Section>
 
+      <Example
+        name="rich-text-editor/custom-tools"
+        title="Custom tools"
+        description={
+          <p>
+            <code>customTools</code> adds buttons and shortcuts to the toolbar.
+            Their context supplies current HTML, selected text, focus, and{" "}
+            <code>insertText</code> / <code>insertHtml</code> commands. Commands
+            restore the selection and follow sanitization, maxlength and undo
+            history. Use <code>additionalFormats</code> to retain built-in
+            formats used by a custom tool. Arbitrary new HTML tags are not added
+            to the sanitizer.
+          </p>
+        }
+      />
       <Section title="Props">
         <PropsTable of="RichTextEditor" />
+        <PropsTable of="RichTextCustomTool" />
+        <PropsTable of="RichTextToolContext" />
         <PropsTable
           of="SanitizeRichTextOptions"
           title="sanitizeRichText options"

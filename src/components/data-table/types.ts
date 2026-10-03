@@ -312,3 +312,11 @@ export interface FilteredSelectionConfig {
   /** Number of rows matching the filters. Defaults to the `total` prop. */
   total?: number;
 }
+
+/** Server-provided metadata for one grouping path (`getDataTableGroupKey`). */
+export interface DataTableGroupMetadata {
+  /** Total matching rows across pages; omitted counts the rows loaded for this group. */
+  count?: number;
+  /** Totals across pages, by column key; omitted summarizes the loaded rows. */
+  summaryValues?: Record<string, React.ReactNode>;
+}

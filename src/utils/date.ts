@@ -1,4 +1,4 @@
-import { copyDate, zonedDay } from "./time-zone";
+import { copyDate, zonedDay, dateTimeZone } from "./time-zone";
 import { toIntlLocale } from "../i18n/format";
 import type { DatePatternToken, WeekDay } from "../i18n/types";
 
@@ -633,6 +633,7 @@ export const formatMonthYear = (date: Date, localeCode: string) =>
   capitalize(
     new Intl.DateTimeFormat(toIntlLocale(localeCode), {
       calendar: "gregory",
+      timeZone: dateTimeZone(date),
       month: "long",
       year: "numeric",
     }).format(date),

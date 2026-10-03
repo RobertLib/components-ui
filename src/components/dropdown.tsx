@@ -41,6 +41,8 @@ export interface DropdownProps extends React.ComponentProps<"div"> {
    * skipped, so `cond && item` works.
    */
   items: DropdownEntry[];
+  /** Focus when opened by the parent or pointer. Keyboard openings choose first/last. Defaults to menu. */
+  initialFocus?: InitialFocus;
   /** Space between the trigger and the menu, in pixels. */
   offset?: number;
   /** Called when the menu opens or closes. */
@@ -76,6 +78,7 @@ export default function Dropdown({
   buttonTrigger = false,
   id,
   items,
+  initialFocus = "menu",
   offset = 10,
   onKeyDown,
   onOpenChange,
@@ -91,7 +94,7 @@ export default function Dropdown({
   // once it is in the page - opened with the mouse, by a screen reader
   // clicking the trigger, or by the parent, it takes the focus with none
   // highlighted, so the arrow keys and a screen reader go on in it
-  const [highlight, setHighlight] = useState<InitialFocus>("menu");
+  const [highlight, setHighlight] = useState<InitialFocus>(initialFocus);
   const menuRef = useRef<MenuListHandle>(null);
 
   const generatedId = useId();
@@ -108,7 +111,7 @@ export default function Dropdown({
   const changeOpen = (next: boolean, highlightOnOpen: InitialFocus) => {
     if (!isControlled) setInternalOpen(next);
     // Closed, the next opening by the parent takes the focus as a click
-    setHighlight(next ? highlightOnOpen : "menu");
+    setHighlight(next ? highlightOnOpen : initialFocus);
     if (next !== open) onOpenChange?.(next);
   };
 
@@ -191,7 +194,7 @@ export default function Dropdown({
       contentClassName="max-h-96"
       id={triggerId}
       offset={offset}
-      onOpenChange={(next) => changeOpen(next, "menu")}
+      onOpenChange={(next) => changeOpen(next, initialFocus)}
       open={open}
       // The menu itself is the popup - no unnamed dialog around it
       popupRole="menu"

@@ -47,7 +47,7 @@ npm version minor
 # 2. push the commit and the tag
 git push --follow-tags
 # 3. projects update the dependency to the new tag
-npm install git+https://github.com/RobertLib/components-ui.git#v0.4.0`;
+npm install git+https://github.com/RobertLib/components-ui.git#v0.4.1`;
 
 export default function ContributingGuide() {
   return (

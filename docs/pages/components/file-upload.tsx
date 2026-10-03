@@ -191,8 +191,11 @@ export default function FileUploadPage() {
             files (<code>webkitdirectory</code>) - use it with{" "}
             <code>multiple</code>. The list shows the path of each file in the
             folder, and <code>upload</code> gets files whose{" "}
-            <code>webkitRelativePath</code> has it. A dropped folder is not read
-            - only dropped files are.
+            <code>webkitRelativePath</code> has it. Dropped folders are read
+            recursively, including every directory batch. Where directory
+            entries are unavailable, ordinary dropped files are accepted.
+            Reading blocks submission; reset or unmount cancels the pending
+            result. <code>onDropError</code> reports a failed read.
           </p>
         }
         name="file-upload/folder"

@@ -102,8 +102,8 @@ export interface CalendarProps extends Omit<
    * views list all-day events first, then by start, the longer of events
    * starting together first. A recurring event (with `recurrence`) shows its
    * occurrences in the visible range - fetch the recurring events whose
-   * occurrences may fall in it. Days and hours are those of the browser's
-   * time zone: a page rendered on the server shows the events once it is
+   * occurrences may fall in it. Days and hours follow `timeZone` (the browser zone
+   * when omitted): a page rendered on the server shows the events once it is
    * hydrated.
    */
   events?: CalendarEvent[];
@@ -557,7 +557,7 @@ export default function Calendar({
     [rangeEnd, rangeStart, timeZone],
   );
 
-  // The events go on the days and hours of the browser's time zone, which
+  // The events follow the selected time zone (the browser zone by default), which
   // the server does not know - they show once the page is hydrated, so the
   // markup of the server always matches (see "Server rendering" in the
   // docs). A page rendered in the browser shows them from the start.

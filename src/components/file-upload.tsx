@@ -1,3 +1,7 @@
+import {
+  snapshotDrop,
+  readDroppedDirectories,
+} from "./file-upload/dropped-files";
 import { File as FileIcon, RotateCw, Upload, X } from "lucide-react";
 import {
   useCallback,
@@ -712,9 +716,11 @@ export interface FileUploadProps<
   /**
    * The picker picks a folder, with all the files in it (`webkitdirectory`)
    * - use it with `multiple`. The list shows the path of each file in the
-   * folder. A dropped folder is not read - only dropped files are.
+   * folder. Dropped folders are read recursively when this is enabled.
    */
   directory?: boolean;
+  /** Reading a dropped folder failed; a localized error is also shown. */
+  onDropError?: (error: unknown) => void;
   /**
    * No files can be added, removed, retried or cancelled - and, like a
    * disabled field, none are submitted or required. The links of the
@@ -855,6 +861,7 @@ export default function FileUpload<
   description,
   dim = "md",
   directory = false,
+  onDropError,
   disabled: disabledProp = false,
   error,
   form,
@@ -964,6 +971,8 @@ export default function FileUpload<
   // to a list of the parent would lose files)
   const latest = useRef({
     concurrency,
+    canDrop,
+    onDropError,
     onError,
     attachments,
     onAttachmentsChange,
@@ -986,6 +995,8 @@ export default function FileUpload<
     filesRef.current = files;
     latest.current = {
       concurrency,
+      canDrop,
+      onDropError,
       onError,
       attachments,
       onAttachmentsChange,
@@ -1568,8 +1579,42 @@ export default function FileUpload<
     event.preventDefault();
     if (!canDrop) return;
 
-    const dropped = Array.from(event.dataTransfer.files);
-    if (dropped.length > 0) addFiles(dropped);
+    const drop = snapshotDrop(event.dataTransfer);
+    if (!directory || !drop.entries.some((entry) => entry?.isDirectory)) {
+      if (drop.files.length > 0) addFiles(drop.files);
+      return;
+    }
+    if (!multiple) {
+      generation.current++;
+      reports.current.queue = [];
+      setCheckingPicks(0);
+    }
+    const round = generation.current;
+    const current = () =>
+      mounted.current && round === generation.current && latest.current.canDrop;
+    setCheckingPicks((count) => count + 1);
+    void readDroppedDirectories(drop, current)
+      .then(
+        (dropped) => {
+          if (current() && dropped.length) addFiles(dropped);
+        },
+        (error: unknown) => {
+          if (!current()) return;
+          setRefused([
+            {
+              message: messages.fileUpload.folderReadFailed,
+              names: drop.entries
+                .filter((entry) => entry?.isDirectory)
+                .map((entry) => entry!.name),
+            },
+          ]);
+          latest.current.onDropError?.(error);
+        },
+      )
+      .finally(() => {
+        if (mounted.current && round === generation.current)
+          setCheckingPicks((count) => Math.max(0, count - 1));
+      });
   };
 
   // A screenshot or files copied in the file manager, pasted while the

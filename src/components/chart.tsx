@@ -1,3 +1,4 @@
+import { finiteSum, sectorPath } from "./chart/geometry";
 import { useId, useState } from "react";
 import { attachRef } from "../hooks/use-form-control";
 import cn from "../utils/cn";
@@ -10,11 +11,16 @@ import Table, { TableBody, TableCell, TableHead, TableRow } from "./table";
 export type ChartColor =
   "primary" | "success" | "warning" | "danger" | "secondary";
 
+/** A Cartesian or radial chart. Mixed charts use the type of each series. */
+export type ChartType = "line" | "area" | "bar" | "mixed" | "pie" | "donut";
+
 export interface ChartSeries {
   /** Key of the numeric field in each point. */
   key: string;
   /** Name in the legend, tooltip and data table. */
   label: string;
+  /** Rendering of this series in a mixed chart. Defaults to line. */
+  type?: "line" | "area" | "bar";
   /** Theme color; series cycle through the palette by default. */
   color?: ChartColor;
 }
@@ -34,8 +40,10 @@ export interface ChartProps extends Omit<
   data: readonly ChartDataPoint[];
   /** Series to draw, in legend order. */
   series: readonly ChartSeries[];
-  /** Line, filled line, or grouped columns. Defaults to line. */
-  type?: "line" | "area" | "bar";
+  /** Chart type. Pie and donut use the first series as category values; negative values are omitted. */
+  type?: ChartType;
+  /** Stack bar and area series by sign. Defaults to false. */
+  stacked?: boolean;
   /** Accessible name, also shown above the chart. */
   title: string;
   /** Text explaining the result; also describes the chart. */
@@ -92,6 +100,7 @@ export default function Chart({
   ref,
   series,
   showDataTable = true,
+  stacked = false,
   title,
   type = "line",
   ...props
@@ -103,24 +112,64 @@ export default function Chart({
   const [active, setActive] = useState<number | null>(null);
   const [width, setWidth] = useState(800);
   const visible = series.filter((entry) => !hidden.has(entry.key));
-  const allValues = data.flatMap((point) =>
-    visible.map((entry) => point[entry.key]).filter(numeric),
+  const radial = type === "pie" || type === "donut";
+  const [hiddenPoints, setHiddenPoints] = useState<ReadonlySet<string>>(
+    () => new Set(),
   );
-  const hasData = allValues.length > 0;
-  const valuesMin = hasData
-    ? allValues.reduce((a, b) => Math.min(a, b), Infinity)
-    : 0;
-  const valuesMax = hasData
-    ? allValues.reduce((a, b) => Math.max(a, b), -Infinity)
-    : 0;
-  let low = numeric(min) ? min : valuesMin;
-  let high = numeric(max) ? max : valuesMax;
-  if (type === "bar" || type === "area") {
+  const typeOf = (entry: ChartSeries) =>
+    type === "mixed" ? (entry.type ?? "line") : type;
+  const ranges = data.map((point) => {
+    const totals = new Map<string, { positive: number; negative: number }>();
+    return new Map(
+      visible.map((entry) => {
+        const value = point[entry.key];
+        const kind = typeOf(entry);
+        if (!numeric(value)) return [entry.key, null] as const;
+        const total = totals.get(kind) ?? { positive: 0, negative: 0 };
+        const side = value >= 0 ? "positive" : "negative";
+        const base =
+          stacked && (kind === "area" || kind === "bar") ? total[side] : 0;
+        const end = finiteSum(base, value);
+        total[side] = end;
+        totals.set(kind, total);
+        return [entry.key, { base, end, value }] as const;
+      }),
+    );
+  });
+  const allValues = ranges.flatMap((point) =>
+    [...point.values()].flatMap((value) => (value ? [value.end] : [])),
+  );
+  const radialPoints = data.flatMap((point, index) => {
+    const value = point[series[0]?.key];
+    return numeric(value) && value > 0 && !hiddenPoints.has(point.label)
+      ? [{ index, value }]
+      : [];
+  });
+  const radialMax = radialPoints.reduce(
+    (max, point) => Math.max(max, point.value),
+    0,
+  );
+  const radialTotal = radialPoints.reduce(
+    (sum, point) => sum + point.value / radialMax,
+    0,
+  );
+  const hasData = radial ? radialPoints.length > 0 : allValues.length > 0;
+  const valuesMin = allValues.reduce((a, b) => Math.min(a, b), Infinity);
+  const valuesMax = allValues.reduce((a, b) => Math.max(a, b), -Infinity);
+  let low = numeric(min) ? min : allValues.length ? valuesMin : 0;
+  let high = numeric(max) ? max : allValues.length ? valuesMax : 1;
+  if (
+    visible.some((entry) => typeOf(entry) === "bar" || typeOf(entry) === "area")
+  ) {
     low = Math.min(0, low);
     high = Math.max(0, high);
   }
   if (high < low) [low, high] = [high, low];
-  if (high === low && low === 0) high = 1;
+  if (high === low) {
+    const padding = Math.abs(low) * 0.05 || 1;
+    low = Math.max(-Number.MAX_VALUE, low - padding);
+    high = Math.min(Number.MAX_VALUE, high + padding);
+  }
   const scale = Number.isFinite(high - low) ? 1 : 2;
   const scaledLow = low / scale;
   const scaledRange = high / scale - scaledLow;
@@ -152,11 +201,12 @@ export default function Chart({
   const pointLabel = (index: number) =>
     `${data[index].label}: ${visible.map((entry) => `${entry.label} ${numeric(data[index][entry.key]) ? valueText(data[index][entry.key] as number) : messages.noValue}`).join(", ")}`;
   const segments = (entry: ChartSeries) => {
-    const result: { x: number; y: number }[][] = [];
-    let current: { x: number; y: number }[] = [];
-    data.forEach((point, index) => {
-      const value = point[entry.key];
-      if (numeric(value)) current.push({ x: x(index), y: y(value) });
+    const result: { x: number; y: number; base: number }[][] = [];
+    let current: { x: number; y: number; base: number }[] = [];
+    data.forEach((_, index) => {
+      const value = ranges[index].get(entry.key);
+      if (value)
+        current.push({ x: x(index), y: y(value.end), base: y(value.base) });
       else if (current.length) {
         result.push(current);
         current = [];
@@ -165,6 +215,52 @@ export default function Chart({
     if (current.length) result.push(current);
     return result;
   };
+  const pointEvents = (index: number) => ({
+    "aria-label": pointLabel(index),
+    "data-chart-point": index,
+    role: "img" as const,
+    tabIndex: 0,
+    onBlur: () => setActive(null),
+    onFocus: () => setActive(index),
+    onClick: () => setActive(index),
+    onMouseEnter: () => setActive(index),
+    onKeyDown: (event: React.KeyboardEvent<SVGElement>) => {
+      if (
+        event.defaultPrevented ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.nativeEvent.isComposing
+      )
+        return;
+      if (event.key === "Escape") {
+        setActive(null);
+        return;
+      }
+      const points = Array.from(
+        event.currentTarget.ownerSVGElement?.querySelectorAll<SVGElement>(
+          "[data-chart-point]",
+        ) ?? [],
+      );
+      const position = points.indexOf(event.currentTarget);
+      const target =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? points.length - 1
+            : event.key === "ArrowRight"
+              ? Math.min(points.length - 1, position + 1)
+              : event.key === "ArrowLeft"
+                ? Math.max(0, position - 1)
+                : null;
+      if (target !== null) {
+        event.preventDefault();
+        points[target]?.focus();
+      }
+    },
+  });
+  const bars = visible.filter((entry) => typeOf(entry) === "bar");
+  let angle = 0;
   return (
     <div
       {...props}
@@ -205,15 +301,24 @@ export default function Chart({
           className="mb-2 flex flex-wrap gap-2"
           role="group"
         >
-          {series.map((entry) => (
+          {(radial
+            ? data.map((point, index) => ({
+                key: point.label,
+                label: point.label,
+                color: palette[index % palette.length],
+              }))
+            : series
+          ).map((entry) => (
             <Button
-              aria-pressed={!hidden.has(entry.key)}
+              aria-pressed={!(radial ? hiddenPoints : hidden).has(entry.key)}
               className={
-                hidden.has(entry.key) ? "line-through opacity-50" : undefined
+                (radial ? hiddenPoints : hidden).has(entry.key)
+                  ? "line-through opacity-50"
+                  : undefined
               }
               key={entry.key}
               onClick={() => {
-                setHidden((previous) => {
+                (radial ? setHiddenPoints : setHidden)((previous) => {
                   const next = new Set(previous);
                   if (next.has(entry.key)) next.delete(entry.key);
                   else next.add(entry.key);
@@ -247,139 +352,158 @@ export default function Chart({
             role="group"
             viewBox={`0 0 ${width} ${chartHeight}`}
           >
-            {Array.from({ length: 5 }, (_, index) => {
-              const value = (scaledLow + (scaledRange * index) / 4) * scale;
-              return (
-                <g key={index}>
-                  <line
-                    className="stroke-neutral-200 dark:stroke-neutral-700"
-                    x1={left}
-                    x2={width - right}
-                    y1={y(value)}
-                    y2={y(value)}
-                  />
-                  <text
-                    fill="currentColor"
-                    fontSize="12"
-                    textAnchor="end"
-                    x={left - 10}
-                    y={y(value) + 4}
+            {radial ? (
+              radialPoints.map(({ index, value }) => {
+                const fraction = value / radialMax / radialTotal;
+                const radius = Math.min(width, chartHeight) / 2 - 20;
+                const path = sectorPath(
+                  width / 2,
+                  chartHeight / 2,
+                  radius,
+                  type === "donut" ? radius * 0.6 : 0,
+                  angle,
+                  fraction,
+                );
+                angle += fraction * Math.PI * 2;
+                return (
+                  <path
+                    {...pointEvents(index)}
+                    className={cn(
+                      colors[palette[index % palette.length]],
+                      "stroke-2 focus:outline-2 focus:outline-primary-500",
+                    )}
+                    d={path}
+                    fillRule="evenodd"
+                    key={index}
                   >
-                    {valueText(value)}
-                  </text>
-                </g>
-              );
-            })}
-            {visible.map((entry, seriesIndex) => (
-              <g className={colorOf(entry)} key={entry.key}>
-                {type === "bar"
-                  ? data.map((point, index) => {
-                      const value = point[entry.key];
-                      const barWidth = (step * 0.75) / visible.length;
-                      return (
-                        numeric(value) && (
-                          <rect
-                            height={Math.max(1, Math.abs(y(value) - y(0)))}
-                            key={index}
-                            width={Math.max(0.5, barWidth - 2)}
-                            x={x(index) - step * 0.375 + seriesIndex * barWidth}
-                            y={Math.min(y(value), y(0))}
-                          />
-                        )
-                      );
-                    })
-                  : segments(entry).map((points, index) => (
-                      <g key={index}>
-                        {type === "area" && (
-                          <path
-                            d={`M${points[0].x},${y(0)} L${points.map((point) => `${point.x},${point.y}`).join(" L")} L${points[points.length - 1].x},${y(0)} Z`}
-                            opacity="0.15"
-                            stroke="none"
-                          />
-                        )}
-                        <polyline
-                          fill="none"
-                          points={points
-                            .map((point) => `${point.x},${point.y}`)
-                            .join(" ")}
-                          strokeWidth="2"
-                          vectorEffect="non-scaling-stroke"
-                        />
-                        {points.map((point, index) => (
-                          <circle
-                            cx={point.x}
-                            cy={point.y}
-                            key={index}
-                            r="3"
-                            strokeWidth="0"
-                          />
+                    <title>{pointLabel(index)}</title>
+                  </path>
+                );
+              })
+            ) : (
+              <>
+                {Array.from({ length: 5 }, (_, index) => {
+                  const value = (scaledLow + (scaledRange * index) / 4) * scale;
+                  return (
+                    <g key={index}>
+                      <line
+                        className="stroke-neutral-200 dark:stroke-neutral-700"
+                        x1={left}
+                        x2={width - right}
+                        y1={y(value)}
+                        y2={y(value)}
+                      />
+                      <text
+                        fill="currentColor"
+                        fontSize="12"
+                        textAnchor="end"
+                        x={left - 10}
+                        y={y(value) + 4}
+                      >
+                        {valueText(value)}
+                      </text>
+                    </g>
+                  );
+                })}
+                {visible.map((entry) => (
+                  <g
+                    className={colorOf(entry)}
+                    data-chart-series={entry.key}
+                    key={entry.key}
+                  >
+                    {typeOf(entry) === "bar"
+                      ? data.map((_, index) => {
+                          const value = ranges[index].get(entry.key);
+                          const barWidth =
+                            (step * 0.75) / (stacked ? 1 : bars.length);
+                          return (
+                            value && (
+                              <rect
+                                height={Math.max(
+                                  1,
+                                  Math.abs(y(value.end) - y(value.base)),
+                                )}
+                                key={index}
+                                width={Math.max(0.5, barWidth - 2)}
+                                x={
+                                  x(index) -
+                                  step * 0.375 +
+                                  (stacked ? 0 : bars.indexOf(entry)) * barWidth
+                                }
+                                y={Math.min(y(value.end), y(value.base))}
+                              />
+                            )
+                          );
+                        })
+                      : segments(entry).map((points, index) => (
+                          <g key={index}>
+                            {typeOf(entry) === "area" && (
+                              <path
+                                d={`M${points.map((point) => `${point.x},${point.y}`).join(" L")} L${[
+                                  ...points,
+                                ]
+                                  .reverse()
+                                  .map((point) => `${point.x},${point.base}`)
+                                  .join(" L")} Z`}
+                                opacity="0.15"
+                                stroke="none"
+                              />
+                            )}
+                            <polyline
+                              fill="none"
+                              points={points
+                                .map((point) => `${point.x},${point.y}`)
+                                .join(" ")}
+                              strokeWidth="2"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                            {points.map((point, index) => (
+                              <circle
+                                cx={point.x}
+                                cy={point.y}
+                                key={index}
+                                r="3"
+                                strokeWidth="0"
+                              />
+                            ))}
+                          </g>
                         ))}
-                      </g>
-                    ))}
-              </g>
-            ))}
-            {data.map((point, index) => (
-              <g key={index}>
-                {(data.length <= Math.max(2, Math.floor(plotWidth / 70)) ||
-                  index %
-                    Math.ceil(
-                      data.length / Math.max(2, Math.floor(plotWidth / 70)),
-                    ) ===
-                    0) && (
-                  <text
-                    fill="currentColor"
-                    fontSize="12"
-                    stroke="none"
-                    textAnchor="middle"
-                    x={x(index)}
-                    y={chartHeight - 18}
-                  >
-                    <title>{point.label}</title>
-                    {point.label.length > 12
-                      ? `${point.label.slice(0, 11)}…`
-                      : point.label}
-                  </text>
-                )}
-                <rect
-                  aria-label={pointLabel(index)}
-                  className="fill-transparent stroke-transparent focus:stroke-primary-500 focus:outline-hidden"
-                  height={plotHeight}
-                  onBlur={() => setActive(null)}
-                  onFocus={() => setActive(index)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      setActive(null);
-                      return;
-                    }
-                    const target =
-                      event.key === "Home"
-                        ? 0
-                        : event.key === "End"
-                          ? data.length - 1
-                          : event.key === "ArrowRight"
-                            ? Math.min(data.length - 1, index + 1)
-                            : event.key === "ArrowLeft"
-                              ? Math.max(0, index - 1)
-                              : null;
-                    if (target === null) return;
-                    event.preventDefault();
-                    event.currentTarget.ownerSVGElement
-                      ?.querySelector<SVGElement>(
-                        `[data-chart-point="${target}"]`,
-                      )
-                      ?.focus();
-                  }}
-                  onClick={() => setActive(index)}
-                  onMouseEnter={() => setActive(index)}
-                  role="img"
-                  tabIndex={0}
-                  data-chart-point={index}
-                  width={step}
-                  x={left + index * step}
-                  y={top}
-                />
-              </g>
-            ))}
+                  </g>
+                ))}
+                {data.map((point, index) => (
+                  <g key={index}>
+                    {(data.length <= Math.max(2, Math.floor(plotWidth / 70)) ||
+                      index %
+                        Math.ceil(
+                          data.length / Math.max(2, Math.floor(plotWidth / 70)),
+                        ) ===
+                        0) && (
+                      <text
+                        fill="currentColor"
+                        fontSize="12"
+                        stroke="none"
+                        textAnchor="middle"
+                        x={x(index)}
+                        y={chartHeight - 18}
+                      >
+                        <title>{point.label}</title>
+                        {point.label.length > 12
+                          ? `${point.label.slice(0, 11)}…`
+                          : point.label}
+                      </text>
+                    )}
+                    <rect
+                      {...pointEvents(index)}
+                      className="fill-transparent stroke-transparent focus:stroke-primary-500 focus:outline-hidden"
+                      height={plotHeight}
+                      width={step}
+                      x={left + index * step}
+                      y={top}
+                    />
+                  </g>
+                ))}
+              </>
+            )}
           </svg>
           {active !== null && data[active] && (
             <div

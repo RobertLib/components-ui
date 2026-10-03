@@ -1,17 +1,10 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
-import {
-  Fragment,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import cn from "../../utils/cn";
 import EdgeShadow from "./edge-shadow";
 import Spinner from "../spinner";
 import useIsMobile from "../../hooks/use-is-mobile";
-import useVirtualRows from "./use-virtual-rows";
+import useVirtualRows, { getMeasureKey } from "./use-virtual-rows";
 import { formatMessage, formatPlural } from "../../i18n/format";
 import { SummaryCells } from "./table-summary";
 import {
@@ -63,6 +56,12 @@ function findBodyRow(body: Element, element: Element) {
   return row;
 }
 
+type BodyItem =
+  | { id: string; type: "row"; index: number }
+  | { id: string; type: "group" | "summary"; group: BodyRowGroup };
+const bodyItemId = (item: BodyItem) => item.id;
+const virtualRowId = (id: RowId) => `row:${getRowKey(id)}`;
+
 interface TableBodyProps<T> {
   /** Content of the sticky actions cell of a row. */
   actions?: (row: T) => React.ReactNode;
@@ -94,11 +93,9 @@ interface TableBodyProps<T> {
   getRowHref?: (row: T) => string | undefined;
   /** A value of a column from any row - it picks the field of an empty cell. */
   getColumnSample: (column: Column<T>) => unknown;
-  /** Name of the column the rows are grouped by. */
-  groupLabel?: string;
   /**
    * The groups of the rows (`groupBy`) in the order they are shown - each
-   * takes the next `size` rows of `data`. Not virtualized.
+   * leaves take the next `size` rows of `data`.
    */
   groups?: BodyRowGroup[] | null;
   /** Rows of the table header - virtualized rows count from them. */
@@ -167,7 +164,6 @@ export function TableBody<T>({
   getRowBackgroundColor,
   getRowClassName,
   getRowHref,
-  groupLabel = "",
   groups,
   headerRowCount,
   isEditable,
@@ -195,6 +191,38 @@ export function TableBody<T>({
 
   // Touch devices have no hover - long texts open on tap there
   const isMobile = useIsMobile();
+
+  const bodyItems = useMemo(() => {
+    const items: BodyItem[] = [];
+    const cursor = { index: 0 };
+    const appendRows = (size: number) => {
+      for (let offset = 0; offset < size; offset++) {
+        items.push({
+          id: virtualRowId(getRowId(data[cursor.index])),
+          type: "row",
+          index: cursor.index,
+        });
+        cursor.index++;
+      }
+    };
+    const appendGroups = (entries: BodyRowGroup[]) => {
+      for (const group of entries) {
+        items.push({ id: `group:${group.key}`, type: "group", group });
+        if (group.children) appendGroups(group.children);
+        else appendRows(group.size);
+        if (group.summary)
+          items.push({ id: `summary:${group.key}`, type: "summary", group });
+      }
+    };
+    if (groups) appendGroups(groups);
+    else appendRows(data.length);
+    return items;
+  }, [data, getRowId, groups]);
+  const virtualExpandedRows = useMemo(
+    () => new Set([...expandedRows].map(virtualRowId)),
+    [expandedRows],
+  );
+  const [focusedGroupKey, setFocusedGroupKey] = useState<string | null>(null);
 
   const hasSelection = selectionMode !== "none";
   const columnCount =
@@ -231,8 +259,19 @@ export function TableBody<T>({
   const keepIndexes = keptRowIds.flatMap((rowId) =>
     rowId === null || rowId === undefined
       ? []
-      : [data.findIndex((row) => getRowId(row) === rowId)],
+      : [
+          bodyItems.findIndex(
+            (item) =>
+              item.type === "row" && getRowId(data[item.index]) === rowId,
+          ),
+        ],
   );
+  if (virtualized && focusedGroupKey !== null)
+    keepIndexes.push(
+      bodyItems.findIndex(
+        (item) => item.type === "group" && item.group.key === focusedGroupKey,
+      ),
+    );
 
   // Where the focus is in the rows. When its row goes away - it sorted
   // onto another page once its edit was saved, a refetch left it out - the
@@ -282,11 +321,11 @@ export function TableBody<T>({
 
   const { measureRef, segments, tableRowsBefore } = useVirtualRows({
     bodyRef,
-    data,
-    getRowId,
-    enabled: virtualized && !groups,
+    data: bodyItems,
+    getRowId: bodyItemId,
+    enabled: virtualized,
     estimatedHeight: ESTIMATED_ROW_HEIGHTS[density],
-    expandedRows,
+    expandedRows: virtualExpandedRows,
     hasSubRows: !!renderSubRow,
     keepIndexes,
     layoutKey,
@@ -301,7 +340,9 @@ export function TableBody<T>({
     (column) => !!column.editable,
   );
   const renderedIndexes = segments.flatMap((segment) =>
-    segment.type === "row" ? [segment.index] : [],
+    segment.type === "row" && bodyItems[segment.index].type === "row"
+      ? [(bodyItems[segment.index] as Extract<BodyItem, { type: "row" }>).index]
+      : [],
   );
   let tabStop: CellPosition | null = null;
 
@@ -553,9 +594,9 @@ export function TableBody<T>({
     </>
   );
 
-  const renderRow = (index: number) => {
+  const renderRow = (index: number, virtualIndex: number) => {
     const row = data[index];
-    const rowsBefore = tableRowsBefore(index);
+    const rowsBefore = tableRowsBefore(virtualIndex);
     const href = getRowHref?.(row);
 
     return (
@@ -587,6 +628,7 @@ export function TableBody<T>({
         key={getRowKey(getRowId(row))}
         locale={locale}
         measureRef={measureRef}
+        measureId={bodyItems[virtualIndex].id}
         onCancelEdit={onCancelEdit}
         onCellFocus={handleCellFocus}
         onCellMove={moveCellFocus}
@@ -616,79 +658,82 @@ export function TableBody<T>({
     );
   };
 
-  // Each group: its header, which collapses and expands it, its rows and
-  // the summary of all its rows
-  const renderGroups = (bodyGroups: BodyRowGroup[]) => {
-    const rendered: React.ReactNode[] = [];
-    let start = 0;
-
-    for (const group of bodyGroups) {
-      const indexes: number[] = [];
-      for (let offset = 0; offset < group.size; offset++) {
-        indexes.push(start + offset);
-      }
-      start += group.size;
-      const Chevron = group.collapsed ? ChevronRight : ChevronDown;
-
-      rendered.push(
-        <Fragment key={group.key}>
-          <tr
-            className="bg-neutral-50 dark:bg-neutral-900"
-            data-group-key={group.key}
+  const renderGroup = (
+    item: Extract<BodyItem, { type: "group" | "summary" }>,
+    index: number,
+  ) => {
+    const { group } = item;
+    const rowsBefore = tableRowsBefore(index);
+    const ariaRowIndex =
+      rowsBefore === undefined ? undefined : headerRowCount + rowsBefore + 1;
+    const Chevron = group.collapsed ? ChevronRight : ChevronDown;
+    return item.type === "summary" ? (
+      <tr
+        aria-rowindex={ariaRowIndex}
+        className="bg-neutral-50/60 font-medium dark:bg-neutral-900/60"
+        data-measure-key={
+          measureRef ? getMeasureKey(item.id, false) : undefined
+        }
+        key={item.id}
+        ref={measureRef}
+      >
+        <SummaryCells
+          cellLayouts={cellLayouts}
+          density={density}
+          hasActions={!!actions}
+          hasSelection={hasSelection}
+          hasSubRows={!!renderSubRow}
+          sortedVisibleColumns={sortedVisibleColumns}
+          values={group.summary!}
+        />
+      </tr>
+    ) : (
+      <tr
+        aria-rowindex={ariaRowIndex}
+        className="bg-neutral-50 dark:bg-neutral-900"
+        data-group-key={group.key}
+        data-group-level={group.level ?? 0}
+        data-measure-key={
+          measureRef ? getMeasureKey(item.id, false) : undefined
+        }
+        data-state={group.collapsed ? "closed" : "open"}
+        key={item.id}
+        ref={measureRef}
+      >
+        <td className="px-2 py-1" colSpan={columnCount}>
+          <button
+            aria-expanded={!group.collapsed}
+            className="sticky inset-s-2 inline-flex cursor-pointer items-center gap-1.5 rounded-sm text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500"
             data-state={group.collapsed ? "closed" : "open"}
+            onClick={() => onToggleGroup(group.key)}
+            style={{ marginInlineStart: `${(group.level ?? 0) * 20}px` }}
+            type="button"
           >
-            <td className="px-2 py-1" colSpan={columnCount}>
-              {/* Stays in view while the table scrolls sideways */}
-              <button
-                aria-expanded={!group.collapsed}
-                className="sticky inset-s-2 inline-flex cursor-pointer items-center gap-1.5 rounded-sm text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500"
-                data-state={group.collapsed ? "closed" : "open"}
-                onClick={() => onToggleGroup(group.key)}
-                type="button"
-              >
-                <Chevron
-                  aria-hidden="true"
-                  className={cn(
-                    "shrink-0 text-neutral-500 dark:text-neutral-400",
-                    group.collapsed && "rtl:rotate-180",
-                  )}
-                  size={16}
-                />
-                {formatMessage(messages.dataTable.groupLabel, {
-                  label: groupLabel,
-                  value: group.label || messages.dataTable.noValue,
-                })}{" "}
-                <span className="font-normal text-neutral-600 dark:text-neutral-400">
-                  (
-                  {formatPlural(
-                    locale.code,
-                    messages.dataTable.groupRowCount,
-                    group.count,
-                  )}
-                  )
-                </span>
-              </button>
-            </td>
-          </tr>
-          {indexes.map((index) => renderRow(index))}
-          {group.summary && (
-            <tr className="bg-neutral-50/60 font-medium dark:bg-neutral-900/60">
-              <SummaryCells
-                cellLayouts={cellLayouts}
-                density={density}
-                hasActions={!!actions}
-                hasSelection={hasSelection}
-                hasSubRows={!!renderSubRow}
-                sortedVisibleColumns={sortedVisibleColumns}
-                values={group.summary}
-              />
-            </tr>
-          )}
-        </Fragment>,
-      );
-    }
-
-    return rendered;
+            <Chevron
+              aria-hidden="true"
+              className={cn(
+                "shrink-0 text-neutral-500 dark:text-neutral-400",
+                group.collapsed && "rtl:rotate-180",
+              )}
+              size={16}
+            />
+            {formatMessage(messages.dataTable.groupLabel, {
+              label: group.columnLabel ?? "",
+              value: group.label || messages.dataTable.noValue,
+            })}{" "}
+            <span className="font-normal text-neutral-600 dark:text-neutral-400">
+              (
+              {formatPlural(
+                locale.code,
+                messages.dataTable.groupRowCount,
+                group.count,
+              )}
+              )
+            </span>
+          </button>
+        </td>
+      </tr>
+    );
   };
 
   return (
@@ -709,7 +754,14 @@ export function TableBody<T>({
         const rowElement = findBodyRow(event.currentTarget, target);
         const index = rowElement?.getAttribute("data-row-index");
         const row = index ? data[Number(index)] : undefined;
-        if (!row || !rowElement) return;
+        if (!row || !rowElement) {
+          const key = target
+            .closest("tr[data-group-key]")
+            ?.getAttribute("data-group-key");
+          if (key !== undefined && key !== null) setFocusedGroupKey(key);
+          return;
+        }
+        setFocusedGroupKey(null);
 
         const cellIndex =
           target === rowElement
@@ -742,8 +794,6 @@ export function TableBody<T>({
             </td>
           </tr>
         )
-      ) : groups ? (
-        renderGroups(groups)
       ) : (
         segments.map((segment) => {
           if (segment.type === "spacer") {
@@ -760,7 +810,10 @@ export function TableBody<T>({
             );
           }
 
-          return renderRow(segment.index);
+          const item = bodyItems[segment.index];
+          return item.type === "row"
+            ? renderRow(item.index, segment.index)
+            : renderGroup(item, segment.index);
         })
       )}
     </tbody>

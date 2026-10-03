@@ -64,6 +64,15 @@ export interface DateFormats {
  * `{count}`, …) are filled in by the component.
  */
 export interface Messages {
+  phoneInput: { country: string; invalid: string };
+  repeatableField: {
+    add: string;
+    remove: string;
+    moveUp: string;
+    moveDown: string;
+    minimum: PluralMessage;
+    maximum: PluralMessage;
+  };
   chart: {
     category: string;
     legend: string;
@@ -591,6 +600,7 @@ export interface Messages {
     title: string;
   };
   fileUpload: {
+    folderReadFailed: string;
     /**
      * Announced to screen readers when files are added to a field without
      * `upload` - "3 files added."

@@ -185,6 +185,8 @@ interface TableRowProps<T> {
   isSelected: boolean;
   /** Formats the values. */
   locale: Locale;
+  /** Identity of this row in the virtual sequence of data and grouping rows. */
+  measureId?: RowId;
   /** Measures the row and its detail row (virtualization). */
   measureRef?: (element: HTMLElement | null) => void | (() => void);
   /** Ends the editing without a change. */
@@ -262,6 +264,7 @@ export function TableRow<T>({
   isSelected,
   locale,
   measureRef,
+  measureId,
   onCancelEdit,
   onCellFocus,
   onCellMove,
@@ -350,7 +353,9 @@ export function TableRow<T>({
           getRowClassName?.(row),
         )}
         data-measure-key={
-          measureRef ? getMeasureKey(getRowId(row), false) : undefined
+          measureRef
+            ? getMeasureKey(measureId ?? getRowId(row), false)
+            : undefined
         }
         data-row-index={rowIndex}
         data-selected={isSelected ? "" : undefined}
@@ -720,7 +725,9 @@ export function TableRow<T>({
           }
           className="bg-neutral-50 dark:bg-neutral-900"
           data-measure-key={
-            measureRef ? getMeasureKey(getRowId(row), true) : undefined
+            measureRef
+              ? getMeasureKey(measureId ?? getRowId(row), true)
+              : undefined
           }
           data-row-index={rowIndex}
           id={detailId}

@@ -12,6 +12,24 @@ export const en: Locale = {
     week: "[W]WW YYYY",
   },
   messages: {
+    phoneInput: {
+      country: "Country",
+      invalid: "Enter a phone number of a valid length.",
+    },
+    repeatableField: {
+      add: "Add item",
+      remove: "Remove item {index}",
+      moveUp: "Move item {index} up",
+      moveDown: "Move item {index} down",
+      minimum: {
+        one: "Add at least {count} item.",
+        other: "Add at least {count} items.",
+      },
+      maximum: {
+        one: "Add at most {count} item.",
+        other: "Add at most {count} items.",
+      },
+    },
     chart: {
       category: "Category",
       legend: "Series",
@@ -342,6 +360,7 @@ export const en: Locale = {
       title: "Something went wrong",
     },
     fileUpload: {
+      folderReadFailed: "The folder could not be read.",
       addedCount: {
         one: "{count} file added.",
         other: "{count} files added.",

@@ -84,12 +84,9 @@ export type CalendarEventColor =
  * A rule an event repeats by - a subset of the iCalendar `RRULE`. The event
  * itself is the first occurrence; the others take its clock time (also over
  * a daylight saving change) and its length. Days a month or a year does not
- * have (the 31st, February 29) are skipped, not moved. The clock is the one
- * of the browser's time zone - the calendar knows no other: a series planned
- * at 9:00 in Prague is 3:00 in New York, and stays 3:00 there also in the
- * weeks the two change to summer time on different days, when it is 8:00 in
- * Prague. Expand series of other time zones on the server if they must keep
- * their own clock.
+ * have (the 31st, February 29) are skipped, not moved. Clock times follow
+ * the Calendar's `timeZone`, or the browser zone when omitted. Pass the same
+ * `timeZone` to `expandRecurringEvents` when expanding a series yourself.
  */
 export interface CalendarRecurrence {
   /** Repeats every day, week, month or year - times `interval`. */

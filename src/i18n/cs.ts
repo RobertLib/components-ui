@@ -12,6 +12,28 @@ export const cs: Locale = {
     week: "[W]WW.YYYY",
   },
   messages: {
+    phoneInput: {
+      country: "Země",
+      invalid: "Zadejte telefonní číslo správné délky.",
+    },
+    repeatableField: {
+      add: "Přidat položku",
+      remove: "Odebrat položku {index}",
+      moveUp: "Posunout položku {index} nahoru",
+      moveDown: "Posunout položku {index} dolů",
+      minimum: {
+        one: "Přidejte alespoň {count} položku.",
+        few: "Přidejte alespoň {count} položky.",
+        many: "Přidejte alespoň {count} položky.",
+        other: "Přidejte alespoň {count} položek.",
+      },
+      maximum: {
+        one: "Přidejte nejvýše {count} položku.",
+        few: "Přidejte nejvýše {count} položky.",
+        many: "Přidejte nejvýše {count} položky.",
+        other: "Přidejte nejvýše {count} položek.",
+      },
+    },
     chart: {
       category: "Kategorie",
       legend: "Datové řady",
@@ -407,6 +429,7 @@ export const cs: Locale = {
       title: "Něco se pokazilo",
     },
     fileUpload: {
+      folderReadFailed: "Složku se nepodařilo načíst.",
       addedCount: {
         one: "Byl přidán {count} soubor.",
         few: "Byly přidány {count} soubory.",

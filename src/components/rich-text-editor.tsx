@@ -1,3 +1,4 @@
+import { matchesShortcut, toAriaKeyShortcuts } from "../utils/shortcut";
 import {
   Bold,
   Code,
@@ -791,6 +792,8 @@ const toTableSize = (text: string) =>
   Math.min(Math.max(Number.parseInt(text, 10) || 1, 1), MAX_TABLE_SIZE);
 
 interface ToolButtonProps {
+  /** Allow a custom text label to take its natural width. */
+  wide?: boolean;
   /** Shown as on - a pressed toggle, an open form, a link at the caret. */
   active: boolean;
   children: React.ReactNode;
@@ -823,6 +826,7 @@ function ToolButton({
   title,
   tool,
   unavailable,
+  wide = false,
 }: ToolButtonProps) {
   const enabled = !disabled && !unavailable;
 
@@ -834,7 +838,8 @@ function ToolButton({
       aria-label={label}
       aria-pressed={pressed}
       className={cn(
-        "inline-flex size-8 shrink-0 items-center justify-center rounded-md text-neutral-700 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 motion-reduce:transition-none dark:text-neutral-300",
+        "inline-flex shrink-0 items-center justify-center rounded-md text-neutral-700 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 motion-reduce:transition-none dark:text-neutral-300",
+        wide ? "h-8 min-w-8 px-2 text-xs" : "size-8",
         // Forced colors (Windows High Contrast) draw no tint - the
         // system's highlight colors then
         active &&
@@ -869,6 +874,36 @@ export type RichTextImageUpload = (
     signal: AbortSignal;
   },
 ) => Promise<string>;
+
+/** Commands available to a custom rich-text tool; changes are sanitized and recorded in undo history. */
+export interface RichTextToolContext {
+  /** The editor's current sanitized HTML. */
+  html: string;
+  /** Plain text selected when the tool was invoked. */
+  selectedText: string;
+  /** Insert HTML at the selection, keeping permitted formats and maxLength. */
+  insertHtml: (html: string) => void;
+  /** Insert plain text at the selection, respecting maxLength. */
+  insertText: (text: string) => void;
+  /** Focus the editor and restore its selection. */
+  focus: () => void;
+}
+
+/** An application command appended to the editor's toolbar. */
+export interface RichTextCustomTool {
+  /** Unique id, independent of the built-in tools. */
+  id: string;
+  /** Accessible name and tooltip; supply it in the application's locale. */
+  label: string;
+  icon?: React.ReactNode;
+  /** Optional shortcut, for example mod+shift+s. */
+  shortcut?: string;
+  /** Invoke commands synchronously; they use the editor's saved selection. */
+  onClick: (context: RichTextToolContext) => void;
+  disabled?: boolean;
+  /** Toggle state, if this custom tool represents a toggle. */
+  active?: boolean;
+}
 
 /**
  * The attributes of an HTML element not listed here - `data-*`, `style`,
@@ -1008,6 +1043,10 @@ export interface RichTextEditorProps extends Omit<
    * breaks remain.
    */
   toolbar?: readonly RichTextToolbarItem[];
+  /** Application tools appended as another keyboard-navigable toolbar group. */
+  customTools?: readonly RichTextCustomTool[];
+  /** Built-in formats to retain for custom tools even without their toolbar buttons. */
+  additionalFormats?: readonly RichTextFormat[];
   /**
    * Uploads an image file the user picked with the image tool, pasted or
    * dropped - resolves with its URL (`http(s):` or relative; a `data:` URL
@@ -1066,6 +1105,8 @@ export default function RichTextEditor({
   resize = false,
   showCount = false,
   toolbar = DEFAULT_RICH_TEXT_TOOLBAR,
+  customTools = [],
+  additionalFormats = [],
   uploadImage,
   value,
   ...props
@@ -1096,7 +1137,9 @@ export default function RichTextEditor({
   // array on every render, the key the same for the same tools. A string
   // the React Compiler sees as one, so the content can be memoized by it.
   // It tells whether images may load from `data:` URLs too.
-  const toolFormatKey = String(formatsOf(items).join());
+  const toolFormatKey = String(
+    [...new Set([...formatsOf(items), ...additionalFormats])].join(),
+  );
   const formats = formatsByKey(toolFormatKey);
   const formatKey = allowImageDataUrls
     ? toolFormatKey + DATA_URLS_KEY
@@ -1185,7 +1228,7 @@ export default function RichTextEditor({
   // Inline code switched at a caret, for the text typed next
   const pendingCode = useRef<PendingCode | null>(null);
   // The tool of each toolbar that Tab stops at - the one used last
-  const [focusedTool, setFocusedTool] = useState<RichTextTool | null>(null);
+  const [focusedTool, setFocusedTool] = useState<string | null>(null);
   const [focusedTableTool, setFocusedTableTool] = useState<TableTool | null>(
     null,
   );
@@ -2297,10 +2340,51 @@ export default function RichTextEditor({
     });
   };
 
+  const runCustomTool = (tool: RichTextCustomTool) => {
+    const editor = editorRef.current;
+    if (!editor || !isEditable || tool.disabled) return;
+    tool.onClick({
+      html: normalizeEditor(editor.innerHTML, formatKey),
+      selectedText: getEditorRange()?.toString() ?? "",
+      insertHtml: (html) =>
+        runCommand((element, range) => {
+          if (element.getAttribute("contenteditable") !== "true") return false;
+          return execCommand(
+            "insertHTML",
+            fitHtml(element, range, sanitizeInserted(html, range)),
+          );
+        }),
+      insertText: (text) =>
+        runCommand((element, range) => {
+          if (element.getAttribute("contenteditable") !== "true") return false;
+          return execCommand(
+            "insertText",
+            truncateText(text, Math.max(0, roomAt(element, range))),
+          );
+        }),
+      focus: () => {
+        editor.focus();
+        select(getEditorRange());
+      },
+    });
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // A disabled or read-only editor takes no commands - it may have the
     // focus of a click
     if (event.nativeEvent.isComposing || !isEditable) return;
+
+    const custom = customTools.find(
+      (tool) =>
+        !tool.disabled &&
+        tool.shortcut &&
+        matchesShortcut(event, tool.shortcut, isApple),
+    );
+    if (custom) {
+      event.preventDefault();
+      runCustomTool(custom);
+      return;
+    }
 
     // To the toolbar - the shortcut of TinyMCE and CKEditor
     if (event.altKey && event.key === "F10") {
@@ -2890,10 +2974,14 @@ export default function RichTextEditor({
   const keyNames = texts.keys;
 
   // Tab stops at one tool of a toolbar - the one used last, or the first
+  const allToolIds = [
+    ...tools,
+    ...customTools.map((tool) => `custom:${tool.id}`),
+  ];
   const toolTabStop =
-    focusedTool !== null && tools.includes(focusedTool)
+    focusedTool !== null && allToolIds.includes(focusedTool)
       ? focusedTool
-      : tools[0];
+      : allToolIds[0];
 
   const tableToolIds = TABLE_TOOLS.flatMap((tool) =>
     tool === "|" ? [] : [tool.id],
@@ -2964,7 +3052,7 @@ export default function RichTextEditor({
             value={submittedHtml ? "valid" : ""}
           />
         )}
-        {items.length > 0 && !readOnly && (
+        {(items.length > 0 || customTools.length > 0) && !readOnly && (
           <div
             aria-label={label || ariaLabelledBy ? undefined : ariaLabel}
             aria-labelledby={label ? labelTextId : ariaLabelledBy}
@@ -2974,55 +3062,82 @@ export default function RichTextEditor({
             role="toolbar"
           >
             <ToolGroups
-              groups={splitGroups(items).map((group) =>
-                group.map((item) => {
-                  const Icon = TOOL_ICONS[item];
-                  const shortcut = SHORTCUTS[item];
-                  const toolLabel = texts[item];
-                  const opensForm =
-                    item === "link" || item === "table" || item === "image";
-                  const isOpen =
-                    item === "link"
-                      ? linkUrl !== null
-                      : item === "table"
-                        ? tableForm !== null
-                        : item === "image" && imageForm !== null;
+              groups={[
+                ...splitGroups(items).map((group) =>
+                  group.map((item) => {
+                    const Icon = TOOL_ICONS[item];
+                    const shortcut = SHORTCUTS[item];
+                    const toolLabel = texts[item];
+                    const opensForm =
+                      item === "link" || item === "table" || item === "image";
+                    const isOpen =
+                      item === "link"
+                        ? linkUrl !== null
+                        : item === "table"
+                          ? tableForm !== null
+                          : item === "image" && imageForm !== null;
 
-                  return (
-                    <ToolButton
-                      active={!!toolState.active[item] || isOpen}
-                      disabled={disabled}
-                      expanded={opensForm ? isOpen : undefined}
-                      key={item}
-                      keyShortcuts={
-                        shortcut ? ariaShortcut(shortcut, isApple) : undefined
-                      }
-                      label={toolLabel}
-                      onClick={() => runTool(item)}
-                      onFocus={() => setFocusedTool(item)}
-                      pressed={
-                        TOGGLES.has(item) ? !!toolState.active[item] : undefined
-                      }
-                      tabIndex={item === toolTabStop ? 0 : -1}
-                      title={
-                        shortcut
-                          ? `${toolLabel} (${formatShortcut(shortcut, isApple, keyNames)})`
-                          : toolLabel
-                      }
-                      tool={item}
-                      unavailable={
-                        item === "undo"
-                          ? !historyState.canUndo
-                          : item === "redo"
-                            ? !historyState.canRedo
-                            : !!toolState.unavailable[item]
-                      }
-                    >
-                      <Icon aria-hidden="true" size={16} />
-                    </ToolButton>
-                  );
-                }),
-              )}
+                    return (
+                      <ToolButton
+                        active={!!toolState.active[item] || isOpen}
+                        disabled={disabled}
+                        expanded={opensForm ? isOpen : undefined}
+                        key={item}
+                        keyShortcuts={
+                          shortcut ? ariaShortcut(shortcut, isApple) : undefined
+                        }
+                        label={toolLabel}
+                        onClick={() => runTool(item)}
+                        onFocus={() => setFocusedTool(item)}
+                        pressed={
+                          TOGGLES.has(item)
+                            ? !!toolState.active[item]
+                            : undefined
+                        }
+                        tabIndex={item === toolTabStop ? 0 : -1}
+                        title={
+                          shortcut
+                            ? `${toolLabel} (${formatShortcut(shortcut, isApple, keyNames)})`
+                            : toolLabel
+                        }
+                        tool={item}
+                        unavailable={
+                          item === "undo"
+                            ? !historyState.canUndo
+                            : item === "redo"
+                              ? !historyState.canRedo
+                              : !!toolState.unavailable[item]
+                        }
+                      >
+                        <Icon aria-hidden="true" size={16} />
+                      </ToolButton>
+                    );
+                  }),
+                ),
+                customTools.map((tool) => (
+                  <ToolButton
+                    active={!!tool.active}
+                    disabled={disabled}
+                    key={`custom:${tool.id}`}
+                    keyShortcuts={
+                      tool.shortcut
+                        ? toAriaKeyShortcuts(tool.shortcut, isApple)
+                        : undefined
+                    }
+                    label={tool.label}
+                    onClick={() => runCustomTool(tool)}
+                    onFocus={() => setFocusedTool(`custom:${tool.id}`)}
+                    pressed={tool.active}
+                    tabIndex={toolTabStop === `custom:${tool.id}` ? 0 : -1}
+                    title={tool.label}
+                    tool={`custom:${tool.id}`}
+                    unavailable={!!tool.disabled}
+                    wide={tool.icon === undefined}
+                  >
+                    {tool.icon ?? tool.label}
+                  </ToolButton>
+                )),
+              ]}
             />
           </div>
         )}

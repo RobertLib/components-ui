@@ -33,8 +33,10 @@ import { computeSummary } from "./summary";
 import { createCsv, downloadCsv } from "./csv";
 import {
   flattenColumns,
-  groupRows,
-  sortByGroups,
+  groupRowsBy,
+  sortByGroupColumns,
+  countGroupRows,
+  type NestedRowGroup,
   summarizeGroup,
   type BodyRowGroup,
 } from "./grouping";
@@ -87,6 +89,7 @@ import type {
   DataTableColumn,
   DataTableColumnState,
   DataTableDensity,
+  DataTableGroupMetadata,
   DataTableSelectionMode,
   FilteredSelectionConfig,
   GroupAction,
@@ -106,6 +109,7 @@ export type {
   DataTableColumn,
   DataTableColumnState,
   DataTableDensity,
+  DataTableGroupMetadata,
   DataTableSelectionMode,
   FilteredSelectionConfig,
   GroupAction,
@@ -322,16 +326,16 @@ export interface DataTableProps<T> extends Omit<
   onExpandedIdsChange?: (ids: RowId[]) => void;
   /** Buttons acting on the selected rows - adds a checkbox column. */
   groupActions?: GroupAction<T>[];
-  /**
-   * `clientSide` only: key of a column to group the rows by - each group
-   * gets a header row with its value and number of rows, which collapses
-   * and expands it, and a row of the column `summary` of all its rows. The
-   * groups follow the order of the value (the direction of its column when
-   * it is sorted, an empty value last); the sorting orders the rows within
-   * them. The rows of a group come together on the pages - a group may go
-   * on on the next one, its number counts all its rows. Not `virtualized`.
-   */
-  groupBy?: string;
+  /** Column key or keys to group by, from outermost to innermost. Groups support virtualization; server data groups the loaded page. */
+  groupBy?: string | readonly string[];
+  /** Server counts and summaries keyed by `getDataTableGroupKey` of the group's value path. */
+  groupMetadata?: Record<string, DataTableGroupMetadata>;
+  /** Controlled keys of collapsed groups. */
+  collapsedGroupKeys?: readonly string[];
+  /** Initial collapsed group keys. */
+  defaultCollapsedGroupKeys?: readonly string[];
+  /** Collapsed group keys requested after a toggle. */
+  onCollapsedGroupKeysChange?: (keys: string[]) => void;
   /**
    * The rows are loading: without rows the table shows placeholder rows
    * with a spinner over them, rows already there are dimmed until new ones
@@ -384,8 +388,7 @@ export interface DataTableProps<T> extends Omit<
   /**
    * Server data: all rows of `query` - every page - for the CSV export. It
    * turns the export on too. The export button shows a spinner while the
-   * rows load; a rejection is logged and nothing is saved - tell the user
-   * about it yourself.
+   * rows load; a rejection shows a localized alert and calls `onExportError`.
    */
   onExport?: (query: DataTableQuery) => T[] | Promise<T[]>;
   /** An export failed; the table also shows a localized error message. */
@@ -522,6 +525,10 @@ export default function DataTable<T>({
   isRowSelectable,
   groupActions,
   groupBy,
+  groupMetadata,
+  collapsedGroupKeys,
+  defaultCollapsedGroupKeys = [],
+  onCollapsedGroupKeysChange,
   loading,
   maxHeight = "calc(100vh - 212px)",
   multiSort = clientSide,
@@ -624,14 +631,18 @@ export default function DataTable<T>({
   // The user's choice - unless the control to make it is gone
   const density = (densityControl && savedDensity) || defaultDensity;
 
-  // Rows grouped by a column - client-side, where all its rows are known.
-  // The group rows come between the rows, which virtualization cannot
-  // measure apart.
-  const groupColumn =
-    clientSide && groupBy !== undefined
-      ? columns.find((column) => column.key === groupBy)
-      : undefined;
-  const virtualized = virtualizedProp && !groupColumn;
+  const groupingKey = JSON.stringify(
+    typeof groupBy === "string" ? [groupBy] : (groupBy ?? []),
+  );
+  const groupColumns = useMemo(
+    () =>
+      (JSON.parse(groupingKey) as string[]).flatMap((key) => {
+        const column = columns.find((entry) => entry.key === key);
+        return column ? [column] : [];
+      }),
+    [columns, groupingKey],
+  );
+  const virtualized = virtualizedProp;
 
   // The term of the search field - without the field nothing could show or
   // clear a search, so a `clientSide` table ignores one then
@@ -649,10 +660,6 @@ export default function DataTable<T>({
     querySort.filter(({ key }) => isShownSortKey(key)),
   );
   const sort = useMemo(() => JSON.parse(sortKey) as DataTableSort[], [sortKey]);
-  // The groups of `groupBy` follow the direction of their column when it is
-  // sorted
-  const groupOrder = sort.find(({ key }) => key === groupBy)?.order ?? "asc";
-
   // Client-side: all rows matching the filters and the search, sorted - the
   // expensive part, so it runs again only when they, the columns or these
   // parts of the query change, not on a page change or a checkbox click -
@@ -679,17 +686,18 @@ export default function DataTable<T>({
     );
     // Grouped, the rows of a group come together - in the order of the
     // sorting within it - not scattered over the pages
-    const column =
-      groupBy === undefined
-        ? undefined
-        : queryColumns.find((candidate) => candidate.key === groupBy);
-    return column ? sortByGroups(result, column, groupOrder, locale) : result;
+    const groupedColumns = (JSON.parse(groupingKey) as string[]).flatMap(
+      (key) => {
+        const column = queryColumns.find((candidate) => candidate.key === key);
+        return column ? [column] : [];
+      },
+    );
+    return sortByGroupColumns(result, groupedColumns, sort, locale);
   }, [
     clientSide,
     data,
     filtersKey,
-    groupBy,
-    groupOrder,
+    groupingKey,
     locale,
     queryColumns,
     searchColumns,
@@ -1740,56 +1748,71 @@ export default function DataTable<T>({
     });
   }, [data, frozenRowIds, rows, getRowId]);
 
-  // Grouped by a column: the groups of the rows of the page, counted and
-  // summed up over all their matching rows
   const rowGroups = useMemo(
     () =>
-      groupColumn
-        ? groupRows(
+      groupColumns.length
+        ? groupRowsBy(
             bodyRows,
             matchingRows ?? bodyRows,
-            groupColumn,
-            groupOrder,
+            groupColumns,
+            sort,
             locale,
           )
         : null,
-    [bodyRows, groupColumn, groupOrder, locale, matchingRows],
+    [bodyRows, groupColumns, locale, matchingRows, sort],
   );
-  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const bodyGroups = useMemo<BodyRowGroup[] | null>(
+  const [internalCollapsedGroups, setCollapsedGroups] = useState<
+    ReadonlySet<string>
+  >(() => new Set(defaultCollapsedGroupKeys));
+  const collapsedGroups = useMemo(
     () =>
-      rowGroups?.map((group) => {
+      collapsedGroupKeys
+        ? new Set(collapsedGroupKeys)
+        : internalCollapsedGroups,
+    [collapsedGroupKeys, internalCollapsedGroups],
+  );
+  const bodyGroups = useMemo<BodyRowGroup[] | null>(() => {
+    const build = (groups: NestedRowGroup<T>[]): BodyRowGroup[] =>
+      groups.map((group) => {
         const collapsed = collapsedGroups.has(group.key);
+        const metadata = groupMetadata?.[group.key];
         return {
           collapsed,
-          count: group.allRows.length,
+          count: metadata?.count ?? group.allRows.length,
           key: group.key,
           label: group.label,
+          columnLabel: group.columnLabel,
+          level: group.level,
           size: collapsed ? 0 : group.rows.length,
-          summary: summarizeGroup(sortedVisibleColumns, group.allRows),
+          summary:
+            metadata?.summaryValues ??
+            summarizeGroup(sortedVisibleColumns, group.allRows),
+          children: group.children
+            ? collapsed
+              ? []
+              : build(group.children)
+            : undefined,
         };
-      }) ?? null,
-    [collapsedGroups, rowGroups, sortedVisibleColumns],
-  );
-  // The rows the body shows - of the groups that are expanded
-  const shownRows = useMemo(
-    () =>
-      rowGroups
-        ? rowGroups.flatMap((group) =>
-            collapsedGroups.has(group.key) ? [] : group.rows,
-          )
-        : bodyRows,
-    [bodyRows, collapsedGroups, rowGroups],
-  );
-
-  const toggleGroup = (key: string) =>
-    setCollapsedGroups((current) => {
-      const next = new Set(current);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
+      });
+    return rowGroups ? build(rowGroups) : null;
+  }, [collapsedGroups, groupMetadata, rowGroups, sortedVisibleColumns]);
+  const shownRows = useMemo(() => {
+    const flatten = (groups: NestedRowGroup<T>[]): T[] =>
+      groups.flatMap((group) =>
+        collapsedGroups.has(group.key)
+          ? []
+          : group.children
+            ? flatten(group.children)
+            : group.rows,
+      );
+    return rowGroups ? flatten(rowGroups) : bodyRows;
+  }, [bodyRows, collapsedGroups, rowGroups]);
+  const toggleGroup = (key: string) => {
+    const next = new Set(collapsedGroups);
+    if (!next.delete(key)) next.add(key);
+    if (collapsedGroupKeys === undefined) setCollapsedGroups(next);
+    onCollapsedGroupKeysChange?.([...next]);
+  };
 
   // Shift + click selects the rows from the row clicked before - in the
   // order they are shown
@@ -2131,7 +2154,10 @@ export default function DataTable<T>({
   const rowCount = virtualized
     ? headerRowCount +
       shownRows.length +
-      (renderSubRow ? expandedRows.size : 0) +
+      (renderSubRow
+        ? shownRows.filter((row) => expandedRows.has(getRowId(row))).length
+        : 0) +
+      countGroupRows(bodyGroups) +
       (hasSummaryRow ? 1 : 0)
     : undefined;
 
@@ -2485,7 +2511,6 @@ export default function DataTable<T>({
               getRowHref={getRowHref}
               getRowId={getRowId}
               isRowSelectable={isRowSelectable}
-              groupLabel={groupColumn?.labelTitle ?? groupColumn?.label}
               groups={bodyGroups}
               headerRowCount={headerRowCount}
               isEditable={isEditable}

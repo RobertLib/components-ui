@@ -83,6 +83,24 @@ describe("ImageViewer", () => {
     expect(screen.getByText("A mountain")).toBeInTheDocument();
   });
 
+  it("navigates when focus stays in the dialog header, including Safari pointer behavior", () => {
+    const key = vi.fn();
+    render(
+      <ImageViewer
+        defaultOpen
+        defaultIndex={1}
+        images={images}
+        onKeyDown={key}
+      />,
+    );
+    const close = screen.getByRole("button", { name: "Close dialog" });
+    close.focus();
+    fireEvent.keyDown(close, { key: "Home" });
+    expect(screen.getByText("A mountain")).toBeInTheDocument();
+    expect(key).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(close, { key: "End" });
+    expect(screen.getByText("A river")).toBeInTheDocument();
+  });
   it("shows loading and failed image feedback and handles an empty gallery", () => {
     const { rerender } = render(<ImageViewer defaultOpen images={images} />);
     expect(screen.getByRole("status")).toBeInTheDocument();

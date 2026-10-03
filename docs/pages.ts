@@ -158,6 +158,12 @@ export const groups: DocsGroup[] = [
         "menu submenu checkbox radio shortcut separator typeahead placement align position controlled",
       ),
       component(
+        "menubar",
+        "Menubar",
+        () => import("./pages/components/menubar"),
+        "application menu commands navigation",
+      ),
+      component(
         "context-menu",
         "ContextMenu",
         () => import("./pages/components/context-menu"),
@@ -174,6 +180,12 @@ export const groups: DocsGroup[] = [
         "Input",
         () => import("./pages/components/input"),
         "text field password prefix suffix adornment icon clearable clear mask masked format pattern phone postal code psč ičo iban card unmask applyMask password strength meter getPasswordStrength readonly",
+      ),
+      component(
+        "phone-input",
+        "PhoneInput",
+        () => import("./pages/components/phone-input"),
+        "international telephone country calling code E164",
       ),
       component(
         "textarea",
@@ -305,6 +317,12 @@ export const groups: DocsGroup[] = [
         "RichTextEditor",
         () => import("./pages/components/rich-text-editor"),
         "wysiwyg html toolbar heading list table quote undo sanitize image upload markdown code block character count maxlength read-only",
+      ),
+      component(
+        "repeatable-field",
+        "RepeatableField",
+        () => import("./pages/components/repeatable-field"),
+        "repeat fields groups add remove reorder array contacts",
       ),
       component(
         "field",
