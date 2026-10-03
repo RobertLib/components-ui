@@ -1,4 +1,5 @@
 import { findActiveLink } from "../../../providers/active-path";
+import { findMatches } from "../../../utils/find-matches";
 import { foldSearchText } from "../../../utils/remove-diacritics";
 import type { TreeItem, TreeItemId } from "./types";
 
@@ -107,50 +108,6 @@ export function getAncestors(
   }
 
   return ancestors;
-}
-
-const normalize = foldSearchText;
-
-/**
- * The ranges of `text` matching `term`, ignoring case and diacritics -
- * "cesky" matches "Český". Returns `[start, end)` indexes into `text`.
- */
-export function findMatches(text: string, term: string): [number, number][] {
-  const needle = normalize(term);
-  const folded = normalize(text);
-  if (!needle || !folded.includes(needle)) return [];
-
-  // Folding keeps the length of most texts - where it does not, fold
-  // character by character, remembering where each folded one came from
-  let origin: number[] | null = null;
-
-  if (folded.length !== text.length) {
-    origin = [];
-    for (let index = 0; index < text.length; index++) {
-      const length = normalize(text[index]).length;
-      for (let offset = 0; offset < length; offset++) origin.push(index);
-    }
-  }
-
-  const matches: [number, number][] = [];
-  let position = folded.indexOf(needle);
-
-  while (position !== -1) {
-    const last = position + needle.length - 1;
-
-    if (origin) {
-      // With the accents of the last letter, which fold to nothing
-      let end = origin[last] + 1;
-      while (end < text.length && normalize(text[end]).length === 0) end++;
-      matches.push([origin[position], end]);
-    } else {
-      matches.push([position, last + 1]);
-    }
-
-    position = folded.indexOf(needle, position + needle.length);
-  }
-
-  return matches;
 }
 
 export interface FilterResult {
@@ -537,13 +494,14 @@ export function findTypeaheadRow<T extends TreeItem>(
   from: number,
   text: string,
 ): number {
-  const search = normalize(text);
+  const search = foldSearchText(text);
   if (!search || rows.length === 0) return -1;
 
   const find = (prefix: string, start: number) => {
     for (let offset = 0; offset < rows.length; offset++) {
       const index = (start + offset) % rows.length;
-      if (normalize(rows[index].item.label).startsWith(prefix)) return index;
+      if (foldSearchText(rows[index].item.label).startsWith(prefix))
+        return index;
     }
     return -1;
   };

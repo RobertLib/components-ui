@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   filterTree,
   findCurrentItem,
-  findMatches,
   findReplacementRow,
   findTypeaheadRow,
   getCheckedIds,
@@ -224,25 +223,6 @@ describe("check states", () => {
 
     // An item whose children are not loaded stands for all of them
     expect(toggle("reports", ["sales"])).toEqual(["reports", "sales"]);
-  });
-});
-
-describe("findMatches", () => {
-  it("finds every match, ignoring case and diacritics", () => {
-    expect(findMatches("Česká pošta, česko", "cesk")).toEqual([
-      [0, 4],
-      [13, 17],
-    ]);
-    expect(findMatches("Orders", "x")).toEqual([]);
-    expect(findMatches("Orders", "")).toEqual([]);
-  });
-
-  it("maps matches back into a text folding changes the length of", () => {
-    // Decomposed letters fold to fewer characters - the accent of the last
-    // matching letter belongs to the match
-    const text = "Pr\u030ci\u0301lis\u030c";
-    expect(findMatches(text, "lis")).toEqual([[5, 9]]);
-    expect(findMatches(text, "ri")).toEqual([[1, 5]]);
   });
 });
 

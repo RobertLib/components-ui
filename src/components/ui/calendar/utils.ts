@@ -480,10 +480,6 @@ export function createTimeTextFormatter(locale: Locale, timeZone?: string) {
 export const isRtl = (element: Element | null) =>
   !!element && getComputedStyle(element).direction === "rtl";
 
-/** The accessible name of one event tile - see `createEventLabeler`. */
-export const formatEventLabel = (event: CalendarEvent, locale: Locale) =>
-  createEventLabeler(locale)(event);
-
 /**
  * Text for a tile's native `title` tooltip. When the event carries an explicit
  * `tooltip` it is shown on its own - the event's own text is already visible

@@ -88,28 +88,6 @@ export function minutesIntoDay(day: Date, date: Date) {
   );
 }
 
-/** `date` moved into [`min`, `max`] - `min` wins when they cross. */
-export const clampDate = (date: Date, min: Date, max: Date) =>
-  copyDate(
-    date,
-    Math.max(min.getTime(), Math.min(date.getTime(), max.getTime())),
-  );
-
-/**
- * The start of the grid slot at `hours:minutes` on the day of `date`. The
- * row of the end hour stands for the last slot before it - like a range
- * picked there - so the time is one shown; with the end hour 24 (the
- * midnight ending the day) it stays on that day.
- */
-export const getSlotStart = (
-  date: Date,
-  hours: number,
-  minutes: number,
-  slotMinutes: number,
-  endHour: number,
-) =>
-  atMinutes(date, Math.min(hours * 60 + minutes, endHour * 60 - slotMinutes));
-
 /** The first and the last day of the week `date` falls in. */
 export const getWeekStartEnd = (
   date: Date,

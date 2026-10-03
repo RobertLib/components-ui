@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.5
+
+- **DataTable / TreeView** - share search-match ranges and highlight decomposed accents consistently, including texts where Unicode expansions and removed accents leave the total length unchanged.
+- **Cleanup** - remove six unused internal helpers and redundant search implementations; test the shared search logic and the calendar helpers used by components directly.
+
 ## 0.4.4
 
 - **Application localization** - keep application texts at the root of `useMessages()` and library texts under `useMessages().ui`. Application catalogs live directly in `src/i18n/en.ts` and `cs.ts`; UI locales, localization types and formatting helpers live in `src/i18n/ui/`. Both share `UIProvider`, placeholders and plural helpers. Infer application keys from the default catalog and check translations without maintaining another type definition. Provider overrides follow the same root / `ui` shape. Document source-copy setup and fallback translations.

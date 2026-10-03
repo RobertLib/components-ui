@@ -123,12 +123,6 @@ export const isSameDay = (a: Date, b: Date) =>
   a.getMonth() === b.getMonth() &&
   a.getFullYear() === b.getFullYear();
 
-/** The first day of the week `date` falls in (at local midnight). */
-export function startOfWeek(date: Date, weekStartsOn: WeekDay) {
-  const offset = (date.getDay() - weekStartsOn + 7) % 7;
-  return addDays(startOfDay(date), -offset);
-}
-
 /**
  * The days of a month grid: leading `null`s for the weekdays before the 1st,
  * then every day of the month - a `null` for a day the time zone skips (see

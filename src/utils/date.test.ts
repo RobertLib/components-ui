@@ -18,7 +18,6 @@ import {
   parseISODate,
   parsePattern,
   shiftDay,
-  startOfWeek,
   toISODate,
   usesHour12,
   withoutMonth,
@@ -109,12 +108,6 @@ describe("weeks", () => {
     expect(getISOWeeksInYear(2020)).toBe(53);
     expect(getISOWeeksInYear(2026)).toBe(53);
     expect(getISOWeeksInYear(2025)).toBe(52);
-  });
-
-  it("starts the week on the configured day", () => {
-    const thursday = new Date(2026, 8, 24);
-    expect(startOfWeek(thursday, 1).getDate()).toBe(21); // Monday
-    expect(startOfWeek(thursday, 0).getDate()).toBe(20); // Sunday
   });
 
   it("pads a month grid to the first day of the week", () => {

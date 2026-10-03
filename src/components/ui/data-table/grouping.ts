@@ -129,18 +129,6 @@ export function groupRows<T>(
     }));
 }
 
-/**
- * The rows with those of each group together - the groups in the order of
- * their value (`order`, see `groupRows`), the rows keeping their order
- * within them - so that the pagination does not scatter a group.
- */
-export const sortByGroups = <T>(
-  rows: T[],
-  column: Column<T>,
-  order: SortOrder,
-  locale: Locale,
-) => groupRows(rows, [], column, order, locale).flatMap((group) => group.rows);
-
 /** A group as the body renders it - see `TableBody`. */
 export interface BodyRowGroup {
   children?: BodyRowGroup[];

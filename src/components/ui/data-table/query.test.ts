@@ -11,7 +11,6 @@ import {
   toRelayVariables,
   writeQueryToSearch,
 } from "./query";
-import { findMatches } from "./find-matches";
 import type { Column } from "./types";
 
 interface Row {
@@ -657,12 +656,18 @@ describe("applyDataTableQuery", () => {
   });
 });
 
-describe("findMatches", () => {
-  it("finds matches ignoring case and diacritics", () => {
-    expect(findMatches("Šimon a Simona", "sim")).toEqual([
-      [0, 3],
-      [8, 11],
-    ]);
-    expect(findMatches("Anything", "")).toEqual([]);
+describe("applyDataTableQuery search", () => {
+  it("folds the texts of other scripts like the highlight does", () => {
+    const rows = [{ name: "ΟΔΟΣ" }, { name: "한국".normalize("NFD") }];
+    const columns = [{ key: "name" as const, label: "Name" }];
+    const search = (term: string) =>
+      applyDataTableQuery(
+        rows,
+        { ...createDataTableQuery(), search: term },
+        columns,
+      ).rows.map((row) => row.name);
+
+    expect(search("οδος")).toEqual(["ΟΔΟΣ"]);
+    expect(search("한국")).toEqual(["한국".normalize("NFD")]);
   });
 });

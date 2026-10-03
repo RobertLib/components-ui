@@ -1,4 +1,4 @@
-import { findMatches } from "./find-matches";
+import { findMatches } from "../../../utils/find-matches";
 
 interface HighlightedTextProps {
   /** What to highlight - case and diacritics do not matter. */

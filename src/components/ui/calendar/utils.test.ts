@@ -6,8 +6,8 @@ import { en } from "../../../i18n/ui/en";
 import {
   createDateTimeFormat,
   createDayFormat,
+  createEventLabeler,
   createTimeTextFormatter,
-  formatEventLabel,
   formatTimeRange,
   getVisibleMinutes,
   layoutEvents,
@@ -164,7 +164,7 @@ describe("sortEvents", () => {
   });
 });
 
-describe("formatEventLabel", () => {
+describe("createEventLabeler", () => {
   it.each(["en-US-u-ca-persian", "en-US-u-ca-buddhist"])(
     "keeps dates added to an overnight time range Gregorian for %s",
     (code) => {
@@ -191,35 +191,40 @@ describe("formatEventLabel", () => {
   it("names an event by its title, day and times on the locale's clock", () => {
     const standup = event("Standup", d(24, 9), d(24, 10));
 
-    expect(formatEventLabel(standup, en)).toMatch(
+    expect(createEventLabeler(en)(standup)).toMatch(
       /^Standup, Thursday, September 24, 2026,? 9:00\s–\s10:00\sAM$/,
     );
-    expect(formatEventLabel(standup, cs)).toMatch(
+    expect(createEventLabeler(cs)(standup)).toMatch(
       /^Standup, čtvrtek 24\. září 2026,? 9:00\s?–\s?10:00$/,
     );
     // English on the 24-hour clock
     expect(
-      formatEventLabel(
+      createEventLabeler(createLocale(en, { formats: { time: "HH:mm" } }))(
         standup,
-        createLocale(en, { formats: { time: "HH:mm" } }),
       ),
     ).toMatch(/09:00\s–\s10:00$/);
   });
 
   it("names an event over several days by both its days", () => {
     expect(
-      formatEventLabel(event("Night shift", d(22, 20), d(23, 6)), en),
+      createEventLabeler(en)(event("Night shift", d(22, 20), d(23, 6))),
     ).toMatch(/^Night shift, Tuesday, .* 8:00\sPM\s–\sWednesday, .* 6:00\sAM$/);
   });
 
   it("names an all-day event by its days - the end is exclusive", () => {
     expect(
-      formatEventLabel({ ...event("Offsite", d(22), d(24)), allDay: true }, en),
+      createEventLabeler(en)({
+        ...event("Offsite", d(22), d(24)),
+        allDay: true,
+      }),
     ).toMatch(
       /^Offsite, Tuesday, September 22\s–\sWednesday, September 23, 2026, all day$/,
     );
     expect(
-      formatEventLabel({ ...event("Release", d(24), d(25)), allDay: true }, en),
+      createEventLabeler(en)({
+        ...event("Release", d(24), d(25)),
+        allDay: true,
+      }),
     ).toBe("Release, Thursday, September 24, 2026, all day");
   });
 });
@@ -233,10 +238,10 @@ describe("formatTimeRange", () => {
       /^Thursday, September 24, 2026,? 9:00\s–\s10:00\sAM$/,
     );
     expect(
-      formatEventLabel(
-        { ...event("Release", d(24), d(25)), allDay: true },
-        locale,
-      ),
+      createEventLabeler(locale)({
+        ...event("Release", d(24), d(25)),
+        allDay: true,
+      }),
     ).toBe("Release, Thursday, September 24, 2026, all day");
 
     warn.mockRestore();

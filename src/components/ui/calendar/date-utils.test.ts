@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   atHour,
+  atMinutes,
   daysBetween,
-  getSlotStart,
   getVisibleRange,
   minutesIntoDay,
 } from "./date-utils";
@@ -92,27 +92,10 @@ describe("slot times", () => {
     expect(daysBetween(from, new Date(from))).toBe(0);
   });
 
-  it("gives the 24:00 row the last slot of its day", () => {
+  it("measures the midnight ending a day as 24:00", () => {
     const day = new Date(2026, 8, 24);
-    expect(getSlotStart(day, 24, 0, 30, 24)).toEqual(
-      new Date(2026, 8, 24, 23, 30),
-    );
-    expect(getSlotStart(day, 9, 30, 30, 24)).toEqual(
-      new Date(2026, 8, 24, 9, 30),
-    );
     expect(atHour(day, 24)).toEqual(new Date(2026, 8, 25));
     expect(minutesIntoDay(day, new Date(2026, 8, 25))).toBe(1440);
-  });
-
-  it("gives the row of an earlier end hour the last slot before it", () => {
-    const day = new Date(2026, 8, 24);
-    expect(getSlotStart(day, 22, 0, 30, 22)).toEqual(
-      new Date(2026, 8, 24, 21, 30),
-    );
-    expect(getSlotStart(day, 22, 0, 60, 22)).toEqual(new Date(2026, 8, 24, 21));
-    expect(getSlotStart(day, 21, 30, 30, 22)).toEqual(
-      new Date(2026, 8, 24, 21, 30),
-    );
   });
 });
 
@@ -142,7 +125,7 @@ describe("slot times over a daylight saving change", () => {
   it("never comes out earlier for a later slot in the skipped hour", () => {
     const day = new Date(2026, 2, 29);
     const slots = [1, 1.5, 2, 2.5, 3, 3.5].map((hours) =>
-      getSlotStart(day, Math.floor(hours), (hours % 1) * 60, 30, 24),
+      atMinutes(day, hours * 60),
     );
 
     for (let index = 1; index < slots.length; index++) {

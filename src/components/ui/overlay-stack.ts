@@ -229,9 +229,6 @@ const containsNode = (entry: OverlayEntry, node: Node) =>
     .getElements()
     .some((element) => !!element && composedContains(element, node));
 
-/** Ids of the open overlays, the topmost last - for tests. */
-export const getOverlayStack = () => stack.map((entry) => entry.id);
-
 /**
  * Whether `id` is the topmost open overlay - of all of them, with `modal` of
  * the modal ones, with `press` of those a press outside of them is for:
