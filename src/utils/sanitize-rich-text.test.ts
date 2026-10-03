@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import sanitizeRichText, {
   sanitizeEditorContent,
   sanitizeInlineHtml,
@@ -521,28 +521,27 @@ describe("sanitizeRichText of hostile content", () => {
     expect(count(inline, "span")).toBeLessThanOrEqual(100);
   });
 
-  it("copies blocks nested in a line in the time of a flat line", () => {
+  it("copies deeply nested lines without repeatedly appending their nodes", () => {
     // Copied level by level, the lines of paragraphs nested in a list item
     // or a cell were moved again at every level - seconds for 0.5 MB
     const lines = "x<br>".repeat(3_000);
-    const time = (html: string) => {
-      let best = Infinity;
-      for (let round = 0; round < 2; round += 1) {
-        const start = performance.now();
-        sanitizeRichText(html);
-        best = Math.min(best, performance.now() - start);
-      }
-      return best;
+    // Count DOM insertions instead of elapsed time, which depends on the
+    // load of other workers. Repeated moves grow with the nesting depth.
+    const append = vi.spyOn(Node.prototype, "appendChild");
+    const copy = (html: string) => {
+      append.mockClear();
+      const sanitized = sanitizeRichText(html);
+      return { sanitized, appends: append.mock.calls.length };
     };
 
     for (const line of ["<ul><li>", "<table><tr><td>"]) {
-      const flat = time(line + lines);
-      const nested = time(line + "<div>".repeat(95) + lines);
-      expect(nested).toBeLessThan(flat * 5);
+      const flat = copy(line + lines);
+      const nested = copy(line + "<div>".repeat(95) + lines);
+      expect(flat.appends).toBeGreaterThan(0);
+      expect(nested.appends).toBeLessThan(flat.appends * 2);
+      expect(count(nested.sanitized, "br")).toBe(3_000);
     }
-    expect(
-      count(sanitizeRichText(`<ul><li>${"<div>".repeat(95)}${lines}`), "br"),
-    ).toBe(3_000);
+    append.mockRestore();
   });
 
   it("keeps random hostile markup to the allowed elements, the same again", () => {
@@ -814,14 +813,17 @@ describe("sanitizeRichText of its output", () => {
     return content(0);
   }
 
-  it("gives the same output again", () => {
-    const formatSets = [
-      undefined,
-      BASIC,
-      ["blockquote", "heading3", "numberedList", "code", "horizontalRule"],
-    ] satisfies (RichTextFormat[] | undefined)[];
+  // Each seed keeps its own timeout, so slower workers retain the full
+  // generated-content coverage without timing out one large batch.
+  it.each(Array.from({ length: 50 }, (_, index) => index + 1))(
+    "gives the same output again (seed %i)",
+    (seed) => {
+      const formatSets = [
+        undefined,
+        BASIC,
+        ["blockquote", "heading3", "numberedList", "code", "horizontalRule"],
+      ] satisfies (RichTextFormat[] | undefined)[];
 
-    for (let seed = 1; seed <= 50; seed += 1) {
       // Several fragments - each sanitizing has its cost of its own
       const html = [1, 2, 3, 4, 5]
         .map((part) => randomHtml(seed * 7 + part))
@@ -835,8 +837,8 @@ describe("sanitizeRichText of its output", () => {
       expect(sanitizeRichTextLines(lines), html).toBe(lines);
       const inline = sanitizeInlineHtml(html);
       expect(sanitizeInlineHtml(inline), html).toBe(inline);
-    }
-  });
+    },
+  );
 });
 
 describe("sanitizeRichText with fewer formats", () => {

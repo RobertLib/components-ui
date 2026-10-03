@@ -300,7 +300,10 @@ export default function UtilitiesGuide() {
             render, calling the <code>callback</code> of the latest render. Its{" "}
             <code>flush()</code> makes the pending call right away,{" "}
             <code>cancel()</code> drops it. A call pending on unmount is
-            dropped, or made with <code>flushOnUnmount</code>.
+            dropped, or made with <code>flushOnUnmount</code>. Hiding with React
+            Activity keeps pending calls and their deadlines; they use the
+            latest callback, including updates made while hidden. Unmounting a
+            hidden component flushes just after the unmount commit.
           </p>
         </Prose>
         <Example name="utilities/debounced-callback" />

@@ -95,6 +95,8 @@ export interface AutocompleteOption<T = AutocompleteValue> {
   group?: string;
 }
 
+const EMPTY_OPTIONS: AutocompleteOption[] = [];
+
 /**
  * Fields the default label, value and group are read from, unless
  * `getOptionLabel` / `getOptionValue` / `getOptionGroup` are given: the
@@ -1326,9 +1328,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
   const baseOptions = isAsync
     ? isStale
-      ? []
+      ? EMPTY_OPTIONS
       : loadedOptions
-    : (staticOptions ?? []);
+    : (staticOptions ?? EMPTY_OPTIONS);
 
   // In async mode `loadOptions` already filtered the options; filtering them
   // again by their label would drop matches on fields the label does not show

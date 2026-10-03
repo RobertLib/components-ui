@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.7
+
+- **useLocalStorage** - retain cross-tab storage updates after failed writes while hooks are hidden by Activity or unmounted. Newer writes, removals and clears replace unsaved fallback values, including for pending updater functions.
+- **DataTable** - stop completed group actions from resetting shared selections after the table unmounts, including after a hidden Activity unmounts or a replacement table mounts.
+- **useDebouncedCallback** - discard calls queued by child cleanup after the owning component unmounts when `flushOnUnmount` is off.
+- **useDataTableQuery** - use the latest router location and navigation callback while React Activity hides a table. Preserve shared pending navigations across hiding and showing; discard them on a real unmount.
+- **useLocalStorage** - use defaults and serialization options committed while React Activity hides a component for writes and updater functions.
+- **DataTable** - keep pending group actions in sync with selections, rows, queries and callbacks updated while React Activity hides the table. Preserve rows reselected while hidden.
+- **useDebouncedCallback** - retain pending calls and their deadlines across React Activity hiding, use updates committed while hidden and clean up only on a real unmount.
+- **Tests** - split generated rich-text sanitization checks by seed to retain full coverage without a single long-running test timing out under load.
+- **DataTable** - preserve array-shaped rows in selection callbacks, group actions and exclusions. Keep selections when equivalent filters differ only in key order, range-bound order or empty values.
+- **DataTable** - preserve selections and scroll positions when multi-select choices or filter keys are reordered. Completed group actions leave selections made after clearing untouched.
+- **DataTable** - preserve rows reselected during a group action, including after parent-driven selection changes and automatic reconciliation. Reset only acted rows that stayed selected throughout the action.
+- **Tests** - use deterministic hover timers and DOM insertion counts, and avoid unnecessary large tree renders and repeated accessibility queries.
+- **Autocomplete** - keep empty option lists stable so memoization is retained while the list is empty or stale.
+
 ## 0.4.6
 
 - **Source copies** - export clean sources and the license with `npm run export:source`, without tests or an application entry file. Document the ES2023 TypeScript definitions and preserving application translations during updates; package installation remains the default guide.

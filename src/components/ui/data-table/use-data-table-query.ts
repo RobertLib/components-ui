@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useInsertionEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   createDataTableQuery,
   DEFAULT_PAGE_SIZE_OPTIONS,
@@ -183,13 +189,16 @@ export default function useDataTableQuery({
   // before a router that updates `search` asynchronously catches up
   const latestRouter = useRef({ router, scope: routerScope });
 
-  useEffect(() => {
+  // Activity keeps the hook alive: pending callbacks must see router
+  // updates committed while hidden, before any layout effect can call them.
+  useInsertionEffect(() => {
     latestRouter.current = { router, scope: routerScope };
   });
 
   // The entry of the page lives while a table of the page uses it - a new
-  // page (or the next test) starts without the old pending changes
-  useEffect(() => {
+  // page (or the next test) starts without the old pending changes. Hiding
+  // with Activity must retain pending navigations until a real unmount.
+  useInsertionEffect(() => {
     if (!syncWithUrl) return;
 
     const { search } = latestRouter.current.router;
@@ -206,7 +215,7 @@ export default function useDataTableQuery({
     };
   }, [pathname, routerScope, syncWithUrl]);
 
-  useEffect(() => {
+  useInsertionEffect(() => {
     if (syncWithUrl) {
       observeSearch(
         getPendingSearches(routerScope, pathname, routerSearch),

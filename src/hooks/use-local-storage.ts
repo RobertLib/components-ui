@@ -1,6 +1,6 @@
 import {
   useCallback,
-  useLayoutEffect,
+  useInsertionEffect,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -46,6 +46,10 @@ const unsaved = new Map<string, string | null>();
 // The hooks of this page by key - a change made by one reaches the others
 const listeners = new Map<string, Set<() => void>>();
 
+// Unsaved values outlive subscriptions, including while Activity hides all
+// their hooks. Keep observing other tabs until those values are gone too.
+let isStorageSubscribed = false;
+
 // Read on every render - an unreadable storage is reported once
 let isUnreadableReported = false;
 
@@ -80,6 +84,7 @@ function writeStored(key: string, text: string | null) {
     unsaved.set(key, text);
   }
 
+  syncStorageSubscription();
   listeners.get(key)?.forEach((listener) => listener());
 }
 
@@ -92,6 +97,34 @@ function isLocalStorage(area: Storage | null) {
   }
 }
 
+// Another tab's write or clear wins over values we could not save, even
+// when none of their hooks currently subscribe to the store.
+function handleStorage(event: StorageEvent) {
+  if (!isLocalStorage(event.storageArea)) return;
+
+  if (event.key === null) {
+    unsaved.clear();
+    listeners.forEach((keyListeners) =>
+      keyListeners.forEach((listener) => listener()),
+    );
+  } else {
+    unsaved.delete(event.key);
+    listeners.get(event.key)?.forEach((listener) => listener());
+  }
+  syncStorageSubscription();
+}
+
+/** A single listener follows both active hooks and unsaved values. */
+function syncStorageSubscription() {
+  if (typeof window === "undefined") return;
+  const shouldSubscribe = listeners.size > 0 || unsaved.size > 0;
+  if (shouldSubscribe === isStorageSubscribed) return;
+
+  if (shouldSubscribe) window.addEventListener("storage", handleStorage);
+  else window.removeEventListener("storage", handleStorage);
+  isStorageSubscribed = shouldSubscribe;
+}
+
 function subscribe(key: string, listener: () => void) {
   let keyListeners = listeners.get(key);
   if (!keyListeners) {
@@ -99,24 +132,14 @@ function subscribe(key: string, listener: () => void) {
     listeners.set(key, keyListeners);
   }
   keyListeners.add(listener);
-
-  // Another tab of the app changed the value, or cleared the storage
-  // (`key` is `null` then) - what it stored wins over what could not be
-  const handleStorage = (event: StorageEvent) => {
-    if (event.key !== null && event.key !== key) return;
-    if (!isLocalStorage(event.storageArea)) return;
-
-    unsaved.delete(key);
-    listener();
-  };
-  window.addEventListener("storage", handleStorage);
+  syncStorageSubscription();
 
   return () => {
     keyListeners.delete(listener);
     if (keyListeners.size === 0 && listeners.get(key) === keyListeners) {
       listeners.delete(key);
     }
-    window.removeEventListener("storage", handleStorage);
+    syncStorageSubscription();
   };
 }
 
@@ -192,7 +215,8 @@ export default function useLocalStorage<T>(
     createLatest({ defaultValue, deserialize, serialize }),
   );
 
-  useLayoutEffect(() => {
+  // Pending writes also use options committed while Activity is hidden.
+  useInsertionEffect(() => {
     latest.set({ defaultValue, deserialize, serialize });
   });
 

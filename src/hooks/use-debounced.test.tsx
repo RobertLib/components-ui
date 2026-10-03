@@ -1,4 +1,5 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
+import { useEffect, useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import useDebouncedCallback from "./use-debounced-callback";
 import useDebouncedValue from "./use-debounced-value";
@@ -115,5 +116,59 @@ describe("useDebouncedCallback", () => {
     expect(dropped).not.toHaveBeenCalled();
     expect(flushed).toHaveBeenCalledTimes(1);
     expect(flushed).toHaveBeenCalledWith("y");
+  });
+
+  it.each(["layout", "passive"])(
+    "drops calls queued by a child's %s cleanup on unmount",
+    (phase) => {
+      const callback = vi.fn();
+      function Child({ save }: { save: (value: string) => void }) {
+        useLayoutEffect(
+          () => () => {
+            if (phase === "layout") save("draft");
+          },
+          [save],
+        );
+        useEffect(
+          () => () => {
+            if (phase === "passive") save("draft");
+          },
+          [save],
+        );
+        return null;
+      }
+      function Parent() {
+        const save = useDebouncedCallback(callback);
+        return <Child save={save} />;
+      }
+      const { unmount } = render(<Parent />);
+
+      unmount();
+      act(() => vi.advanceTimersByTime(1000));
+
+      expect(callback).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("still flushes a call queued by a child's layout cleanup on unmount", () => {
+    const callback = vi.fn();
+    function Child({ save }: { save: (value: string) => void }) {
+      useLayoutEffect(() => () => save("draft"), [save]);
+      return null;
+    }
+    function Parent() {
+      const save = useDebouncedCallback(callback, 300, {
+        flushOnUnmount: true,
+      });
+      return <Child save={save} />;
+    }
+    const { unmount } = render(<Parent />);
+
+    unmount();
+
+    expect(callback).toHaveBeenCalledExactlyOnceWith("draft");
+    act(() => vi.advanceTimersByTime(1000));
+    expect(callback).toHaveBeenCalledTimes(1);
   });
 });

@@ -110,7 +110,10 @@ export default function useRowSelection<T>(
   // objects, which a group action must get instead of the stale ones
   const selectedRows = useMemo(() => {
     const currentRows = new Map(lookupRows.map((row) => [getRowId(row), row]));
-    return ids.flatMap((id) => currentRows.get(id) ?? []);
+    return ids.flatMap((id) => {
+      const row = currentRows.get(id);
+      return row === undefined ? [] : [row];
+    });
   }, [ids, lookupRows, getRowId]);
 
   /** Changes an uncontrolled selection - that of the current `resetKey`. */

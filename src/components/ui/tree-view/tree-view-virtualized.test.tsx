@@ -174,7 +174,7 @@ describe("TreeView virtualized", () => {
 
   it("warns when it has no height of its own", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    viewHeight = 10_000 * 32;
+    viewHeight = window.innerHeight + 32;
     renderTree({ className: undefined });
 
     expect(warn).toHaveBeenCalledWith(

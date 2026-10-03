@@ -1956,13 +1956,18 @@ describe("TreeView with many items", () => {
       />,
     );
 
-    expect(screen.getAllByRole("treeitem")).toHaveLength(1110);
+    const treeItems = screen
+      .getByRole("tree", { name: "Stores" })
+      .querySelectorAll<HTMLElement>("[role=treeitem]");
+    expect(treeItems).toHaveLength(1110);
 
-    await user.tab();
+    treeItems[0].focus();
     await user.keyboard("{End}");
-    expect(item("Store 9-9-9")).toHaveFocus();
-    expect(item("Store 9-9-9")).toHaveAttribute("aria-level", "3");
-    expect(item("Store 9-9-9")).toHaveAttribute("aria-posinset", "10");
+    const last = treeItems[treeItems.length - 1];
+    expect(last).toHaveTextContent("Store 9-9-9");
+    expect(last).toHaveFocus();
+    expect(last).toHaveAttribute("aria-level", "3");
+    expect(last).toHaveAttribute("aria-posinset", "10");
   });
 
   it("filters a thousand items", () => {

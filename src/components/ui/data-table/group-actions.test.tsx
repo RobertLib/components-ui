@@ -1,6 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { StrictMode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import DataTable, { type DataTableProps } from ".";
 import { createDataTableQuery } from "./query";
@@ -125,6 +125,103 @@ describe.each([false, true])(
       },
     );
 
+    it.each([false, true])(
+      "preserves an explicit selection made after clearing a pending action's selection (initially all: %s)",
+      async (initiallyAll) => {
+        const user = userEvent.setup();
+        const action = pendingAction();
+        const onSelectedIdsChange = vi.fn();
+        render(
+          <Table
+            controlled={controlled}
+            groupActions={[{ label: "Archive", onClick: action.onClick }]}
+            onSelectedIdsChange={onSelectedIdsChange}
+          />,
+        );
+        if (initiallyAll) await selectAllMatching(user);
+        else
+          await user.click(
+            screen.getByRole("checkbox", { name: "Select all rows" }),
+          );
+        await user.click(screen.getByRole("button", { name: "Archive" }));
+        await user.click(
+          initiallyAll
+            ? screen.getByRole("button", { name: "Clear selection" })
+            : screen.getByRole("checkbox", { name: "Select all rows" }),
+        );
+        await user.click(rowBox("One"));
+        onSelectedIdsChange.mockClear();
+
+        await act(async () => action.finish());
+
+        expect(rowBox("One")).toBeChecked();
+        expect(rowBox("Two")).not.toBeChecked();
+        expect(onSelectedIdsChange).not.toHaveBeenCalled();
+      },
+    );
+
+    it("preserves a row deselected and reselected while its action runs", async () => {
+      const user = userEvent.setup();
+      const action = pendingAction();
+      const onSelectedIdsChange = vi.fn();
+      render(
+        <Table
+          controlled={controlled}
+          groupActions={[{ label: "Archive", onClick: action.onClick }]}
+          onSelectedIdsChange={onSelectedIdsChange}
+        />,
+      );
+      await user.click(rowBox("One"));
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+      await user.click(rowBox("One"));
+      await user.click(rowBox("One"));
+      onSelectedIdsChange.mockClear();
+
+      await act(async () => action.finish());
+
+      expect(rowBox("One")).toBeChecked();
+      expect(onSelectedIdsChange).not.toHaveBeenCalled();
+    });
+
+    it("preserves a reselected row while resetting other acted rows", async () => {
+      const user = userEvent.setup();
+      const action = pendingAction();
+      const onSelectedIdsChange = vi.fn();
+      render(
+        <Table
+          controlled={controlled}
+          groupActions={[{ label: "Archive", onClick: action.onClick }]}
+          onSelectedIdsChange={onSelectedIdsChange}
+        />,
+      );
+      await user.click(
+        screen.getByRole("checkbox", { name: "Select all rows" }),
+      );
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+      await user.click(rowBox("One"));
+      await user.click(rowBox("One"));
+      onSelectedIdsChange.mockClear();
+
+      await act(async () => action.finish());
+
+      expect(rowBox("One")).toBeChecked();
+      expect(rowBox("Two")).not.toBeChecked();
+      expect(onSelectedIdsChange).toHaveBeenCalledExactlyOnceWith(
+        [1],
+        expect.objectContaining({ ids: [1], count: 1, rows: [rows[0]] }),
+      );
+
+      // Its new selection belongs to the next action, which may reset it.
+      onSelectedIdsChange.mockClear();
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+      await act(async () => action.finish());
+      expect(rowBox("One")).not.toBeChecked();
+      expect(onSelectedIdsChange).toHaveBeenCalledExactlyOnceWith(
+        [],
+        expect.objectContaining({ ids: [], count: 0, rows: [] }),
+      );
+    });
+
     it("resets only acted ids and reports the current rows and query", async () => {
       const user = userEvent.setup();
       const action = pendingAction();
@@ -223,3 +320,173 @@ describe.each([false, true])(
     });
   },
 );
+
+describe("DataTable group actions after external selection changes", () => {
+  it.each([false, true])(
+    "preserves rows reselected by the parent (another row stays selected: %s)",
+    async (keepOtherRow) => {
+      const user = userEvent.setup();
+      const action = pendingAction();
+      const onSelectedIdsChange = vi.fn();
+      const props = {
+        autoResetSelectedRows: true,
+        columns,
+        data: rows,
+        groupActions: [{ label: "Archive", onClick: action.onClick }],
+        onSelectedIdsChange,
+      };
+      const { rerender } = render(
+        <DataTable {...props} selectedIds={[1, 2]} />,
+      );
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+
+      rerender(<DataTable {...props} selectedIds={keepOtherRow ? [2] : []} />);
+      const reselected = keepOtherRow ? [1, 2] : [1];
+      rerender(<DataTable {...props} selectedIds={reselected} />);
+      expect(onSelectedIdsChange).not.toHaveBeenCalled();
+
+      await act(async () => action.finish());
+
+      if (keepOtherRow) {
+        expect(onSelectedIdsChange).toHaveBeenCalledExactlyOnceWith(
+          [1],
+          expect.objectContaining({ ids: [1], count: 1, rows: [rows[0]] }),
+        );
+      } else {
+        expect(onSelectedIdsChange).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "preserves rows reselected after automatic reconciliation (another row stays selected: %s)",
+    async (keepOtherRow) => {
+      const user = userEvent.setup();
+      const action = pendingAction();
+      const onSelectedIdsChange = vi.fn();
+      const props = {
+        autoResetSelectedRows: true,
+        columns,
+        defaultSelectedIds: [1, 2],
+        groupActions: [{ label: "Archive", onClick: action.onClick }],
+        onSelectedIdsChange,
+      };
+      const { rerender } = render(<DataTable {...props} data={rows} />);
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+
+      rerender(<DataTable {...props} data={keepOtherRow ? [rows[1]] : []} />);
+      expect(onSelectedIdsChange).toHaveBeenLastCalledWith(
+        keepOtherRow ? [2] : [],
+        expect.objectContaining({ count: keepOtherRow ? 1 : 0 }),
+      );
+      rerender(<DataTable {...props} data={rows} />);
+      expect(rowBox("One")).not.toBeChecked();
+      await user.click(rowBox("One"));
+      onSelectedIdsChange.mockClear();
+
+      await act(async () => action.finish());
+
+      expect(rowBox("One")).toBeChecked();
+      expect(rowBox("Two")).not.toBeChecked();
+      if (keepOtherRow) {
+        expect(onSelectedIdsChange).toHaveBeenCalledExactlyOnceWith(
+          [1],
+          expect.objectContaining({ ids: [1], count: 1, rows: [rows[0]] }),
+        );
+      } else {
+        expect(onSelectedIdsChange).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it("still resets acted rows after the parent reorders equivalent ids", async () => {
+    const user = userEvent.setup();
+    const action = pendingAction();
+    const onSelectedIdsChange = vi.fn();
+    const props = {
+      autoResetSelectedRows: true,
+      columns,
+      data: rows,
+      groupActions: [{ label: "Archive", onClick: action.onClick }],
+      onSelectedIdsChange,
+    };
+    const { rerender } = render(<DataTable {...props} selectedIds={[1, 2]} />);
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    rerender(<DataTable {...props} selectedIds={[2, 1]} />);
+
+    await act(async () => action.finish());
+
+    expect(onSelectedIdsChange).toHaveBeenCalledExactlyOnceWith(
+      [],
+      expect.objectContaining({ ids: [], count: 0, rows: [] }),
+    );
+  });
+});
+
+describe("DataTable group actions after unmount", () => {
+  it.each([false, true])(
+    "leaves a replacement table's shared selection intact (all matching: %s)",
+    async (allMatching) => {
+      const user = userEvent.setup();
+      const action = pendingAction();
+      const onSelectedIdsChange = vi.fn();
+
+      function Page() {
+        const [version, setVersion] = useState(0);
+        const [selectedIds, setSelectedIds] = useState<RowId[]>([1]);
+
+        return (
+          <>
+            <button
+              onClick={() => {
+                setVersion((current) => current + 1);
+                setSelectedIds([2]);
+              }}
+            >
+              Replace table
+            </button>
+            <DataTable
+              key={version}
+              autoResetSelectedRows
+              columns={columns}
+              data={rows}
+              filteredSelection={{ total: 10 }}
+              groupActions={[{ label: "Archive", onClick: action.onClick }]}
+              onSelectedIdsChange={(ids, selection) => {
+                setSelectedIds(ids);
+                onSelectedIdsChange(ids, selection);
+              }}
+              selectedIds={selectedIds}
+              total={10}
+            />
+          </>
+        );
+      }
+
+      render(
+        <StrictMode>
+          <Page />
+        </StrictMode>,
+      );
+      if (allMatching) await selectAllMatching(user);
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+      await user.click(screen.getByRole("button", { name: "Replace table" }));
+      expect(rowBox("Two")).toBeChecked();
+      onSelectedIdsChange.mockClear();
+
+      await act(async () => action.finish());
+
+      expect(rowBox("Two")).toBeChecked();
+      expect(onSelectedIdsChange).not.toHaveBeenCalled();
+
+      // The replacement still owns its selection and can reset it itself.
+      await user.click(screen.getByRole("button", { name: "Archive" }));
+      await act(async () => action.finish());
+      expect(rowBox("Two")).not.toBeChecked();
+      expect(onSelectedIdsChange).toHaveBeenCalledExactlyOnceWith(
+        [],
+        expect.objectContaining({ count: 0, ids: [], rows: [] }),
+      );
+    },
+  );
+});

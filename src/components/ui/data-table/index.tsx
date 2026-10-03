@@ -8,6 +8,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -68,6 +69,7 @@ import {
   hasFilterValue,
   isFilterColumn,
   isSameQuery,
+  normalizeFilterValue,
   paginateRows,
   resetPagination,
   setFilter,
@@ -123,6 +125,19 @@ function isSameIdSet(a: readonly RowId[], b: readonly RowId[]) {
   const ids = new Set(a);
   const other = new Set(b);
   return ids.size === other.size && [...ids].every((id) => other.has(id));
+}
+
+/**
+ * Only acted rows that stayed selected may be reset. Removing one from
+ * the selection protects it if it is selected again while the action runs.
+ */
+function retainSelectedActionIds(
+  actionIds: Set<RowId>,
+  selectedIds: ReadonlySet<RowId>,
+) {
+  for (const id of actionIds) {
+    if (!selectedIds.has(id)) actionIds.delete(id);
+  }
 }
 
 const MAX_TOGGLED_ROWS = 1000;
@@ -228,7 +243,10 @@ export interface DataTableProps<T> extends Omit<
    * of `aria-label` for the region, the `<table>` and its pagination.
    */
   "aria-labelledby"?: string;
-  /** Drop the selection after a group action (unless it returns `false`). */
+  /**
+   * Drop rows that stayed selected while their group action ran (unless it
+   * returns `false`). Rows selected or reselected meanwhile stay selected.
+   */
   autoResetSelectedRows?: boolean;
   /**
    * The table filters, searches, sorts and pages `data` itself - pass all
@@ -668,7 +686,26 @@ export default function DataTable<T>({
   // and booleans as the table shows them.
   const queryColumns = useQueryColumns(columns);
   const searchColumns = useQueryColumns(visibleColumns);
-  const filtersKey = JSON.stringify(query.filters);
+  // Equivalent filters share a key regardless of object key order, empty
+  // values or multiSelect choice order. Custom filters keep their order.
+  const filtersKey = JSON.stringify(
+    Object.fromEntries(
+      Object.keys(query.filters)
+        .sort()
+        .flatMap((key) => {
+          let value = normalizeFilterValue(query.filters[key]);
+          const column = queryColumns.find((column) => column.key === key);
+          if (
+            Array.isArray(value) &&
+            column?.filter === "multiSelect" &&
+            !column.filterFn
+          ) {
+            value = value.sort();
+          }
+          return value === null ? [] : [[key, value]];
+        }),
+    ),
+  );
   const matchingRows = useMemo(() => {
     if (!clientSide) return null;
 
@@ -860,7 +897,7 @@ export default function DataTable<T>({
     query.pageSize,
     sortKey,
     query.search,
-    query.filters,
+    filtersKey,
     query.after,
     query.before,
   ])}`;
@@ -936,10 +973,9 @@ export default function DataTable<T>({
         : filteredSelection || null;
 
   const selectionScopeKey =
-    selectionConfig?.scopeKey ??
-    JSON.stringify({ filters: query.filters, search: query.search });
-  // Returning to earlier filters starts another selection too. An action
-  // still running for their previous visit must not reset the new one.
+    selectionConfig?.scopeKey ?? JSON.stringify([filtersKey, query.search]);
+  // Returning to earlier filters or clearing starts another selection.
+  // An action still running for the previous one must not reset it.
   const [selectionScope, setSelectionScope] = useState(() => ({
     key: selectionScopeKey,
   }));
@@ -969,9 +1005,10 @@ export default function DataTable<T>({
         .filter((row) => !isRowSelectable || isRowSelectable(row))
         .map((row) => [getRowId(row), row]),
     );
-    const current = excluded.flatMap(
-      (row) => currentRows.get(getRowId(row)) ?? [],
-    );
+    const current = excluded.flatMap((row) => {
+      const currentRow = currentRows.get(getRowId(row));
+      return currentRow === undefined ? [] : [currentRow];
+    });
     return current.length === excluded.length &&
       current.every((row, index) => row === excluded[index])
       ? excluded
@@ -1043,6 +1080,17 @@ export default function DataTable<T>({
     selectedIds: controlledSelectedIds,
   });
 
+  // The explicit ids a running action may still reset. Prune them after
+  // committed parent changes and automatic reconciliation too, not just
+  // after checkbox clicks. A reorder or a refetch with the same ids keeps
+  // them; a removed and reselected id belongs to a newer selection.
+  // Insertion effects also follow commits while Activity hides the table.
+  const pendingActionIdsRef = useRef<Set<RowId> | null>(null);
+  useInsertionEffect(() => {
+    const actionIds = pendingActionIdsRef.current;
+    if (actionIds) retainSelectedActionIds(actionIds, selectedIds);
+  }, [selectedIds]);
+
   // The ids reported last - an uncontrolled selection that drops rows by
   // itself (another page, a refetch, other filters) reports it afterwards
   const reportedIdsRef = useRef(selectedIdList);
@@ -1102,7 +1150,10 @@ export default function DataTable<T>({
       query,
       rows:
         excluded === null
-          ? ids.flatMap((id) => loaded.get(id) ?? [])
+          ? ids.flatMap((id) => {
+              const row = loaded.get(id);
+              return row === undefined ? [] : [row];
+            })
           : (matchingRows ?? rows).filter((row) => idSet.has(getRowId(row))),
     };
   };
@@ -1118,6 +1169,11 @@ export default function DataTable<T>({
         (id) => !known.has(id) || canSelectRow(known.get(id) as T),
       );
       reportedIdsRef.current = ids;
+      // Record the intent at once, even if a controlled parent applies it
+      // later or several selection changes happen before the next commit.
+      const actionIds = pendingActionIdsRef.current;
+      if (actionIds) retainSelectedActionIds(actionIds, new Set(ids));
+      if (ids.length === 0) setSelectionScope({ key: selectionScopeKey });
       setAllFilteredSelection(null);
       if (!isSelectionControlled) setSelectedIds(ids);
       onSelectedIdsChange?.(ids, describeSelection(ids, null));
@@ -1156,14 +1212,25 @@ export default function DataTable<T>({
 
   // A completed action uses the current selection and callbacks, including
   // current rows and query in the reported metadata after a page or refetch.
+  // Hidden tables still receive updates and finish their pending actions.
   const latestSelection = useRef({
     commitSelection,
     ids: selectedIdList,
     scope: selectionScope,
     token: isAllFilteredSelected ? allFilteredSelection?.token : undefined,
   });
+  const mountedRef = useRef(false);
 
-  useLayoutEffect(() => {
+  // A real unmount ends this table's ownership of the selection. Activity
+  // hiding keeps it alive, so its pending actions may still finish.
+  useInsertionEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useInsertionEffect(() => {
     latestSelection.current = {
       commitSelection,
       ids: selectedIdList,
@@ -1248,6 +1315,8 @@ export default function DataTable<T>({
       query,
       rows: actionRows,
     };
+    const actionIds = isAllFilteredSelected ? null : new Set(selection.ids);
+    pendingActionIdsRef.current = actionIds;
 
     // A rejection keeps the selection like `false`, so the action can be
     // retried. No `finally` - the React Compiler cannot compile it.
@@ -1258,27 +1327,30 @@ export default function DataTable<T>({
       logger.error(`The group action "${action.label}" failed`, error);
     }
 
+    if (!mountedRef.current) return;
+
     if (autoResetSelectedRows && shouldReset !== false) {
       const current = latestSelection.current;
-      // Other filters, or an all-filtered selection chosen while the action
-      // ran, belong to a later selection. Do not reset or report them.
-      if (
-        current.scope === actionScope &&
-        (current.token === undefined || current.token === actionToken)
-      ) {
-        // Only what the action got - rows selected while it ran stay. The
-        // all-filtered selection it got is still the selection (a change
-        // gets another token), so all of it goes - `ids` are not its rows,
-        // uncontrolled they are those from before "select all".
-        const actedIds = new Set(selection.ids);
-        current.commitSelection(
-          current.token === undefined
-            ? current.ids.filter((id) => !actedIds.has(id))
-            : [],
-        );
+      // Other filters, a cleared selection or another all-filtered selection
+      // belong to a later selection. Do not reset or report them.
+      if (current.scope === actionScope && current.token === actionToken) {
+        if (actionIds) {
+          const remaining = current.ids.filter((id) => !actionIds.has(id));
+          // Nothing from the action is selected any more. Do not report a
+          // reset of an untouched newer selection.
+          if (remaining.length !== current.ids.length) {
+            current.commitSelection(remaining);
+          }
+        } else {
+          // This is still the all-filtered selection the action got (a
+          // change gets another token), so all of it goes. Uncontrolled
+          // `ids` are those from before "select all", not its matching rows.
+          current.commitSelection([]);
+        }
       }
     }
 
+    pendingActionIdsRef.current = null;
     isActionRunning.current = false;
     setRunningAction(null);
   };

@@ -172,14 +172,15 @@ export default function DataTablePage() {
             "24 matching rows are selected" - and the action gets them as{" "}
             <code>excludedRows</code> (act on all rows of the <code>query</code>{" "}
             but these). With <code>autoResetSelectedRows</code> only the rows
-            the action got are deselected - rows picked while it ran stay
-            selected. A selection made after changing filters is kept when an
-            older action finishes, even after returning to the original filters.
-            A refetch keeps the selected rows that are still there; a row
-            selected on its own leaves the selection with its page. A group
-            action whose button has the focus keeps it when the action drops the
-            selection, and "Clear selection" - or an action removing every row -
-            gives it to the "select all" checkbox.
+            the action got and that stayed selected are deselected - rows picked
+            or picked again while it ran stay selected, including after a parent
+            reset or a refetch that removed them. A selection made after
+            changing filters is kept when an older action finishes, even after
+            returning to the original filters. A refetch keeps the selected rows
+            that are still there; a row selected on its own leaves the selection
+            with its page. A group action whose button has the focus keeps it
+            when the action drops the selection, and "Clear selection" - or an
+            action removing every row - gives it to the "select all" checkbox.
           </p>
         }
         name="data-table/selection"

@@ -159,6 +159,8 @@ describe("Drawer", () => {
 });
 
 describe("Drawer collapsed to icons", () => {
+  afterEach(() => vi.useRealTimers());
+
   const renderCollapsed = () => {
     localStorage.setItem("drawer-collapsed", "true");
     render(
@@ -215,26 +217,31 @@ describe("Drawer collapsed to icons", () => {
     expect(screen.getByRole("link", { name: "Reports" })).toHaveFocus();
   });
 
-  it("keeps the children open while the pointer moves between them and the group", async () => {
-    const user = userEvent.setup();
+  it("keeps the children open while the pointer moves between them and the group", () => {
+    vi.useFakeTimers();
     renderCollapsed();
 
-    const group = await screen.findByRole("button", { name: "Users" });
-    await user.hover(group);
+    const group = screen.getByRole("button", { name: "Users" });
+    fireEvent.mouseEnter(group);
+    const child = screen.getByRole("link", { name: "New user" });
+    const navigation = screen.getByRole("navigation");
     // Diagonally over the edge of the drawer, past the narrow bridge
-    await user.hover(screen.getByRole("navigation"));
-    await user.hover(await screen.findByRole("link", { name: "New user" }));
-    await act(() => sleep(80));
+    fireEvent.mouseLeave(group, { relatedTarget: navigation });
+    fireEvent.mouseEnter(child, { relatedTarget: navigation });
+    act(() => vi.advanceTimersByTime(80));
     expect(screen.getByRole("link", { name: "New user" })).toBeInTheDocument();
 
     // Back up onto the group
-    await user.hover(group);
-    await act(() => sleep(80));
+    fireEvent.mouseLeave(child, { relatedTarget: group });
+    fireEvent.mouseEnter(group, { relatedTarget: child });
+    act(() => vi.advanceTimersByTime(80));
     expect(screen.getByRole("link", { name: "New user" })).toBeInTheDocument();
     expect(group).toHaveAttribute("aria-expanded", "true");
 
-    await user.hover(screen.getByRole("link", { name: "Reports" }));
-    await act(() => sleep(80));
+    fireEvent.mouseLeave(group, {
+      relatedTarget: screen.getByRole("link", { name: "Reports" }),
+    });
+    act(() => vi.advanceTimersByTime(80));
     expect(screen.queryByRole("link", { name: "New user" })).toBeNull();
   });
 

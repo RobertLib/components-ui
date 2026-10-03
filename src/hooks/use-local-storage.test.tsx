@@ -288,6 +288,25 @@ describe("useLocalStorage", () => {
     expect(result.current[0]).toBe("default");
   });
 
+  it("follows another tab after the last hook unmounts with an unsaved value", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const key = "unmounted-failed-write";
+    const first = renderHook(() => useLocalStorage(key, 0));
+    const write = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementationOnce(() => {
+        throw new DOMException("Quota exceeded", "QuotaExceededError");
+      });
+    act(() => first.result.current[1](1));
+    write.mockRestore();
+    first.unmount();
+
+    act(() => writeFromOtherTab(key, "2"));
+    const second = renderHook(() => useLocalStorage(key, 0));
+
+    expect(second.result.current[0]).toBe(2);
+  });
+
   it("renders the default value on the server and hydrates to the stored one", async () => {
     function Density() {
       const [density] = useLocalStorage("density", "comfortable");

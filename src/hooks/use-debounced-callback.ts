@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useInsertionEffect, useState } from "react";
 import createLatest from "./create-latest";
 
 /** A function whose calls are debounced - see `useDebouncedCallback`. */
@@ -16,6 +16,8 @@ export interface UseDebouncedCallbackOptions {
   /**
    * Makes a call still pending when the component unmounts, e.g. the last
    * autosave of a form that is being closed. By default it is dropped.
+   * Hiding with Activity keeps the pending call and its deadline.
+   * Unmounting while hidden flushes just after the unmount commit.
    */
   flushOnUnmount?: boolean;
 }
@@ -28,6 +30,7 @@ interface Latest<Args extends unknown[]> {
 
 function createDebounced<Args extends unknown[]>(
   getLatest: () => Latest<Args>,
+  isMounted: () => boolean,
 ): DebouncedCallback<Args> {
   let timeout: ReturnType<typeof setTimeout> | null = null;
   let pendingArgs: Args | null = null;
@@ -40,9 +43,13 @@ function createDebounced<Args extends unknown[]>(
   };
 
   const debounced = (...args: Args) => {
+    const { delay, flushOnUnmount } = getLatest();
+    // A child's cleanup can call this after the owner's unmount cleanup
+    // has already canceled its timer. Do not start another pending call.
+    if (!isMounted() && !flushOnUnmount) return;
     if (timeout) clearTimeout(timeout);
     pendingArgs = args;
-    timeout = setTimeout(run, getLatest().delay);
+    timeout = setTimeout(run, delay);
   };
 
   return Object.assign(debounced, {
@@ -63,7 +70,8 @@ function createDebounced<Args extends unknown[]>(
  * milliseconds (300 by default), with the arguments of the last call - e.g.
  * to save a draft while the user types. It is the same function on every
  * render and calls the `callback` of the latest render, so it sees the
- * current state.
+ * current state, including updates committed while Activity hides it.
+ * Hiding leaves pending calls and their deadlines alone.
  */
 export default function useDebouncedCallback<Args extends unknown[]>(
   callback: (...args: Args) => void,
@@ -74,20 +82,41 @@ export default function useDebouncedCallback<Args extends unknown[]>(
     createLatest<Latest<Args>>({ callback, delay, flushOnUnmount }),
   );
 
-  // Layout effect: a call made from an effect of this render already sees
-  // its callback
-  useLayoutEffect(() => {
+  // Before layout effects, including commits made while Activity is hidden:
+  // pending calls use the latest callback, delay and unmount option.
+  useInsertionEffect(() => {
     latest.set({ callback, delay, flushOnUnmount });
   });
 
-  const [debounced] = useState(() => createDebounced(latest.get));
+  const [mounted] = useState(() => createLatest(true));
+  const [debounced] = useState(() => createDebounced(latest.get, mounted.get));
 
+  // This follows the actual lifetime. A hidden component has no passive
+  // cleanup left to run; defer its flush because the callback may update
+  // state, which React does not allow inside an insertion effect.
+  useInsertionEffect(() => {
+    mounted.set(true);
+    return () => {
+      mounted.set(false);
+      if (latest.get().flushOnUnmount) {
+        queueMicrotask(() => {
+          if (!mounted.get()) debounced.flush();
+        });
+      } else debounced.cancel();
+    };
+  }, [debounced, latest, mounted]);
+
+  // Preserve the immediate flush on a visible unmount. Activity hiding and
+  // StrictMode replay this cleanup while the component remains mounted.
+  // The deferred fallback then finds no pending call to flush again.
   useEffect(
     () => () => {
-      if (latest.get().flushOnUnmount) debounced.flush();
-      else debounced.cancel();
+      if (!mounted.get()) {
+        if (latest.get().flushOnUnmount) debounced.flush();
+        else debounced.cancel();
+      }
     },
-    [debounced, latest],
+    [debounced, latest, mounted],
   );
 
   return debounced;

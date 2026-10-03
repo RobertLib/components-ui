@@ -282,7 +282,8 @@ export interface GroupAction<T> {
   /**
    * Called with the selected rows. Return `false` (or a promise of `false`)
    * to keep the selection when `autoResetSelectedRows` is on - any other
-   * value resets it, so `(rows) => enqueueSnackbar(…)` works as it reads.
+   * value resets rows that stayed selected, so `(rows) => enqueueSnackbar(…)`
+   * works as it reads. Rows selected or reselected meanwhile stay selected.
    * While a returned promise is pending, the button shows a spinner and the
    * group actions cannot be pressed; a rejection keeps the selection - tell
    * the user about it yourself.
