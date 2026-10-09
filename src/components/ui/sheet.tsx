@@ -18,6 +18,12 @@ export interface SheetProps extends Omit<
   "role" | "title"
 > {
   /**
+   * Classes of the scrolling body around the content - e.g. `flex flex-col`
+   * to push the last part of a menu to the bottom (`mt-auto`), or another
+   * padding (`p-6` by default).
+   */
+  bodyClassName?: string;
+  /**
    * Keeps the sheet open - Escape, a click on the backdrop and a swipe do
    * nothing and the close button is disabled, e.g. while its form is being
    * saved.
@@ -33,6 +39,13 @@ export interface SheetProps extends Omit<
    * while the sheet is the topmost overlay.
    */
   closeOnEscape?: boolean;
+  /**
+   * Asked before the user closes the sheet - by the close button, Escape,
+   * the backdrop or a swipe. Return `false`, or a promise of it, to keep it
+   * open - e.g. the answer of a "Discard changes?" `useConfirm()`. Not asked
+   * when `open` turns `false`.
+   */
+  onBeforeClose?: () => boolean | void | Promise<boolean | void>;
   /**
    * Called when the user closes the sheet (close button, Escape, the
    * backdrop with `closeOnBackdropClick`, a swipe down on a `bottom` one).
@@ -146,6 +159,7 @@ const SLIDE_DURATION = 300;
  * `"closed"` (also while it slides in and out).
  */
 export default function Sheet({
+  bodyClassName,
   closeDisabled = false,
   closeOnBackdropClick = false,
   closeOnEscape = true,
@@ -162,14 +176,17 @@ export default function Sheet({
       animateControlled
       backdropClassName="duration-300"
       // The content clear of the home indicator without a footer too
-      bodyClassName="overscroll-contain pb-[calc(1.5rem+var(--cui-safe-bottom,0px))]"
+      bodyClassName={cn(
+        "overscroll-contain pb-[calc(1.5rem+var(--cui-safe-bottom,0px))]",
+        bodyClassName,
+      )}
       closeDisabled={closeDisabled}
       closedClassName={sideClasses[side].closed}
       closeOnBackdropClick={closeOnBackdropClick}
       closeOnEscape={closeOnEscape}
       duration={SLIDE_DURATION}
       panelClassName={cn(
-        "fixed z-50 flex flex-col overflow-hidden border-neutral-200 bg-background shadow-xl transition-[translate,opacity] duration-300 ease-out focus:outline-hidden motion-reduce:transition-opacity dark:border-neutral-800 dark:bg-background-dark",
+        "fixed z-50 flex flex-col overflow-hidden border-neutral-200 bg-dialog shadow-xl transition-[translate,opacity] duration-300 ease-out focus:outline-hidden motion-reduce:transition-opacity dark:border-neutral-800 dark:bg-dialog-dark",
         sideClasses[side].panel,
         isVertical ? heightClasses[size] : widthClasses[size],
       )}

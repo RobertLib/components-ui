@@ -14,6 +14,13 @@ import {
   type DataTableQuery,
 } from "./query";
 import logger from "../../../utils/logger";
+import {
+  documentHash,
+  getPendingSearches,
+  getRouterSearches,
+  MAX_PENDING_SEARCHES,
+  observeSearch,
+} from "../../../utils/pending-searches";
 import { useRouter, useRouterScope } from "../../../providers/ui-context";
 
 export interface UseDataTableQueryOptions {
@@ -42,82 +49,8 @@ export type SetDataTableQuery = (
   next: DataTableQuery | ((previous: DataTableQuery) => DataTableQuery),
 ) => void;
 
-// An owner that ignores the changes must not make the list grow forever
-const MAX_PENDING = 50;
-
 // The page sizes `setQuery` warned about - once each
 const warnedPageSizes = new Set<number>();
-
-/** The URL changes of the tables of one page that the router shows late. */
-interface PendingSearches {
-  /** Searches navigated to that the router has not shown yet, oldest first. */
-  pending: string[];
-  /** The search the router showed last. */
-  seen: string;
-  /** Mounted hooks sharing the entry - it goes when the last one does. */
-  users: number;
-}
-
-// Shared by the hooks of one router and page, so changes of several tables
-// (`urlPrefix`) compose while that router catches up. Another router may
-// have the same pathname without sharing its pending changes.
-const pendingSearches = new WeakMap<object, Map<string, PendingSearches>>();
-
-const getRouterSearches = (scope: object) => {
-  let pages = pendingSearches.get(scope);
-  if (!pages) {
-    pages = new Map();
-    pendingSearches.set(scope, pages);
-  }
-  return pages;
-};
-
-const getPendingSearches = (
-  scope: object,
-  pathname: string,
-  search: string,
-) => {
-  const pages = getRouterSearches(scope);
-  let entry = pages.get(pathname);
-
-  if (!entry) {
-    entry = { pending: [], seen: search, users: 0 };
-    pages.set(pathname, entry);
-  }
-
-  return entry;
-};
-
-/** Takes note of the search the router shows. */
-function observeSearch(entry: PendingSearches, search: string) {
-  // Only a change counts - not every render with the same search
-  if (search === entry.seen) return;
-  entry.seen = search;
-
-  const index = entry.pending.indexOf(search);
-  // Not one of the changes - from elsewhere, e.g. the back button, which
-  // wins. Otherwise the router caught up with one of them - later ones
-  // still wait.
-  entry.pending = index === -1 ? [] : entry.pending.slice(index + 1);
-}
-
-/**
- * The hash to keep when navigating - the document hash (`#details`) under a
- * history router, also one with a `basename` (`/app/people` for `/people`).
- */
-function documentHash(pathname: string) {
-  if (typeof window === "undefined") return "";
-
-  const { hash, pathname: documentPath } = window.location;
-
-  // A hash router keeps its own path in the hash (`#/people`, `#!/people`),
-  // which `pathname` and `search` stand for - also at its root, where the
-  // path of the page is `/` too
-  if (/^#!?\//.test(hash)) return "";
-
-  // Not the router of the page, e.g. an in-memory one
-  return documentPath.endsWith(pathname) ? hash : "";
-}
 
 /**
  * `query`, as the same object while it asks for the same rows - an app
@@ -278,7 +211,7 @@ export default function useDataTableQuery({
       // Also a change back to what the router shows waits for its turn - the
       // changes before it still arrive first, and a change made meanwhile
       // must build on this one, not on them
-      entry.pending = [...entry.pending, search].slice(-MAX_PENDING);
+      entry.pending = [...entry.pending, search].slice(-MAX_PENDING_SEARCHES);
 
       currentRouter.navigate(
         `${currentRouter.pathname}${search}${documentHash(currentRouter.pathname)}`,

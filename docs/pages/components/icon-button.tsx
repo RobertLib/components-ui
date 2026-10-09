@@ -54,6 +54,18 @@ export default function IconButtonPage() {
         name="icon-button/link"
         title="Links"
       />
+      <Example
+        description={
+          <p>
+            <code>bordered</code> draws the border of an <code>outline</code>{" "}
+            <code>Button</code> around it - a menu of more actions in a row of
+            outline buttons. It takes the <code>md</code> size without a size of
+            its own.
+          </p>
+        }
+        name="icon-button/bordered"
+        title="Bordered"
+      />
 
       <Section title="Accessibility">
         <Prose>

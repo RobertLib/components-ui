@@ -21,15 +21,32 @@ export default function ImageViewerPage() {
           </p>
         }
       />
+      <Example
+        name="image-viewer/paged"
+        title="A gallery loaded by pages"
+        description={
+          <p>
+            <code>total</code> is the size of the whole gallery when{" "}
+            <code>images</code> holds only the loaded part - the position reads
+            &quot;3 of 24&quot;. <code>onLoadMore</code> loads the next images
+            as the last loaded one shows (e.g. <code>fetchNextPage</code> of an
+            infinite query); moving past it waits for them with a loading state,
+            and a rejected promise shows an error there. Wrapping around starts
+            once all are loaded.
+          </p>
+        }
+      />
       <Section title="Navigation and controlled state">
         <Prose>
           <p>
             Use <code>index</code> and <code>onIndexChange</code> to control the
             current image, or <code>defaultIndex</code> for an initial position.
             Navigation wraps unless <code>loop={false}</code>. Arrows follow
-            reading direction; Home and End jump to the first and last image.
-            Zoom runs from 100% to 300%; scroll the image viewport to inspect
-            it. Changing the image or reopening resets zoom.
+            reading direction; Home and End jump to the first and last image. On
+            a touch screen a swipe sideways moves to the next or the previous
+            image - not while zoomed in, when it pans the image. Zoom runs from
+            100% to 300%; scroll the image viewport to inspect it. Changing the
+            image or reopening resets zoom.
           </p>
           <p>
             The viewer uses Dialog's focus trap, Escape and backdrop closing,

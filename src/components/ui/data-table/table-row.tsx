@@ -8,10 +8,12 @@ import IconButton from "../icon-button";
 import Popover from "../popover";
 import Spinner from "../spinner";
 import { formatCellValue } from "./format-value";
+import { isRowActivation } from "../row-activation";
 import {
   DEFAULT_CELL_LAYOUT,
   DENSITY_CLASSES,
   getCellStyle,
+  hiddenBelowClassName,
   isClipped,
   isSticky,
   LEADING_KEYS,
@@ -38,53 +40,6 @@ const NO_VALUE = { overridden: false, value: undefined };
 
 // Controls in a cell - a click on them is theirs, not the cell's
 const CELL_CONTROL = "a, button, input, select, textarea, [role=button]";
-
-// What a click activating the row must not be on: controls, focusable
-// elements (an editable cell, the trigger of a popover), the built-in
-// expand, selection and actions cells
-const ROW_CONTROL = [
-  "a[href]",
-  "button",
-  "input",
-  "select",
-  "textarea",
-  "label",
-  "summary",
-  '[contenteditable]:not([contenteditable="false"])',
-  "[role=button]",
-  "[role=checkbox]",
-  "[role=combobox]",
-  "[role=link]",
-  "[role=menuitem]",
-  "[role=option]",
-  "[role=switch]",
-  "[role=textbox]",
-  "[tabindex]",
-  "[data-leading-column]",
-].join(", ");
-
-/**
- * Whether a click on a row activates it: not in a portal of the row (a
- * popover), not on a control in it, not at the end of selecting its text.
- */
-function isRowActivation(rowElement: HTMLElement, target: Element) {
-  if (!rowElement.contains(target)) return false;
-
-  // The row itself is focusable (a tab stop) - it is no control in itself
-  const control = target.closest(ROW_CONTROL);
-  if (control && control !== rowElement && rowElement.contains(control)) {
-    return false;
-  }
-
-  const selection = rowElement.ownerDocument.getSelection();
-  return !(
-    selection &&
-    !selection.isCollapsed &&
-    selection.toString().trim() !== "" &&
-    (rowElement.contains(selection.anchorNode) ||
-      rowElement.contains(selection.focusNode))
-  );
-}
 
 /** Whether a click or key came with Shift held. */
 const isShiftEvent = (event: Event) =>
@@ -624,6 +579,7 @@ export function TableRow<T>({
                 densityClass,
                 sticky && stickyBackground,
                 sticky && "sticky z-1 transition-colors duration-150",
+                hiddenBelowClassName(column, layout),
                 isEditableCell &&
                   "cursor-default focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-400",
               )}

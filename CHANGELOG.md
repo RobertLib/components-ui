@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.5.0
+
+Changes from using the library in a real project (a source copy in an app
+with its own design). One changes how things look - see **Breaking**.
+
+- **Breaking - FileUpload** - no vertical margin of its own any more (it had
+  `my-4`); the form around spaces it like its other fields. Add `my-4` where a
+  layout relied on it.
+- **Theming** - `--color-dialog` (and `-dark`) paints the body of a `Dialog`
+  and a `Sheet` - the page background as before; `var(--color-surface)` for
+  dialogs white all through. `--font-heading` and the size tokens
+  `--text-page-title`, `--text-section-title` and `--text-stat-value` (with
+  their line height and weight) style the headings of `Header`, `Card`,
+  `Dialog`, `Sheet`, `EmptyState` and `Stat`. The docs show a light-only app.
+- **FormDialog** - new: a `Dialog` with a form, the error of its last save,
+  Cancel and the submit button in its footer. It stays open and spins while
+  `saving`, and with `dirty` asks "Discard changes?" before closing.
+- **Dialog, Sheet** - `onBeforeClose` asks before the user closes them (close
+  button, Escape, backdrop, swipe) - `false` or a promise of it keeps them
+  open. `bodyClassName` styles their scrolling body.
+- **List** - new: rows of an icon or an avatar, a title, a description, content
+  at the end and a chevron; a row is a link (`href`) or a button (`onClick`),
+  with `actions` beside it. Variants `divided`, `framed`, `plain` (a menu,
+  with `current`) and `separate`.
+- **useUrlState** - new: the search, filters, sorting and page of a list in
+  the query of the URL, through the router of `UIProvider` - defaults left
+  out of the URL, `resetOnChange: ["page"]`, a `prefix`, and changes made
+  before the router shows them building on each other (also with the
+  `DataTable`s of the page). **useDebouncedField** - the debounced text field
+  of `DataTable` - is public for its search field.
+- **TableRow** - `href` makes a row of a plain `Table` open its detail on a
+  click anywhere on it, following the link of the row (Ctrl + click opens a
+  new tab); not on a control in it, nor at the end of selecting its text.
+- **DataTable** - `hideBelow` on a column hides it on narrow screens - its
+  header, filter, cells and summary.
+- **ImageViewer** - `total` and `onLoadMore` for a gallery loaded by pages -
+  "3 of 48", the next images loading as the last loaded one shows; a swipe
+  sideways moves to the next or the previous image on touch screens.
+- **Select** - `prefix` and `suffix` inside the border of the field, like
+  `Input` - a caption of a filter or a sort in place of a label above it.
+- **Button** - `variant="link"`: an action that looks like a text link,
+  without a padding. **IconButton** - `bordered`, next to outline buttons.
+- **Header** - `description` under the title and `backHref`: the back arrow as
+  a link, also for a page opened from a link or in a new tab.
+- **Card, Panel** - `padding` (`sm`, `md`, `lg`, `none`, `responsive`) - the
+  picture and the footer of a card reach its edges at any of them. `Card`
+  takes `afterTitle`, e.g. a status chip next to the title.
+- **DescriptionList** - `emphasis="desc"` for small muted terms over the
+  values, `emptyValue` for missing values and `descClassName` of an item.
+- **Avatar** - `size` also takes a number of pixels.
+- **SnackbarProvider** - `durations` by variant (short confirmations, errors
+  to be read), `classNames` by variant and `icons`; `Toast` takes `icon`. The
+  docs list `data-variant`, `data-toast-icon` and `data-toast-close`.
+- **FileUpload** - `onPendingChange` reports how many files wait for or run
+  their upload - to disable a submit button or ask before closing a dialog.
+- **useFormatDate** - new: writes dates by the patterns of the locale's
+  `formats`, as the pickers show them, in a time zone if given. `useToday`
+  and `inTimeZone` are public.
+- **Server errors** - `getFieldError` / `getBaseError` read a body with a
+  `fieldErrors` map next to the members of the API (`{ code, message,
+fieldErrors }`) and an `Error` of an API client carrying `fieldErrors`.
+- **Source copies** - `npm run sync:source -- ../app/src` copies the library
+  into an app and updates it: a manifest of the files it put there, so the
+  app's own files and catalogs stay, removed library files go, and a library
+  file changed in the copy stops the update (`--force`, `--dry-run`). The
+  Installation page lists the lint and Prettier settings for the copy.
+
 ## 0.4.7
 
 - **useLocalStorage** - retain cross-tab storage updates after failed writes while hooks are hidden by Activity or unmounted. Newer writes, removals and clears replace unsaved fallback values, including for pending updater functions.

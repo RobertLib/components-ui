@@ -10,6 +10,8 @@ const errorShapes = `// REST (Rails, Laravel, Django REST framework, ASP.NET, �
 { "errors": [{ "field": "email", "defaultMessage": "must not be blank" }] } // Spring Boot
 { "errors": [{ "path": "email", "msg": "Invalid value" }] } // express-validator
 { "formErrors": ["…"], "fieldErrors": { "email": ["…"] } } // Zod flatten()
+{ "code": "VALIDATION_FAILED", "message": "…", "fieldErrors": { "email": ["…"] } }
+class ApiError extends Error { fieldErrors = { email: ["…"] } } // an error class of your client
 
 // GraphQL - errors with the field messages in the extensions
 { "errors": [{ "message": "Validation failed", "extensions": { "email": ["…"] } }] }
@@ -106,6 +108,36 @@ function ProjectForm() {
       />
     </form>
   );
+}`;
+
+const unsavedChanges = `import { useEffect } from "react";
+import { useBlocker } from "react-router";
+import { useConfirm, useMessages } from "components-ui";
+
+// A page with a form asks before the user leaves it with unsaved changes -
+// for the links of the app (the router blocks them) and for closing the tab
+function useUnsavedChanges(dirty: boolean) {
+  const confirm = useConfirm();
+  const texts = useMessages().ui.formDialog;
+  const blocker = useBlocker(dirty);
+
+  useEffect(() => {
+    if (blocker.state !== "blocked") return;
+    void confirm({
+      cancelLabel: texts.keepEditing,
+      confirmColor: "danger",
+      confirmLabel: texts.discard,
+      message: texts.discardMessage,
+      title: texts.discardTitle,
+    }).then((leave) => (leave ? blocker.proceed() : blocker.reset()));
+  }, [blocker, confirm, texts]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const ask = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", ask);
+    return () => window.removeEventListener("beforeunload", ask);
+  }, [dirty]);
 }`;
 
 const stateStyles = `// The data attributes of the states, for Tailwind's data-* variants
@@ -321,11 +353,14 @@ export default function FormsGuide() {
           <p>
             <code>getFieldError(error, field)</code> returns the message for one
             field and <code>getBaseError(error)</code> the general one, whatever
-            shape the server sent - pass the parsed REST error body or the
-            GraphQL error / response as it is. Field names match in camelCase
-            and snake_case, <code>address.street</code> addresses nested fields,
-            and <code>getNestedErrors()</code> lists the errors of nested
-            records.
+            shape the server sent - pass the parsed REST error body, the error
+            your API client throws (with the <code>fieldErrors</code> or{" "}
+            <code>errors</code> of the body) or the GraphQL error / response as
+            it is. An API that answers with codes (<code>REQUIRED</code>) has
+            them translated by the app: <code>messages.errors[code]</code>.
+            Field names match in camelCase and snake_case,{" "}
+            <code>address.street</code> addresses nested fields, and{" "}
+            <code>getNestedErrors()</code> lists the errors of nested records.
           </p>
         </Prose>
         <Example
@@ -343,6 +378,30 @@ export default function FormsGuide() {
         <CodeBlock code={errorShapes} />
       </Section>
 
+      <Section title="Forms in dialogs">
+        <Prose>
+          <p>
+            <code>FormDialog</code> is a <code>Dialog</code> with a form - the
+            fields, the error of the last save above them, and Cancel with the
+            submit button in its footer. It spins its submit button and stays
+            open while <code>saving</code>, and with <code>dirty</code> asks
+            &quot;Discard changes?&quot; before Cancel, the close button, Escape
+            or the backdrop throws the changes away. Any <code>Dialog</code> or{" "}
+            <code>Sheet</code> can ask with <code>onBeforeClose</code>.
+          </p>
+        </Prose>
+        <Example collapsed name="form-dialog/basic" title="An edit dialog" />
+      </Section>
+      <Section title="Unsaved changes of a page">
+        <Prose>
+          <p>
+            Leaving a page is up to its router - the library knows no router.
+            With React Router, its blocker and <code>useConfirm()</code> ask the
+            question of <code>FormDialog</code> in its texts:
+          </p>
+        </Prose>
+        <CodeBlock code={unsavedChanges} />
+      </Section>
       <Section title="React Hook Form">
         <Prose>
           <p>

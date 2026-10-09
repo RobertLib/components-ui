@@ -12,7 +12,9 @@ export default function PanelPage() {
             A card on the <code>surface</code> color with padding, radius and a
             shadow - the base of page sections, of <code>Accordion</code> and of{" "}
             <Link to="/components/card">Card</Link>, which adds a header, a
-            footer and a clickable variant.
+            footer and a clickable variant. <code>padding</code> sets the room
+            inside - <code>responsive</code> is 1rem on phones and 1.5rem from
+            the <code>sm</code> breakpoint up.
           </p>
         }
         name="panel/variants"

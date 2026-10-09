@@ -57,6 +57,25 @@ describe("IconButton", () => {
     }
   });
 
+  it("has a border with bordered - and the md size without its own", () => {
+    const { rerender } = render(
+      <IconButton aria-label="More" bordered>
+        <Pencil />
+      </IconButton>,
+    );
+    const button = screen.getByRole("button", { name: "More" });
+    expect(button).toHaveClass("border-[1.5px]", "border-neutral-300");
+    expect(button).toHaveClass("size-8.5");
+    expect(button).not.toHaveClass("-m-1");
+
+    rerender(
+      <IconButton aria-label="More" bordered size="sm">
+        <Pencil />
+      </IconButton>,
+    );
+    expect(button).toHaveClass("size-6.5");
+  });
+
   it("is a link of the router with href", async () => {
     const user = userEvent.setup();
     const onClick = vi.fn();

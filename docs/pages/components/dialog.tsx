@@ -66,6 +66,27 @@ export default function DialogPage() {
         title="Closing on the backdrop, not on Escape"
       />
 
+      <Section title="Asking before it closes">
+        <Prose>
+          <p>
+            <code>onBeforeClose</code> is asked before the user closes the
+            dialog - by the close button, Escape or the backdrop. Return{" "}
+            <code>false</code>, or a promise of it, to keep it open - e.g. the
+            answer of a &quot;Discard changes?&quot; <code>useConfirm()</code>;
+            further attempts to close wait for that answer. A dialog with a form
+            gets it, the error of its save and its footer from{" "}
+            <Link to="/components/form-dialog">FormDialog</Link>.
+          </p>
+          <p>
+            <code>bodyClassName</code> styles the scrolling body around the
+            content - <code>flex flex-col</code> for content that fills it, or
+            another padding than its <code>p-6</code>. The body has the{" "}
+            <code>--color-dialog</code> of the theme (see Theming), the header
+            and the footer the surface.
+          </p>
+        </Prose>
+      </Section>
+
       <Section title="Behavior">
         <Prose>
           <ul>

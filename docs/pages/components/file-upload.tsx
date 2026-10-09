@@ -245,9 +245,15 @@ export default function FileUploadPage() {
             what <code>onUpload</code> reported.
           </p>
           <p>
-            The field keeps a vertical margin (<code>my-4</code>);{" "}
-            <code>className</code> adds classes to it, and an important class
-            such as <code>my-0!</code> overrides the margin.
+            The field has no margin of its own - the form spaces it like its
+            other fields (<code>space-y-*</code>, <code>gap-*</code>);{" "}
+            <code>className</code> adds classes to it.
+          </p>
+          <p>
+            <code>onPendingChange</code> reports how many files wait for their
+            upload or are uploading - to disable the submit button of a dialog,
+            show &quot;3 of 5 uploaded&quot; or ask before closing it while
+            uploads run. The form itself cannot be submitted meanwhile anyway.
           </p>
         </Prose>
       </Section>

@@ -105,6 +105,26 @@
   --color-background-dark: #0f0f0f;
   --color-surface: #ffffff;
   --color-surface-dark: #1e1e1e;
+  /* The body of a Dialog or a Sheet, under its header and footer of the
+     surface - the page background by default, `var(--color-surface)` for
+     dialogs white all through */
+  --color-dialog: var(--color-background);
+  --color-dialog-dark: var(--color-background-dark);
+
+  /* The headings of the components - the title of a Header, a Card, a
+     Dialog or a Sheet, an EmptyState and the value of a Stat. A size token
+     brings its line height and weight along (`--text-*--font-weight`) */
+  --font-heading: var(--font-sans);
+  --text-page-title: 1.875rem;
+  --text-page-title--line-height: 2.25rem;
+  --text-page-title--font-weight: 500;
+  --text-section-title: 1rem;
+  --text-section-title--line-height: 1.5rem;
+  --text-section-title--font-weight: 600;
+  --text-stat-value: 1.5rem;
+  --text-stat-value--line-height: 2rem;
+  --text-stat-value--font-weight: 600;
+  --text-stat-value--letter-spacing: -0.025em;
 
   --animate-fade-in: fade-in 0.25s ease-out;
   --animate-fade-out: fade-out 0.25s ease-out;

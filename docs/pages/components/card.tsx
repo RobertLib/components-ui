@@ -10,11 +10,13 @@ export default function CardPage() {
         description={
           <p>
             A <code>title</code> - a heading of level 3, or{" "}
-            <code>headingLevel</code> - with a <code>description</code> under it
+            <code>headingLevel</code> - with a <code>description</code> under
+            it, <code>afterTitle</code> next to it (a status, a help tooltip)
             and <code>actions</code> at the end of the header; the children are
-            the content, the <code>footer</code> sits under a line. The other
-            props go to the <Link to="/components/panel">Panel</Link> the card
-            is drawn on - its <code>border</code>, <code>rounded</code> and{" "}
+            the content, the <code>footer</code> sits under a line. The media
+            and the footer reach the edges at any <code>padding</code>. The
+            other props go to the <Link to="/components/panel">Panel</Link> the
+            card is drawn on - its <code>border</code>, <code>rounded</code> and{" "}
             <code>shadow</code> too.
           </p>
         }

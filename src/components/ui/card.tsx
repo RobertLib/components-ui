@@ -11,6 +11,11 @@ export interface CardProps extends Omit<PanelProps, "onClick" | "title"> {
    * `Dropdown` - they stay clickable in a clickable card.
    */
   actions?: React.ReactNode;
+  /**
+   * Right next to the title, outside the heading - e.g. a `Chip` with a
+   * status or a help `Tooltip`. It stays clickable in a clickable card.
+   */
+  afterTitle?: React.ReactNode;
   /** The content - the body of the card, under the header. */
   children?: React.ReactNode;
   /** A line under the title. */
@@ -71,6 +76,7 @@ const stretchedClassName =
  */
 export default function Card({
   actions,
+  afterTitle,
   children,
   className,
   description,
@@ -135,7 +141,8 @@ export default function Card({
       )}
     >
       {hasContent(media) && (
-        <div className="-mx-6 -mt-6 overflow-hidden rounded-t-[inherit] [&>img]:block [&>img]:w-full [&>img]:object-cover">
+        // From edge to edge, whatever the `padding` of the card
+        <div className="-mx-(--cui-panel-padding) -mt-(--cui-panel-padding) overflow-hidden rounded-t-[inherit] [&>img]:block [&>img]:w-full [&>img]:object-cover">
           {loading ? (
             <Skeleton className="rounded-none" height="h-40" />
           ) : (
@@ -158,15 +165,23 @@ export default function Card({
             <div className="flex items-start gap-4">
               <div className="min-w-0 flex-1">
                 {hasTitle && (
-                  <Heading
-                    className={cn(
-                      "text-base font-semibold text-neutral-900 dark:text-neutral-50",
-                      (isLink || isButton) &&
-                        "transition-colors group-hover:text-primary-700 motion-reduce:transition-none dark:group-hover:text-primary-300",
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <Heading
+                      className={cn(
+                        "font-heading text-section-title text-neutral-900 dark:text-neutral-50",
+                        (isLink || isButton) &&
+                          "transition-colors group-hover:text-primary-700 motion-reduce:transition-none dark:group-hover:text-primary-300",
+                      )}
+                    >
+                      {titleContent}
+                    </Heading>
+                    {hasContent(afterTitle) && (
+                      // Above the stretched link of the title
+                      <div className="relative z-10 flex items-center gap-2">
+                        {afterTitle}
+                      </div>
                     )}
-                  >
-                    {titleContent}
-                  </Heading>
+                  </div>
                 )}
                 {hasContent(description) && (
                   <p
@@ -191,7 +206,7 @@ export default function Card({
           {hasContent(children) && <div className="min-w-0">{children}</div>}
 
           {hasContent(footer) && (
-            <div className="relative z-10 -mx-6 -mb-6 flex flex-wrap items-center gap-2 border-t border-neutral-200 px-6 py-4 dark:border-neutral-800">
+            <div className="relative z-10 -mx-(--cui-panel-padding) -mb-(--cui-panel-padding) flex flex-wrap items-center gap-2 border-t border-neutral-200 px-(--cui-panel-padding) py-4 dark:border-neutral-800">
               {footer}
             </div>
           )}

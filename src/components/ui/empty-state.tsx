@@ -79,7 +79,7 @@ export default function EmptyState({
       )}
       <Heading
         className={cn(
-          "font-semibold text-neutral-900 dark:text-neutral-100",
+          "font-heading font-semibold text-neutral-900 dark:text-neutral-100",
           classes.title,
         )}
       >

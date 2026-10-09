@@ -492,6 +492,12 @@ export const cs: Locale = {
       form: {
         labelSuffix: ":",
       },
+      formDialog: {
+        discard: "Zahodit",
+        discardMessage: "Provedené změny se neuloží.",
+        discardTitle: "Zahodit změny?",
+        keepEditing: "Pokračovat v úpravách",
+      },
       header: {
         back: "Zpět",
       },

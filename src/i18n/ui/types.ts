@@ -690,6 +690,13 @@ export interface UIMessages {
      */
     labelSuffix: string;
   };
+  /** The question of a `FormDialog` with unsaved changes before it closes. */
+  formDialog: {
+    discard: string;
+    discardMessage: string;
+    discardTitle: string;
+    keepEditing: string;
+  };
   header: {
     back: string;
   };

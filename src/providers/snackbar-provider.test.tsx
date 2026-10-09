@@ -149,6 +149,50 @@ describe("A toast with an action", () => {
     expect(screen.queryByText("Deleted")).toBeNull();
   });
 
+  it("keeps the toasts of a variant as long as `durations` says", () => {
+    vi.useFakeTimers();
+    const { api } = renderWithApi(undefined, { durations: { success: 1500 } });
+
+    act(() => {
+      api().enqueueSnackbar("Saved", "success");
+      api().enqueueSnackbar("Offline", "danger");
+      api().enqueueSnackbar("Kept", "success", { duration: 4000 });
+      api().enqueueSnackbar("Removed", "success", {
+        action: { label: "Undo", onClick: () => {} },
+      });
+    });
+
+    act(() => vi.advanceTimersByTime(1500));
+    act(() => vi.advanceTimersByTime(200));
+    expect(screen.queryByText("Saved")).toBeNull();
+    // The other variants keep 3 s, an own duration and an action their own
+    expect(screen.getByText("Offline")).toBeInTheDocument();
+    expect(screen.getByText("Kept")).toBeInTheDocument();
+    expect(screen.getByText("Removed")).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(1300));
+    act(() => vi.advanceTimersByTime(200));
+    expect(screen.queryByText("Offline")).toBeNull();
+  });
+
+  it("styles the toasts of a variant and shows its icon", () => {
+    const { api } = renderWithApi(undefined, {
+      classNames: { success: "bg-neutral-900 text-white" },
+      icons: true,
+    });
+
+    act(() => {
+      api().enqueueSnackbar("Saved", "success");
+      api().enqueueSnackbar("Note", "info");
+    });
+
+    const saved = toastOf("Saved");
+    expect(saved).toHaveClass("bg-neutral-900", "text-white");
+    expect(saved).not.toHaveClass("bg-success-50");
+    expect(saved.querySelector("[data-toast-icon]")).not.toHaveClass("hidden");
+    expect(toastOf("Note")).not.toHaveClass("bg-neutral-900");
+  });
+
   it("is shown for every call - each action is its own", () => {
     const { api } = renderWithApi();
     const undoFirst = vi.fn();

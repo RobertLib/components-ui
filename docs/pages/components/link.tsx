@@ -32,6 +32,16 @@ export default function LinkPage() {
             <code>rel="noopener noreferrer"</code>, an icon, and "(opens in a
             new tab)" for screen readers - in the language of the page.
           </p>
+          <p>
+            A link that is a block of its own - a logo, a card of a grid, a row
+            of a menu - takes <code>color=&quot;inherit&quot;</code> and{" "}
+            <code>underline=&quot;none&quot;</code>: it keeps the focus ring of
+            the links and goes through the router, with the layout in its{" "}
+            <code>className</code>. An action that looks like a link is a{" "}
+            <code>Button</code> with <code>variant=&quot;link&quot;</code>, and
+            the rows of a menu or of the sections of a record are a{" "}
+            <code>List</code>.
+          </p>
         </Prose>
       </Section>
 

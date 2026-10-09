@@ -12,6 +12,7 @@ import {
   DENSITY_CLASSES,
   ESTIMATED_ROW_HEIGHTS,
   getCellStyle,
+  hiddenBelowClassName,
   isSticky,
   LEADING_KEYS,
   type CellLayout,
@@ -575,6 +576,7 @@ export function TableBody<T>({
                   "px-2",
                   densityClass,
                   isSticky(layout) && "sticky bg-surface dark:bg-surface-dark",
+                  hiddenBelowClassName(column, layout),
                 )}
                 key={`skeleton-${index}-${colIndex}`}
                 style={getCellStyle(column, layout, false)}

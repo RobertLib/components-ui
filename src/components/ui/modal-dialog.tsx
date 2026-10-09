@@ -96,6 +96,8 @@ export interface ModalDialogProps extends Omit<
   duration: number;
   /** Classes of a `DialogFooter` in it, e.g. its rounded corners. */
   footerClassName?: string;
+  /** See `DialogProps.onBeforeClose`. */
+  onBeforeClose?: () => boolean | void | Promise<boolean | void>;
   /** See `DialogProps.onClose`. */
   onClose?: () => void;
   /** See `DialogProps.open`. */
@@ -137,6 +139,7 @@ export default function ModalDialog({
   closeOnEscape = true,
   duration,
   footerClassName,
+  onBeforeClose,
   onClose,
   open,
   openClassName,
@@ -212,10 +215,7 @@ export default function ModalDialog({
     portaled: true,
   });
 
-  const handleClose = useCallback(() => {
-    // Closed already, animating out
-    if (closeDisabled || !isRequestedOpen) return;
-
+  const close = useCallback(() => {
     if (isControlled) {
       onClose?.();
       return;
@@ -224,7 +224,49 @@ export default function ModalDialog({
     // Uncontrolled mode: animate out, then report it - once, however often
     // the close button is clicked meanwhile
     setCloseRequested(true);
-  }, [closeDisabled, isControlled, isRequestedOpen, onClose]);
+  }, [isControlled, onClose]);
+
+  // `onBeforeClose` answers with a promise: the dialog closes once it
+  // resolves - if it may still close then, as the latest render has it -
+  // and further requests to close wait for that answer
+  const isAskingRef = useRef(false);
+  const closeAfterAnswerRef = useRef(close);
+
+  useLayoutEffect(() => {
+    closeAfterAnswerRef.current = () => {
+      if (!closeDisabled && isRequestedOpen) close();
+    };
+  });
+
+  // Closed by its owner while `onBeforeClose` asks - opened again, it does
+  // not wait for an answer that may never come
+  useEffect(() => {
+    if (!isRequestedOpen) isAskingRef.current = false;
+  }, [isRequestedOpen]);
+
+  const handleClose = useCallback(() => {
+    // Closed already, animating out
+    if (closeDisabled || !isRequestedOpen || isAskingRef.current) return;
+
+    const answer = onBeforeClose?.();
+    if (answer === false) return;
+
+    if (answer instanceof Promise) {
+      isAskingRef.current = true;
+      answer.then(
+        (allowed) => {
+          isAskingRef.current = false;
+          if (allowed !== false) closeAfterAnswerRef.current();
+        },
+        () => {
+          isAskingRef.current = false;
+        },
+      );
+      return;
+    }
+
+    close();
+  }, [close, closeDisabled, isRequestedOpen, onBeforeClose]);
 
   // Opens right after it is rendered closed, so it animates in
   useEffect(() => {
@@ -572,7 +614,7 @@ export default function ModalDialog({
               {...swipeHandlers}
             >
               {swipeToClose && swipeHandle}
-              <h2 className="font-semibold" id={titleId}>
+              <h2 className="font-heading text-section-title" id={titleId}>
                 {title}
               </h2>
               <div className="inline-flex">{closeButton}</div>

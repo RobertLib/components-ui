@@ -584,7 +584,7 @@ function PaletteContent({
     <>
       {/* Stays in view while the results scroll under it - at the top edge
           of the dialog body, over its padding */}
-      <div className="sticky -top-6 z-10 -mx-6 -mt-6 bg-background px-6 pt-6 pb-3 dark:bg-background-dark">
+      <div className="sticky -top-6 z-10 -mx-6 -mt-6 bg-dialog px-6 pt-6 pb-3 dark:bg-dialog-dark">
         <div className="flex items-center gap-2 rounded-md border border-neutral-300 bg-surface px-3 focus-within:ring-2 focus-within:ring-primary-500 dark:border-neutral-700 dark:bg-surface-dark">
           <Search
             aria-hidden="true"

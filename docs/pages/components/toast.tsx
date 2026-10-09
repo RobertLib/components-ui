@@ -101,6 +101,23 @@ export default function ToastPage() {
       <Example
         description={
           <p>
+            The look of the toasts of a design is set on{" "}
+            <code>SnackbarProvider</code>: <code>classNames</code> by variant
+            come after the colors of the variant, <code>icons</code> shows the
+            icon of the variant in every toast and <code>durations</code> sets
+            how long the toasts of a variant stay when enqueued without a{" "}
+            <code>duration</code> - short confirmations, errors to be read. A
+            toast has <code>data-variant</code>, its icon{" "}
+            <code>data-toast-icon</code> and its close button{" "}
+            <code>data-toast-close</code> for the classes of its parts.
+          </p>
+        }
+        name="toast/design"
+        title="The toasts of a design"
+      />
+      <Example
+        description={
+          <p>
             <code>enqueueSnackbar</code> returns the id of the toast - the one
             already shown when the message is deduplicated.{" "}
             <code>closeSnackbar(id)</code> closes that toast, without an id

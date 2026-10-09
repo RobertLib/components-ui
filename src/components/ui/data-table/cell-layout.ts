@@ -88,6 +88,26 @@ export const DEFAULT_CELL_LAYOUT: CellLayout = {};
 export const isSticky = (layout: CellLayout) =>
   layout.start !== undefined || layout.end !== undefined;
 
+// Whole class names - hidden below the breakpoint, as they were above it
+const HIDDEN_BELOW_CLASSES = {
+  sm: "max-sm:hidden",
+  md: "max-md:hidden",
+  lg: "max-lg:hidden",
+  xl: "max-xl:hidden",
+};
+
+/**
+ * The classes hiding the cells of a column with `hideBelow` on narrow
+ * screens - not of a pinned one, whose offsets count on its width.
+ */
+export const hiddenBelowClassName = <T>(
+  column: Column<T>,
+  layout: CellLayout,
+) =>
+  column.hideBelow && !isSticky(layout)
+    ? HIDDEN_BELOW_CLASSES[column.hideBelow]
+    : undefined;
+
 /**
  * The inline style of a cell: its sticky offset - from the start or the end
  * edge, the right or the left one in a right-to-left table - and its width:

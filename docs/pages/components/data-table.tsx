@@ -621,6 +621,22 @@ export default function DataTablePage() {
         </Prose>
       </Section>
 
+      <Section title="Columns on narrow screens">
+        <Prose>
+          <p>
+            A column with <code>hideBelow</code> - <code>sm</code>,{" "}
+            <code>md</code>, <code>lg</code> or <code>xl</code> - is hidden on
+            screens narrower than that breakpoint: its header, its filter, its
+            cells and its summary. A phone shows the name and the status of a
+            member, a computer their birth date and their last exam too. The
+            column stays in the column settings and in the CSV export. A pinned
+            column keeps its place - its neighbors are placed by its width - and
+            so should a column of a column group and the first column of a table
+            with <code>getRowHref</code>, which holds the link of the row.
+          </p>
+        </Prose>
+      </Section>
+
       <Section title="Filters the user can see">
         <Prose>
           <p>

@@ -9,7 +9,6 @@ export default function Compact() {
     <div className="grid gap-6">
       <FileUpload
         accept=".pdf,image/*"
-        className="my-0!"
         label="Receipt"
         name="receipt"
         variant="button"
@@ -24,7 +23,6 @@ export default function Compact() {
               placeholder={`dim="${dim}"`}
             />
             <FileUpload
-              className="my-0!"
               dim={dim}
               multiple
               name={`files-${dim}`}

@@ -12,6 +12,8 @@ export interface DescriptionListItem {
   term: string;
   /** The value - text or any content (a link, a `Chip`, …). */
   desc: React.ReactNode;
+  /** Extra classes for the value. */
+  descClassName?: string;
   /**
    * Takes a whole row of a list with `columns`, e.g. a long note or an
    * address.
@@ -36,6 +38,18 @@ export interface DescriptionListProps extends React.ComponentProps<"dl"> {
    * @default 1
    */
   columns?: 1 | 2 | 3 | 4;
+  /**
+   * Shown in place of an empty value - `null`, `undefined` or `""` - e.g.
+   * `"—"`, so that a missing value does not leave a gap.
+   */
+  emptyValue?: React.ReactNode;
+  /**
+   * Which of the pair stands out: `term` - the terms in bold, the values
+   * muted; `desc` - small muted terms over the values in the color of the
+   * text, as the details of a record often look.
+   * @default "term"
+   */
+  emphasis?: "term" | "desc";
   /** The term / description pairs, in order. */
   items: DescriptionListItem[];
   /** Shows placeholders instead of the descriptions. */
@@ -72,6 +86,8 @@ export default function DescriptionList({
   bordered = false,
   className,
   columns = 1,
+  emptyValue,
+  emphasis = "term",
   items,
   loading = false,
   style,
@@ -84,7 +100,10 @@ export default function DescriptionList({
   const renderTerm = (item: DescriptionListItem) => (
     <dt
       className={cn(
-        "flex items-center gap-1 text-sm font-semibold",
+        "flex items-center gap-1",
+        emphasis === "term"
+          ? "text-sm font-semibold"
+          : "text-xs text-neutral-500 dark:text-neutral-400",
         item.termClassName,
       )}
     >
@@ -116,14 +135,20 @@ export default function DescriptionList({
     // container instead of wrapping or truncating inside it
     <dd
       className={cn(
-        "min-w-0 text-neutral-500 dark:text-neutral-400",
+        "min-w-0",
+        emphasis === "term"
+          ? "text-neutral-500 dark:text-neutral-400"
+          : "text-sm wrap-break-word text-neutral-900 dark:text-neutral-100",
         className,
+        item.descClassName,
       )}
     >
       {loading ? (
         <div
           className={`h-4 ${getPlaceholderWidth(index)} animate-pulse rounded bg-neutral-200 dark:bg-neutral-700`}
         />
+      ) : item.desc === null || item.desc === undefined || item.desc === "" ? (
+        emptyValue
       ) : (
         item.desc
       )}

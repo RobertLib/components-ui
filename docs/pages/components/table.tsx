@@ -49,6 +49,21 @@ export default function TablePage() {
       <Example
         description={
           <p>
+            A <code>TableRow</code> with <code>href</code> opens the detail of
+            its record on a click anywhere on it - not on a control in it, and
+            not at the end of selecting its text. It follows the link of the row
+            (<code>data-row-link</code>, or the one to the same{" "}
+            <code>href</code>) as a click on it would, so Ctrl + click opens a
+            new tab. That link is what the keyboard and screen readers use - put
+            it in the cell that names the row.
+          </p>
+        }
+        name="table/row-links"
+        title="Rows that open a detail"
+      />
+      <Example
+        description={
+          <p>
             A table wider than its frame scrolls sideways - on a phone, say.
             With <code>maxHeight</code> a long one scrolls in its frame, and{" "}
             <code>stickyHeader</code> keeps the header row in sight. A frame
@@ -73,6 +88,7 @@ export default function TablePage() {
 
       <Section title="Props">
         <PropsTable of="Table" />
+        <PropsTable of="TableRow" />
         <PropsTable of="TableCell" />
       </Section>
     </DocPage>

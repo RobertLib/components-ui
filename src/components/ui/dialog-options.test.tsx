@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Dialog, { DialogFooter } from "./dialog";
@@ -185,5 +185,129 @@ describe("Dialog with a DialogFooter", () => {
       </Dialog>,
     );
     expect(body.style.paddingBottom).toBe("");
+  });
+});
+
+describe("Dialog onBeforeClose", () => {
+  it("keeps the dialog open when it answers false", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onBeforeClose = vi.fn(() => false);
+    render(
+      <Dialog
+        closeOnBackdropClick
+        onBeforeClose={onBeforeClose}
+        onClose={onClose}
+        open
+        title="Edit"
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Close dialog" }));
+    await user.keyboard("{Escape}");
+    const backdrop = backdropOf(screen.getByRole("dialog"));
+    fireEvent.pointerDown(backdrop);
+    fireEvent.click(backdrop);
+
+    expect(onBeforeClose).toHaveBeenCalledTimes(3);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("waits for a promise - and for one answer at a time", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    let answer: (close: boolean) => void = () => {};
+    const onBeforeClose = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    render(
+      <Dialog
+        onBeforeClose={onBeforeClose}
+        onClose={onClose}
+        open
+        title="Edit"
+      />,
+    );
+
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(onBeforeClose).toHaveBeenCalledOnce();
+
+    await act(async () => answer(false));
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.keyboard("{Escape}");
+    await act(async () => answer(true));
+    expect(onBeforeClose).toHaveBeenCalledTimes(2);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("closes once the answer comes only if it still may", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    let answer: (close: boolean) => void = () => {};
+    const ask = () =>
+      new Promise<boolean>((resolve) => {
+        answer = resolve;
+      });
+    const { rerender } = render(
+      <Dialog onBeforeClose={ask} onClose={onClose} open title="Edit" />,
+    );
+
+    await user.keyboard("{Escape}");
+    // Saving started meanwhile
+    rerender(
+      <Dialog
+        closeDisabled
+        onBeforeClose={ask}
+        onClose={onClose}
+        open
+        title="Edit"
+      />,
+    );
+    await act(async () => answer(true));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("asks anew when opened again after its owner closed it", async () => {
+    const user = userEvent.setup();
+    const onBeforeClose = vi.fn(() => new Promise<boolean>(() => {}));
+    const { rerender } = render(
+      <Dialog onBeforeClose={onBeforeClose} onClose={() => {}} open />,
+    );
+
+    await user.keyboard("{Escape}");
+    rerender(
+      <Dialog onBeforeClose={onBeforeClose} onClose={() => {}} open={false} />,
+    );
+    rerender(<Dialog onBeforeClose={onBeforeClose} onClose={() => {}} open />);
+    await user.keyboard("{Escape}");
+
+    expect(onBeforeClose).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Dialog bodyClassName", () => {
+  it("adds classes to the scrolling body", () => {
+    render(
+      <Dialog bodyClassName="flex flex-col p-4" onClose={() => {}} open>
+        <p>Text</p>
+      </Dialog>,
+    );
+
+    const body = screen.getByText("Text").parentElement!;
+    expect(body).toHaveClass("flex", "flex-col", "p-4");
+    expect(body).not.toHaveClass("p-6");
+  });
+
+  it("paints its body with the dialog token, its header with the surface", () => {
+    render(<Dialog onClose={() => {}} open title="Edit" />);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveClass("bg-dialog", "dark:bg-dialog-dark");
+    expect(dialog.querySelector("header")).toHaveClass("bg-surface");
   });
 });

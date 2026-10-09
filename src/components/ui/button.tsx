@@ -39,11 +39,13 @@ export interface ButtonProps extends React.ComponentProps<"button"> {
    */
   startIcon?: React.ReactNode;
   /**
-   * `solid` - filled, `outline` - bordered, `ghost` - text only. A
+   * `solid` - filled, `outline` - bordered, `ghost` - text only, `link` -
+   * looks like a text link, without a padding: "Show more", "Resend the
+   * invitation", "Remove the photo" in running text or a table cell. A
    * `ButtonGroup` around gives its own to a button without one.
    * @default "solid"
    */
-  variant?: "solid" | "outline" | "ghost";
+  variant?: "solid" | "outline" | "ghost" | "link";
 }
 
 /** Whether a node renders anything - `cond && icon` leaves out an icon. */
@@ -84,12 +86,22 @@ export default function Button({
   const size = sizeProp ?? group?.size ?? "md";
   const variant = variantProp ?? group?.variant ?? "solid";
 
-  const sizeStyles = {
-    sm: "px-2 py-0.5 text-sm",
-    md: "px-3 py-1 text-base",
-    lg: "px-4 py-1.5 text-lg",
-    icon: "p-2 aspect-square",
-  };
+  const isLink = variant === "link";
+
+  // A `link` has no padding - it lines up with the text around
+  const sizeStyles = isLink
+    ? {
+        sm: "text-sm",
+        md: "text-base",
+        lg: "text-lg",
+        icon: "aspect-square",
+      }
+    : {
+        sm: "px-2 py-0.5 text-sm",
+        md: "px-3 py-1 text-base",
+        lg: "px-4 py-1.5 text-lg",
+        icon: "p-2 aspect-square",
+      };
 
   // Between the icons and the label
   const gapStyles = {
@@ -101,7 +113,7 @@ export default function Button({
 
   // Every text stands out from its background by at least 4.5:1 (WCAG
   // 1.4.3) - a filled button at both ends of its gradient, also on hover.
-  // Warning is yellow, with dark text.
+  // Warning is yellow, with dark text. A `link` has the colors of `Link`.
   const colorStyles = {
     default: {
       solid:
@@ -110,6 +122,7 @@ export default function Button({
         "bg-transparent border-[1.5px] border-neutral-300 text-neutral-700 hover:bg-neutral-50 focus:ring-neutral-500 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800",
       ghost:
         "bg-transparent border-transparent text-neutral-700 hover:bg-neutral-50 focus:ring-neutral-500 dark:text-neutral-300 dark:hover:bg-neutral-800",
+      link: "text-neutral-700 hover:text-neutral-950 dark:text-neutral-300 dark:hover:text-white",
     },
     primary: {
       solid:
@@ -118,6 +131,7 @@ export default function Button({
         "bg-transparent border-[1.5px] border-primary-500/40 text-primary-600 hover:bg-linear-to-r hover:from-primary-600 hover:to-primary-700 hover:text-white focus:ring-primary-500 dark:text-primary-400 dark:hover:text-white",
       ghost:
         "bg-transparent border-transparent text-primary-600 hover:bg-linear-to-r hover:from-primary-50 hover:to-primary-50 focus:ring-primary-500 dark:hover:from-primary-950 dark:hover:to-primary-950 dark:text-primary-400",
+      link: "text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300",
     },
     secondary: {
       solid:
@@ -126,6 +140,7 @@ export default function Button({
         "bg-transparent border-[1.5px] border-secondary-500/50 text-secondary-600 hover:bg-linear-to-r hover:from-secondary-500 hover:to-secondary-600 hover:text-white focus:ring-secondary-500 dark:text-secondary-300 dark:hover:text-white",
       ghost:
         "bg-transparent border-transparent text-secondary-600 hover:bg-linear-to-r hover:from-secondary-50 hover:to-secondary-50 focus:ring-secondary-500 dark:text-secondary-300 dark:hover:from-secondary-900 dark:hover:to-secondary-900",
+      link: "text-secondary-600 hover:text-secondary-800 dark:text-secondary-300 dark:hover:text-secondary-100",
     },
     success: {
       solid:
@@ -134,6 +149,7 @@ export default function Button({
         "bg-transparent border-[1.5px] border-success-500/60 text-success-700 hover:bg-linear-to-r hover:from-success-700 hover:to-success-800 hover:text-white focus:ring-success-600 dark:text-success-400 dark:hover:text-white",
       ghost:
         "bg-transparent border-transparent text-success-700 hover:bg-linear-to-r hover:from-success-50 hover:to-success-50 focus:ring-success-600 dark:hover:from-success-950 dark:hover:to-success-950 dark:text-success-400",
+      link: "text-success-700 hover:text-success-800 dark:text-success-400 dark:hover:text-success-300",
     },
     danger: {
       solid:
@@ -142,6 +158,7 @@ export default function Button({
         "bg-transparent border-[1.5px] border-danger-500/40 text-danger-700 hover:bg-linear-to-r hover:from-danger-600 hover:to-danger-700 hover:text-white focus:ring-danger-500 dark:text-danger-400 dark:hover:text-white",
       ghost:
         "bg-transparent border-transparent text-danger-700 hover:bg-linear-to-r hover:from-danger-50 hover:to-danger-50 focus:ring-danger-500 dark:hover:from-danger-950 dark:hover:to-danger-950 dark:text-danger-400",
+      link: "text-danger-700 hover:text-danger-800 dark:text-danger-400 dark:hover:text-danger-300",
     },
     warning: {
       solid:
@@ -150,6 +167,7 @@ export default function Button({
         "bg-transparent border-[1.5px] border-warning-500/80 text-warning-700 hover:bg-linear-to-r hover:from-warning-400 hover:to-warning-500 hover:text-warning-950 focus:ring-warning-700 dark:text-warning-400 dark:hover:text-warning-950",
       ghost:
         "bg-transparent border-transparent text-warning-700 hover:bg-linear-to-r hover:from-warning-50 hover:to-warning-50 focus:ring-warning-700 dark:hover:from-warning-950 dark:hover:to-warning-950 dark:text-warning-400",
+      link: "text-warning-700 hover:text-warning-800 dark:text-warning-400 dark:hover:text-warning-300",
     },
   };
 
@@ -247,8 +265,11 @@ export default function Button({
     );
 
   const commonClassNames = cn(
-    "inline-flex cursor-pointer items-center justify-center border transition-all transition-colors duration-200 focus:ring-2 focus:outline-hidden",
-    groupStyles || "rounded-md",
+    "inline-flex cursor-pointer items-center justify-center transition-all transition-colors duration-200 focus:outline-hidden",
+    // A link shows the ring for the keyboard alone, as a text link does
+    isLink
+      ? "rounded-sm underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-primary-500"
+      : ["border focus:ring-2", groupStyles || "rounded-md"],
     // The focus ring keeps a gap to the fill of a similar color
     variant === "solid" &&
       "shadow-lg ring-offset-surface hover:shadow-xl focus:ring-offset-2 dark:ring-offset-surface-dark",

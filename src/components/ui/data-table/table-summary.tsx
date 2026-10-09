@@ -4,6 +4,7 @@ import {
   DEFAULT_CELL_LAYOUT,
   DENSITY_CLASSES,
   getCellStyle,
+  hiddenBelowClassName,
   isClipped,
   isSticky,
   LEADING_KEYS,
@@ -94,6 +95,7 @@ export function SummaryCells<T>({
               densityClass,
               isSticky(layout) &&
                 "sticky z-1 bg-neutral-50 dark:bg-neutral-900",
+              hiddenBelowClassName(column, layout),
             )}
             key={column.key}
             style={getCellStyle(column, layout, false)}

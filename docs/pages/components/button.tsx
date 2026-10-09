@@ -10,7 +10,9 @@ export default function ButtonPage() {
           <p>
             <code>variant</code> sets the emphasis: <code>solid</code> for the
             main action, <code>outline</code> for secondary ones and{" "}
-            <code>ghost</code> for the least important.
+            <code>ghost</code> for the least important. <code>link</code> looks
+            like a text link without a padding - an action inside a sentence or
+            a table cell; the focus ring shows for the keyboard only.
           </p>
         }
         name="button/variants"

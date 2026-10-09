@@ -5,7 +5,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import cn from "../../utils/cn";
 import { formatMessage } from "../../i18n/ui/format";
 import { useMessages } from "../../providers/ui-context";
@@ -48,8 +48,22 @@ export interface ImageViewerProps extends Omit<
   title?: React.ReactNode;
   /** Wrap navigation at the first and last image. Defaults to true. */
   loop?: boolean;
+  /**
+   * Loads further images of a gallery that `images` holds a page of - e.g.
+   * `fetchNextPage` of an infinite query. Called as the last loaded image
+   * shows, while `total` says there are more; moving past it waits for
+   * them with a loading state. A rejected promise shows the error of the
+   * image there. Wrapping around (`loop`) starts once all are loaded.
+   */
+  onLoadMore?: () => unknown;
   /** Show thumbnail navigation when there are several images. Defaults to true. */
   thumbnails?: boolean;
+  /**
+   * How many images the whole gallery has, when `images` holds only those
+   * loaded so far - the position reads "3 / 48", and with `onLoadMore` the
+   * arrows go on past the loaded ones.
+   */
+  total?: number;
 }
 
 const clampIndex = (index: number, length: number) =>
@@ -57,6 +71,9 @@ const clampIndex = (index: number, length: number) =>
     0,
     Math.min(length - 1, Number.isFinite(index) ? Math.floor(index) : 0),
   );
+
+// A swipe this long sideways - more sideways than down - moves on
+const SWIPE_DISTANCE = 50;
 
 /** A modal image gallery with keyboard navigation, zoom and loading/error states. */
 export default function ImageViewer({
@@ -69,18 +86,59 @@ export default function ImageViewer({
   onClose,
   onIndexChange,
   onKeyDown,
+  onLoadMore,
   onOpenChange,
   open: controlledOpen,
   thumbnails = true,
   title,
+  total,
   ...props
 }: ImageViewerProps) {
   const messages = useMessages().ui.imageViewer;
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const [internalIndex, setInternalIndex] = useState(defaultIndex);
   const open = controlledOpen ?? internalOpen;
-  const index = clampIndex(controlledIndex ?? internalIndex, images.length);
+  // The whole gallery - the loaded images and those still to load
+  const count = Math.max(total ?? 0, images.length);
+  const canLoadMore = !!onLoadMore && images.length < count;
+  // Past the loaded images only while more can load - they show loading
+  const index = clampIndex(
+    controlledIndex ?? internalIndex,
+    canLoadMore ? count : images.length,
+  );
   const image = images[index];
+  const isWaiting = index >= images.length && canLoadMore;
+  // `onLoadMore` failed for this many loaded images - the next one cannot
+  // show
+  const [failedLoad, setFailedLoad] = useState<number | null>(null);
+  const hasFailedLoad = isWaiting && failedLoad === images.length;
+  // The number of loaded images `onLoadMore` was called for - once each
+  const requestedFor = useRef<number | null>(null);
+  const swipeStart = useRef<{ id: number; x: number; y: number } | null>(null);
+
+  // The next images load as the last loaded one shows, so that moving on
+  // does not wait for them
+  useEffect(() => {
+    if (
+      !open ||
+      !canLoadMore ||
+      index < images.length - 1 ||
+      requestedFor.current === images.length
+    ) {
+      return;
+    }
+    const requested = images.length;
+    requestedFor.current = requested;
+    Promise.resolve(onLoadMore?.()).then(
+      () =>
+        setFailedLoad((current) => (current === requested ? null : current)),
+      () => {
+        setFailedLoad(requested);
+        // Moving away and back asks again
+        requestedFor.current = null;
+      },
+    );
+  }, [canLoadMore, images.length, index, onLoadMore, open]);
   const [zoom, setZoom] = useState(1);
   const [loaded, setLoaded] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -99,18 +157,54 @@ export default function ImageViewer({
     onOpenChange?.(false);
     onClose?.();
   };
+  // Around from the end to the start only once all images are loaded
+  const wraps = loop && !canLoadMore;
   const select = (next: number) => {
-    if (images.length === 0) return;
-    const target = loop
-      ? (next + images.length) % images.length
-      : clampIndex(next, images.length);
+    if (count === 0) return;
+    const target = wraps
+      ? (next + count) % count
+      : clampIndex(next, canLoadMore ? count : images.length);
     if (target === index) return;
     if (controlledIndex === undefined) setInternalIndex(target);
     onIndexChange?.(target);
   };
-  const previousDisabled = images.length < 2 || (!loop && index === 0);
-  const nextDisabled =
-    images.length < 2 || (!loop && index === images.length - 1);
+  const previousDisabled = count < 2 || (!wraps && index === 0);
+  const nextDisabled = count < 2 || (!wraps && index === count - 1);
+  const isRtl = (element: Element) =>
+    getComputedStyle(element).direction === "rtl";
+
+  // A swipe sideways on a touch screen moves to the next or the previous
+  // image - not while zoomed in, when it pans the image
+  const swipeHandlers = {
+    onPointerCancel: () => {
+      swipeStart.current = null;
+    },
+    onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
+      if (event.pointerType === "mouse" || !event.isPrimary || zoom !== 1) {
+        return;
+      }
+      swipeStart.current = {
+        id: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+      };
+    },
+    onPointerUp: (event: React.PointerEvent<HTMLElement>) => {
+      const start = swipeStart.current;
+      swipeStart.current = null;
+      if (!start || start.id !== event.pointerId) return;
+
+      const dx = event.clientX - start.x;
+      const dy = event.clientY - start.y;
+      if (Math.abs(dx) < SWIPE_DISTANCE || Math.abs(dx) <= Math.abs(dy)) {
+        return;
+      }
+      // The next image comes from the end of the line - a swipe towards
+      // the start (to the left, to the right right to left) brings it
+      const towardsStart = isRtl(event.currentTarget) ? dx > 0 : dx < 0;
+      select(index + (towardsStart ? 1 : -1));
+    },
+  };
   return (
     <Dialog
       closeOnBackdropClick
@@ -129,7 +223,7 @@ export default function ImageViewer({
           event.nativeEvent.isComposing
         )
           return;
-        const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
+        const rtl = isRtl(event.currentTarget);
         if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           event.preventDefault();
           select(index + ((event.key === "ArrowRight") !== rtl ? 1 : -1));
@@ -138,7 +232,7 @@ export default function ImageViewer({
           select(0);
         } else if (event.key === "End") {
           event.preventDefault();
-          select(images.length - 1);
+          select(count - 1);
         }
       }}
     >
@@ -154,8 +248,8 @@ export default function ImageViewer({
             </IconButton>
             <span aria-live="polite" className="text-sm tabular-nums">
               {formatMessage(messages.position, {
-                index: images.length ? index + 1 : 0,
-                total: images.length,
+                index: count ? index + 1 : 0,
+                total: count,
               })}
             </span>
             <IconButton
@@ -197,13 +291,31 @@ export default function ImageViewer({
             </IconButton>
           </div>
         </div>
-        {!image ? (
+        {isWaiting ? (
+          // An image of the gallery not loaded yet - `onLoadMore` brings it
+          <div
+            {...swipeHandlers}
+            aria-busy={!hasFailedLoad}
+            className="flex h-[55dvh] min-h-32 touch-pan-y items-center justify-center rounded bg-neutral-100 p-8 text-center text-sm dark:bg-neutral-900"
+          >
+            {hasFailedLoad ? (
+              <div role="alert">{messages.loadError}</div>
+            ) : (
+              <div role="status">{messages.loading}</div>
+            )}
+          </div>
+        ) : !image ? (
           <EmptyState title={messages.noImages} />
         ) : (
           <figure className="min-h-0">
             <div
+              {...swipeHandlers}
               aria-busy={loaded !== image.src && failed !== image.src}
-              className="relative max-h-[60dvh] min-h-32 overflow-auto rounded bg-neutral-100 dark:bg-neutral-900"
+              className={cn(
+                "relative max-h-[60dvh] min-h-32 overflow-auto rounded bg-neutral-100 dark:bg-neutral-900",
+                // Sideways moves are swipes, not panning, unless zoomed in
+                zoom === 1 && "touch-pan-y",
+              )}
               tabIndex={0}
             >
               {failed === image.src ? (

@@ -117,4 +117,25 @@ describe("DescriptionList in columns", () => {
     expect(screen.queryByText("Prague")).toBeNull();
     expect(container.querySelectorAll("dd .animate-pulse")).toHaveLength(4);
   });
+
+  it("stresses the values over the terms with emphasis desc", () => {
+    render(
+      <DescriptionList
+        columns={2}
+        emphasis="desc"
+        emptyValue="—"
+        items={[
+          { desc: "Jana", term: "First name" },
+          { desc: null, descClassName: "italic", term: "Address" },
+        ]}
+      />,
+    );
+
+    const term = screen.getByText("First name:");
+    expect(term).toHaveClass("text-xs");
+    expect(term).not.toHaveClass("font-semibold");
+    expect(screen.getByText("Jana")).toHaveClass("text-neutral-900");
+    // An empty value shows the placeholder, with the classes of its item
+    expect(screen.getByText("—")).toHaveClass("italic");
+  });
 });

@@ -270,3 +270,65 @@ describe("Select label", () => {
     expect(screen.getByText("*")).toHaveAttribute("aria-hidden", "true");
   });
 });
+
+describe("Select prefix and suffix", () => {
+  it("frames the select with them and leaves the name to the label", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <Select
+        aria-label="Sort"
+        onChange={onChange}
+        options={sizes}
+        prefix="Sort by:"
+        suffix="↓"
+      />,
+    );
+
+    const select = combobox("Sort");
+    const frame = select.parentElement!;
+    expect(frame).toHaveClass("rounded-md", "border", "focus-within:ring-2");
+    // The frame draws the border - not the select in it
+    expect(select).not.toHaveClass("form-control");
+    expect(select).toHaveClass("bg-transparent", "cui-select-arrow");
+    expect(screen.getByText("Sort by:")).toBeInTheDocument();
+    expect(screen.getByText("↓")).toBeInTheDocument();
+
+    // A click on the caption focuses the select - and opens its list
+    const showPicker = vi.fn();
+    Object.defineProperty(select, "showPicker", { value: showPicker });
+    await user.click(screen.getByText("Sort by:"));
+    expect(select).toHaveFocus();
+    expect(showPicker).toHaveBeenCalledOnce();
+
+    await user.selectOptions(select, "l");
+    expect(onChange).toHaveBeenCalledOnce();
+  });
+
+  it("marks the frame of an invalid or disabled select", () => {
+    const { rerender } = render(
+      <Select error="Pick one" label="Size" options={sizes} prefix="⇅" />,
+    );
+
+    expect(combobox().parentElement).toHaveClass("border-danger-500!");
+    expect(combobox()).not.toHaveClass("border-danger-500!");
+
+    rerender(<Select disabled label="Size" options={sizes} prefix="⇅" />);
+    expect(combobox().parentElement).toHaveClass(
+      "has-[select:disabled]:opacity-50",
+    );
+  });
+
+  it("opens no list of a read-only select by a click on its prefix", async () => {
+    const user = userEvent.setup();
+    render(
+      <Select label="Size" options={sizes} prefix="⇅" readOnly value="m" />,
+    );
+
+    const showPicker = vi.fn();
+    Object.defineProperty(combobox(), "showPicker", { value: showPicker });
+    await user.click(screen.getByText("⇅"));
+    expect(combobox()).toHaveFocus();
+    expect(showPicker).not.toHaveBeenCalled();
+  });
+});

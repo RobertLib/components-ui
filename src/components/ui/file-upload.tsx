@@ -684,8 +684,8 @@ export interface FileUploadProps<
    */
   "aria-describedby"?: string;
   /**
-   * Classes of the field. It keeps a vertical margin (`my-4`) - override it
-   * with an important class such as `my-0!`.
+   * Classes of the field. It has no margin of its own - the form around
+   * spaces it like its other fields.
    */
   className?: string;
   /**
@@ -783,6 +783,13 @@ export interface FileUploadProps<
    * `defaultAttachments`), nor for a failed or cancelled upload.
    */
   onRemove?: (file: UploadedFile) => unknown;
+  /**
+   * Called with how many files wait for their upload or are uploading,
+   * whenever that changes - e.g. to disable the submit button, to show
+   * "3 of 5 uploaded" or to ask before a dialog with running uploads
+   * closes. `0` once they have all finished, failed or been cancelled.
+   */
+  onPendingChange?: (pending: number) => void;
   /** Called with the result of `upload` once a file is stored. */
   onUpload?: (result: TResult) => void;
   /**
@@ -873,6 +880,7 @@ export default function FileUpload<
   name,
   onError,
   onFilesChange,
+  onPendingChange,
   onRemove,
   onUpload,
   preview = false,
@@ -977,6 +985,7 @@ export default function FileUpload<
     attachments,
     onAttachmentsChange,
     onFilesChange,
+    onPendingChange,
     onRemove,
     onUpload,
     upload,
@@ -1001,6 +1010,7 @@ export default function FileUpload<
       attachments,
       onAttachmentsChange,
       onFilesChange,
+      onPendingChange,
       onRemove,
       onUpload,
       upload,
@@ -1011,6 +1021,16 @@ export default function FileUpload<
   useLayoutEffect(() => {
     shownFiles.current = files;
   });
+
+  // `onPendingChange` - told only of a change, not of the 0 it starts with
+  const pendingCount = files.filter(isPending).length;
+  const reportedPending = useRef(0);
+
+  useEffect(() => {
+    if (pendingCount === reportedPending.current) return;
+    reportedPending.current = pendingCount;
+    latest.current.onPendingChange?.(pendingCount);
+  }, [pendingCount]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [storeRef, retainStoreRef] = useRetainedInputRef();
@@ -1826,7 +1846,7 @@ export default function FileUpload<
       aria-invalid={hasError ? "true" : undefined}
       aria-labelledby={label ? labelId : undefined}
       className={cn(
-        "relative my-4 rounded-md transition-colors motion-reduce:transition-none",
+        "relative rounded-md transition-colors motion-reduce:transition-none",
         // Forced colors (Windows High Contrast) draw no tint and no ring -
         // an outline of the system's highlight color then
         isDragOver &&

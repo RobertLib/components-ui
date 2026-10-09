@@ -130,6 +130,60 @@ describe("Card", () => {
     expect(screen.queryByRole("link")).toBeNull();
   });
 
+  it("shows content next to its title, also in a clickable card", async () => {
+    const user = userEvent.setup();
+    const onHelp = vi.fn();
+    render(
+      <Card
+        afterTitle={
+          <button onClick={onHelp} type="button">
+            Help
+          </button>
+        }
+        href="/orders/42"
+        title="Order 42"
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Order 42" })).toHaveClass(
+      "font-heading",
+      "text-section-title",
+    );
+    // Above the stretched link of the title
+    const help = screen.getByRole("button", { name: "Help" });
+    expect(help.parentElement).toHaveClass("relative", "z-10");
+    await user.click(help);
+    expect(onHelp).toHaveBeenCalledOnce();
+  });
+
+  it("reaches its edges with the picture and the footer at any padding", () => {
+    render(
+      <Card
+        data-testid="card"
+        footer="Footer"
+        media={<img alt="" src="/cover.png" />}
+        padding="responsive"
+        title="Trip"
+      />,
+    );
+
+    const card = screen.getByTestId("card");
+    expect(card).toHaveClass(
+      "p-(--cui-panel-padding)",
+      "[--cui-panel-padding:--spacing(4)]",
+      "sm:[--cui-panel-padding:--spacing(6)]",
+    );
+    expect(card.querySelector("img")!.parentElement).toHaveClass(
+      "-mx-(--cui-panel-padding)",
+      "-mt-(--cui-panel-padding)",
+    );
+    expect(screen.getByText("Footer")).toHaveClass(
+      "-mx-(--cui-panel-padding)",
+      "-mb-(--cui-panel-padding)",
+      "px-(--cui-panel-padding)",
+    );
+  });
+
   it("passes its props to the surface", () => {
     render(
       <Card border="neutral" data-testid="card" id="summary" title="Summary" />,

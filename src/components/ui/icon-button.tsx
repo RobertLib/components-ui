@@ -10,6 +10,12 @@ export interface IconButtonProps extends Omit<
   "color"
 > {
   /**
+   * A border around the button, as around an `outline` `Button` - e.g. a
+   * "More actions" menu next to outline buttons. It takes the `md` size
+   * without a `size` of its own.
+   */
+  bordered?: boolean;
+  /**
    * Color of the icon.
    * @default "default"
    */
@@ -80,13 +86,14 @@ const sizeStyles = {
  */
 export default function IconButton({
   "aria-label": ariaLabel,
+  bordered = false,
   className,
   color: colorProp,
   disabled,
   children,
   href,
   loading = false,
-  size,
+  size: sizeProp,
   tooltip,
   tooltipPosition = "top",
   type,
@@ -95,6 +102,9 @@ export default function IconButton({
 }: IconButtonProps) {
   const { Link } = useRouter();
   const color = colorProp ?? variant ?? "default";
+  // A bordered button has a size - the negative margin of one without
+  // would pull the border into the content around
+  const size = sizeProp ?? (bordered ? "md" : undefined);
 
   // A text tooltip names a button without a name of its own
   const label =
@@ -113,6 +123,8 @@ export default function IconButton({
       ? ["inline-flex shrink-0 items-center justify-center", sizeStyles[size]]
       : "-m-1 p-1",
     href !== undefined && !size && "inline-flex",
+    bordered &&
+      "border-[1.5px] border-neutral-300 hover:bg-neutral-50 dark:border-neutral-600 dark:hover:bg-neutral-800",
     colorStyles[color],
     (disabled || loading) && disabledStyles,
     className,

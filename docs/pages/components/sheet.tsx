@@ -101,7 +101,16 @@ export default function SheetPage() {
               <code>ref</code> and the other props go to the panel, which has{" "}
               <code>data-state=&quot;open&quot;</code> or{" "}
               <code>&quot;closed&quot;</code> - also while it slides in and out
-              - like its backdrop.
+              - like its backdrop. <code>bodyClassName</code> styles the
+              scrolling body inside: <code>flex flex-col</code> pushes the last
+              part of a menu to the bottom with <code>mt-auto</code>, another
+              padding replaces its <code>p-6</code>.
+            </li>
+            <li>
+              <code>onBeforeClose</code> is asked before the user closes it - by
+              the close button, Escape, the backdrop or a swipe; return{" "}
+              <code>false</code>, or a promise of it, to keep it open. The body
+              has the <code>--color-dialog</code> of the theme.
             </li>
             <li>
               At an edge of a phone screen its header and footer keep clear of

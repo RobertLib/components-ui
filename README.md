@@ -46,7 +46,7 @@ Requirements: React 19, Tailwind CSS 4.3 or newer and a bundler that sets
    page):
 
    ```sh
-   npm install git+https://github.com/RobertLib/components-ui.git#v0.4.7
+   npm install git+https://github.com/RobertLib/components-ui.git#v0.5.0
    ```
 
    If npm reports that the `prepare` script of `components-ui` is not allowed
@@ -98,7 +98,23 @@ You can also copy the library into your project's `src/`. All library
 components and their internal helpers are in `src/components/ui/`, leaving
 `src/components/` available for your application components.
 
-To generate a clean copy in this repository, run:
+To copy the library into an app - and to update the copy later - run in
+this repository:
+
+```sh
+npm run sync:source -- ../my-app/src --dry-run   # what would change
+npm run sync:source -- ../my-app/src
+```
+
+A manifest in the copy (`.components-ui.json`, commit it) lists the files the
+library put there with their hashes and its version. An update replaces and
+removes those alone: the app's own files next to them stay, as do its
+`i18n/en.ts` and `i18n/cs.ts` (written once, as templates). A library file
+changed in the copy stops the update - move the change into the library, or
+replace it with `--force`. The Installation page of the docs lists the lint
+and Prettier settings that keep the copy out of the app's own rules.
+
+To generate a clean copy in this repository instead, run:
 
 ```sh
 npm run export:source
@@ -132,7 +148,7 @@ import { Button, UIProvider, cs } from "./components/ui";
 
 Keep `components/ui/index.ts` when copying the folder: it exports all public
 components, providers, locales, hooks and helpers. You can keep your project's
-entry file. Updates to a source copy need to be copied manually.
+entry file. `npm run sync:source` updates a source copy (see above).
 
 For source copies, include the browser APIs and ES2023 definitions in your
 TypeScript configuration (this does not require `target: "ES2023"`):
@@ -222,6 +238,7 @@ Keep your application catalogs when updating `i18n/ui/` from the library.
 | `npm run build:lib`     | the package: `dist/` - a module per source file, the styles, the types |
 | `npm run build:docs`    | the docs as a static site in `dist-docs/`                              |
 | `npm run export:source` | a clean source copy and license in `dist-source/`                      |
+| `npm run sync:source`   | copies or updates the source copy in an app: `-- ../app/src`           |
 | `npm run format`        | Prettier (with Tailwind class sorting)                                 |
 
 The Tailwind check uses the installed Tailwind version and `docs/styles.css`

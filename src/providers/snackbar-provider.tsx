@@ -129,6 +129,28 @@ export interface SnackbarProviderProps {
   /** The app - `useSnackbar()` works anywhere inside. */
   children: React.ReactNode;
   /**
+   * Classes of the toasts of a variant - e.g. `{ success: "bg-neutral-900
+   * text-white border-neutral-900" }` for a dark confirmation. They come
+   * after the colors of the variant, so they replace them. The toast has
+   * `data-variant`, its icon `data-toast-icon` and its close button
+   * `data-toast-close` for the classes of its parts
+   * (`**:data-toast-close:text-neutral-400`).
+   */
+  classNames?: Partial<Record<Exclude<ToastVariant, "error">, string>>;
+  /**
+   * How long the toasts of a variant stay on screen, in milliseconds, when
+   * they are enqueued without a `duration` - e.g. `{ success: 2000 }` for
+   * the short confirmations of a design, while errors stay to be read.
+   * Not for a toast with an `action`, which stays 6 s to be acted on.
+   * The other variants keep 3 s.
+   */
+  durations?: Partial<Record<Exclude<ToastVariant, "error">, number>>;
+  /**
+   * Shows the icon of the variant in every toast - a check mark in a
+   * success, a warning sign in a warning, … (see `ToastProps.icon`).
+   */
+  icons?: boolean;
+  /**
    * The most toasts on screen at once (at least 1). Further ones wait and
    * show in their order as the shown ones go, so a burst of messages does
    * not cover the page - their time on screen starts once they show. A
@@ -151,6 +173,9 @@ export interface SnackbarProviderProps {
  */
 export default function SnackbarProvider({
   children,
+  classNames,
+  durations,
+  icons = false,
   maxToasts = 3,
   position = "top-center",
 }: Readonly<SnackbarProviderProps>) {
@@ -351,7 +376,12 @@ export default function SnackbarProvider({
     <ToastRevisionContext key={toast.id} value={toast.revision}>
       <Toast
         action={toast.action}
-        duration={toast.duration}
+        className={classNames?.[toast.variant]}
+        duration={
+          toast.duration ??
+          (toast.action ? undefined : durations?.[toast.variant])
+        }
+        icon={icons}
         loading={toast.loading}
         message={toast.message}
         onClose={() => handleToastClose(toast.id)}

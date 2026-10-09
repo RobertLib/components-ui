@@ -27,10 +27,35 @@ const overrideCss = `@import "tailwindcss";
   --color-primary-900: oklch(38% 0.189 293.745);
   --color-primary-950: oklch(28.3% 0.141 291.089);
 
-  /* Page background and the surface of cards, dialogs and popovers */
+  /* Page background and the surface of cards, panels and popovers */
   --color-background: #f8fafc;
   --color-surface: #ffffff;
 }`;
+
+const dialogAndTypography = `@theme {
+  /* Dialogs and sheets white all through - their body has the page
+     background under a header and a footer of the surface by default */
+  --color-dialog: var(--color-surface);
+
+  /* The font of the headings of the components */
+  --font-heading: "Roboto Condensed Variable", ui-sans-serif, sans-serif;
+
+  /* The title of a Header - its size, line height and weight */
+  --text-page-title: 1.875rem;
+  --text-page-title--line-height: 2.25rem;
+  --text-page-title--font-weight: 600;
+
+  /* The titles of a Card, a Dialog and a Sheet */
+  --text-section-title: 1.125rem;
+  --text-section-title--line-height: 1.5rem;
+
+  /* The value of a Stat */
+  --text-stat-value: 1.875rem;
+}`;
+
+const lightOnly = `/* An app with a light design only - the dark: styles of the components
+   wait for a .dark class the app never sets */
+@custom-variant dark (&:where(.dark, .dark *));`;
 
 const reuseTailwind = `@theme {
   /* Or simply map the scale onto one of Tailwind's palettes */
@@ -126,9 +151,10 @@ export default function Theming() {
             rings, selection), <code>secondary</code>, <code>success</code>,{" "}
             <code>danger</code>, <code>warning</code>, <code>info</code> and{" "}
             <code>neutral</code> - plus <code>background</code> /{" "}
-            <code>surface</code> and their <code>-dark</code> variants. They are
-            Tailwind theme variables, so they also work in your own classes:{" "}
-            <code>bg-primary-500</code>, <code>text-danger-600</code>, …
+            <code>surface</code> / <code>dialog</code> and their{" "}
+            <code>-dark</code> variants. They are Tailwind theme variables, so
+            they also work in your own classes: <code>bg-primary-500</code>,{" "}
+            <code>text-danger-600</code>, …
           </p>
         </Prose>
         <Example collapsed name="theming/tokens" title="The default palette" />
@@ -173,6 +199,32 @@ export default function Theming() {
         />
       </Section>
 
+      <Section title="Dialogs and typography">
+        <Prose>
+          <p>
+            <code>--color-dialog</code> paints the body of a <code>Dialog</code>{" "}
+            and a <code>Sheet</code> - the page background by default, under a
+            header and a <code>DialogFooter</code> of the surface. Set it to the
+            surface for dialogs white all through.
+          </p>
+          <p>
+            The headings of the components take the font of{" "}
+            <code>--font-heading</code> (the sans font by default) and a size
+            token each: <code>--text-page-title</code> for the title of a{" "}
+            <code>Header</code>, <code>--text-section-title</code> for the
+            titles of a <code>Card</code>, a <code>Dialog</code> and a{" "}
+            <code>Sheet</code>, and <code>--text-stat-value</code> for the value
+            of a <code>Stat</code>. A size token brings its line height, weight
+            and letter spacing along (<code>--text-*--line-height</code>,{" "}
+            <code>--font-weight</code>, <code>--letter-spacing</code>) - set
+            what your design differs in. They are Tailwind tokens, so{" "}
+            <code>font-heading</code> and <code>text-page-title</code> work in
+            your own headings too.
+          </p>
+        </Prose>
+        <CodeBlock code={dialogAndTypography} />
+      </Section>
+
       <Section title="Dark mode">
         <Prose>
           <p>
@@ -190,6 +242,14 @@ export default function Theming() {
             too.
           </p>
         </Callout>
+        <Prose>
+          <p>
+            An app whose design has a light look only sets the same variant and
+            never adds the class - the components stay light whatever the system
+            prefers:
+          </p>
+        </Prose>
+        <CodeBlock code={lightOnly} />
       </Section>
 
       <Section title="Color scheme">
@@ -254,6 +314,15 @@ export default function Theming() {
             The drawer width comes from CSS variables:{" "}
             <code>--drawer-width</code> (240px) and{" "}
             <code>--drawer-collapsed-width</code> (64px).
+          </p>
+          <p>
+            The padding of a <code>Panel</code> and a <code>Card</code> is its{" "}
+            <code>padding</code> - <code>sm</code>, <code>md</code> (1.5rem),{" "}
+            <code>lg</code>, <code>none</code>, or <code>responsive</code>: 1rem
+            on phones and 1.5rem from the <code>sm</code> breakpoint up. It is
+            the <code>--cui-panel-padding</code> variable, which the picture and
+            the footer of a card follow to reach its edges - set it in{" "}
+            <code>style</code> for a value of your own.
           </p>
         </Prose>
       </Section>
@@ -337,6 +406,12 @@ export default function Theming() {
               <code>data-orientation</code>, and on positioned popups{" "}
               <code>data-side</code> / <code>data-align</code> - where they
               opened after flipping.
+            </li>
+            <li>
+              <code>data-variant</code> on a toast, <code>data-toast-icon</code>{" "}
+              on its icon and <code>data-toast-close</code> on its close button
+              - see also the <code>classNames</code> of{" "}
+              <code>SnackbarProvider</code>.
             </li>
           </ul>
         </Prose>

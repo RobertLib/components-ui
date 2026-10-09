@@ -15,6 +15,7 @@ export default function Basic() {
             </Button>
           </>
         }
+        description="128 active · 12 archived"
         title="Customers"
       />
       <Header
@@ -23,6 +24,13 @@ export default function Basic() {
         // By default the arrow goes back in the history
         onBack={() => enqueueSnackbar("Back clicked")}
         title="Invoice 2026-0042"
+      />
+      {/* A link to the list - also from a page opened in a new tab */}
+      <Header
+        backHref="/components/header?status=open"
+        description="Created 1 Oct 2026 by Jana Nováková"
+        headingLevel={2}
+        title="Order 42"
       />
       {/* A title of null shows a placeholder while it loads */}
       <Header title={null} />

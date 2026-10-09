@@ -27,6 +27,49 @@ function Filters() {
 // A server-rendered page for phones first: phones do not switch after hydration
 const isDesktop = useMediaQuery("(min-width: 1024px)", { serverValue: false });`;
 
+const urlState = `import { Input, Select, useDebouncedField, useUrlState } from "components-ui";
+
+function Members() {
+  // ?q=jana&status=all&page=2 - a default is left out of the URL
+  const [state, update] = useUrlState(
+    { page: "1", q: "", status: "active" },
+    { resetOnChange: ["page"] }, // a new search or filter starts at page 1
+  );
+  // Shows every key at once, writes into the URL once the typing pauses -
+  // and follows the URL on the back button
+  const search = useDebouncedField(state.q, (q) => update({ q }, { replace: true }));
+  const members = useMembers({ ...state, page: Number(state.page) || 1 });
+
+  return (
+    <>
+      <Input
+        onChange={(event) => search.change(event.target.value)}
+        type="search"
+        value={search.value}
+      />
+      <Select
+        aria-label="Show"
+        onChange={(event) => update({ status: event.target.value })}
+        options={statuses}
+        prefix="Show:"
+        value={state.status}
+      />
+      {/* … the table, and a Pagination calling update({ page }) */}
+    </>
+  );
+}`;
+
+const dates = `import { inTimeZone, useFormatDate, useToday } from "components-ui";
+
+const formatDate = useFormatDate();
+formatDate("2026-10-01"); // "1. 10. 2026" - the pattern of the locale's formats.date
+formatDate(entry.createdAt, "dateTime", { timeZone: "Europe/Prague" });
+
+// Today of the club, wherever the browser is - a new date at its midnight
+const today = useToday("Europe/Prague"); // null until the page hydrates
+// The same instant in a time zone - its getters read the clock there
+inTimeZone(new Date(), "Europe/Prague").getHours();`;
+
 const checkedLocalStorage = `// Only a list of column ids counts - anything else is the default
 const [columns, setColumns] = useLocalStorage<string[]>("orders-columns", [], {
   deserialize: (text) => {
@@ -307,6 +350,55 @@ export default function UtilitiesGuide() {
           </p>
         </Prose>
         <Example name="utilities/debounced-callback" />
+      </Section>
+
+      <Section title="State in the URL">
+        <Prose>
+          <p>
+            <code>useUrlState(defaults, options)</code> keeps the search, the
+            filters, the sorting and the page of a list in the query of the URL
+            - a reload keeps them, a link shares them and the back button from a
+            detail returns to the list as it was left. It works through the
+            router of <code>UIProvider</code>. The values are strings with their
+            defaults; a default is left out of the URL and the other parameters
+            stay. <code>resetOnChange: [&quot;page&quot;]</code> starts at the
+            first page once another value changes, and <code>prefix</code> keeps
+            two lists on one page apart. Changes made one after another before
+            the router shows them build on each other - also those of the{" "}
+            <code>DataTable</code>s of the page. The state object stays the same
+            while its values do, so an effect fetching by it does not run again
+            when another parameter changes.
+          </p>
+          <p>
+            <code>useDebouncedField(value, onCommit, delay)</code> is the text
+            field for it: it shows every keystroke, commits the text once the
+            typing pauses (300 ms) and follows <code>value</code> when it
+            changes from outside - the back button, cleared filters - unless the
+            user is typing. A router that shows a commit late does not bring
+            older text back. It returns <code>value</code>,{" "}
+            <code>change(text)</code> and <code>commitNow(text)</code> (Enter, a
+            clear button).
+          </p>
+        </Prose>
+        <CodeBlock code={urlState} />
+      </Section>
+
+      <Section title="Dates">
+        <Prose>
+          <p>
+            <code>useFormatDate()</code> writes a date as the pickers show and
+            take it - by the patterns of the locale&apos;s <code>formats</code>{" "}
+            (<code>date</code>, <code>dateTime</code>, <code>time</code>,{" "}
+            <code>month</code>, <code>week</code>), so a list shows a date as
+            its edit form does. A <code>YYYY-MM-DD</code> date stays on its day
+            wherever the browser is; a date with a time is written in the{" "}
+            <code>timeZone</code> given. <code>useToday(timeZone)</code> is the
+            start of today, a new date at each midnight - e.g. the{" "}
+            <code>max</code> of a birth date - and <code>inTimeZone</code> the
+            same instant on the clock of a time zone.
+          </p>
+        </Prose>
+        <CodeBlock code={dates} />
       </Section>
 
       <Section title="Copying to the clipboard">

@@ -72,6 +72,31 @@ describe("Sheet", () => {
     expect(sheet.parentElement).toBe(document.body);
   });
 
+  it("takes classes of its body and asks before it closes", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onBeforeClose = vi.fn(() => false);
+    render(
+      <Sheet
+        bodyClassName="flex flex-col"
+        onBeforeClose={onBeforeClose}
+        onClose={onClose}
+        open
+        title="Menu"
+      >
+        <p>Links</p>
+      </Sheet>,
+    );
+
+    const body = screen.getByText("Links").parentElement!;
+    expect(body).toHaveClass("flex", "flex-col", "overscroll-contain");
+    expect(screen.getByRole("dialog")).toHaveClass("bg-dialog");
+
+    await user.keyboard("{Escape}");
+    expect(onBeforeClose).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("is named by aria-label without a title", () => {
     render(<Sheet aria-label="Filters" open />);
 

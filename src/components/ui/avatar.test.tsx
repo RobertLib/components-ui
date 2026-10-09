@@ -262,3 +262,19 @@ describe("Avatar shape and color", () => {
     );
   });
 });
+
+describe("Avatar of a size in pixels", () => {
+  it("is as big as the number says, with initials to fit", () => {
+    render(<Avatar name="Jana Nováková" shape="square" size={40} />);
+
+    const avatar = screen.getByRole("img", { name: "Jana Nováková" });
+    expect(avatar).toHaveStyle({
+      fontSize: "16px",
+      height: "40px",
+      width: "40px",
+    });
+    expect(avatar.className).not.toMatch(/\bh-(6|8|12|16)\b/);
+    // The corners of the named size closest to it
+    expect(avatar).toHaveClass("rounded-md");
+  });
+});

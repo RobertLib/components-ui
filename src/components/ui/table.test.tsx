@@ -1,4 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import Table, {
   TableBody,
@@ -8,6 +9,7 @@ import Table, {
   TableRow,
   type TableProps,
 } from "./table";
+import UIProvider from "../../providers/ui-provider";
 
 function Orders(props: Partial<TableProps>) {
   return (
@@ -169,5 +171,77 @@ describe("Table", () => {
     expect(screen.getByTestId("table")).toHaveClass("table-fixed");
     expect(container.firstElementChild).toHaveClass("rounded-none");
     expect(screen.getByRole("cell")).toHaveAttribute("colspan", "2");
+  });
+});
+
+describe("TableRow href", () => {
+  /** A table of orders whose rows open them - by the link of the first cell. */
+  function Orders({ withLink = true }: { withLink?: boolean }) {
+    return (
+      <Table>
+        <TableBody>
+          <TableRow data-testid="row" href="/orders/42">
+            <TableCell>
+              {withLink ? <a href="/orders/42">Order 42</a> : "Order 42"}
+            </TableCell>
+            <TableCell>
+              <button type="button">Archive</button>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    );
+  }
+
+  it("follows the link of the row on a click anywhere on it", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    const followed = vi.fn((event: MouseEvent) => event.preventDefault());
+    render(
+      <UIProvider router={{ navigate }}>
+        <Orders />
+      </UIProvider>,
+    );
+    screen.getByRole("link").addEventListener("click", followed);
+
+    const row = screen.getByTestId("row");
+    expect(row).toHaveClass("cursor-pointer", "hover:bg-neutral-100");
+    await user.click(screen.getAllByRole("cell")[0]);
+    expect(followed).toHaveBeenCalledOnce();
+
+    // Ctrl + click is passed on - the link opens a new tab
+    await user.keyboard("{Control>}");
+    await user.click(screen.getAllByRole("cell")[0]);
+    await user.keyboard("{/Control}");
+    expect(followed).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ctrlKey: true }),
+    );
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("leaves a click on a control or at the end of a selection alone", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    render(
+      <UIProvider router={{ navigate }}>
+        <Orders withLink={false} />
+      </UIProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    expect(navigate).not.toHaveBeenCalled();
+
+    // The click that ends selecting the text of the row
+    const cell = screen.getAllByRole("cell")[0];
+    const selection = document.getSelection()!;
+    selection.selectAllChildren(cell);
+    fireEvent.click(cell);
+    expect(navigate).not.toHaveBeenCalled();
+    selection.removeAllRanges();
+
+    // Without a link in it the row navigates through the router
+    await user.click(cell);
+    expect(navigate).toHaveBeenCalledOnce();
+    expect(navigate.mock.calls[0][0]).toBe("/orders/42");
   });
 });

@@ -153,11 +153,14 @@ const getGraphQLErrors = (error: unknown): unknown[] | undefined => {
 /**
  * The details of Zod's `flatten()` - `{ formErrors: [...], fieldErrors: {
  * email: [...] } }` - keep the field messages apart from the general ones.
+ * A body of an API with its own members next to them - `{ code, message,
+ * fieldErrors: { email: [...] } }` - has its field messages there too.
  */
 const unflatten = (details: Details): Details => {
   const { fieldErrors, formErrors } = details.fields;
 
-  return isRecord(fieldErrors) && Array.isArray(formErrors)
+  return isRecord(fieldErrors) &&
+    (Array.isArray(formErrors) || formErrors === undefined)
     ? { enveloped: false, fields: fieldErrors, formErrors }
     : details;
 };
@@ -187,6 +190,12 @@ const getErrorDetails = (error: unknown): Details | undefined => {
 
   if (isRecord(error.errors)) {
     return unflatten({ enveloped: false, fields: error.errors });
+  }
+
+  // The error class of an API client with the field messages of the body -
+  // `class ApiError extends Error { fieldErrors }`
+  if (error instanceof Error && isRecord(error.fieldErrors)) {
+    return { enveloped: false, fields: error.fieldErrors };
   }
 
   // Any other Error (network failure, …) has no validation details

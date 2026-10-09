@@ -2,6 +2,7 @@ import { MoreHorizontal } from "lucide-react";
 import {
   Button,
   Card,
+  Chip,
   DescriptionList,
   Dropdown,
   IconButton,
@@ -27,6 +28,7 @@ export default function Basic() {
           }
         />
       }
+      afterTitle={<Chip color="success">Active</Chip>}
       className="max-w-lg"
       description="Customer since March 2021"
       footer={
@@ -37,9 +39,12 @@ export default function Basic() {
           </Button>
         </>
       }
+      padding="responsive"
       title="Jana Nováková"
     >
       <DescriptionList
+        columns={2}
+        emphasis="desc"
         items={[
           { desc: "jana@example.com", term: "Email" },
           { desc: "Prague", term: "City" },

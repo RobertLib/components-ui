@@ -36,8 +36,13 @@ export interface AvatarProps extends Omit<
    * @default "circle"
    */
   shape?: AvatarShape;
-  /** Diameter: 24, 32, 48 or 64 px. */
-  size?: AvatarSize;
+  /**
+   * Diameter: `sm` 24, `md` 32, `lg` 48 or `xl` 64 px - or a number of
+   * pixels for the sizes of a design (40, 96, …), with initials at 40 % of
+   * it.
+   * @default "sm"
+   */
+  size?: AvatarSize | number;
   /** URL of a profile picture. */
   src?: string;
   /**
@@ -159,6 +164,10 @@ function getInitials(name: string) {
     .join("");
 }
 
+/** The named size closest to a diameter - for its corners and status dot. */
+const nearestSize = (pixels: number): AvatarSize =>
+  pixels <= 28 ? "sm" : pixels <= 40 ? "md" : pixels <= 56 ? "lg" : "xl";
+
 /**
  * A profile picture, the initials of `name`, or a generic user icon - in
  * that order of preference.
@@ -169,11 +178,16 @@ export default function Avatar({
   color = "primary",
   name,
   shape = "circle",
-  size = "sm",
+  size: sizeProp = "sm",
   src,
   status,
+  style,
   ...props
 }: AvatarProps) {
+  // A diameter in pixels is drawn by the style - its corners, icon and
+  // status dot are those of the named size closest to it
+  const pixels = typeof sizeProp === "number" ? sizeProp : null;
+  const size = pixels === null ? (sizeProp as AvatarSize) : nearestSize(pixels);
   const messages = useMessages().ui;
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const showImage = src && failedSrc !== src;
@@ -205,11 +219,21 @@ export default function Avatar({
         isSquare ? squareClasses[size] : "rounded-full",
         // The status dot sits on the edge of the circle - nothing may clip it
         status ? "relative" : "overflow-hidden",
-        (showImage || initials) && sizeClasses[size],
+        (showImage || initials) && pixels === null && sizeClasses[size],
         initials &&
           !showImage && ["font-semibold", colorClasses[initialsColor]],
         className,
       )}
+      style={
+        pixels === null
+          ? style
+          : {
+              fontSize: Math.round(pixels * 0.4),
+              height: pixels,
+              width: pixels,
+              ...style,
+            }
+      }
       // The tooltip says what the name says - a different text would be
       // read once more as the description of the image
       title={props.title ?? imageLabel ?? name}
@@ -228,7 +252,7 @@ export default function Avatar({
       ) : initials ? (
         <span aria-hidden={!!name}>{initials}</span>
       ) : (
-        <UserCircle aria-hidden="true" size={iconSizes[size]} />
+        <UserCircle aria-hidden="true" size={pixels ?? iconSizes[size]} />
       )}
       {status && (
         <span

@@ -46,6 +46,13 @@ export interface ToastProps extends Omit<React.ComponentProps<"div">, "title"> {
    */
   duration?: number;
   /**
+   * An icon before the message - `true` for the one of the variant (a
+   * check mark, a warning sign, …), or an icon of yours. Without it the
+   * color tells the variant, and its icon shows only in forced colors mode,
+   * which drops the colors. The icon has `data-toast-icon`.
+   */
+  icon?: boolean | React.ReactNode;
+  /**
    * Shows a spinner and keeps the toast on screen - e.g. while a request
    * runs. `duration` counts from when it turns `false`.
    */
@@ -141,6 +148,7 @@ export default function Toast({
   action,
   className,
   duration,
+  icon = false,
   id,
   loading = false,
   message,
@@ -548,14 +556,30 @@ export default function Toast({
             />
           </svg>
         )}
-        {!loading && VariantIcon && (
-          // Only in forced colors - elsewhere the color tells the variant
-          <VariantIcon
-            aria-hidden="true"
-            className="hidden size-4 shrink-0 forced-colors:block"
-            data-toast-icon=""
-          />
-        )}
+        {!loading &&
+          (typeof icon === "boolean" ? (
+            VariantIcon && (
+              // Without `icon` only in forced colors - elsewhere the color
+              // tells the variant
+              <VariantIcon
+                aria-hidden="true"
+                className={cn(
+                  "size-4 shrink-0",
+                  !icon && "hidden forced-colors:block",
+                )}
+                data-toast-icon=""
+              />
+            )
+          ) : (
+            // The message tells what it is - screen readers skip the icon
+            <span
+              aria-hidden="true"
+              className="flex shrink-0 items-center"
+              data-toast-icon=""
+            >
+              {icon}
+            </span>
+          ))}
         <div className="min-w-0 flex-1">
           {hasTitle && <div className="font-semibold">{title}</div>}
           <div className={cn(hasTitle && "mt-0.5 text-sm")}>{message}</div>

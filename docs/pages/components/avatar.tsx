@@ -10,7 +10,9 @@ export default function AvatarPage() {
           <p>
             Without a picture - or when it fails to load - the avatar shows the
             initials of the first and the last word of <code>name</code> ("Jan
-            Amos Komenský" is JK), and without a name a generic user icon.
+            Amos Komenský" is JK), and without a name a generic user icon. The{" "}
+            <code>size</code> is <code>sm</code> to <code>xl</code> (24 - 64 px)
+            or a number of pixels for the sizes of a design.
           </p>
         }
         name="avatar/basic"

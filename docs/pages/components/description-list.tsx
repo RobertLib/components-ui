@@ -40,6 +40,19 @@ export default function DescriptionListPage() {
         name="description-list/columns"
         title="Columns and lines"
       />
+      <Example
+        description={
+          <p>
+            <code>emphasis=&quot;desc&quot;</code> puts small muted terms over
+            values in the color of the text - the details of a record in many
+            designs. <code>emptyValue</code> shows in place of a missing value (
+            <code>null</code>, <code>undefined</code>, <code>&quot;&quot;</code>
+            ), and <code>descClassName</code> of an item styles its value.
+          </p>
+        }
+        name="description-list/emphasis"
+        title="Values first"
+      />
       <Section title="Props">
         <PropsTable of="DescriptionList" />
         <PropsTable of="DescriptionListItem" />

@@ -10,6 +10,9 @@ export default function Variants() {
       <Panel rounded="2xl" shadow="xl">
         Rounded 2xl, shadow xl
       </Panel>
+      <Panel padding="sm">Padding sm</Panel>
+      <Panel padding="responsive">Padding responsive - 1rem on phones</Panel>
+      <Panel padding="lg">Padding lg</Panel>
     </div>
   );
 }

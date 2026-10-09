@@ -140,4 +140,119 @@ describe("ImageViewer", () => {
     expect(trigger).toHaveFocus();
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("goes on past the loaded images of a longer gallery as they load", async () => {
+    const user = userEvent.setup();
+    const page = (from: number) =>
+      [from, from + 1].map((number) => ({
+        alt: `Photo ${number}`,
+        src: `/photo-${number}.png`,
+      }));
+
+    function Gallery() {
+      const [loaded, setLoaded] = useState(page(1));
+      const [loading, setLoading] = useState<(() => void) | null>(null);
+      return (
+        <>
+          <ImageViewer
+            defaultOpen
+            images={loaded}
+            onLoadMore={() =>
+              new Promise<void>((resolve) => {
+                setLoading(() => () => {
+                  setLoaded((current) => [
+                    ...current,
+                    ...page(current.length + 1),
+                  ]);
+                  resolve();
+                });
+              })
+            }
+            total={4}
+          />
+          {loading && (
+            <button
+              onClick={() => {
+                loading();
+                setLoading(null);
+              }}
+              type="button"
+            >
+              Arrive
+            </button>
+          )}
+        </>
+      );
+    }
+    render(<Gallery />);
+
+    expect(screen.getByText("1 of 4")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next image" }));
+    // The last loaded image shows - the next ones load meanwhile
+    expect(screen.getByAltText("Photo 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next image" }));
+    expect(screen.getByText("3 of 4")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading");
+
+    // `Arrive` is outside the modal dialog, which keeps the pointer in
+    fireEvent.click(
+      screen.getByRole("button", { name: "Arrive", hidden: true }),
+    );
+    expect(await screen.findByAltText("Photo 3")).toBeInTheDocument();
+    // At the end of all of them, it goes round again
+    await user.click(screen.getByRole("button", { name: "Next image" }));
+    await user.click(screen.getByRole("button", { name: "Next image" }));
+    expect(screen.getByText("1 of 4")).toBeInTheDocument();
+  });
+
+  it("says when the next images fail to load", async () => {
+    const user = userEvent.setup();
+    render(
+      <ImageViewer
+        defaultIndex={1}
+        defaultOpen
+        images={images}
+        onLoadMore={() => Promise.reject(new Error("Offline"))}
+        total={5}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next image" }));
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    // Back to a loaded image
+    await user.click(screen.getByRole("button", { name: "Previous image" }));
+    expect(screen.getByText("A river")).toBeInTheDocument();
+  });
+
+  it("moves on with a swipe on a touch screen, not with the mouse", () => {
+    const onIndexChange = vi.fn();
+    render(
+      <ImageViewer defaultOpen images={images} onIndexChange={onIndexChange} />,
+    );
+
+    const area = screen.getByAltText("First landscape").parentElement!;
+    const swipe = (pointerType: string, from: number, to: number) => {
+      fireEvent.pointerDown(area, {
+        clientX: from,
+        clientY: 100,
+        isPrimary: true,
+        pointerId: 1,
+        pointerType,
+      });
+      fireEvent.pointerUp(area, {
+        clientX: to,
+        clientY: 110,
+        pointerId: 1,
+        pointerType,
+      });
+    };
+
+    swipe("mouse", 300, 100);
+    expect(onIndexChange).not.toHaveBeenCalled();
+    // A short move is no swipe
+    swipe("touch", 300, 280);
+    expect(onIndexChange).not.toHaveBeenCalled();
+    swipe("touch", 300, 100);
+    expect(onIndexChange).toHaveBeenLastCalledWith(1);
+  });
 });

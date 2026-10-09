@@ -3,7 +3,7 @@ import CodeBlock from "../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 
 const installGit = `# a tagged version from your git host - npm builds dist/ on install
-npm install git+https://github.com/RobertLib/components-ui.git#v0.4.7
+npm install git+https://github.com/RobertLib/components-ui.git#v0.5.0
 
 # the latest commit of a branch
 npm install git+https://github.com/RobertLib/components-ui.git#main
@@ -30,8 +30,8 @@ resolve: {
 },`;
 
 const installTarball = `# a copy instead of a link - like an install from a registry
-cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.4.7.tgz
-cd ../my-app && npm install ../components-ui/components-ui-0.4.7.tgz`;
+cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.5.0.tgz
+cd ../my-app && npm install ../components-ui/components-ui-0.5.0.tgz`;
 
 const installRegistry = `# in the library: set a scoped name, remove "private": true, then
 npm publish --registry https://npm.your-company.com
@@ -53,6 +53,53 @@ const sourceStructure = `src/
   i18n/             application catalogs: en.ts and cs.ts (initially empty)
     ui/             UI locales, localization types and formatting helpers
   ui-styles.css     copy src/styles.css under this name`;
+
+const syncSource = `# in a clone of the library, at the version to take
+git clone https://github.com/RobertLib/components-ui.git && cd components-ui
+npm ci
+npm run sync:source -- ../my-app/src --dry-run   # what would change
+npm run sync:source -- ../my-app/src`;
+
+const lintOverrides = `// .oxlintrc.json of the app - the copy keeps the library's own rules
+{
+  "overrides": [
+    {
+      "files": [
+        "src/components/ui/**",
+        "src/providers/**",
+        "src/hooks/**",
+        "src/utils/**",
+        "src/i18n/ui/**"
+      ],
+      "rules": {
+        "react/exhaustive-deps": "off",
+        "react/purity": "off",
+        "jsx-a11y/anchor-has-content": "off",
+        "jsx-a11y/anchor-is-valid": "off",
+        "jsx-a11y/click-events-have-key-events": "off",
+        "jsx-a11y/control-has-associated-label": "off",
+        "jsx-a11y/interactive-supports-focus": "off",
+        "jsx-a11y/no-autofocus": "off",
+        "jsx-a11y/no-noninteractive-element-interactions": "off",
+        "jsx-a11y/no-noninteractive-element-to-interactive-role": "off",
+        "jsx-a11y/no-noninteractive-tabindex": "off",
+        "jsx-a11y/no-redundant-roles": "off",
+        "jsx-a11y/no-static-element-interactions": "off",
+        "jsx-a11y/role-has-required-aria-props": "off",
+        "jsx-a11y/role-supports-aria-props": "off",
+        "jsx-a11y/scope": "off"
+      }
+    }
+  ]
+}
+
+# .prettierignore - formatted by the library
+src/components/ui
+src/providers
+src/hooks
+src/utils
+src/i18n/ui
+src/ui-styles.css`;
 
 const sourceImports = `// src/App.tsx - local imports for the provider example below
 import {
@@ -270,8 +317,7 @@ export default function Installation() {
           <p>
             Import the copied stylesheet after Tailwind. Its{" "}
             <code>@source</code> scans the folders next to it, including{" "}
-            <code>components/ui/</code>. Updates to a source copy need to be
-            copied manually.
+            <code>components/ui/</code>.
           </p>
         </Prose>
         <CodeBlock code={sourceCss} />
@@ -288,6 +334,38 @@ export default function Installation() {
           </p>
         </Prose>
         <CodeBlock code={sourceTypeScript} />
+        <h3 className="mt-8 mb-2 text-lg font-semibold">Updating the copy</h3>
+        <Prose>
+          <p>
+            <code>npm run sync:source -- &lt;the src of the app&gt;</code> in
+            the library repository copies the library into the app and updates
+            it later. A manifest in the copy (<code>.components-ui.json</code>,
+            commit it) lists the files the library put there with their hashes
+            and its version - an update replaces and removes those alone, so the
+            files of the app next to them in <code>hooks/</code>,{" "}
+            <code>utils/</code> or <code>providers/</code> stay, and so do the
+            catalogs of the app (<code>i18n/en.ts</code>,{" "}
+            <code>i18n/cs.ts</code>, written once as templates). A library file
+            changed in the copy stops the update with a list of them - move the
+            change into the library, or replace it with <code>--force</code>;{" "}
+            <code>--dry-run</code> shows what would change. The first sync of a
+            copy made by hand takes it over: it replaces the library&apos;s
+            files and removes nothing.
+          </p>
+        </Prose>
+        <CodeBlock code={syncSource} plain />
+        <Prose>
+          <p>
+            The copy follows the rules of the library, which its own tests check
+            - also for accessibility. The rules of the app for keyboard handlers
+            and roles (<code>jsx-a11y</code>) would report its composite widgets
+            - the grid of a calendar, the rows of a tree, a listbox - and their
+            hooks deliberate dependencies. Leave the copy out of them, and out
+            of the formatter of the app, so that an update is a plain copy
+            again:
+          </p>
+        </Prose>
+        <CodeBlock code={lintOverrides} />
         <Prose>
           <p>
             Add your application's translations to <code>i18n/en.ts</code> and{" "}

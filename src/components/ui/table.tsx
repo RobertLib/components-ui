@@ -7,6 +7,8 @@ import {
   useState,
 } from "react";
 import cn from "../../utils/cn";
+import { useRouter } from "../../providers/ui-context";
+import { isRowActivation } from "./row-activation";
 
 export type TableDensity = "compact" | "normal" | "comfortable";
 
@@ -47,7 +49,19 @@ export interface TableProps extends React.ComponentProps<"table"> {
 export type TableHeadProps = React.ComponentProps<"thead">;
 export type TableBodyProps = React.ComponentProps<"tbody">;
 export type TableFootProps = React.ComponentProps<"tfoot">;
-export type TableRowProps = React.ComponentProps<"tr">;
+export interface TableRowProps extends React.ComponentProps<"tr"> {
+  /**
+   * Makes the whole row a link for the pointer - e.g. a list whose rows
+   * open the detail of a record. A click on the row, not on a control in
+   * it nor at the end of selecting its text, follows the link of the row
+   * as a click on it would, with the keys held (Ctrl + click opens a new
+   * tab): the one with `data-row-link`, or the one to this `href`. Without
+   * such a link it navigates through the router of `UIProvider`. Put the
+   * link in the cell that names the row - the keyboard and screen readers
+   * use it, the row itself is no control.
+   */
+  href?: string;
+}
 
 export interface TableCellProps extends Omit<
   React.ComponentProps<"td">,
@@ -238,11 +252,55 @@ export function TableFoot({ className, ...props }: TableFootProps) {
   );
 }
 
-/** A row of a `Table`. */
-export function TableRow({ className, ...props }: TableRowProps) {
+/** A row of a `Table` - with `href`, a link to the detail it shows. */
+export function TableRow({
+  className,
+  href,
+  onClick,
+  ...props
+}: TableRowProps) {
   const { hover, striped } = use(TableContext);
+  const { navigate } = useRouter();
   const section = use(SectionContext);
   const isBody = section === "body";
+  const isLink = href !== undefined;
+
+  const handleClick = (event: React.MouseEvent<HTMLTableRowElement>) => {
+    onClick?.(event);
+    if (!isLink || event.defaultPrevented) return;
+
+    const row = event.currentTarget;
+    if (!isRowActivation(row, event.target as Element)) return;
+
+    // The link of the row follows the click - the router's Link opens a new
+    // tab for Ctrl + click, as it does for a click on it
+    const link =
+      row.querySelector("[data-row-link]") ??
+      Array.from(row.querySelectorAll("a[href]")).find(
+        (anchor) => anchor.getAttribute("href") === href,
+      );
+
+    if (link) {
+      link.dispatchEvent(
+        new MouseEvent("click", {
+          altKey: event.altKey,
+          bubbles: true,
+          button: event.button,
+          cancelable: true,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          shiftKey: event.shiftKey,
+        }),
+      );
+      return;
+    }
+
+    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+      window.open(href, "_blank", "noopener,noreferrer");
+    } else {
+      navigate(href);
+    }
+  };
 
   return (
     <tr
@@ -250,11 +308,13 @@ export function TableRow({ className, ...props }: TableRowProps) {
       className={cn(
         isBody && [
           striped && "even:bg-neutral-50 dark:even:bg-neutral-900/60",
-          hover &&
+          (hover || isLink) &&
             "transition-colors hover:bg-neutral-100 motion-reduce:transition-none dark:hover:bg-neutral-800/70",
+          isLink && "cursor-pointer",
         ],
         className,
       )}
+      onClick={isLink ? handleClick : onClick}
     />
   );
 }

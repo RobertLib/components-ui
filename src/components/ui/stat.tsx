@@ -151,7 +151,7 @@ export default function Stat({
           {label}
         </dt>
         {/* A value wider than a narrow card wraps rather than run under the icon */}
-        <dd className="mt-1 text-2xl font-semibold tracking-tight wrap-anywhere text-neutral-900 tabular-nums dark:text-neutral-50">
+        <dd className="mt-1 font-heading text-stat-value wrap-anywhere text-neutral-900 tabular-nums dark:text-neutral-50">
           {/* As high as the value - nothing moves when it arrives */}
           {loading ? <Skeleton variant="text" width="w-28" /> : shownValue}
         </dd>

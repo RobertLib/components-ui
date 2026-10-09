@@ -62,6 +62,29 @@ describe("Header", () => {
     expect(back).toHaveBeenCalledOnce();
   });
 
+  it("links back to a page of its own, and shows a line under the title", () => {
+    render(
+      <UIProvider>
+        <Header
+          backHref="/orders?status=open"
+          description="Created 1 Oct 2026"
+          title="Order 42"
+        />
+      </UIProvider>,
+    );
+
+    // A link - not the history, which a page opened directly has not got
+    expect(screen.getByRole("link", { name: "Back" })).toHaveAttribute(
+      "href",
+      "/orders?status=open",
+    );
+    expect(screen.getByText("Created 1 Oct 2026")).toBeInTheDocument();
+    // The heading is the title alone
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Order 42" }),
+    ).toHaveClass("font-heading", "text-page-title");
+  });
+
   it("titles a section or a dialog with the heading level given", () => {
     render(
       <>

@@ -410,6 +410,12 @@ export const en: Locale = {
       form: {
         labelSuffix: ":",
       },
+      formDialog: {
+        discard: "Discard",
+        discardMessage: "The changes you made will be lost.",
+        discardTitle: "Discard changes?",
+        keepEditing: "Keep editing",
+      },
       header: {
         back: "Back",
       },

@@ -23,6 +23,7 @@ import {
 import {
   DEFAULT_CELL_LAYOUT,
   getCellStyle,
+  hiddenBelowClassName,
   isClipped,
   isSticky,
   LEADING_KEYS,
@@ -404,6 +405,7 @@ export function TableHead<T>({
                 isPinned
                   ? "sticky z-2 bg-surface dark:bg-surface-dark"
                   : "relative",
+                hiddenBelowClassName(column, layout),
               )}
               data-column-key={column.key}
               key={column.key}
@@ -698,6 +700,7 @@ export function TableHead<T>({
                   "px-2 pb-1 align-top text-sm font-medium",
                   isSticky(layout) &&
                     "sticky z-1 bg-surface dark:bg-surface-dark",
+                  hiddenBelowClassName(column, layout),
                 )}
                 key={column.key}
                 style={getCellStyle(column, layout, false)}

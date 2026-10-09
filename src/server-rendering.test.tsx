@@ -301,6 +301,18 @@ const fixtures: Record<string, () => React.ReactElement> = {
     />
   ),
   FormDescription: () => <ui.FormDescription>Help</ui.FormDescription>,
+  FormDialog: () => (
+    <ui.FormDialog
+      dirty
+      onClose={noop}
+      onSubmit={noop}
+      open
+      submitLabel="Save"
+      title="Edit"
+    >
+      <ui.Input label="Name" name="name" />
+    </ui.FormDialog>
+  ),
   FormError: () => <ui.FormError>Required</ui.FormError>,
   Header: () => <ui.Header back title={undefined} />,
   IconButton: () => <ui.IconButton aria-label="Close">×</ui.IconButton>,
@@ -318,6 +330,21 @@ const fixtures: Record<string, () => React.ReactElement> = {
     <ui.Link external href="https://example.com">
       Site
     </ui.Link>
+  ),
+  List: () => (
+    <ui.List variant="framed">
+      <ui.ListItem description="5 records" href="/grades" title="Grades" />
+      <ui.ListItem onClick={noop} title="Switch account" />
+      <ui.ListItem
+        actions={<ui.Button size="sm">Edit</ui.Button>}
+        title="Notes"
+      />
+    </ui.List>
+  ),
+  ListItem: () => (
+    <ui.List>
+      <ui.ListItem current href="/" title="Home" />
+    </ui.List>
   ),
   LoadingOverlay: () => (
     <ui.LoadingOverlay label="Loading orders" visible>

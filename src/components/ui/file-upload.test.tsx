@@ -529,6 +529,39 @@ describe("FileUpload", () => {
     );
   });
 
+  it("reports how many files wait for or run their upload", async () => {
+    const user = userEvent.setup();
+    const onPendingChange = vi.fn();
+    const { pending, upload } = controllableUpload();
+    render(
+      <FileUpload
+        concurrency={1}
+        multiple
+        onPendingChange={onPendingChange}
+        upload={upload}
+      />,
+    );
+    // Not told of the 0 it starts with
+    expect(onPendingChange).not.toHaveBeenCalled();
+
+    drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+    expect(onPendingChange).toHaveBeenLastCalledWith(2);
+
+    await act(async () => pending[0].resolve({ value: "blob-a" }));
+    expect(onPendingChange).toHaveBeenLastCalledWith(1);
+
+    await act(async () => pending[1].reject(new Error("Offline")));
+    expect(onPendingChange).toHaveBeenLastCalledWith(0);
+
+    // A retry waits again
+    await user.click(screen.getByRole("button", { name: /Retry/ }));
+    expect(onPendingChange).toHaveBeenLastCalledWith(1);
+    await user.click(
+      screen.getByRole("button", { name: "Cancel uploading b.pdf" }),
+    );
+    expect(onPendingChange).toHaveBeenLastCalledWith(0);
+  });
+
   it("cancels the upload - and aborts it when it goes away", async () => {
     const user = userEvent.setup();
     const { pending, upload } = controllableUpload();
@@ -1313,16 +1346,13 @@ describe("FileUpload", () => {
 
   it("takes classes and hides the required mark from screen readers", () => {
     render(
-      <FileUpload
-        className="my-0! w-80"
-        label="Invoice"
-        required
-        upload={vi.fn()}
-      />,
+      <FileUpload className="w-80" label="Invoice" required upload={vi.fn()} />,
     );
 
     const group = screen.getByRole("group", { name: "Invoice:" });
-    expect(group).toHaveClass("my-0!", "w-80");
+    expect(group).toHaveClass("w-80");
+    // No margin of its own - the form spaces its fields
+    expect(group.className).not.toMatch(/\bm[ytb]?-/);
     expect(screen.getByText("*")).toHaveAttribute("aria-hidden", "true");
   });
 

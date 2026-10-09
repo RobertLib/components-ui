@@ -37,6 +37,19 @@ export default function SelectPage() {
       <Example
         description={
           <p>
+            <code>prefix</code> and <code>suffix</code> go inside the border of
+            the field, as with <code>Input</code> - a caption of a filter or a
+            sort in place of a label above it, or an icon. A click on them opens
+            the list. Screen readers do not tie them to the field: name it with
+            a <code>label</code> or an <code>aria-label</code>.
+          </p>
+        }
+        name="select/prefix"
+        title="Prefix and suffix"
+      />
+      <Example
+        description={
+          <p>
             A native select has no <code>readonly</code> - <code>readOnly</code>{" "}
             makes one: the list stays closed at a click or a touch, the keys
             that open it or change the value (the arrows, Space, Enter, typed

@@ -361,6 +361,12 @@ export const groups: DocsGroup[] = [
         "detail key value columns bordered",
       ),
       component(
+        "list",
+        "List",
+        () => import("./pages/components/list"),
+        "list item row menu navigation chevron icon avatar link button divided framed",
+      ),
+      component(
         "table",
         "Table",
         () => import("./pages/components/table"),
@@ -473,6 +479,12 @@ export const groups: DocsGroup[] = [
         "Dialog",
         () => import("./pages/components/dialog"),
         "modal full screen mobile backdrop escape",
+      ),
+      component(
+        "form-dialog",
+        "FormDialog",
+        () => import("./pages/components/form-dialog"),
+        "form modal edit dialog unsaved changes discard dirty save cancel onBeforeClose",
       ),
       component(
         "image-viewer",

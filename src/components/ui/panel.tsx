@@ -1,8 +1,20 @@
 import cn from "../../utils/cn";
 
+/** The room inside a `Panel` - see `PanelProps.padding`. */
+export type PanelPadding = "none" | "sm" | "md" | "lg" | "responsive";
+
 export interface PanelProps extends React.ComponentProps<"div"> {
   /** `default` - a subtle border in the surface color, `neutral` - a visible gray one. */
   border?: "default" | "neutral" | "none";
+  /**
+   * The room around the content - `sm` 1rem, `md` 1.5rem, `lg` 2rem,
+   * `responsive` 1rem on phones and 1.5rem from the `sm` breakpoint up, or
+   * `none`. It is the `--cui-panel-padding` variable, which the picture and
+   * the footer of a `Card` follow to reach its edges - pass another value in
+   * `style` (`{ "--cui-panel-padding": "1.25rem" }`).
+   * @default "md"
+   */
+  padding?: PanelPadding;
   /** Corner radius. */
   rounded?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "full" | "none";
   /** Shadow size. */
@@ -10,10 +22,21 @@ export interface PanelProps extends React.ComponentProps<"div"> {
 }
 
 /** A padded surface card - the base of `Accordion` and page sections. */
+// Set by every panel - one inside another does not take its padding
+const paddingClasses: Record<PanelPadding, string> = {
+  none: "[--cui-panel-padding:0px]",
+  sm: "[--cui-panel-padding:--spacing(4)]",
+  md: "[--cui-panel-padding:--spacing(6)]",
+  lg: "[--cui-panel-padding:--spacing(8)]",
+  responsive:
+    "[--cui-panel-padding:--spacing(4)] sm:[--cui-panel-padding:--spacing(6)]",
+};
+
 export default function Panel({
   border = "default",
   className,
   children,
+  padding = "md",
   rounded = "md",
   shadow = "sm",
   ...props
@@ -77,7 +100,8 @@ export default function Panel({
     <div
       {...props}
       className={cn(
-        `bg-surface p-6 dark:bg-surface-dark ${getRoundedClass()} ${getShadowClass()} ${getBorderClass()}`,
+        `bg-surface p-(--cui-panel-padding) dark:bg-surface-dark ${getRoundedClass()} ${getShadowClass()} ${getBorderClass()}`,
+        paddingClasses[padding],
         className,
       )}
     >

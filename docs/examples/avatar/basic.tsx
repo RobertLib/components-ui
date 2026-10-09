@@ -20,6 +20,9 @@ export default function Basic() {
         <Avatar name="Medium" size="md" />
         <Avatar name="Large" size="lg" />
         <Avatar name="Extra Large" size="xl" />
+        {/* The sizes of a design - in pixels */}
+        <Avatar name="Forty Pixels" size={40} />
+        <Avatar name="Ninety Six" size={96} />
       </div>
     </div>
   );

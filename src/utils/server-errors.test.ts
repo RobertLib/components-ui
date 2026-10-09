@@ -118,6 +118,37 @@ describe("getFieldError", () => {
     expect(getFieldError(zod, "formErrors")).toBeUndefined();
   });
 
+  it("reads the fieldErrors of an API body and of its error class", () => {
+    // An API of its own - a code and a message next to the field messages
+    const body = {
+      code: "VALIDATION_FAILED",
+      fieldErrors: { email: ["INVALID_EMAIL"], firstName: ["REQUIRED"] },
+      message: "Validation failed",
+    };
+    class ApiError extends Error {
+      fieldErrors: Record<string, string[]>;
+      constructor(fieldErrors: Record<string, string[]>) {
+        super("Validation failed");
+        this.fieldErrors = fieldErrors;
+      }
+    }
+    const error = new ApiError(body.fieldErrors);
+
+    expect(getFieldError(body, "email")).toBe("INVALID_EMAIL");
+    expect(getFieldError(body, "first_name")).toBe("REQUIRED");
+    expect(getFieldError(body, "code")).toBeUndefined();
+    expect(getFieldError(error, "firstName")).toBe("REQUIRED");
+    // The message says nothing the fields do not
+    expect(getBaseError(body)).toBeUndefined();
+    expect(getBaseError(error)).toBeUndefined();
+    // Without field messages it is the general one
+    expect(getBaseError({ ...body, fieldErrors: {} })).toBe(
+      "Validation failed",
+    );
+    // A plain Error is no validation error
+    expect(getFieldError(new Error("Offline"), "email")).toBeUndefined();
+  });
+
   it("returns undefined for other errors", () => {
     expect(getFieldError(new Error("Network error"), "email")).toBeUndefined();
     expect(getFieldError(null, "email")).toBeUndefined();

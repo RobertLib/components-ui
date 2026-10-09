@@ -189,6 +189,14 @@ export interface Column<T> {
    * when it is invalid, nothing when it is valid.
    */
   validate?: (value: unknown, row: T) => string | null | undefined;
+  /**
+   * Hides the column on screens narrower than a breakpoint - its header,
+   * its filter, its cells and its summary - e.g. `md` for a detail a phone
+   * has no room for. It stays in the column menu and in the CSV export.
+   * Not for a pinned column, which keeps its place, nor for a column of a
+   * column group or the first one of a table with `getRowHref`.
+   */
+  hideBelow?: "sm" | "md" | "lg" | "xl";
   /** Initial visibility - the user can toggle columns in the column menu. */
   visible?: boolean;
   /**

@@ -100,6 +100,32 @@ describe("Button as a link", () => {
   });
 });
 
+describe("Button link variant", () => {
+  it("looks like a text link - no padding, no border, a ring for the keyboard", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    render(
+      <Button color="danger" onClick={onClick} size="sm" variant="link">
+        Remove the photo
+      </Button>,
+    );
+
+    const button = screen.getByRole("button", { name: "Remove the photo" });
+    expect(button).toHaveAttribute("type", "button");
+    expect(button).toHaveClass(
+      "text-sm",
+      "text-danger-700",
+      "hover:underline",
+      "focus-visible:ring-2",
+    );
+    expect(button.className).not.toMatch(/\b(?:px|py)-/);
+    expect(button).not.toHaveClass("border", "focus:ring-2", "shadow-lg");
+
+    await user.click(button);
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+});
+
 describe("Button icons", () => {
   it("shows icons around the label - named by the label only", () => {
     render(
