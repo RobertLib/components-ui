@@ -13,7 +13,7 @@ export interface DrawerState {
   toggleOpen: () => void;
 }
 
-export const DrawerContext = createContext<DrawerState>({
+export const DrawerContext = /* @__PURE__ */ createContext<DrawerState>({
   isCollapsed: false,
   isOpen: false,
   toggleCollapsed: () => {},

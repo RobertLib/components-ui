@@ -67,46 +67,51 @@ interface InlineRules {
   isSafeClass?: (className: string) => boolean;
 }
 
-// Colors, sizes and other keywords of a utility - `danger-500/50`, `sm`
-const KEYWORD = String.raw`[a-z]{2,}(?:-[a-z]+)*(?:-\d{2,3})?(?:/\d{1,3})?`;
-// A side of a border - `border-t-2`
-const SIDE = "(?:-[xytrblse])?";
-
 // Tailwind utilities that style text in place: color, weight, size and
 // decoration, a background, a thin border, a little padding. Whatever could
 // move or enlarge an element beyond its line (`fixed inset-0 z-50` over the
 // page, a link as an invisible overlay, padding or borders of many rem) is
 // left out, as are arbitrary values - a background image would load from
-// anywhere.
-const SAFE_UTILITY = new RegExp(
-  `^(?:${[
-    "italic",
-    "not-italic",
-    "underline",
-    "overline",
-    "line-through",
-    "no-underline",
-    "uppercase",
-    "lowercase",
-    "capitalize",
-    "normal-case",
-    "truncate",
-    `text-(?:${KEYWORD}|[2-9]xl)`,
-    `font-${KEYWORD}`,
-    `decoration-(?:${KEYWORD}|[0-2])`,
-    "underline-offset-(?:auto|[0-2])",
-    `tracking-${KEYWORD}`,
-    `leading-(?:${KEYWORD}|[3-9]|10)`,
-    "whitespace-(?:normal|nowrap|pre|pre-line|pre-wrap|break-spaces)",
-    "break-(?:normal|words|all|keep)",
-    `bg-${KEYWORD}`,
-    String.raw`rounded(?:-[a-z\d]+)*`,
-    `border${SIDE}(?:-[0-2])?`,
-    `border${SIDE}-${KEYWORD}`,
-    String.raw`px-(?:0|px|0\.5|1|1\.5|2|2\.5|3)`,
-    String.raw`py-(?:0|px|0\.5|1)`,
-  ].join("|")})$`,
-);
+// anywhere. Built by a call marked pure: a bundler leaves out a pure call
+// whose result is unused - not the plain expression.
+function safeUtilityPattern() {
+  // Colors, sizes and other keywords of a utility - `danger-500/50`, `sm`
+  const KEYWORD = String.raw`[a-z]{2,}(?:-[a-z]+)*(?:-\d{2,3})?(?:/\d{1,3})?`;
+  // A side of a border - `border-t-2`
+  const SIDE = "(?:-[xytrblse])?";
+
+  return new RegExp(
+    `^(?:${[
+      "italic",
+      "not-italic",
+      "underline",
+      "overline",
+      "line-through",
+      "no-underline",
+      "uppercase",
+      "lowercase",
+      "capitalize",
+      "normal-case",
+      "truncate",
+      `text-(?:${KEYWORD}|[2-9]xl)`,
+      `font-${KEYWORD}`,
+      `decoration-(?:${KEYWORD}|[0-2])`,
+      "underline-offset-(?:auto|[0-2])",
+      `tracking-${KEYWORD}`,
+      `leading-(?:${KEYWORD}|[3-9]|10)`,
+      "whitespace-(?:normal|nowrap|pre|pre-line|pre-wrap|break-spaces)",
+      "break-(?:normal|words|all|keep)",
+      `bg-${KEYWORD}`,
+      String.raw`rounded(?:-[a-z\d]+)*`,
+      `border${SIDE}(?:-[0-2])?`,
+      `border${SIDE}-${KEYWORD}`,
+      String.raw`px-(?:0|px|0\.5|1|1\.5|2|2\.5|3)`,
+      String.raw`py-(?:0|px|0\.5|1)`,
+    ].join("|")})$`,
+  );
+}
+
+const SAFE_UTILITY = /* @__PURE__ */ safeUtilityPattern();
 
 // Variants that restyle the element itself by its own state or the theme.
 // Those reaching other elements or pseudo-elements - children, descendants
@@ -211,18 +216,17 @@ const HEADING_TAGS = new Set(["H1", "H2", "H3", "H4", "H5", "H6"]);
 // `menu` and `dir` hold list items like `ul`
 const LIST_TAGS = new Set(["DIR", "MENU", "OL", "UL"]);
 
+/** The tags of all the lists, by a call marked pure (see `safeUtilityPattern`). */
+const tagsOf = (...lists: Iterable<string>[]) =>
+  new Set(lists.flatMap((list) => [...list]));
+
 // Elements of the source that hold blocks rather than text
-const SOURCE_BLOCKS = new Set([
-  ...BLOCK_TAGS,
-  ...HEADING_TAGS,
-  ...LIST_TAGS,
-  "BLOCKQUOTE",
-  "DIV",
-  "HR",
-  "LI",
-  "P",
-  "TABLE",
-]);
+const SOURCE_BLOCKS = /* @__PURE__ */ tagsOf(
+  BLOCK_TAGS,
+  HEADING_TAGS,
+  LIST_TAGS,
+  ["BLOCKQUOTE", "DIV", "HR", "LI", "P", "TABLE"],
+);
 
 // The blocks of the output - what paragraphs and lines are made around
 const OUTPUT_BLOCKS = new Set([

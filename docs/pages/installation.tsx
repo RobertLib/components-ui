@@ -3,7 +3,7 @@ import CodeBlock from "../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 
 const installGit = `# a tagged version from your git host - npm builds dist/ on install
-npm install git+https://github.com/RobertLib/components-ui.git#v0.6.0
+npm install git+https://github.com/RobertLib/components-ui.git#v0.6.1
 
 # the latest commit of a branch
 npm install git+https://github.com/RobertLib/components-ui.git#main
@@ -30,8 +30,8 @@ resolve: {
 },`;
 
 const installTarball = `# a copy instead of a link - like an install from a registry
-cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.6.0.tgz
-cd ../my-app && npm install ../components-ui/components-ui-0.6.0.tgz`;
+cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.6.1.tgz
+cd ../my-app && npm install ../components-ui/components-ui-0.6.1.tgz`;
 
 const installRegistry = `# in the library: set a scoped name, remove "private": true, then
 npm publish --registry https://npm.your-company.com
@@ -47,6 +47,7 @@ const registryCss = `@import "tailwindcss";
 const sourceStructure = `src/
   components/ui/    copy src/components/ui/ from the library
     index.ts        named exports for the whole public API
+    package.json    tells bundlers to leave out the modules the app does not use
   providers/        copy src/providers/
   hooks/            copy src/hooks/
   utils/            copy src/utils/
@@ -137,6 +138,14 @@ const css = `/* src/index.css (or app/globals.css in Next.js) */
 const sourceFallback = `/* Only if Tailwind does not pick up the classes of the components
    (an unusual setup, e.g. a monorepo with hoisted packages) */
 @source "../node_modules/components-ui/dist";`;
+
+const vitePlugin = `// vite.config.ts - the CSS of a build only for the components the app uses
+import componentsUi from "components-ui/vite";
+// in a source copy: import componentsUi from "./src/components/ui/vite";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss(), componentsUi()],
+});`;
 
 const baseStyles = `/* A sensible base the components are designed for */
 :root {
@@ -312,8 +321,10 @@ export default function Installation() {
             Install <code>lucide-react</code> alongside React and Tailwind, then
             import from <code>./components/ui</code>. Keep its{" "}
             <code>index.ts</code> when copying: it exports all public
-            components, providers, locales, hooks and helpers. You can keep your
-            application's existing entry file.
+            components, providers, locales, hooks and helpers. Keep its{" "}
+            <code>package.json</code> too: its <code>"sideEffects": false</code>{" "}
+            lets webpack and Turbopack leave out the components the app does not
+            import. You can keep your application's existing entry file.
           </p>
         </Prose>
         <CodeBlock code="npm install lucide-react" plain />
@@ -432,6 +443,37 @@ export default function Installation() {
           </p>
         </Prose>
         <CodeBlock code={baseStyles} />
+        <h3 className="mt-8 mb-2 text-lg font-semibold">
+          Only the classes the app uses (Vite)
+        </h3>
+        <Prose>
+          <p>
+            Tailwind generates the classes of all the files it scans - also of
+            the components your app does not use. In a build with Vite 8 or
+            newer, the plugin of the library keeps them out of the CSS: it
+            follows the imports of the app to the components it uses - also
+            through aliases, re-exports, <code>import.meta.glob</code> and
+            dynamic imports. An app with a <code>Button</code> gets 8 kB of CSS
+            with gzip instead of 25 kB. <code>vite dev</code> keeps all the
+            classes; so do other bundlers (Next.js, webpack), which bundle only
+            the scripts of the components used.
+          </p>
+        </Prose>
+        <CodeBlock code={vitePlugin} />
+        <Prose>
+          <p>
+            Where the plugin cannot read a module that could import components -
+            a virtual module of another plugin, a <code>.vue</code> or{" "}
+            <code>.mdx</code> file - the CSS keeps all the classes, with a
+            warning. A build fails rather than miss a class when the bundle has
+            code of a component the plugin left out, e.g. one another plugin
+            imports into the code: build without the plugin then. Write the
+            classes of your app whole: one put together as the app runs (
+            <code>{"`bg-${color}-500`"}</code>) is in the CSS only while a
+            scanned file happens to have it whole - with the plugin, no longer a
+            component the app does not use.
+          </p>
+        </Prose>
       </Section>
 
       <Section title="3. Render the providers">
@@ -483,7 +525,8 @@ export default function Installation() {
         <Prose>
           <ul>
             <li>
-              <strong>Vite</strong> - works as shown above.
+              <strong>Vite</strong> - works as shown above; its plugin leaves
+              the classes of unused components out of the CSS.
             </li>
             <li>
               <strong>Next.js (App Router)</strong> - in the built package, the

@@ -1,0 +1,5 @@
+{
+  "//": "No module of the library runs code as it loads (scripts/test-source-copy.mjs checks it): a bundler - Vite, webpack, Turbopack - leaves out the modules an app does not use, also of a source copy. The modules are ES modules.",
+  "type": "module",
+  "sideEffects": false
+}

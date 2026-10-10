@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.6.1
+
+An app bundles only what it uses of the library - its scripts with any
+bundler, its CSS with Vite.
+
+- **Smaller scripts** - importing from the public API
+  (`import { Button } from "./components/ui"`) no longer bundles components
+  the app does not use. With only a `Button` of a source copy, the script
+  was bigger than the button needs - by 144 kB (47 kB with gzip) in a Vite
+  app, where DataTable, TreeView, Autocomplete and the date pickers came
+  along for code that ran as their modules loaded, and by 25 kB (9 kB) with
+  webpack and 36 kB (13 kB) with Turbopack in a Next.js app. Now it is as
+  small as with an import of the button's own module. No module of the
+  library runs code as it loads any more, and the new
+  `components/ui/package.json` says so to bundlers (`"sideEffects": false`)
+  - keep it when copying the folder by hand. The package build gains the
+    same where an app takes a module for one of its exports.
+- **Vite plugin** - `componentsUi()` (`components-ui/vite`, or
+  `./src/components/ui/vite` in a source copy) leaves the classes of the
+  components an app does not use out of its CSS in a build: 8 kB with gzip
+  instead of 25 kB for an app with a `Button`, 15 kB for one with 15
+  components. Tailwind generates the classes of all the files it scans -
+  the plugin follows the imports of the app to the components it uses and
+  keeps the others out of the scan. Needs Vite 8; `vite dev` and other
+  bundlers keep all the classes. A module it cannot read (a virtual module
+  of another plugin, a `.vue` or `.mdx` file) keeps them too, with a
+  warning, and a build whose bundle has code of a component it left out
+  fails - see the Installation page.
+
 ## 0.6.0
 
 Fixes from a review of 0.5.0. Some change what an app sees or needs - see

@@ -38,7 +38,9 @@ interface TimeListsProps {
   onEscape: () => void;
 }
 
-const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => pad2(hour));
+const HOUR_OPTIONS = /* @__PURE__ */ Array.from({ length: 24 }, (_, hour) =>
+  pad2(hour),
+);
 
 // Options a list shows at once, for Page Up / Down when it cannot be
 // measured

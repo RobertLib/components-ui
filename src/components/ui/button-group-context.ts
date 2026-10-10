@@ -23,6 +23,5 @@ export interface ButtonGroupContextValue {
 }
 
 /** Set by `ButtonGroup` around each of its children - read by `Button`. */
-export const ButtonGroupContext = createContext<ButtonGroupContextValue | null>(
-  null,
-);
+export const ButtonGroupContext =
+  /* @__PURE__ */ createContext<ButtonGroupContextValue | null>(null);

@@ -519,7 +519,7 @@ export function getStepNumberFormat(
     : format;
 }
 
-const canonical = new Intl.NumberFormat("en-US", {
+const canonical = /* @__PURE__ */ new Intl.NumberFormat("en-US", {
   // Enough significant digits for any double, including subnormal values;
   // a fraction-digit limit would silently submit tiny numbers as zero.
   maximumSignificantDigits: 21,

@@ -37,10 +37,14 @@ const FOLDED_LETTERS: Record<string, string> = {
   ɉ: "j",
 };
 
-const FOLDED_PATTERN = new RegExp(
-  `[${Object.keys(FOLDED_LETTERS).join("")}]`,
-  "g",
-);
+/**
+ * Any one of the letters. Built by a call marked pure: a bundler leaves out
+ * a pure call whose result is unused - not the plain expression.
+ */
+const anyLetterOf = (letters: Record<string, string>) =>
+  new RegExp(`[${Object.keys(letters).join("")}]`, "g");
+
+const FOLDED_PATTERN = /* @__PURE__ */ anyLetterOf(FOLDED_LETTERS);
 
 // A letter that may carry an accent - or an accent written on its own, as a
 // combining mark after its letter

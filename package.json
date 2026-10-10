@@ -1,7 +1,7 @@
 {
   "name": "components-ui",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "React + Tailwind CSS component library with localization, router integration and REST / GraphQL friendly data components.",
   "license": "MIT",
   "repository": {
@@ -27,6 +27,10 @@
       "default": "./dist/index.js"
     },
     "./styles.css": "./dist/styles.css",
+    "./vite": {
+      "types": "./src/components/ui/vite.d.ts",
+      "default": "./src/components/ui/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "sideEffects": [
@@ -48,7 +52,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "playwright test",
-    "test:source": "node --test scripts/test-source-copy.mjs scripts/test-sync-source.mjs && vitest run --mode source-copy",
+    "test:source": "node --test scripts/test-source-copy.mjs scripts/test-sync-source.mjs scripts/test-vite-plugin.mjs && vitest run --mode source-copy",
     "check": "npm run typecheck && npm run lint && npm run test:tailwind && npm run test && npm run test:source && prettier --check .",
     "prepare": "npm run build:lib",
     "format": "prettier --write .",

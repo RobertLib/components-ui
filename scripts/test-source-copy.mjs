@@ -5,12 +5,14 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
@@ -44,6 +46,13 @@ test("A source copy works in a standalone Vite app", async (t) => {
       assert.ok(files.includes("i18n/en.ts"));
       assert.ok(files.includes("i18n/cs.ts"));
       assert.ok(files.includes("ui-styles.css"));
+      // Tells bundlers that no module of the library runs code as it loads
+      assert.equal(
+        JSON.parse(
+          readFileSync(join(source, "components/ui/package.json"), "utf8"),
+        ).sideEffects,
+        false,
+      );
       assert.ok(!files.includes("index.ts"));
       assert.ok(!files.includes("styles.css"));
       assert.ok(!files.includes("test"));
@@ -137,6 +146,71 @@ createRoot(document.getElementById("root")!).render(
       );
     },
   );
+
+  await t.test("leaves out of an app what it does not use", async () => {
+    // The code the modules of the library render into the bundle, by module
+    // - before minifying, as the bundler leaves it. React and the icons stay
+    // outside. Without the `"sideEffects": false` of the library, which lets
+    // a bundler leave out a module without reading it - it must stay true.
+    const library = realpathSync(source);
+    const flag = join(source, "components/ui/package.json");
+    const bundle = async (entry) => {
+      writeFileSync(join(directory, "tree-shaking.tsx"), entry);
+      const result = await build({
+        configFile: false,
+        root: directory,
+        logLevel: "silent",
+        plugins: [react()],
+        build: {
+          write: false,
+          minify: false,
+          rolldownOptions: {
+            input: join(directory, "tree-shaking.tsx"),
+            external: [/^(react|react-dom|lucide-react)($|\/)/],
+          },
+        },
+      });
+      assert.ok(!Array.isArray(result) && "output" in result);
+      const modules = {};
+      for (const file of result.output) {
+        if (file.type !== "chunk") continue;
+        for (const [id, module] of Object.entries(file.modules)) {
+          if (module.renderedLength > 0 && id.startsWith(library)) {
+            modules[relative(library, id)] = module.code;
+          }
+        }
+      }
+      return modules;
+    };
+
+    renameSync(flag, `${flag}.off`);
+    try {
+      // Code that runs as a module loads stays in every app that imports the
+      // module - mark the call `/* @__PURE__ */` or build the value in a
+      // function called so. Not only for the minifier: the Vite plugin of the
+      // library reads the code the bundler renders.
+      assert.deepEqual(
+        await bundle('import "./src/components/ui";\n'),
+        {},
+        "importing the public API without using it adds code",
+      );
+      assert.deepEqual(
+        Object.keys(
+          await bundle(
+            'import { Button } from "./src/components/ui";\nconsole.log(Button);\n',
+          ),
+        ),
+        Object.keys(
+          await bundle(
+            'import Button from "./src/components/ui/button";\nconsole.log(Button);\n',
+          ),
+        ),
+        "a component from the public API takes more than from its module",
+      );
+    } finally {
+      renameSync(`${flag}.off`, flag);
+    }
+  });
 });
 
 test("The export runs by a link to its folder", (t) => {

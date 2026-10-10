@@ -667,7 +667,7 @@ interface OptionRowProps {
  * Moving the highlight renders only the rows it moves between, including
  * in source copies built without the React Compiler.
  */
-const OptionRow = memo(function OptionRow({
+const OptionRow = /* @__PURE__ */ memo(function OptionRow({
   active,
   ariaLabel,
   content,

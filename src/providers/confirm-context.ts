@@ -44,7 +44,8 @@ export type AlertOptions = Omit<
  */
 export type AlertFunction = (options: AlertOptions) => Promise<void>;
 
-export const ConfirmContext = createContext<ConfirmFunction | null>(null);
+export const ConfirmContext =
+  /* @__PURE__ */ createContext<ConfirmFunction | null>(null);
 
 /**
  * Returns `confirm(options)`, which asks the user in a `ConfirmDialog` and

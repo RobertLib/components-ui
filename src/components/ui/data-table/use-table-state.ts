@@ -27,9 +27,9 @@ export interface TableState {
 
 export const EMPTY_TABLE_STATE: TableState = {
   columnOrder: [],
-  columnPinning: columnRecord(),
-  columnVisibility: columnRecord(),
-  columnWidths: columnRecord(),
+  columnPinning: /* @__PURE__ */ columnRecord(),
+  columnVisibility: /* @__PURE__ */ columnRecord(),
+  columnWidths: /* @__PURE__ */ columnRecord(),
   density: null,
 };
 

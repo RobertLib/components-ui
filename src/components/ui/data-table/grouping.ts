@@ -22,7 +22,7 @@ export interface FlatColumns<T> {
   groups: Record<string, ColumnGroup<T>>;
 }
 
-const NO_GROUPS = columnRecord<never>();
+const NO_GROUPS = /* @__PURE__ */ columnRecord<never>();
 
 const isColumnGroup = <T>(entry: DataTableColumn<T>): entry is ColumnGroup<T> =>
   "children" in entry && !!entry.children;

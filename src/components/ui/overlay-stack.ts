@@ -133,7 +133,7 @@ function getExemptRegions(element: Element) {
 }
 
 /** The ids of the overlays around a component, outermost first. */
-export const OverlayContext = createContext<string[]>([]);
+export const OverlayContext = /* @__PURE__ */ createContext<string[]>([]);
 
 // Called a moment after the stack changes - see `subscribeToOverlayStack`
 const stackListeners = new Set<() => void>();
@@ -417,8 +417,12 @@ interface ClickListeners {
 }
 
 // Once for the page, in a browser - before any handler of the click opens a
-// dialog, also one mounted only while open
-if (typeof document !== "undefined") {
+// dialog, also one mounted only while open. Marked pure although it adds the
+// listeners: only `getActiveFocusReturnTargets` reads what they remember, and
+// reads this too - so a bundler keeps the listeners in an app with overlays,
+// added as the module loads, and leaves them out of one without.
+const isTrackingClicks = /* @__PURE__ */ (() => {
+  if (typeof document === "undefined") return false;
   const registry = document as unknown as Record<symbol, ClickListeners>;
   const previous = registry[CLICK_LISTENERS];
   if (previous) {
@@ -428,7 +432,8 @@ if (typeof document !== "undefined") {
   document.addEventListener("click", rememberClick, true);
   document.addEventListener("focusin", forgetClick, true);
   registry[CLICK_LISTENERS] = { click: rememberClick, focusin: forgetClick };
-}
+  return true;
+})();
 
 /**
  * Whether the focus is where a click that did not focus its control left it
@@ -459,7 +464,7 @@ export function getActiveFocusReturnTargets() {
   const onBody = !active || active === document.body;
   if (onBody && lostFocusTargets) return withNeighborStops(lostFocusTargets);
 
-  const clicked = clickedTargets;
+  const clicked = isTrackingClicks ? clickedTargets : null;
   if (clicked && isLeftByClick(active, clicked[0])) {
     // Used - no detached elements are kept
     clickedTargets = null;

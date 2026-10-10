@@ -46,7 +46,7 @@ Requirements: React 19, Tailwind CSS 4.3 or newer and a bundler that sets
    page):
 
    ```sh
-   npm install git+https://github.com/RobertLib/components-ui.git#v0.6.0
+   npm install git+https://github.com/RobertLib/components-ui.git#v0.6.1
    ```
 
    If npm reports that the `prepare` script of `components-ui` is not allowed
@@ -65,6 +65,19 @@ Requirements: React 19, Tailwind CSS 4.3 or newer and a bundler that sets
    ```css
    @import "tailwindcss";
    @import "components-ui/styles.css";
+   ```
+
+   With Vite 8, the plugin of the library leaves the classes of the
+   components your app does not use out of the CSS of a build (8 kB with gzip
+   instead of 25 kB for an app with a `Button`):
+
+   ```ts
+   // vite.config.ts
+   import componentsUi from "components-ui/vite";
+
+   export default defineConfig({
+     plugins: [react(), tailwindcss(), componentsUi()],
+   });
    ```
 
 3. **Render the providers** and use the components:
@@ -174,8 +187,13 @@ import { Button, UIProvider, cs } from "./components/ui";
 ```
 
 Keep `components/ui/index.ts` when copying the folder: it exports all public
-components, providers, locales, hooks and helpers. You can keep your project's
-entry file. `npm run sync:source` updates a source copy (see above).
+components, providers, locales, hooks and helpers. Keep
+`components/ui/package.json` too: its `"sideEffects": false` lets bundlers
+(webpack, Turbopack) leave out the components the app does not import. You
+can keep your project's entry file. `npm run sync:source` updates a source
+copy (see above). For the CSS too, add the Vite plugin of the copy -
+`import componentsUi from "./src/components/ui/vite"` in `vite.config.ts`
+(see Quick start).
 
 For source copies, include the browser APIs and ES2023 definitions in your
 TypeScript configuration (this does not require `target: "ES2023"`):
@@ -189,9 +207,10 @@ TypeScript configuration (this does not require `target: "ES2023"`):
 ```
 
 The source needs React's TypeScript types, but does not need Node types,
-project-specific import aliases or the React Compiler. The compiler is
-optional; the source includes memoization for expensive queries and list
-rows. `npm run test:source` checks an exported copy in a standalone Vite
+project-specific import aliases or the React Compiler (the Vite plugin,
+`components/ui/vite.js`, is a module of Node in JavaScript, with its types
+in `vite.d.ts`). The compiler is optional; the source includes memoization
+for expensive queries and list rows. `npm run test:source` checks an exported copy in a standalone Vite
 app and runs the library's tests without the compiler.
 
 ### Application translations
@@ -253,20 +272,20 @@ Keep your application catalogs when updating `i18n/ui/` from the library.
 
 ## Development
 
-| Script                  | What it does                                                           |
-| ----------------------- | ---------------------------------------------------------------------- |
-| `npm run dev`           | the docs with hot reload                                               |
-| `npm run check`         | type check, lint, tests and formatting                                 |
-| `npm run lint`          | Oxlint, React Compiler and canonical Tailwind class checks             |
-| `npm run lint:tailwind` | canonical Tailwind classes in the library, docs and browser fixtures   |
-| `npm test`              | the unit and component tests (Vitest)                                  |
-| `npm run test:source`   | exported sources in Vite and the tests without React Compiler          |
-| `npm run test:browser`  | browser regressions in Chromium, Firefox and WebKit                    |
-| `npm run build:lib`     | the package: `dist/` - a module per source file, the styles, the types |
-| `npm run build:docs`    | the docs as a static site in `dist-docs/`                              |
-| `npm run export:source` | a clean source copy and license in `dist-source/`                      |
-| `npm run sync:source`   | copies or updates the source copy in an app: `-- ../app/src`           |
-| `npm run format`        | Prettier (with Tailwind class sorting)                                 |
+| Script                  | What it does                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `npm run dev`           | the docs with hot reload                                                       |
+| `npm run check`         | type check, lint, tests and formatting                                         |
+| `npm run lint`          | Oxlint, React Compiler and canonical Tailwind class checks                     |
+| `npm run lint:tailwind` | canonical Tailwind classes in the library, docs and browser fixtures           |
+| `npm test`              | the unit and component tests (Vitest)                                          |
+| `npm run test:source`   | exported sources and the Vite plugin in Vite, the tests without React Compiler |
+| `npm run test:browser`  | browser regressions in Chromium, Firefox and WebKit                            |
+| `npm run build:lib`     | the package: `dist/` - a module per source file, the styles, the types         |
+| `npm run build:docs`    | the docs as a static site in `dist-docs/`                                      |
+| `npm run export:source` | a clean source copy and license in `dist-source/`                              |
+| `npm run sync:source`   | copies or updates the source copy in an app: `-- ../app/src`                   |
+| `npm run format`        | Prettier (with Tailwind class sorting)                                         |
 
 The Tailwind check uses the installed Tailwind version and `docs/styles.css`
 to suggest canonical utility and variant names, like VS Code's Tailwind CSS

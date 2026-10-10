@@ -19,4 +19,4 @@ export interface AccordionGroupContextValue {
  * content of an accordion, so that a section nested there stays on its own.
  */
 export const AccordionGroupContext =
-  createContext<AccordionGroupContextValue | null>(null);
+  /* @__PURE__ */ createContext<AccordionGroupContextValue | null>(null);

@@ -98,7 +98,7 @@ export interface ColumnManagementOptions {
   onColumnStateChange?: (state: DataTableColumnState) => void;
 }
 
-const NO_GROUPS = columnRecord<string>();
+const NO_GROUPS = /* @__PURE__ */ columnRecord<string>();
 
 export default function useColumnManagement<T>(
   columns: Column<T>[],

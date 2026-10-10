@@ -91,7 +91,7 @@ interface ListOptions {
   variant: ListVariant;
 }
 
-const ListContext = createContext<ListOptions>({
+const ListContext = /* @__PURE__ */ createContext<ListOptions>({
   size: "sm",
   variant: "divided",
 });

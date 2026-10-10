@@ -1,4 +1,4 @@
-import type { Locale } from "./types";
+import type { Locale, Messages } from "./types";
 import app from "../cs";
 
 /** Czech (Czech Republic). */
@@ -12,8 +12,9 @@ export const cs: Locale = {
     time: "HH:mm",
     week: "[W]WW.YYYY",
   },
-  messages: {
-    ...app,
+  // Joined by a call marked pure: a bundler would keep a spread of the
+  // app's texts also in an app that does not use this locale
+  messages: /* @__PURE__ */ Object.assign({}, app, {
     ui: {
       phoneInput: {
         country: "Země",
@@ -708,5 +709,5 @@ export const cs: Locale = {
         retry: "Zkusit znovu",
       },
     },
-  },
+  } satisfies Pick<Messages, "ui">),
 };

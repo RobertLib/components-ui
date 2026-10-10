@@ -342,11 +342,15 @@ const TOKEN_PARTS: Record<string, keyof DateParts | "hours12" | "meridiem"> = {
 
 const SEPARATOR = "[\\s./\\-:,]";
 
+// The sources below are joined with `+` or built by calls marked pure: a
+// bundler cannot tell that a template literal with a constant in it does
+// nothing, and would keep it in an app that never parses a date.
+
 // No year after a minus sign at the start or after a separator - a year
 // before the year 0, as `padYear` writes it (`-0001`), which no picker
 // takes: "W52 -0001" is no week of the year 1. A dash between the numbers
 // stays a separator ("1-2-2026").
-const NOT_NEGATIVE = `(?<!(?:^|${SEPARATOR})-)`;
+const notNegative = (source: string) => `(?<!(?:^|${SEPARATOR})-)${source}`;
 
 // The numbers a token takes - the two-digit ones tried first, so that digits
 // typed without separators split into numbers that fit: "24092026" is
@@ -357,15 +361,15 @@ const NUMBER_SOURCES: Record<keyof DateParts, string> = {
   hours: "2[0-3]|[01]?\\d",
   // Two digits - one only on its own after a separator ("9:5"), so that the
   // last two digits typed without one are the minutes: "930" is 9:30
-  minutes: `[0-5]\\d|(?<=${SEPARATOR})\\d(?!\\d)`,
+  minutes: "[0-5]\\d|(?<=" + SEPARATOR + ")\\d(?!\\d)",
   month: "1[0-2]|0?[1-9]",
   week: "5[0-3]|[1-4]\\d|0?[1-9]",
-  year: `${NOT_NEGATIVE}\\d{4}`,
+  year: /* @__PURE__ */ notNegative("\\d{4}"),
 };
 
 // A year of two digits - not followed by a digit, nor by the `:` or `.` of
 // a time: in "24.9 12:05" the year is left out, "12" are the hours
-const SHORT_YEAR = `${NOT_NEGATIVE}\\d{2}(?![\\d:.])`;
+const SHORT_YEAR = /* @__PURE__ */ notNegative("\\d{2}(?![\\d:.])");
 
 // A year left out - the date ends there, or a space parts it from the time:
 // "24.9.2026" is no 20:26 on 24.9.
@@ -373,7 +377,7 @@ const NO_YEAR = "(?=\\s|$)";
 
 // The tokens of the date - after the last of them the year may be left out
 const DAY_AND_MONTH = new Set(["D", "DD", "M", "MM"]);
-const DATE_TOKENS = new Set([...DAY_AND_MONTH, "W", "WW"]);
+const DATE_TOKENS = new Set(["D", "DD", "M", "MM", "W", "WW"]);
 
 /**
  * The year two digits stand for: one of the 100 years from 80 years before

@@ -133,10 +133,11 @@ const statusClasses: Record<NonNullable<AvatarProps["status"]>, string> = {
   online: "bg-success-600 dark:bg-success-500",
 };
 
-const graphemeSegmenter =
+// By a call marked pure - a bundler leaves out an unused one
+const graphemeSegmenter = /* @__PURE__ */ (() =>
   typeof Intl.Segmenter === "function"
     ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
-    : null;
+    : null)();
 
 /** The characters of a text as the reader sees them - "👩‍💻" is one. */
 const graphemesOf = (text: string) =>

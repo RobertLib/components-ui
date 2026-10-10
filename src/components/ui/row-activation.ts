@@ -4,7 +4,7 @@ import toAppPath from "../../utils/to-app-path";
 // What a click activating a row must not be on: controls, focusable
 // elements (an editable cell, the trigger of a popover), the built-in
 // expand, selection and actions cells of a `DataTable`
-const ROW_CONTROL = [
+const ROW_CONTROL = /* @__PURE__ */ [
   "a[href]",
   "button",
   "input",

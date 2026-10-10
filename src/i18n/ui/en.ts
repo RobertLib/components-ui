@@ -1,4 +1,4 @@
-import type { Locale } from "./types";
+import type { Locale, Messages } from "./types";
 import app from "../en";
 
 /** English (United States) - the default locale. */
@@ -12,8 +12,9 @@ export const en: Locale = {
     time: "h:mm A",
     week: "[W]WW YYYY",
   },
-  messages: {
-    ...app,
+  // Joined by a call marked pure: a bundler would keep a spread of the
+  // app's texts also in an app that does not use this locale
+  messages: /* @__PURE__ */ Object.assign({}, app, {
     ui: {
       phoneInput: {
         country: "Country",
@@ -601,5 +602,5 @@ export const en: Locale = {
         retry: "Try again",
       },
     },
-  },
+  } satisfies Pick<Messages, "ui">),
 };

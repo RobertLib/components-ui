@@ -47,10 +47,14 @@ interface FooterSlot {
 
 // Set by every Dialog and Sheet: the footer of a Dialog opened from a Sheet
 // (a ConfirmDialog) belongs to that Dialog, not to the sheet around.
-const FooterSlotContext = createContext<FooterSlot | null>(null);
+const FooterSlotContext = /* @__PURE__ */ createContext<FooterSlot | null>(
+  null,
+);
 
 // Closes the dialog around as its close button does - see DialogCloseButton
-const DialogCloseContext = createContext<(() => void) | null>(null);
+const DialogCloseContext = /* @__PURE__ */ createContext<(() => void) | null>(
+  null,
+);
 
 const subscribeToNothing = () => () => {};
 

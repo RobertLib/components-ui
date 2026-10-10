@@ -719,4 +719,6 @@ function TableRowView<T>({
 // The body renders again on every render of the table - a row only when
 // its props change, also in source copies built without the React
 // Compiler. The generic type of the row is kept across `memo`.
-export const TableRow = memo(TableRowView) as typeof TableRowView;
+export const TableRow = /* @__PURE__ */ memo(
+  TableRowView,
+) as typeof TableRowView;

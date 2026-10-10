@@ -25,14 +25,16 @@ export interface UIContextValue {
   routerScope?: object;
 }
 
-export const UIContext = createContext<UIContextValue | null>(null);
+export const UIContext = /* @__PURE__ */ createContext<UIContextValue | null>(
+  null,
+);
 
 /**
  * What of the router of the nearest `UIProvider` stays the same on a
  * navigation, with the defaults filled in - so that a component rendering a
  * link or navigating does not render again on every change of the URL.
  */
-export const RouterActionsContext = createContext<Pick<
+export const RouterActionsContext = /* @__PURE__ */ createContext<Pick<
   RouterAdapter,
   "back" | "Link" | "navigate"
 > | null>(null);
@@ -42,7 +44,7 @@ export const RouterActionsContext = createContext<Pick<
  * `UIContext`, so that a navigation renders again only what reads it
  * (`useRouter`), not every component with a text, a locale or a portal.
  */
-export const RouterLocationContext = createContext<Partial<
+export const RouterLocationContext = /* @__PURE__ */ createContext<Partial<
   Pick<RouterAdapter, "pathname" | "search">
 > | null>(null);
 

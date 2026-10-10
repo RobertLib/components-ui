@@ -18,6 +18,7 @@ import {
   isBusinessTime,
 } from "./business-hours";
 import {
+  LANE_HEIGHT,
   MIN_TILE_HEIGHT,
   createDayFormat,
   createSlotLabeler,
@@ -64,9 +65,6 @@ const RESOURCE_COLUMN_WIDTH = 160;
 
 /** Pixels of an hour of the day timeline - and of the week timeline. */
 const HOUR_WIDTH = { day: 96, week: 40 };
-
-/** Height of an event tile - a line of text - and of a lane of tiles. */
-const LANE_HEIGHT = MIN_TILE_HEIGHT + 4;
 
 /** Room above and below the lanes of a row. */
 const ROW_PADDING = 4;

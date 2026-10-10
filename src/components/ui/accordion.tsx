@@ -9,7 +9,7 @@ import Panel from "./panel";
 import { useMessages } from "../../providers/ui-context";
 
 // Clicks on these inside the header do their own thing - they do not toggle
-const interactiveSelector = [
+const interactiveSelector = /* @__PURE__ */ [
   "a[href]",
   "button",
   "input",

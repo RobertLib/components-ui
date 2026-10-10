@@ -119,7 +119,7 @@ export interface SnackbarApi {
 }
 
 // Without a provider nothing is shown
-export const SnackbarContext = createContext<SnackbarApi>({
+export const SnackbarContext = /* @__PURE__ */ createContext<SnackbarApi>({
   closeSnackbar: () => {},
   enqueueSnackbar: () => 0,
   promise: (promise) => promise,
@@ -142,13 +142,14 @@ export interface ToastRegion {
  * Set by `SnackbarProvider`: its live regions announce the toasts added to
  * them, so a toast is no live region of its own there.
  */
-export const ToastRegionContext = createContext<ToastRegion | null>(null);
+export const ToastRegionContext =
+  /* @__PURE__ */ createContext<ToastRegion | null>(null);
 
 /**
  * Set by `SnackbarProvider` around each toast: how often `updateSnackbar`
  * has changed it - its time on screen starts over at each change.
  */
-export const ToastRevisionContext = createContext(0);
+export const ToastRevisionContext = /* @__PURE__ */ createContext(0);
 
 /** Shows toasts - requires a `SnackbarProvider` above. */
 export function useSnackbar() {

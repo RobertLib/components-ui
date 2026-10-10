@@ -145,6 +145,14 @@ export function revealFocus(
  */
 export const MIN_TILE_HEIGHT = 24;
 
+/**
+ * Height of a lane of the timeline views, in pixels - a tile and the gap
+ * below it. Here, next to the tile height: a sum with an imported constant
+ * would stay in an app without a calendar, as a bundler cannot tell it does
+ * nothing.
+ */
+export const LANE_HEIGHT = MIN_TILE_HEIGHT + 4;
+
 /** The lengths of the slots the week, day and timeline views take. */
 export const SLOT_DURATIONS: readonly number[] = [5, 10, 15, 20, 30, 60];
 

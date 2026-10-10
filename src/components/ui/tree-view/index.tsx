@@ -1934,7 +1934,7 @@ function TreeRowView<T extends TreeItem>({
 }
 
 // Preserve the item's generic type across React.memo's component wrapper.
-const MemoTreeRowView = memo(TreeRowView) as typeof TreeRowView;
+const MemoTreeRowView = /* @__PURE__ */ memo(TreeRowView) as typeof TreeRowView;
 
 interface HighlightedTextProps {
   /** `[start, end)` ranges of `text` to highlight. */

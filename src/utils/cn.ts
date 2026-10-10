@@ -121,138 +121,148 @@ const oneOf =
 /**
  * Prefixes whose group is the prefix itself, with the values that are
  * theirs. A value outside - a custom class like `top-bar` or `size-hint` -
- * makes the class conflict with nothing.
+ * makes the class conflict with nothing. Built by a call marked pure, like
+ * `OVERRIDES`: a bundler leaves out a pure call whose result is unused - not
+ * plain statements.
  */
-const PREFIXES: Record<string, (value: string) => boolean> = {
-  animate: () => true,
-  aspect: (value) =>
-    ARBITRARY.test(value) || /^(?:square|video|auto|\d+\/\d+)$/.test(value),
-  basis: isSize,
-  cursor: (value) =>
-    /^[a-z]+(?:-[a-z]+)*$/.test(value) || ARBITRARY.test(value),
-  delay: numberOr("initial"),
-  duration: numberOr("initial"),
-  ease: oneOf("linear", "in", "out", "in-out", "initial"),
-  "grid-cols": numberOr("none", "subgrid"),
-  "grid-rows": numberOr("none", "subgrid"),
-  grow: numberOr(),
-  leading: numberOr("none", "tight", "snug", "normal", "relaxed", "loose"),
-  opacity: numberOr(),
-  order: numberOr("first", "last", "none"),
-  "pointer-events": oneOf("none", "auto"),
-  select: oneOf("none", "text", "all", "auto"),
-  shrink: numberOr(),
-  tracking: oneOf("tighter", "tight", "normal", "wide", "wider", "widest"),
-  whitespace: oneOf(
-    "normal",
-    "nowrap",
-    "pre",
-    "pre-line",
-    "pre-wrap",
-    "break-spaces",
-  ),
-  z: numberOr("auto"),
-};
+const PREFIXES = /* @__PURE__ */ (() => {
+  const prefixes: Record<string, (value: string) => boolean> = {
+    animate: () => true,
+    aspect: (value) =>
+      ARBITRARY.test(value) || /^(?:square|video|auto|\d+\/\d+)$/.test(value),
+    basis: isSize,
+    cursor: (value) =>
+      /^[a-z]+(?:-[a-z]+)*$/.test(value) || ARBITRARY.test(value),
+    delay: numberOr("initial"),
+    duration: numberOr("initial"),
+    ease: oneOf("linear", "in", "out", "in-out", "initial"),
+    "grid-cols": numberOr("none", "subgrid"),
+    "grid-rows": numberOr("none", "subgrid"),
+    grow: numberOr(),
+    leading: numberOr("none", "tight", "snug", "normal", "relaxed", "loose"),
+    opacity: numberOr(),
+    order: numberOr("first", "last", "none"),
+    "pointer-events": oneOf("none", "auto"),
+    select: oneOf("none", "text", "all", "auto"),
+    shrink: numberOr(),
+    tracking: oneOf("tighter", "tight", "normal", "wide", "wider", "widest"),
+    whitespace: oneOf(
+      "normal",
+      "nowrap",
+      "pre",
+      "pre-line",
+      "pre-wrap",
+      "break-spaces",
+    ),
+    z: numberOr("auto"),
+  };
 
-for (const prefix of ["p", "px", "py", "ps", "pe", "pt", "pr", "pb", "pl"]) {
-  PREFIXES[prefix] = isSpacing;
-}
-for (const prefix of ["m", "mx", "my", "ms", "me", "mt", "mr", "mb", "ml"]) {
-  PREFIXES[prefix] = (value) => isSpacing(value) || value === "auto";
-}
-for (const prefix of ["gap", "gap-x", "gap-y", "space-x", "space-y"]) {
-  PREFIXES[prefix] = isSpacing;
-}
-for (const prefix of [
-  "inset",
-  "inset-x",
-  "inset-y",
-  "inset-s",
-  "inset-e",
-  "top",
-  "right",
-  "bottom",
-  "left",
-  "start",
-  "end",
-  "translate-x",
-  "translate-y",
-]) {
-  PREFIXES[prefix] = isInset;
-}
-for (const prefix of ["w", "size", "min-w", "max-w"]) {
-  PREFIXES[prefix] = isSize;
-}
-for (const prefix of ["h", "min-h", "max-h"]) {
-  PREFIXES[prefix] = isHeight;
-}
+  for (const prefix of ["p", "px", "py", "ps", "pe", "pt", "pr", "pb", "pl"]) {
+    prefixes[prefix] = isSpacing;
+  }
+  for (const prefix of ["m", "mx", "my", "ms", "me", "mt", "mr", "mb", "ml"]) {
+    prefixes[prefix] = (value) => isSpacing(value) || value === "auto";
+  }
+  for (const prefix of ["gap", "gap-x", "gap-y", "space-x", "space-y"]) {
+    prefixes[prefix] = isSpacing;
+  }
+  for (const prefix of [
+    "inset",
+    "inset-x",
+    "inset-y",
+    "inset-s",
+    "inset-e",
+    "top",
+    "right",
+    "bottom",
+    "left",
+    "start",
+    "end",
+    "translate-x",
+    "translate-y",
+  ]) {
+    prefixes[prefix] = isInset;
+  }
+  for (const prefix of ["w", "size", "min-w", "max-w"]) {
+    prefixes[prefix] = isSize;
+  }
+  for (const prefix of ["h", "min-h", "max-h"]) {
+    prefixes[prefix] = isHeight;
+  }
+
+  return prefixes;
+})();
 
 /**
  * The groups a later class of a group overrides besides its own - a later
  * `p-0` also replaces an earlier `px-4`, a later `px-0` not an earlier `p-4`.
  */
-const OVERRIDES: Record<string, string[]> = {
-  "font-size": ["font-size-leading"],
-  "font-size-leading": ["font-size", "leading"],
-  gap: ["gap-x", "gap-y"],
-  inset: [
-    "inset-x",
-    "inset-y",
-    "top",
-    "right",
-    "bottom",
-    "left",
-    "inset-s",
-    "inset-e",
-  ],
-  "inset-x": ["left", "right", "inset-s", "inset-e"],
-  "inset-y": ["top", "bottom"],
-  overflow: ["overflow-x", "overflow-y"],
-  rounded: [
-    "rounded-s",
-    "rounded-e",
-    "rounded-t",
-    "rounded-r",
-    "rounded-b",
-    "rounded-l",
-    "rounded-ss",
-    "rounded-se",
-    "rounded-ee",
-    "rounded-es",
-    "rounded-tl",
-    "rounded-tr",
-    "rounded-br",
-    "rounded-bl",
-  ],
-  "rounded-s": ["rounded-ss", "rounded-es"],
-  "rounded-e": ["rounded-se", "rounded-ee"],
-  "rounded-t": ["rounded-tl", "rounded-tr"],
-  "rounded-r": ["rounded-tr", "rounded-br"],
-  "rounded-b": ["rounded-br", "rounded-bl"],
-  "rounded-l": ["rounded-tl", "rounded-bl"],
-  size: ["w", "h"],
-};
+const OVERRIDES = /* @__PURE__ */ (() => {
+  const overrides: Record<string, string[]> = {
+    "font-size": ["font-size-leading"],
+    "font-size-leading": ["font-size", "leading"],
+    gap: ["gap-x", "gap-y"],
+    inset: [
+      "inset-x",
+      "inset-y",
+      "top",
+      "right",
+      "bottom",
+      "left",
+      "inset-s",
+      "inset-e",
+    ],
+    "inset-x": ["left", "right", "inset-s", "inset-e"],
+    "inset-y": ["top", "bottom"],
+    overflow: ["overflow-x", "overflow-y"],
+    rounded: [
+      "rounded-s",
+      "rounded-e",
+      "rounded-t",
+      "rounded-r",
+      "rounded-b",
+      "rounded-l",
+      "rounded-ss",
+      "rounded-se",
+      "rounded-ee",
+      "rounded-es",
+      "rounded-tl",
+      "rounded-tr",
+      "rounded-br",
+      "rounded-bl",
+    ],
+    "rounded-s": ["rounded-ss", "rounded-es"],
+    "rounded-e": ["rounded-se", "rounded-ee"],
+    "rounded-t": ["rounded-tl", "rounded-tr"],
+    "rounded-r": ["rounded-tr", "rounded-br"],
+    "rounded-b": ["rounded-br", "rounded-bl"],
+    "rounded-l": ["rounded-tl", "rounded-bl"],
+    size: ["w", "h"],
+  };
 
-// The four sides of the box: m, p, border width and border color override
-// the same way - all sides, then x / y
-for (const [all, prefix] of [
-  ["m", "m"],
-  ["p", "p"],
-  ["border-w", "border-w-"],
-  ["border-color", "border-color-"],
-]) {
-  const side = (name: string) => `${prefix}${name}`;
-  OVERRIDES[all] = ["x", "y", "s", "e", "t", "r", "b", "l"].map(side);
-  OVERRIDES[side("x")] = ["s", "e", "r", "l"].map(side);
-  OVERRIDES[side("y")] = ["t", "b"].map(side);
-}
+  // The four sides of the box: m, p, border width and border color override
+  // the same way - all sides, then x / y
+  for (const [all, prefix] of [
+    ["m", "m"],
+    ["p", "p"],
+    ["border-w", "border-w-"],
+    ["border-color", "border-color-"],
+  ]) {
+    const side = (name: string) => `${prefix}${name}`;
+    overrides[all] = ["x", "y", "s", "e", "t", "r", "b", "l"].map(side);
+    overrides[side("x")] = ["s", "e", "r", "l"].map(side);
+    overrides[side("y")] = ["t", "b"].map(side);
+  }
 
-// Borders also have the block sides - `border-bs-2`, `border-be-red-500`
-for (const prefix of ["border-w-", "border-color-"]) {
-  const blockSides = [`${prefix}bs`, `${prefix}be`];
-  OVERRIDES[prefix.slice(0, -1)].push(...blockSides);
-  OVERRIDES[`${prefix}y`].push(...blockSides);
-}
+  // Borders also have the block sides - `border-bs-2`, `border-be-red-500`
+  for (const prefix of ["border-w-", "border-color-"]) {
+    const blockSides = [`${prefix}bs`, `${prefix}be`];
+    overrides[prefix.slice(0, -1)].push(...blockSides);
+    overrides[`${prefix}y`].push(...blockSides);
+  }
+
+  return overrides;
+})();
 
 // Tailwind's sizes and those of the library's headings
 const FONT_SIZES = new Set([

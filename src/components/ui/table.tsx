@@ -105,7 +105,7 @@ interface TableOptions {
   striped: boolean;
 }
 
-const TableContext = createContext<TableOptions>({
+const TableContext = /* @__PURE__ */ createContext<TableOptions>({
   bordered: false,
   density: "normal",
   hover: false,
@@ -114,7 +114,9 @@ const TableContext = createContext<TableOptions>({
 });
 
 /** The part of the table a row is in. */
-const SectionContext = createContext<"body" | "foot" | "head">("body");
+const SectionContext = /* @__PURE__ */ createContext<"body" | "foot" | "head">(
+  "body",
+);
 
 const densityClasses: Record<TableDensity, string> = {
   compact: "px-2 py-1",
