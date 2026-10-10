@@ -695,6 +695,48 @@ describe("TreeSelect in a form", () => {
     expect(combobox()).toHaveTextContent("Laptops");
   });
 
+  it("holds the value in the form before onChange, which may submit it", async () => {
+    const user = userEvent.setup();
+    const submitted: [FormDataEntryValue[], boolean][] = [];
+    const read = () => {
+      const form = screen.getByTestId("form") as HTMLFormElement;
+      submitted.push([
+        new FormData(form).getAll("category"),
+        form.checkValidity(),
+      ]);
+    };
+    const { rerender } = render(
+      <form data-testid="form">
+        <TreeSelect
+          items={categories}
+          label="Category"
+          name="category"
+          onChange={read}
+          required
+        />
+      </form>,
+    );
+    await user.click(combobox());
+    await user.click(item("Garden"));
+    expect(submitted).toEqual([[["garden"], true]]);
+
+    rerender(
+      <form data-testid="form">
+        <TreeSelect
+          items={categories}
+          key="multiple"
+          label="Categories"
+          multiple
+          name="category"
+          onChange={read}
+        />
+      </form>,
+    );
+    await user.click(combobox());
+    await user.click(item("Garden"));
+    expect(submitted.at(-1)).toEqual([["garden"], true]);
+  });
+
   it("submits the checked items of a multiple field - parents of checked children too", () => {
     render(
       <form data-testid="form">
@@ -782,7 +824,20 @@ describe("TreeSelect in a form", () => {
     const form = screen.getByTestId("form") as HTMLFormElement;
 
     expect(combobox()).toHaveAttribute("aria-required", "true");
+    const validation = form.querySelector<HTMLInputElement>("input[required]")!;
+    expect(validation).toHaveAttribute("inert");
+    // The browser can focus it then - Safari by its styles laid out anew
+    const layout = vi.spyOn(validation, "getBoundingClientRect");
     expect(form.checkValidity()).toBe(false);
+    expect(validation).not.toHaveAttribute("inert");
+    expect(layout).toHaveBeenCalled();
+    // The field takes the focus once the browser is done - Firefox focuses
+    // the input again at the next submit
+    act(() => validation.focus());
+    expect(validation).toHaveFocus();
+    await act(async () => {});
+    expect(combobox()).toHaveFocus();
+    await waitFor(() => expect(validation).toHaveAttribute("inert"));
 
     await user.click(combobox());
     await user.click(item("Garden"));

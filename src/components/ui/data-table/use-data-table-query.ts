@@ -208,9 +208,9 @@ export default function useDataTableQuery({
 
       if (search === currentSearch) return;
 
-      // Also a change back to what the router shows waits for its turn - the
-      // changes before it still arrive first, and a change made meanwhile
-      // must build on this one, not on them
+      // Also a change back to what the router shows waits for its turn - a
+      // change made meanwhile must build on this one, not on the changes
+      // before it (the next render drops them all, see observeSearch)
       entry.pending = [...entry.pending, search].slice(-MAX_PENDING_SEARCHES);
 
       currentRouter.navigate(

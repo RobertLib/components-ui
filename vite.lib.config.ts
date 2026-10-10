@@ -3,13 +3,27 @@ import babel from "@rolldown/plugin-babel";
 import { readFileSync } from "node:fs";
 import { defineConfig, type Plugin } from "vite";
 
-/** Ships the stylesheet next to the bundle, where its `@source "./"` points. */
+const SOURCE = '@source "./";';
+
+/**
+ * Ships the stylesheet next to the bundle, where its `@source "./"` points -
+ * not to the source maps and the type declarations of the build, whose
+ * comments would only add classes nobody uses. Only in the build: a source
+ * copy has the stylesheet next to the files of the app, `./types` of them.
+ */
 const copyStyles = (): Plugin => ({
   name: "components-ui:copy-styles",
   generateBundle() {
+    const styles = readFileSync("src/styles.css", "utf8");
+    if (!styles.includes(SOURCE)) {
+      this.error(`src/styles.css has no ${SOURCE} to add the exclusions to`);
+    }
     this.emitFile({
       fileName: "styles.css",
-      source: readFileSync("src/styles.css", "utf8"),
+      source: styles.replace(
+        SOURCE,
+        `${SOURCE}\n@source not "./**/*.map";\n@source not "./types";`,
+      ),
       type: "asset",
     });
   },

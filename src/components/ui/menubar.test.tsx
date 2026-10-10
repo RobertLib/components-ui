@@ -42,6 +42,38 @@ describe("Menubar", () => {
     expect(menus[2].items[0].onClick).toHaveBeenCalled();
     expect(changed).toHaveBeenLastCalledWith(null);
   });
+  it("leaves the arrow keys to a field in a menu - the menu itself switches", async () => {
+    const user = userEvent.setup();
+    const changed = vi.fn();
+    render(
+      <Menubar
+        menus={[
+          {
+            id: "file",
+            label: "File",
+            items: [
+              <input aria-label="Find" key="find" />,
+              { label: "New", onClick: vi.fn() },
+            ],
+          },
+          { id: "edit", label: "Edit", items: [{ label: "Copy" }] },
+        ]}
+        onOpenMenuChange={changed}
+      />,
+    );
+    await user.click(screen.getByRole("menuitem", { name: "File" }));
+    const field = screen.getByRole("textbox", { name: "Find" });
+    field.focus();
+
+    // The caret of the field moves - the menu stays
+    expect(fireEvent.keyDown(field, { key: "ArrowLeft" })).toBe(true);
+    expect(fireEvent.keyDown(field, { key: "ArrowRight" })).toBe(true);
+    expect(changed).toHaveBeenLastCalledWith("file");
+
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowRight" });
+    expect(changed).toHaveBeenLastCalledWith("edit");
+    expect(screen.getByRole("menuitem", { name: "Copy" })).toBeInTheDocument();
+  });
   it("respects controlled open state, RTL and forwarded refs", () => {
     const changed = vi.fn();
     const ref = { current: null as HTMLDivElement | null };

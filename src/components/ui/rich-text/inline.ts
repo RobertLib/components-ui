@@ -1,7 +1,15 @@
 // The inline commands of RichTextEditor that `execCommand` has none of -
 // inline code and clearing the formatting - and the helpers of links.
 // They work line by line: a mark never spans two blocks.
-import { closestIn, indexOf, isElement, lineOf, splitAt, unwrap } from "./dom";
+import {
+  closestIn,
+  indexOf,
+  isBlockNode,
+  isElement,
+  lineOf,
+  splitAt,
+  unwrap,
+} from "./dom";
 
 // The formatting "Clear formatting" removes - links and line breaks stay
 const FORMATTING_TAGS = new Set([
@@ -71,12 +79,41 @@ function segmentsOf(editor: HTMLElement, range: Range): Segment[] {
   return segments;
 }
 
-/** Whether every text of the selection is in one of `tags`. */
-export function isAllIn(editor: HTMLElement, range: Range, tags: string) {
-  const texts = selectedTexts(editor, range);
+/**
+ * Whether every text of the selection is in one of `tags` - leaving out the
+ * texts in the elements of `ignored` (headings, bold anyway).
+ */
+export function isAllIn(
+  editor: HTMLElement,
+  range: Range,
+  tags: string,
+  ignored?: string,
+) {
+  const texts = selectedTexts(editor, range).filter(
+    (text) => !ignored || !closestIn(editor, text, ignored),
+  );
   return (
     texts.length > 0 && texts.every((text) => !!closestIn(editor, text, tags))
   );
+}
+
+/**
+ * Where the selected text outside of the elements of `selector` starts -
+ * for a selection that starts in one of them and has text after it. `null`
+ * for any other.
+ */
+export function startOutside(
+  editor: HTMLElement,
+  range: Range,
+  selector: string,
+): [Node, number] | null {
+  if (!closestIn(editor, range.startContainer, selector)) return null;
+
+  const text = selectedTexts(editor, range).find(
+    (node) => !closestIn(editor, node, selector),
+  );
+  // The start is in an element of `selector` - the text found is after it
+  return text ? [text, 0] : null;
 }
 
 /**
@@ -197,10 +234,65 @@ export function clearFormatting(editor: HTMLElement, range: Range) {
   );
 }
 
+// Whitespace the browser collapses - not the no-break space
+const COLLAPSIBLE = /[\t\n\f\r ]/;
+
+/**
+ * The character of the line right before (or after) a node - `""` at an
+ * edge of the line or a line break, any letter for an image.
+ */
+function charBeside(editor: HTMLElement, node: Node, forward: boolean) {
+  const walker = document.createTreeWalker(
+    lineOf(editor, node),
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+  );
+  walker.currentNode = node;
+
+  for (
+    let next = forward ? walker.nextNode() : walker.previousNode();
+    next;
+    next = forward ? walker.nextNode() : walker.previousNode()
+  ) {
+    if (next.nodeType === Node.TEXT_NODE) {
+      const { data } = next as Text;
+      if (data) return forward ? data[0] : data.at(-1);
+    } else if (next.nodeName === "BR" || isBlockNode(next)) {
+      return "";
+    } else if (next.nodeName === "IMG") {
+      return "x";
+    }
+  }
+  return "";
+}
+
+/**
+ * Makes the spaces of inserted text no-break ones where they would collapse
+ * - at an edge of the line, next to another space - as the browser types
+ * them. A plain space at the end of the line shows nothing, and the caret
+ * after it falls back into the code before it.
+ */
+function keepSpaces(editor: HTMLElement, text: Text) {
+  let data = text.data.replace(/ {2}/g, " \u00a0");
+  if (
+    data.startsWith(" ") &&
+    COLLAPSIBLE.test(charBeside(editor, text, false) || " ")
+  ) {
+    data = `\u00a0${data.slice(1)}`;
+  }
+  if (
+    data.endsWith(" ") &&
+    COLLAPSIBLE.test(charBeside(editor, text, true) || " ")
+  ) {
+    data = `${data.slice(0, -1)}\u00a0`;
+  }
+  if (data !== text.data) text.data = data;
+}
+
 /**
  * Puts typed text into (or out of) inline code at a caret: in, a code
  * element of the text; out of the code the caret is in, the code is split
- * there and the text goes between. Returns the text node.
+ * there and the text goes between - its spaces that would collapse are
+ * no-break ones. Returns the text node.
  */
 export function insertTextWithCode(
   editor: HTMLElement,
@@ -253,6 +345,7 @@ export function insertTextWithCode(
     next.remove();
   }
 
+  keepSpaces(editor, node);
   return node;
 }
 

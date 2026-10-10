@@ -1,5 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
+import { describe, expect, it, onTestFinished } from "vitest";
 import Avatar from "./avatar";
 import AvatarGroup from "./avatar-group";
 import { colorOf, contrast } from "../../test/contrast";
@@ -28,6 +30,31 @@ describe("Avatar", () => {
       "Jana Nováková",
     );
   });
+
+  it.each([
+    ["falls back to the initials", false, "JN"],
+    ["keeps a picture without a size of its own", true, null],
+  ])(
+    "server-rendered, with a picture done before it hydrates - %s",
+    async (_, decodes, initials) => {
+      const page = <Avatar name="Jana Nováková" src="/jana.svg" />;
+      const container = document.createElement("div");
+      container.innerHTML = renderToString(page);
+      document.body.append(container);
+      onTestFinished(() => container.remove());
+      // Loaded or failed before React listened - a failed one decodes not
+      const image = container.querySelector("img")!;
+      Object.defineProperty(image, "complete", { value: true });
+      image.decode = () =>
+        decodes ? Promise.resolve() : Promise.reject(new Error("Broken"));
+
+      const root = await act(async () => hydrateRoot(container, page));
+
+      expect(container.querySelector("img") === null).toBe(!decodes);
+      if (initials) expect(container).toHaveTextContent(initials);
+      act(() => root.unmount());
+    },
+  );
 
   it("names the initials after the person, unless it is decorative", () => {
     render(

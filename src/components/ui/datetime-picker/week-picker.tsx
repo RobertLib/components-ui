@@ -25,6 +25,7 @@ import {
   padYear,
   withoutYear,
 } from "../../../utils/date";
+import { inTimeZone } from "../../../utils/time-zone";
 import { useLocale } from "../../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
 
@@ -48,6 +49,8 @@ interface WeekGridProps {
   onSelect: (year: number, week: number) => void;
   /** The selected week - the grid starts at it (or this week). */
   selected: ParsedWeek;
+  /** The IANA time zone of today - its week is shown without a selected one. */
+  timeZone?: string;
 }
 
 /** A comparable key of an ISO week. */
@@ -70,10 +73,11 @@ function WeekGrid({
   onEscape,
   onSelect,
   selected,
+  timeZone,
 }: WeekGridProps) {
   const locale = useLocale();
   const messages = locale.messages.ui.dateTimePicker;
-  const current = getISOWeek(new Date());
+  const current = getISOWeek(inTimeZone(new Date(), timeZone));
   // The buttons show the week as the week format of the locale does -
   // without the year: "W39", "KW 39"
   const weekPattern = withoutYear(locale.formats.week);
@@ -340,6 +344,7 @@ export default function WeekPicker({
   // Of the date popup only
   popupActions: _popupActions,
   presets: _presets,
+  timeZone,
   value,
   ...props
 }: CustomPickerProps) {
@@ -391,7 +396,14 @@ export default function WeekPicker({
       onValueChange={onValueChange}
       panelClassName="w-64"
       parseText={(text) => {
-        const typed = parseDisplayValue(text, locale.formats.week, "week");
+        // A year left out is the one of the week of today of `timeZone`
+        const typed = parseDisplayValue(
+          text,
+          locale.formats.week,
+          "week",
+          undefined,
+          inTimeZone(new Date(), timeZone),
+        );
         if (!typed) return { error: "format" };
         return isInRange(typed, min, max)
           ? { value: typed, validityMessage: getUnavailableMessage(typed) }
@@ -427,6 +439,7 @@ export default function WeekPicker({
           close();
         }}
         selected={selected}
+        timeZone={timeZone}
       />
     </PickerField>
   );

@@ -37,6 +37,7 @@ import FeatureExpansion, {
   InputValidationFixture,
   PrefilledInputsFixture,
 } from "./feature-expansion";
+import { RequiredFieldsFixture, RequiredSelectsFixture } from "./selection";
 
 const params = new URLSearchParams(window.location.search);
 const container = document.getElementById("root");
@@ -55,6 +56,10 @@ createRoot(container).render(
         <FeatureExpansion />
       ) : params.get("scenario") === "new-components" ? (
         <NewComponentsFixture />
+      ) : params.get("scenario") === "required-selects" ? (
+        <RequiredSelectsFixture />
+      ) : params.get("scenario") === "required-fields" ? (
+        <RequiredFieldsFixture />
       ) : params.get("scenario") === "named-zone" ? (
         <NamedZoneFixture />
       ) : params.get("scenario") === "loaded-picker-value" ? (

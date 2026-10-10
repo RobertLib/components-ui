@@ -5,6 +5,7 @@ import {
   ChevronsRight,
 } from "lucide-react";
 import { useId, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import useCustomValidity from "../../hooks/use-custom-validity";
 import cn, { joinTokens } from "../../utils/cn";
 import { foldSearchText } from "../../utils/remove-diacritics";
@@ -17,6 +18,7 @@ import {
 import { formatPlural } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 import Input from "./input";
+import { getActiveElement } from "./overlay-stack";
 import Checkbox from "./checkbox";
 import IconButton from "./icon-button";
 import FormDescription from "./form-description";
@@ -131,8 +133,10 @@ export default function TransferList({
   const [markedSelected, setMarkedSelected] = useState<
     ReadonlySet<TransferListValue>
   >(() => new Set());
+  // Spaces around the term are no part of it - a phone keyboard adds one
+  // after a word it completes
   const matches = (option: TransferListOption, search: string) =>
-    foldSearchText(option.label).includes(foldSearchText(search));
+    foldSearchText(option.label).includes(foldSearchText(search.trim()));
   const available = choices.filter(
     (option) => !chosen.has(option.value) && matches(option, availableSearch),
   );
@@ -170,10 +174,14 @@ export default function TransferList({
   }, form);
   const commit = (next: TransferListValue[]) => {
     if (!canChange) return;
-    if (value === undefined) setPicked(next);
+    // The hidden inputs hold the values before `onChange`, which may submit
+    // the form. A controlled parent can only render them after `onChange`.
+    flushSync(() => {
+      if (value === undefined) setPicked(next);
+      setMarkedAvailable(new Set());
+      setMarkedSelected(new Set());
+    });
     onChange?.(next);
-    setMarkedAvailable(new Set());
-    setMarkedSelected(new Set());
   };
   const add = (all: boolean) => {
     const added = eligibleAvailable
@@ -190,14 +198,31 @@ export default function TransferList({
     );
     if (removed.size) commit(values.filter((value) => !removed.has(value)));
   };
-  const focusControl = (element: HTMLElement) => {
-    const group = element.parentElement;
+  // The focus goes from the validation input to the first control
+  const focusControl = (validationInput: HTMLElement) => {
+    const group = validationInput.parentElement;
+    const controls = group?.querySelectorAll<HTMLElement>(
+      "input:not(:disabled):not([type=hidden]),button:not(:disabled):not([aria-disabled=true])",
+    );
     (
-      group?.querySelector<HTMLElement>(
-        "input:not(:disabled):not([type=hidden]):not([aria-hidden=true]),button:not(:disabled)",
-      ) ?? group
+      [...(controls ?? [])].find((control) => control !== validationInput) ??
+      group
     )?.focus();
   };
+  // A button with nothing to transfer - `aria-disabled` keeps the focus of
+  // the button just pressed, which a native `disabled` would drop to the
+  // page. A field that takes no changes disables them.
+  const transferButtonProps = (canTransfer: boolean) => ({
+    "aria-disabled": canChange && !canTransfer ? true : undefined,
+    className: "aria-disabled:cursor-not-allowed aria-disabled:opacity-50",
+    disabled: !canChange,
+    size:
+      dim === "xs" || dim === "sm"
+        ? ("sm" as const)
+        : dim === "lg"
+          ? ("lg" as const)
+          : ("md" as const),
+  });
   const list = (
     side: "available" | "selected",
     items: TransferListOption[],
@@ -231,6 +256,12 @@ export default function TransferList({
             }
             className="mb-2"
             onChange={(event) => setSearch(event.target.value)}
+            // It filters as it is typed - Enter submits no form from here
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+              }
+            }}
             type="search"
             value={search}
           />
@@ -337,17 +368,13 @@ export default function TransferList({
         )}
         <div className="flex items-center justify-center gap-2 sm:flex-col">
           <IconButton
-            size={
-              dim === "xs" || dim === "sm" ? "sm" : dim === "lg" ? "lg" : "md"
-            }
+            {...transferButtonProps(
+              values.length < maximum &&
+                eligibleAvailable.some((option) =>
+                  markedAvailable.has(option.value),
+                ),
+            )}
             aria-label={messages.addSelected}
-            disabled={
-              !canChange ||
-              values.length >= maximum ||
-              !eligibleAvailable.some((option) =>
-                markedAvailable.has(option.value),
-              )
-            }
             onClick={() => add(false)}
           >
             <ArrowRight
@@ -356,15 +383,10 @@ export default function TransferList({
             />
           </IconButton>
           <IconButton
-            size={
-              dim === "xs" || dim === "sm" ? "sm" : dim === "lg" ? "lg" : "md"
-            }
+            {...transferButtonProps(
+              values.length < maximum && eligibleAvailable.length > 0,
+            )}
             aria-label={messages.addAll}
-            disabled={
-              !canChange ||
-              values.length >= maximum ||
-              eligibleAvailable.length === 0
-            }
             onClick={() => add(true)}
           >
             <ChevronsRight
@@ -373,16 +395,12 @@ export default function TransferList({
             />
           </IconButton>
           <IconButton
-            size={
-              dim === "xs" || dim === "sm" ? "sm" : dim === "lg" ? "lg" : "md"
-            }
-            aria-label={messages.removeSelected}
-            disabled={
-              !canChange ||
-              !eligibleSelected.some((option) =>
+            {...transferButtonProps(
+              eligibleSelected.some((option) =>
                 markedSelected.has(option.value),
-              )
-            }
+              ),
+            )}
+            aria-label={messages.removeSelected}
             onClick={() => remove(false)}
           >
             <ArrowLeft
@@ -391,11 +409,8 @@ export default function TransferList({
             />
           </IconButton>
           <IconButton
-            size={
-              dim === "xs" || dim === "sm" ? "sm" : dim === "lg" ? "lg" : "md"
-            }
+            {...transferButtonProps(eligibleSelected.length > 0)}
             aria-label={messages.removeAll}
-            disabled={!canChange || eligibleSelected.length === 0}
             onClick={() => remove(true)}
           >
             <ChevronsLeft
@@ -435,13 +450,38 @@ export default function TransferList({
         />
       )}
       <input
-        aria-hidden="true"
         disabled={disabled || readOnly}
         form={form}
-        onInvalid={(event) => {
-          event.preventDefault();
+        // Neither focusable nor seen by assistive technology - until the
+        // browser reports it invalid (a submit, `reportValidity()`), then
+        // it can take the focus the browser gives it
+        inert
+        onChange={() => {}}
+        // The browser focuses it for a submit or `reportValidity()` only -
+        // not for a `checkValidity()` of the page, which must neither take
+        // the focus from the field the user is in nor show the error. The
+        // focus moves on once the browser is done focusing it: moved at
+        // once, Firefox would not focus it at the next submit again.
+        onFocus={(event) => {
+          const validationInput = event.currentTarget;
           setValidationShown(true);
-          focusControl(event.currentTarget);
+          queueMicrotask(() => {
+            if (
+              getActiveElement(validationInput.ownerDocument) ===
+              validationInput
+            ) {
+              focusControl(validationInput);
+            }
+          });
+        }}
+        onInvalid={(event) => {
+          const validationInput = event.currentTarget;
+          validationInput.removeAttribute("inert");
+          // Laid out anew at once (a call, which the React Compiler keeps) -
+          // Safari would focus it by its styles of before, inert, and so
+          // report nothing
+          validationInput.getBoundingClientRect();
+          setTimeout(() => validationInput.setAttribute("inert", ""));
         }}
         ref={validationRef}
         required={minimum > 0}
@@ -454,8 +494,6 @@ export default function TransferList({
         }}
         tabIndex={-1}
         value={values.length ? "selected" : ""}
-        readOnly={false}
-        onChange={() => {}}
       />
       {description && (
         <FormDescription id={`${groupId}-description`}>

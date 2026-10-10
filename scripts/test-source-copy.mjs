@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -79,13 +80,21 @@ test("A source copy works in a standalone Vite app", async (t) => {
     join(directory, "package.json"),
     '{"private":true,"type":"module"}\n',
   );
+  // Classes of the app in its `src/types` - a folder of the build of the
+  // package the stylesheet of the library leaves out, not of a copy
+  mkdirSync(join(source, "types"));
+  writeFileSync(
+    join(source, "types/status.ts"),
+    'export const statusClass = "ring-lime-950";\n',
+  );
   writeFileSync(
     join(source, "main.tsx"),
     `import { createRoot } from "react-dom/client";
 import { Button, UIProvider, cs } from "./components/ui";
+import { statusClass } from "./types/status";
 import "./index.css";
 createRoot(document.getElementById("root")!).render(
-  <UIProvider locale={cs}><Button>Save</Button></UIProvider>,
+  <UIProvider locale={cs}><Button className={statusClass}>Save</Button></UIProvider>,
 );
 `,
   );
@@ -105,17 +114,28 @@ createRoot(document.getElementById("root")!).render(
       const files = readdirSync(source, { recursive: true, encoding: "utf8" })
         .filter((file) => /\.tsx?$/.test(file))
         .map((file) => join(source, file));
-      const program = ts.createProgram(files, {
+      const options = {
         strict: true,
         noEmit: true,
-        skipLibCheck: true,
+        // The declarations too - `vite.d.ts` of the copy among them
+        skipLibCheck: false,
         target: ts.ScriptTarget.ES2022,
         module: ts.ModuleKind.ESNext,
         moduleResolution: ts.ModuleResolutionKind.Bundler,
         jsx: ts.JsxEmit.ReactJSX,
         lib: ["lib.es2023.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"],
         types: ["react", "react-dom"],
-      });
+      };
+      // An app without Vite - Next.js, webpack: the copy needs none of its
+      // types, nor those of Node
+      const host = ts.createCompilerHost(options);
+      const isVite = (path) =>
+        /[\\/]node_modules[\\/]vite(?:[\\/]|$)/.test(path);
+      const { directoryExists, fileExists } = host;
+      host.fileExists = (path) => !isVite(path) && fileExists.call(host, path);
+      host.directoryExists = (path) =>
+        !isVite(path) && (directoryExists?.call(host, path) ?? true);
+      const program = ts.createProgram(files, options, host);
       const errors = ts.getPreEmitDiagnostics(program).map((diagnostic) => ({
         file: diagnostic.file?.fileName,
         message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
@@ -139,6 +159,7 @@ createRoot(document.getElementById("root")!).render(
       assert.ok(css && css.type === "asset");
       assert.match(String(css.source), /--color-primary-600/);
       assert.match(String(css.source), /\.cui-/);
+      assert.match(String(css.source), /\.ring-lime-950\b/);
       const scripts = result.output.filter((file) => file.type === "chunk");
       assert.ok(scripts.length > 0);
       assert.ok(

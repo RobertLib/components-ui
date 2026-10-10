@@ -14,8 +14,12 @@ export default function RepeatableFieldPage() {
           <p>
             Supply stable ids and values for groups, a <code>createItem</code>{" "}
             factory and a <code>renderItem</code> renderer. Add, remove and
-            reorder retain existing field nodes and focus the affected group. A
-            value edit calls the renderer's <code>onChange</code>.
+            reorder retain existing field nodes and focus the affected group -
+            Add after the last group is removed. A value edit calls the
+            renderer's <code>onChange</code>, which replaces the value in the
+            latest groups: several groups can change in one event, and a group
+            updated after an <code>await</code> (an upload, an address lookup)
+            keeps what the user typed in the others meanwhile.
           </p>
         }
       />
@@ -32,10 +36,17 @@ export default function RepeatableFieldPage() {
           <p>
             <code>min</code>, <code>max</code> and <code>required</code>{" "}
             validate the number of groups on native submission. <code>max</code>{" "}
-            also caps additions. Reset restores uncontrolled defaults;
-            controlled rows use <code>value</code> and <code>onChange</code>. A
-            disabled fieldset disables nested controls and adding, removing or
-            reordering. Read-only groups keep their fields and omit the actions.
+            also caps additions. The message shows at a submit or{" "}
+            <code>reportValidity()</code>, which focus the group - not at{" "}
+            <code>checkValidity()</code>. Until then a count out of range marks
+            the group with <code>data-invalid</code> only, and{" "}
+            <code>aria-invalid</code> comes with the message. Reset restores
+            uncontrolled defaults; controlled rows use <code>value</code> and{" "}
+            <code>onChange</code>. A controlled parent may decline a change -
+            the rows and the focus stay as they are, and the next change builds
+            on <code>value</code>. A disabled fieldset disables nested controls
+            and adding, removing or reordering. Read-only groups keep their
+            fields and omit the actions.
           </p>
         </Prose>
       </Section>

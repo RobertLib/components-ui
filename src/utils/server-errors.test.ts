@@ -275,6 +275,124 @@ describe("getFieldError", () => {
     expect(getFieldError({ address: ["x"] }, "address.street")).toBeUndefined();
   });
 
+  it("reads problem details errors by their pointer", () => {
+    // The example of RFC 9457
+    const body = {
+      errors: [
+        { detail: "must be a positive integer", pointer: "#/age" },
+        {
+          detail: "must be 'green', 'red' or 'blue'",
+          pointer: "#/profile/color",
+        },
+      ],
+      title: "Your request is not valid.",
+      type: "https://example.net/validation-error",
+    };
+
+    expect(getFieldError(body, "age")).toBe("must be a positive integer");
+    expect(getFieldError(body, "profile.color")).toBe(
+      "must be 'green', 'red' or 'blue'",
+    );
+    expect(getFieldError(body, "color")).toBeUndefined();
+    // The fields say it all
+    expect(getBaseError(body)).toBeUndefined();
+  });
+
+  it("decodes the escapes of a pointer", () => {
+    const body = {
+      errors: [
+        { detail: "a", pointer: "#/sizes~1colors" },
+        // "~01" is "~1" - not "/"
+        { detail: "b", pointer: "/a~01" },
+        // A URI fragment is percent-encoded
+        { detail: "c", pointer: "#/first%20name" },
+        { detail: "d", pointer: "#/100%" },
+        { detail: "e", source: { pointer: "/data/attributes/x~1y" } },
+      ],
+    };
+
+    expect(getFieldError(body, "sizes/colors")).toBe("a");
+    expect(getFieldError(body, "a~1")).toBe("b");
+    expect(getFieldError(body, "first name")).toBe("c");
+    // Not percent-encoded after all
+    expect(getFieldError(body, "100%")).toBe("d");
+    expect(getFieldError(body, "x/y")).toBe("e");
+  });
+
+  it("reads the members of the body as System.Text.Json names them", () => {
+    const body = {
+      errors: {
+        "$.age": ["The JSON value could not be converted to System.Int32."],
+        "$.items[0].name": ["is blank"],
+      },
+      status: 400,
+      title: "One or more validation errors occurred.",
+    };
+
+    expect(getFieldError(body, "age")).toBe(
+      "The JSON value could not be converted to System.Int32.",
+    );
+    expect(getFieldError(body, "items.0.name")).toBe("is blank");
+    expect(getFieldError(body, "items[0].name")).toBe("is blank");
+    expect(getBaseError(body)).toBeUndefined();
+  });
+
+  it("reads FastAPI errors by their location", () => {
+    const body = {
+      detail: [
+        {
+          loc: ["body", "email"],
+          msg: "field required",
+          type: "value_error.missing",
+        },
+        {
+          input: "x",
+          loc: ["body", "items", 0, "price"],
+          msg: "Input should be a valid number",
+          type: "float_parsing",
+        },
+        { loc: ["query", "page"], msg: "Too big", type: "less_than_equal" },
+      ],
+    };
+
+    expect(getFieldError(body, "email")).toBe("field required");
+    expect(getFieldError(body, "items.0.price")).toBe(
+      "Input should be a valid number",
+    );
+    expect(getFieldError(body, "page")).toBe("Too big");
+    expect(getFieldError(body, "body")).toBeUndefined();
+    expect(getBaseError(body)).toBeUndefined();
+    expect(getNestedErrors(body)).toEqual([]);
+    // Without a body there is no field
+    expect(
+      getBaseError({
+        detail: [{ loc: ["body"], msg: "Field required", type: "missing" }],
+      }),
+    ).toBe("Field required");
+  });
+
+  it("reads the invalid-params of problem details", () => {
+    // The example of RFC 7807
+    const body = {
+      "invalid-params": [
+        { name: "age", reason: "must be a positive integer" },
+        { name: "color", reason: "must be 'green', 'red' or 'blue'" },
+      ],
+      title: "Your request parameters didn't validate.",
+      type: "https://example.net/validation-error",
+    };
+
+    expect(getFieldError(body, "age")).toBe("must be a positive integer");
+    expect(getFieldError(body, "color")).toBe(
+      "must be 'green', 'red' or 'blue'",
+    );
+    expect(getFieldError(body, "title")).toBeUndefined();
+    expect(getBaseError(body)).toBeUndefined();
+    expect(getBaseError({ "invalid-params": [], title: "Not valid" })).toBe(
+      "Not valid",
+    );
+  });
+
   it("matches names with numbers, acronyms and dashes", () => {
     expect(getFieldError({ address_line_1: ["x"] }, "addressLine1")).toBe("x");
     expect(getFieldError({ address_line1: ["x"] }, "addressLine1")).toBe("x");
@@ -498,6 +616,117 @@ describe("getBaseError", () => {
     expect(getBaseError(error)).toBe("Record is stale");
     expect(getFieldError(error, "data")).toBeUndefined();
     expect(getFieldError(error, "email")).toBe("is taken");
+  });
+
+  it("takes a problem details error pointing at the whole body", () => {
+    for (const pointer of ["#", "#/", ""]) {
+      const body = {
+        errors: [
+          { detail: "must be a positive integer", pointer: "#/age" },
+          { detail: "Unknown member 'colour'", pointer },
+        ],
+        title: "Your request is not valid.",
+      };
+
+      expect(getBaseError(body)).toBe("Unknown member 'colour'");
+      expect(getFieldError(body, "")).toBeUndefined();
+      expect(getFieldError(body, "age")).toBe("must be a positive integer");
+    }
+  });
+
+  it("takes the model-level errors of ASP.NET", () => {
+    // `ModelState.AddModelError("", …)`, IValidatableObject, a root rule of
+    // FluentValidation
+    const body = {
+      errors: { "": ["Invalid login attempt."] },
+      status: 400,
+      title: "One or more validation errors occurred.",
+      traceId: "00-1",
+      type: "https://tools.ietf.org/html/rfc9110#section-15.5.1",
+    };
+    const withFields = {
+      ...body,
+      errors: {
+        "": ["Passwords do not match."],
+        Email: ["The Email field is required."],
+      },
+    };
+
+    expect(getBaseError(body)).toBe("Invalid login attempt.");
+    expect(getFieldError(body, "")).toBeUndefined();
+    expect(getFieldError(body, "email")).toBeUndefined();
+    expect(getBaseError(withFields)).toBe("Passwords do not match.");
+    expect(getFieldError(withFields, "email")).toBe(
+      "The Email field is required.",
+    );
+    // Without messages there, the title
+    expect(getBaseError({ ...body, errors: { "": [] } })).toBe(
+      "One or more validation errors occurred.",
+    );
+  });
+
+  it("takes the error of a body System.Text.Json cannot read", () => {
+    const body = {
+      errors: { $: ["'x' is an invalid start of a value. Path: $"] },
+      status: 400,
+      title: "One or more validation errors occurred.",
+    };
+
+    expect(getBaseError(body)).toBe(
+      "'x' is an invalid start of a value. Path: $",
+    );
+    expect(getFieldError(body, "$")).toBeUndefined();
+  });
+
+  it("gives the error's own message next to lists it cannot read", () => {
+    // Symfony API Platform
+    const violations = {
+      detail: "email: This value should not be blank.",
+      title: "An error occurred",
+      violations: [
+        {
+          code: "c1051bb4",
+          message: "This value should not be blank.",
+          propertyPath: "email",
+        },
+      ],
+    };
+
+    expect(getBaseError(violations)).toBe(
+      "email: This value should not be blank.",
+    );
+    expect(getFieldError(violations, "email")).toBeUndefined();
+    expect(
+      getBaseError({ errors: { email: [{ error: "taken" }] }, message: "x" }),
+    ).toBe("x");
+    // Lists of messages are field messages - also in nested records and
+    // lists, and in a member of the error (NestJS)
+    expect(
+      getBaseError({ items: [{}, { price: ["too low"] }], message: "x" }),
+    ).toBeUndefined();
+    expect(
+      getBaseError({ address: { street: ["is blank"] }, message: "x" }),
+    ).toBeUndefined();
+    expect(
+      getBaseError({
+        error: "Bad Request",
+        message: ["email must be an email"],
+        statusCode: 400,
+      }),
+    ).toBeUndefined();
+    // and so are the problems of graphql-ruby
+    expect(
+      getBaseError({
+        errors: [
+          {
+            extensions: {
+              problems: [{ explanation: "is blank", path: ["items", 0] }],
+            },
+            message: "Variable $input was provided invalid value",
+          },
+        ],
+      }),
+    ).toBeUndefined();
   });
 
   it("takes the user error without a field, also next to field errors", () => {

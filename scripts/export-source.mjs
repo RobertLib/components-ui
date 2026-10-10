@@ -1,5 +1,5 @@
 import { cpSync, mkdirSync, realpathSync, rmSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -11,6 +11,22 @@ const root = fileURLToPath(new URL("..", import.meta.url));
  */
 export const isSystemFile = (name) =>
   name.startsWith(".") || /\.sw.$/.test(name);
+
+/** The folders of the library's `src` a source copy takes. */
+export const SOURCE_FOLDERS = [
+  "components/ui",
+  "providers",
+  "hooks",
+  "utils",
+  "i18n",
+];
+
+/**
+ * Whether a source copy takes the file or the folder at `path` in `src` -
+ * not a test, nor a file of the system or an editor in it.
+ */
+export const isCopied = (path) =>
+  !/\.test\.tsx?$/.test(path) && !path.split(/[\\/]/).some(isSystemFile);
 
 /**
  * Whether Node runs the module of `url` itself - also by a link to it or its
@@ -33,17 +49,10 @@ export function exportSource(directory) {
   rmSync(source, { recursive: true, force: true });
   mkdirSync(source, { recursive: true });
 
-  for (const folder of [
-    "components/ui",
-    "providers",
-    "hooks",
-    "utils",
-    "i18n",
-  ]) {
+  for (const folder of SOURCE_FOLDERS) {
     cpSync(join(root, "src", folder), join(source, folder), {
       recursive: true,
-      filter: (path) =>
-        !/\.test\.tsx?$/.test(path) && !isSystemFile(basename(path)),
+      filter: (path) => isCopied(relative(join(root, "src"), path)),
     });
   }
 

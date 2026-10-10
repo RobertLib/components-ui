@@ -101,10 +101,13 @@ export default function DialogPage() {
               the dialog was opened from its panel, which has closed meanwhile;
               and when that is gone too - the delete button of a row the dialog
               deleted - to the Tab stop that followed it (the next row), else to
-              the one before it. Popovers opened in it and the toasts of{" "}
-              <code>SnackbarProvider</code> stay reachable - Tab goes on from
-              the last control of the dialog to the toasts. The toasts show
-              above the backdrop.
+              the one before it. A dialog that replaces it as it closes (the
+              next step of a wizard) gives the focus back there too. It stays
+              where something else took it as the dialog closed - an{" "}
+              <code>autoFocus</code> field rendered in its place. Popovers
+              opened in it and the toasts of <code>SnackbarProvider</code> stay
+              reachable - Tab goes on from the last control of the dialog to the
+              toasts. The toasts show above the backdrop.
             </li>
             <li>
               A popover the dialog was opened from stays open under it, also

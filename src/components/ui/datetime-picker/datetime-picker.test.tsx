@@ -1583,3 +1583,76 @@ describe("DateTimePicker typed text and a pick of the same value", () => {
     expect(onChange).not.toHaveBeenCalledWith("14:00");
   });
 });
+
+// `onChange={() => form.requestSubmit()}` submits the new value - the
+// hidden input of an uncontrolled picker holds it already
+describe("DateTimePicker onChange of a value the form holds", () => {
+  /** Renders a picker in a form - `submitted` are what it held at each `onChange`. */
+  function renderInForm(props: React.ComponentProps<typeof DateTimePicker>) {
+    const submitted: unknown[] = [];
+    render(
+      <form aria-label="Order">
+        <DateTimePicker
+          label="Field"
+          name="field"
+          onChange={() =>
+            submitted.push(new FormData(screen.getByRole("form")).get("field"))
+          }
+          {...props}
+        />
+      </form>,
+    );
+    return {
+      input: screen.getByRole<HTMLInputElement>("combobox", { name: /Field/ }),
+      submitted,
+      user: userEvent.setup(),
+    };
+  }
+
+  it.each([
+    ["date", "2026-09-10", "September 24, 2026", "2026-09-24"],
+    [
+      "datetime-local",
+      "2026-09-10T09:00",
+      "September 24, 2026",
+      "2026-09-24T09:00",
+    ],
+    ["month", "2026-09", "October 2026", "2026-10"],
+    ["week", "2026-W39", "Week 40, 2026", "2026-W40"],
+  ] as const)(
+    "of a %s picked in the popup",
+    async (type, defaultValue, name, value) => {
+      const { input, submitted, user } = renderInForm({ defaultValue, type });
+
+      await user.click(input);
+      await user.click(screen.getByRole("button", { name }));
+      expect(submitted).toEqual([value]);
+    },
+  );
+
+  it("of a time picked in the popup", async () => {
+    const { input, submitted, user } = renderInForm({
+      defaultValue: "09:00",
+      type: "time",
+    });
+
+    await user.click(input);
+    const hours = screen.getByRole("listbox", { name: "Hours" });
+    await user.click(within(hours).getByRole("option", { name: "10 AM" }));
+    expect(submitted).toEqual(["10:00"]);
+  });
+
+  it("of a date of a preset, cleared and typed", async () => {
+    const { input, submitted, user } = renderInForm({
+      defaultValue: "2026-09-10",
+      presets: [{ label: "Launch", value: "2026-10-01" }],
+      type: "date",
+    });
+
+    await user.click(input);
+    await user.click(screen.getByRole("button", { name: "Launch" }));
+    await user.click(screen.getByRole("button", { name: "Clear value" }));
+    await user.type(input, "9/24/2026{Enter}");
+    expect(submitted).toEqual(["2026-10-01", "", "2026-09-24"]);
+  });
+});

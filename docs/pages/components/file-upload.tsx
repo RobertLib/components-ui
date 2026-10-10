@@ -327,6 +327,8 @@ export default function FileUploadPage() {
           <p>
             <code>attachments</code> is the authoritative stored list; apply{" "}
             <code>onAttachmentsChange</code> to reflect uploads and removals.
+            Without <code>multiple</code>, a new file replaces the attachment
+            the same way, and <code>onRemove</code> hears of the replaced one.
             Queued and running uploads remain internal. Updated attachments
             replace stored rows even after interaction. <code>onRemove</code>{" "}
             may return a promise: the file stays with a spinner until success,{" "}

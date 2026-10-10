@@ -106,6 +106,21 @@ describe("Textarea counter", () => {
       "2 characters over the limit",
     );
   });
+
+  it("counts a line break as one character, also a posted \\r\\n", () => {
+    render(
+      <Textarea
+        defaultValue={"ab\r\ncd\ref"}
+        label="Note"
+        maxLength={8}
+        showCount
+      />,
+    );
+
+    // As `maxLength` counts it - the textarea reads every break as "\n"
+    const counter = screen.getByText("8 / 8");
+    expect(counter.className).not.toMatch(/text-danger/);
+  });
 });
 
 describe("Textarea autosize", () => {

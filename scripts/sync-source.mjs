@@ -55,7 +55,13 @@ import {
 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { exportSource, isMain, isSystemFile } from "./export-source.mjs";
+import {
+  exportSource,
+  isCopied,
+  isMain,
+  isSystemFile,
+  SOURCE_FOLDERS,
+} from "./export-source.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -223,18 +229,46 @@ function readManifest(target) {
   return files;
 }
 
-function libraryVersion() {
+/**
+ * The version of the library in `library` and its commit for the manifest -
+ * by the tag of a release also without a message (`git tag v0.6.1`, as the
+ * releases have it), with `-dirty` where the files a copy takes differ from
+ * the commit: changed, removed, or new and not in Git yet. Tests and files
+ * Git ignores do not count, nor the rest of the library.
+ */
+export function libraryVersion(library = root) {
   const { version } = JSON.parse(
-    readFileSync(join(root, "package.json"), "utf8"),
+    readFileSync(join(library, "package.json"), "utf8"),
   );
+  const git = (...args) =>
+    execFileSync("git", ["-C", library, ...args], {
+      encoding: "utf8",
+      maxBuffer: 256 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
   let commit = null;
   try {
-    // `-dirty` for a library with changes not committed yet
-    commit = execFileSync("git", ["describe", "--always", "--dirty"], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    commit = git("describe", "--tags", "--always").trim();
+    // `XY path` - a rename with the old path in a record after it
+    const records = git(
+      ...["status", "--porcelain", "-z", "--untracked-files=all", "--"],
+      ...SOURCE_FOLDERS.map((folder) => `src/${folder}`),
+      ...["src/styles.css", "LICENSE"],
+    ).split("\0");
+    const changed = [];
+    for (let index = 0; index < records.length; index += 1) {
+      const record = records[index];
+      if (record.length < 4) continue;
+      changed.push(record.slice(3));
+      if (/[RC]/.test(record.slice(0, 2))) changed.push(records[++index]);
+    }
+    if (
+      changed.some(
+        (file) => !file.startsWith("src/") || isCopied(file.slice(4)),
+      )
+    ) {
+      commit += "-dirty";
+    }
   } catch {
     // Not a git checkout - the version alone
   }

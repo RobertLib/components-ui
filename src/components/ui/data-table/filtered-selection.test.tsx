@@ -116,6 +116,26 @@ describe("DataTable selection of all matching rows", () => {
     expect(barText()).toBe("");
   });
 
+  it("offers the rows of other pages beside rows that cannot be selected", async () => {
+    const user = userEvent.setup();
+    // The page has 7 rows to select of 10, the next one 2 more
+    render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={rows.slice(0, 12)}
+        defaultQuery={{ pageSize: 10 }}
+        filteredSelection
+        groupActions={[{ label: "Archive", onClick: () => {} }]}
+        isRowSelectable={(row) => row.id > 3}
+      />,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: "Select all rows" }));
+    await user.click(screen.getByRole("button", { name: "Select all 9 rows" }));
+    expect(barText()).toBe("All 9 rows are selected. Clear selection");
+  });
+
   it.each([false, true])(
     "drops exclusions for removed client-side rows (controlled: %s)",
     async (controlled) => {

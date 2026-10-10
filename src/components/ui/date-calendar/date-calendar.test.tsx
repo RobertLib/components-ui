@@ -452,10 +452,27 @@ describe("DateCalendar", () => {
     expect(validation).toHaveAttribute("tabindex", "-1");
     expect(getForm().checkValidity()).toBe(false);
 
-    // The browser focuses the invalid input - the calendar takes it
+    // The browser focuses the invalid input - the calendar takes it. Safari
+    // focuses it only by its styles laid out anew, no longer inert.
+    const layout = vi.spyOn(validation!, "getBoundingClientRect");
     fireEvent.invalid(validation!);
+    expect(validation).not.toHaveAttribute("inert");
+    expect(layout).toHaveBeenCalled();
+    // Once the browser is done focusing it - Firefox would not focus it
+    // at the next submit again
     act(() => validation!.focus());
+    expect(validation).toHaveFocus();
+    await act(() => Promise.resolve());
     expect(day("September 24, 2026")).toHaveFocus();
+    // The frames the grid scheduled for that focus are done
+    await settle();
+
+    // Not when the focus moved on meanwhile
+    act(() => validation!.focus());
+    const next = screen.getByRole("button", { name: "Next month" });
+    act(() => next.focus());
+    await act(() => Promise.resolve());
+    expect(next).toHaveFocus();
 
     await user.click(day("September 28, 2026"));
     expect(getForm().checkValidity()).toBe(true);
@@ -918,5 +935,46 @@ describe("DateCalendar on the server", () => {
 
     act(() => root.unmount());
     container.remove();
+  });
+});
+
+// `onChange={() => form.requestSubmit()}` submits the new days - the
+// hidden inputs of an uncontrolled calendar hold them already
+describe("DateCalendar onChange of days the form holds", () => {
+  const formDays = () => new FormData(screen.getByRole("form")).getAll("day");
+
+  it("of a day picked", async () => {
+    const submitted: unknown[] = [];
+    render(
+      <form aria-label="Order">
+        <DateCalendar
+          defaultValue="2026-09-10"
+          label="Day"
+          name="day"
+          onChange={() => submitted.push(formDays())}
+        />
+      </form>,
+    );
+
+    await userEvent.setup().click(day("September 24, 2026"));
+    expect(submitted).toEqual([["2026-09-24"]]);
+  });
+
+  it("of days picked with multiple", async () => {
+    const submitted: unknown[] = [];
+    render(
+      <form aria-label="Order">
+        <DateCalendar
+          defaultValue={["2026-09-10"]}
+          label="Day"
+          multiple
+          name="day"
+          onChange={() => submitted.push(formDays())}
+        />
+      </form>,
+    );
+
+    await userEvent.setup().click(day("September 24, 2026"));
+    expect(submitted).toEqual([["2026-09-10", "2026-09-24"]]);
   });
 });

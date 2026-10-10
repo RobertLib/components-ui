@@ -37,7 +37,8 @@ every push to `main`.
 ## Quick start
 
 Requirements: React 19, Tailwind CSS 4.3 or newer and a bundler that sets
-`process.env.NODE_ENV` (Vite, Next.js, webpack, …).
+`process.env.NODE_ENV` (Vite, Next.js, webpack, …). An install from git
+builds the package with Node.js 22.12 or newer.
 
 1. **Install** - from the git repository by tag (npm builds the package on
    install), a local folder, or your registry (publishing there needs a scoped
@@ -46,7 +47,7 @@ Requirements: React 19, Tailwind CSS 4.3 or newer and a bundler that sets
    page):
 
    ```sh
-   npm install git+https://github.com/RobertLib/components-ui.git#v0.6.1
+   npm install git+https://github.com/RobertLib/components-ui.git#v0.7.0
    ```
 
    If npm reports that the `prepare` script of `components-ui` is not allowed
@@ -192,7 +193,7 @@ components, providers, locales, hooks and helpers. Keep
 (webpack, Turbopack) leave out the components the app does not import. You
 can keep your project's entry file. `npm run sync:source` updates a source
 copy (see above). For the CSS too, add the Vite plugin of the copy -
-`import componentsUi from "./src/components/ui/vite"` in `vite.config.ts`
+`import componentsUi from "./src/components/ui/vite.js"` in `vite.config.ts`
 (see Quick start).
 
 For source copies, include the browser APIs and ES2023 definitions in your
@@ -206,10 +207,11 @@ TypeScript configuration (this does not require `target: "ES2023"`):
 }
 ```
 
-The source needs React's TypeScript types, but does not need Node types,
-project-specific import aliases or the React Compiler (the Vite plugin,
-`components/ui/vite.js`, is a module of Node in JavaScript, with its types
-in `vite.d.ts`). The compiler is optional; the source includes memoization
+The source needs React's TypeScript types, but does not need Node or Vite
+types, project-specific import aliases or the React Compiler (the Vite
+plugin, `components/ui/vite.js`, is a module of Node in JavaScript, with its
+types in `vite.d.ts`, which imports none of Vite's - also with
+`skipLibCheck: false`). The compiler is optional; the source includes memoization
 for expensive queries and list rows. `npm run test:source` checks an exported copy in a standalone Vite
 app and runs the library's tests without the compiler.
 
@@ -272,20 +274,23 @@ Keep your application catalogs when updating `i18n/ui/` from the library.
 
 ## Development
 
-| Script                  | What it does                                                                   |
-| ----------------------- | ------------------------------------------------------------------------------ |
-| `npm run dev`           | the docs with hot reload                                                       |
-| `npm run check`         | type check, lint, tests and formatting                                         |
-| `npm run lint`          | Oxlint, React Compiler and canonical Tailwind class checks                     |
-| `npm run lint:tailwind` | canonical Tailwind classes in the library, docs and browser fixtures           |
-| `npm test`              | the unit and component tests (Vitest)                                          |
-| `npm run test:source`   | exported sources and the Vite plugin in Vite, the tests without React Compiler |
-| `npm run test:browser`  | browser regressions in Chromium, Firefox and WebKit                            |
-| `npm run build:lib`     | the package: `dist/` - a module per source file, the styles, the types         |
-| `npm run build:docs`    | the docs as a static site in `dist-docs/`                                      |
-| `npm run export:source` | a clean source copy and license in `dist-source/`                              |
-| `npm run sync:source`   | copies or updates the source copy in an app: `-- ../app/src`                   |
-| `npm run format`        | Prettier (with Tailwind class sorting)                                         |
+The tests need Node.js 22.22, 24.15 or 26 and newer (`devEngines` - jsdom
+needs them); building the package needs 22.12 or newer.
+
+| Script                  | What it does                                                             |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `npm run dev`           | the docs with hot reload                                                 |
+| `npm run check`         | type check, lint, tests and formatting                                   |
+| `npm run lint`          | Oxlint, React Compiler and canonical Tailwind class checks               |
+| `npm run lint:tailwind` | canonical Tailwind classes in the library, docs and browser fixtures     |
+| `npm test`              | the unit and component tests (Vitest)                                    |
+| `npm run test:source`   | exported sources, the Vite plugin, the packed package, no React Compiler |
+| `npm run test:browser`  | browser regressions in Chromium, Firefox and WebKit                      |
+| `npm run build:lib`     | the package: `dist/` - a module per source file, the styles, the types   |
+| `npm run build:docs`    | the docs as a static site in `dist-docs/`                                |
+| `npm run export:source` | a clean source copy and license in `dist-source/`                        |
+| `npm run sync:source`   | copies or updates the source copy in an app: `-- ../app/src`             |
+| `npm run format`        | Prettier (with Tailwind class sorting)                                   |
 
 The Tailwind check uses the installed Tailwind version and `docs/styles.css`
 to suggest canonical utility and variant names, like VS Code's Tailwind CSS
@@ -331,8 +336,10 @@ is described on the
 [Developing the library](https://robertlib.github.io/components-ui/#/guides/contributing)
 page of the docs. The GitHub Actions workflow in `.github/workflows/ci.yml`
 runs `npm run check` and both builds on every push to `main` and `development`
-and on every pull request, plus the browser tests in all three engines; `.github/workflows/pages.yml`
-deploys the docs. Changes are recorded
+and on every pull request, plus the browser tests in all three engines, the
+tests of the sync, the Vite plugin and the package on macOS and Windows, and
+the package built with the oldest Node.js of `engines`;
+`.github/workflows/pages.yml` deploys the docs. Changes are recorded
 in [CHANGELOG.md](CHANGELOG.md).
 
 ## License

@@ -1814,6 +1814,43 @@ describe("TreeView in a form", () => {
     expect(new FormData(form).getAll("category")).toEqual(["books"]);
   });
 
+  it("holds the selected and checked items in the form before the change handlers, which may submit it", async () => {
+    const user = userEvent.setup();
+    const submitted: FormDataEntryValue[][] = [];
+    const read = () =>
+      submitted.push(
+        new FormData(screen.getByTestId("form") as HTMLFormElement).getAll(
+          "category",
+        ),
+      );
+    const { rerender } = render(
+      <form data-testid="form">
+        <TreeView
+          aria-label="Categories"
+          items={categories}
+          name="category"
+          onSelectedChange={read}
+        />
+      </form>,
+    );
+    await user.click(item("Books"));
+    expect(submitted).toEqual([["books"]]);
+
+    rerender(
+      <form data-testid="form">
+        <TreeView
+          aria-label="Categories"
+          checkable
+          items={categories}
+          name="category"
+          onCheckedChange={read}
+        />
+      </form>,
+    );
+    await user.click(item("Garden"));
+    expect(submitted).toEqual([["books"], ["garden"]]);
+  });
+
   it("submits nothing while disabled", () => {
     render(
       <form data-testid="form">

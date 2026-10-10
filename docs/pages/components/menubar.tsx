@@ -22,7 +22,8 @@ export default function MenubarPage() {
             Home and End choose the first or last menu, and typing a name
             selects a menu. Enter, Space or Down opens its commands. When a menu
             is open, arrows on a top-level command switch menus; nested submenus
-            keep their own arrow navigation. Escape closes the menu and restores
+            keep their own arrow navigation, and so does a control in custom
+            content (the caret of a field). Escape closes the menu and restores
             focus.
           </p>
           <p>

@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import Chip from "../chip";
 import cn, { joinTokens } from "../../../utils/cn";
 import debounce from "../../../utils/debounce";
@@ -222,7 +223,8 @@ interface BaseAutocompleteProps<
   maxVisibleChips?: number;
   /**
    * Several values - `value`, `defaultValue` and `onChange` then work with
-   * arrays.
+   * arrays. The typed term stays after a pick, to pick more of what it
+   * found, while the focus is in the field - leaving it clears the term.
    */
   multiple?: boolean;
   /**
@@ -1603,7 +1605,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     // A single empty value clears the field, also when it came from an
     // option - the same normalization as controlled and default values.
     const nextValues = multiple ? values : toValues(values[0]);
-    if (!isControlled) setInternalValues(nextValues);
+    // The hidden inputs hold the value before `onChange`, which may submit
+    // the form. A controlled parent can only render it after `onChange`.
+    if (!isControlled) flushSync(() => setInternalValues(nextValues));
 
     const items = nextValues.map(
       (selected) =>
@@ -1933,6 +1937,20 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     if (!windowLeft) {
       commitTyped();
       setCreatedMessage("");
+
+      // The term of a multiple field is no value: it stays while the focus
+      // is in the field - also on a chip - to pick more of what it found,
+      // but not once the focus leaves, where it would look like a value
+      const { relatedTarget } = event;
+      if (
+        multiple &&
+        !(
+          relatedTarget instanceof Node &&
+          event.currentTarget.parentElement?.contains(relatedTarget)
+        )
+      ) {
+        setSearch(null);
+      }
     }
   };
 
@@ -2471,11 +2489,27 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
           // it can take the focus the browser gives it, with the message
           inert
           onChange={() => {}}
-          // The user belongs in the visible field (the message still shows)
-          onFocus={focusInput}
+          // The user belongs in the visible field (the message still shows) -
+          // once the browser is done focusing this one: moved at once,
+          // Firefox would not focus it at the next submit again
+          onFocus={(event) => {
+            const validationInput = event.currentTarget;
+            queueMicrotask(() => {
+              if (
+                getActiveElement(validationInput.ownerDocument) ===
+                validationInput
+              ) {
+                focusInput();
+              }
+            });
+          }}
           onInvalid={(event) => {
             const validationInput = event.currentTarget;
             validationInput.removeAttribute("inert");
+            // Laid out anew at once (a call, which the React Compiler keeps) -
+            // Safari would focus it by its styles of before, inert, and so
+            // report nothing
+            validationInput.getBoundingClientRect();
             setTimeout(() => validationInput.setAttribute("inert", ""));
           }}
           required

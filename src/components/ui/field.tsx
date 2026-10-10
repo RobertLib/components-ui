@@ -1,5 +1,6 @@
 import { useId } from "react";
 import cn, { joinTokens } from "../../utils/cn";
+import { isControlTarget } from "./control-target";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import RequiredMark from "./required-mark";
@@ -110,12 +111,16 @@ export default function Field({
           htmlFor={controlId}
           id={labelId}
           // A control no label reaches (a `div` with a role) gets the focus
-          // from a click on the label too, as an input would
+          // from a click on the label too, as an input would - not from one
+          // on a button or a link in the label (or in a popover it opens),
+          // which is theirs alone
           onClick={(event) => {
-            if (!event.currentTarget.control) {
-              event.currentTarget.ownerDocument
-                .getElementById(controlId)
-                ?.focus();
+            const labelElement = event.currentTarget;
+            if (
+              !labelElement.control &&
+              !isControlTarget(event.target, labelElement)
+            ) {
+              labelElement.ownerDocument.getElementById(controlId)?.focus();
             }
           }}
         >

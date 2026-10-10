@@ -14,7 +14,9 @@ import {
   shiftDay,
   startOfDay,
   toISODate,
+  toLocalDay,
 } from "../../../utils/date";
+import { inTimeZone } from "../../../utils/time-zone";
 import { useLocale } from "../../../providers/ui-context";
 import useIsHydrated from "../../../hooks/use-is-hydrated";
 import useToday from "../../../hooks/use-today";
@@ -82,6 +84,11 @@ interface DayGridProps {
    * days marked. `selected` then only tells where the grid starts.
    */
   selection?: Date[];
+  /**
+   * The IANA time zone of today - the day marked as today, and the one a
+   * grid without a selected day starts at. The browser's by default.
+   */
+  timeZone?: string;
 }
 
 // `dateOf` - `new Date(year, …)` would take the years 0 - 99 for 19xx
@@ -122,10 +129,11 @@ const isRtl = (element: Element) =>
 export default function DayGrid(props: DayGridProps) {
   const isHydrated = useIsHydrated();
 
-  // An empty calendar starts at the browser's today, which the server
-  // cannot know. Reserve its space until hydration instead of rendering a
-  // month that may differ across midnight or time zones. Browser-only
-  // renders are hydrated from the start and show the grid immediately.
+  // An empty calendar starts at the browser's today (or that of
+  // `timeZone`), which the server cannot know. Reserve its space until
+  // hydration instead of rendering a month that may differ across
+  // midnight or time zones. Browser-only renders are hydrated from the
+  // start and show the grid immediately.
   if (!props.selected && !isHydrated) {
     return (
       <div
@@ -155,6 +163,7 @@ function DayGridContent({
   readOnly = false,
   selected,
   selection,
+  timeZone,
 }: DayGridProps & { isHydrated: boolean }) {
   const locale = useLocale();
   const messages = locale.messages.ui;
@@ -185,7 +194,11 @@ function DayGridContent({
 
   // A disabled day cannot take the focus - start inside the allowed range
   const [focusedDate, setFocusedDate] = useState(() =>
-    clampToRange(startOfDay(selected ?? new Date())),
+    clampToRange(
+      selected
+        ? startOfDay(selected)
+        : toLocalDay(inTimeZone(new Date(), timeZone)),
+    ),
   );
   // The first month shown
   const [month, setMonth] = useState(() => getFirstShownMonth(focusedDate));
@@ -369,8 +382,9 @@ function DayGridContent({
   };
 
   // Unknown before the hydration - another day after midnight, also in a
-  // calendar left open
-  const today = useToday();
+  // calendar left open. A local day, like those of the grid.
+  const zoneToday = useToday(timeZone);
+  const today = zoneToday && toLocalDay(zoneToday);
   const weekdayNames = getWeekdayNames(locale.code, locale.weekStartsOn);
   const longWeekdayNames = getWeekdayNames(
     locale.code,

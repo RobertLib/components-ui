@@ -17,6 +17,7 @@ import { hasBusinessHours } from "./business-hours";
 import Spinner from "../spinner";
 import {
   capitalize,
+  dateOf,
   isSameDay,
   parseISODate,
   startOfDay,
@@ -110,7 +111,17 @@ function scrollToToday(
       ? Array.from(scroller.querySelectorAll<HTMLElement>("[data-date]")).find(
           (item) => {
             const day = parseISODate(item.dataset.date);
-            return day !== null && day >= today;
+            // Its start in the zone of the agenda - the browser's midnight
+            // may be the day before there
+            return (
+              day !== null &&
+              dateOf(
+                day.getFullYear(),
+                day.getMonth(),
+                day.getDate(),
+                range.start,
+              ) >= today
+            );
           },
         )
       : undefined;

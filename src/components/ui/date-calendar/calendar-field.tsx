@@ -4,6 +4,7 @@ import FormDescription from "../form-description";
 import FormError from "../form-error";
 import hasLabel from "../datetime-picker/has-label";
 import { attachRef } from "../../../hooks/use-form-control";
+import { getActiveElement } from "../overlay-stack";
 import { useMessages } from "../../../providers/ui-context";
 import RequiredMark from "../required-mark";
 
@@ -210,11 +211,27 @@ export default function CalendarField({
           // it can take the focus the browser gives it, with the message
           inert
           onChange={() => {}}
-          // The user belongs in the calendar (the message still shows)
-          onFocus={() => focusCalendar(groupRef.current)}
+          // The user belongs in the calendar (the message still shows) -
+          // once the browser is done focusing this one: moved at once,
+          // Firefox would not focus it at the next submit again
+          onFocus={(event) => {
+            const validationInput = event.currentTarget;
+            queueMicrotask(() => {
+              if (
+                getActiveElement(validationInput.ownerDocument) ===
+                validationInput
+              ) {
+                focusCalendar(groupRef.current);
+              }
+            });
+          }}
           onInvalid={(event) => {
             const validationInput = event.currentTarget;
             validationInput.removeAttribute("inert");
+            // Laid out anew at once (a call, which the React Compiler keeps) -
+            // Safari would focus it by its styles of before, inert, and so
+            // report nothing
+            validationInput.getBoundingClientRect();
             setTimeout(() => validationInput.setAttribute("inert", ""));
           }}
           ref={validationRef}

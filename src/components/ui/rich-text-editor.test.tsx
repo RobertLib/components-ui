@@ -565,26 +565,102 @@ describe("RichTextEditor pastes over a selection", () => {
     expect(editor().innerHTML).toBe("<p><br></p>");
   });
 
-  it("pastes lines into a heading or cell it stays in", () => {
-    const execCommand = vi.fn(() => true);
+  it("pastes lines into a heading it stays in", () => {
+    // The browser deletes the selection - the caret where it started
+    const execCommand = vi.fn((command: string) => {
+      const range = document.getSelection()?.getRangeAt(0);
+      if (command === "delete" && range) {
+        const { startContainer, startOffset } = range;
+        range.deleteContents();
+        range.setStart(startContainer, startOffset);
+        range.collapse(true);
+      }
+      return true;
+    });
     document.execCommand = execCommand;
+    const onChange = vi.fn();
     render(
       <RichTextEditor
         defaultValue="<h2>Plan</h2><p>Text</p>"
         label="Note"
+        onChange={onChange}
         toolbar={ALL_TOOLS}
       />,
     );
 
-    // From the middle of the heading - it stays
+    // From the middle of the heading - it stays. Not by the browser, which
+    // ends the heading at the line break.
     selectText("an", "Text");
     paste("<p>One</p><ul><li>Two</li></ul>");
-    expect(execCommand).toHaveBeenLastCalledWith(
+    expect(execCommand).toHaveBeenCalledWith("delete", false, undefined);
+    expect(execCommand).not.toHaveBeenCalledWith(
       "insertHTML",
       false,
-      "One<br>Two",
+      expect.anything(),
     );
-    expect(editor().innerHTML).toBe("<h2>Plan</h2><p>Text</p>");
+    expect(editor().querySelector("h2")?.innerHTML).toBe("PlOne<br>Two");
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.stringContaining("<h2>PlOne<br>Two</h2>"),
+    );
+  });
+
+  it("pastes lines at the end of a heading, which Chrome and Safari end there", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    const onChange = vi.fn();
+    render(
+      <RichTextEditor
+        defaultValue="<h2>Plan</h2><p>Text</p>"
+        label="Note"
+        onChange={onChange}
+        toolbar={ALL_TOOLS}
+      />,
+    );
+
+    selectText("Plan", undefined, 4);
+    paste("<p>One</p><p>Two</p>");
+    expect(execCommand).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenLastCalledWith(
+      "<h2>PlanOne<br>Two</h2><p>Text</p>",
+    );
+    // The caret after the pasted lines
+    selectText("Two", undefined, 3);
+    const caret = document.getSelection()?.getRangeAt(0) as Range;
+    expect(caret.collapsed).toBe(true);
+
+    // An empty heading keeps no line break that held it open
+    editor().innerHTML = "<h2><br></h2>";
+    fireEvent.input(editor());
+    caretIn(editor().querySelector("h2") as HTMLElement);
+    paste("<i>One</i><br>Two");
+    expect(onChange).toHaveBeenLastCalledWith("<h2><i>One</i><br>Two</h2>");
+  });
+
+  it.each([
+    [
+      "the text of a drawing",
+      '<svg><text x="0" y="10">Revenue 2024</text></svg>',
+    ],
+    ["a formula", "<math><mi>x</mi><mo>=</mo><mn>2</mn></math>"],
+    ["an image the editor keeps none of", '<img src="/f.png" alt="x = 2">'],
+  ])("pastes the plain text of %s, whose HTML keeps nothing", (_, html) => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(<RichTextEditor defaultValue="<p>ab</p>" label="Note" />);
+
+    selectText("ab", "ab");
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        getData: (type: string) =>
+          type === "text/html" ? html : "Revenue 2024",
+      },
+    });
+    expect(execCommand).toHaveBeenCalledTimes(1);
+    expect(execCommand).toHaveBeenCalledWith(
+      "insertText",
+      false,
+      "Revenue 2024",
+    );
   });
 
   it("keeps the blocks of content replacing a table as a whole", () => {
@@ -1167,7 +1243,18 @@ describe("RichTextEditor links", () => {
     await user.type(url, "javascript:alert(1){Enter}");
 
     expect(url).toHaveAttribute("aria-invalid", "true");
+    // Told why, not only by the color of the field
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Enter a web address, an e-mail address or a phone number.",
+    );
+    expect(url).toHaveAccessibleDescription(
+      "Enter a web address, an e-mail address or a phone number.",
+    );
     expect(execCommand).not.toHaveBeenCalled();
+
+    await user.type(url, "x");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(url).not.toHaveAccessibleDescription();
 
     // Escape cancels - without closing a dialog around
     await user.keyboard("{Escape}");
@@ -1685,6 +1772,48 @@ describe("RichTextEditor blocks", () => {
     fireEvent.keyDown(editor(), { ctrlKey: true, key: "b" });
     expect(document.execCommand).toHaveBeenCalledWith("bold", false, undefined);
     expect(editor().querySelector("h3 span")?.getAttribute("style")).toBe("");
+  });
+
+  it("bolds the text after a heading or header cell the selection starts in", async () => {
+    const user = userEvent.setup();
+    // Chrome on a Mac and Safari take the bold of the start of a selection
+    // for that of all of it - a heading would never let the rest be bold
+    const boldFrom: string[] = [];
+    document.execCommand = vi.fn((command: string) => {
+      const range = document.getSelection()?.getRangeAt(0);
+      if (command === "bold") {
+        boldFrom.push(range?.startContainer.textContent ?? "");
+      }
+      return true;
+    });
+    render(
+      <RichTextEditor
+        defaultValue={
+          "<h2>Plan</h2><p><b>Done</b></p><p>Text</p>" +
+          "<table><thead><tr><th>Name</th></tr></thead>" +
+          "<tbody><tr><td>Ann</td></tr></tbody></table>"
+        }
+        label="Note"
+        toolbar={["bold", "heading2", "table"]}
+      />,
+    );
+
+    // On as the text after the heading is
+    selectText("Plan", "Done");
+    expect(tool("Bold")).toHaveAttribute("aria-pressed", "true");
+    selectText("Plan", "Text");
+    expect(tool("Bold")).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(tool("Bold"));
+    expect(boldFrom).toEqual(["Done"]);
+    // The selection starts in the heading again
+    expect(document.getSelection()?.getRangeAt(0).startContainer).toBe(
+      textNode("Plan"),
+    );
+
+    selectText("Name", "Ann");
+    await user.click(tool("Bold"));
+    expect(boldFrom).toEqual(["Done", "Ann"]);
   });
 
   it("indents and outdents list items", async () => {
@@ -2830,6 +2959,76 @@ describe("RichTextEditor character count", () => {
     expect(execCommand).toHaveBeenLastCalledWith("insertText", false, "12\n3");
   });
 
+  it("cuts pasted blocks replacing a heading as a whole after what fits", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor
+        defaultValue="<h2>Hello world</h2><p>abcdef</p>"
+        label="Note"
+        maxLength={20}
+        toolbar={ALL_TOOLS}
+      />,
+    );
+
+    // 17 characters, 14 of them selected - room for 17. The heading becomes
+    // a paragraph for the blocks first, the selection in it counts still.
+    selectText("Hello", "abc");
+    fireEvent.paste(editor(), {
+      clipboardData: {
+        getData: (type: string) =>
+          type === "text/html"
+            ? "<ul><li>0123456789</li><li>abcdef</li></ul>"
+            : "",
+      },
+    });
+    expect(execCommand).toHaveBeenLastCalledWith(
+      "insertHTML",
+      false,
+      "<ul><li>0123456789</li><li>abcdef</li></ul>",
+    );
+  });
+
+  it("drops nothing more where nothing fits, like a paste", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor
+        defaultValue="<p>abcde</p>"
+        label="Note"
+        maxLength={7}
+        toolbar={ALL_TOOLS}
+      />,
+    );
+    const drop = (html: string) =>
+      fireEvent.drop(editor(), {
+        dataTransfer: {
+          files: [],
+          getData: (type: string) => (type === "text/html" ? html : ""),
+        },
+      });
+
+    selectText("abcde", undefined, 5);
+    // No list item or paragraph is left empty by the cut
+    drop("<p>He</p><ul><li>x</li></ul>");
+    expect(execCommand).toHaveBeenLastCalledWith(
+      "insertHTML",
+      false,
+      "<p>He</p>",
+    );
+
+    editor().innerHTML = "<p>abcdefg</p>";
+    fireEvent.input(editor());
+    selectText("abcdefg", undefined, 7);
+    execCommand.mockClear();
+    drop("<p>Hello</p><ul><li>x</li></ul>");
+    expect(execCommand).not.toHaveBeenCalledWith(
+      "insertHTML",
+      false,
+      expect.anything(),
+    );
+  });
+
   it.each([
     { html: "<p>a b</p>", selection: " ", replacement: "X", max: 3 },
     {
@@ -3105,13 +3304,17 @@ describe("RichTextEditor Markdown shortcuts", () => {
     expect(editor().innerHTML).toBe("<p>Run x <code>npm test</code></p>");
     expect(tool("Code")).toHaveAttribute("aria-pressed", "false");
 
+    // A no-break space, as the browser types one at the end of a line - a
+    // plain one would collapse, the text after it going into the code
     typeText(" now");
-    expect(editor().innerHTML).toBe("<p>Run x <code>npm test</code> now</p>");
+    expect(editor().innerHTML).toBe(
+      "<p>Run x <code>npm test</code>&nbsp;now</p>",
+    );
 
     // Nothing of empty backticks
     typeText(" ``");
     expect(editor().innerHTML).toBe(
-      "<p>Run x <code>npm test</code> now ``</p>",
+      "<p>Run x <code>npm test</code>&nbsp;now ``</p>",
     );
   });
 
@@ -3220,6 +3423,58 @@ describe("RichTextEditor code blocks", () => {
     expect(beforeInput("insertParagraph")).toBe(false);
     expect(editor().innerHTML).toBe("<pre><code>a</code></pre><p><br></p>");
     expect(document.getSelection()?.anchorNode).toBe(editor().lastChild);
+  });
+
+  it("makes the new lines Safari types into a code block line breaks", async () => {
+    const user = userEvent.setup();
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    const onChange = vi.fn();
+    render(
+      <RichTextEditor
+        defaultValue="<pre><code>a</code></pre>"
+        label="Note"
+        onChange={onChange}
+        toolbar={EVERY_TOOL}
+      />,
+    );
+
+    // What WebKit leaves of "line1", Enter, "line2", Enter - its line break
+    // in preformatted text is "\n" - with the caret on the new line
+    const code = editor().querySelector("code") as HTMLElement;
+    code.textContent = "line1\nline2\n\n";
+    caretIn(code.firstChild as Node, 12);
+    fireEvent.input(editor(), { inputType: "insertLineBreak" });
+    expect(code.innerHTML).toBe("line1<br>line2<br><br>");
+    expect(onChange).toHaveBeenLastCalledWith(
+      "<pre><code>line1<br>line2<br><br></code></pre>",
+    );
+
+    // Enter on the empty last line leaves the block
+    expect(beforeInput("insertParagraph")).toBe(false);
+    expect(editor().innerHTML).toBe(
+      "<pre><code>line1<br>line2</code></pre><p><br></p>",
+    );
+
+    // The block becomes paragraphs of its lines - "\r\n" is one new line,
+    // and the caret stays in its text
+    editor().innerHTML = "<pre><code>a</code></pre>";
+    fireEvent.input(editor());
+    const typed = editor().querySelector("code") as HTMLElement;
+    typed.textContent = "one\r\ntwo\nthree";
+    caretIn(typed.firstChild as Node, 6);
+    fireEvent.input(editor(), { inputType: "insertText" });
+    const caret = document.getSelection()?.getRangeAt(0) as Range;
+    expect([caret.startContainer.textContent, caret.startOffset]).toEqual([
+      "two",
+      1,
+    ]);
+
+    selectText("one", "three");
+    await user.click(tool("Code block"));
+    expect(onChange).toHaveBeenLastCalledWith(
+      "<p>one</p><p>two</p><p>three</p>",
+    );
   });
 
   it("leaves the last code block by the arrow keys", () => {
@@ -3788,6 +4043,12 @@ describe("RichTextEditor images", () => {
     await user.type(url, "javascript:alert(1)");
     await user.click(screen.getByRole("button", { name: "Confirm" }));
     expect(url).toHaveAttribute("aria-invalid", "true");
+    expect(url).toHaveAccessibleDescription(
+      "Enter the web address of an image.",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Enter the web address of an image.",
+    );
     expect(onChange).not.toHaveBeenCalled();
 
     await user.clear(url);

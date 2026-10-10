@@ -214,7 +214,9 @@ export interface InputProps extends Omit<
    * With a `mask` and a `name`, the form gets the characters of the
    * placeholders alone (`12345` for `123 45`) - from a hidden input, as
    * `NumberInput` submits its number. The field still shows the formatted
-   * text and gives it to `onChange`. Not for React Hook Form's
+   * text and gives it to `onChange` - by then the hidden input of an
+   * uncontrolled field holds the new characters, so the form can be
+   * submitted from there. Not for React Hook Form's
    * `register()`, which reads the field itself - convert its value with
    * `setValueAs: (text) => applyMask(mask, text).raw` instead.
    */
@@ -279,15 +281,6 @@ export function InputBase({
     [ref],
   );
 
-  // A value a script writes into the input - React Hook Form's
-  // `register()`, `setValue()` - stays, and the clear button follows it
-  const { fieldRef, handleChange, value } = useFormControl({
-    ...props,
-    defaultValue,
-    followScriptWrites: true,
-    ref: ownRef,
-  });
-
   const type = props.type ?? "text";
   const isPassword = type === "password";
   const inputType = isPassword ? (passwordVisible ? "text" : "password") : type;
@@ -298,6 +291,24 @@ export function InputBase({
     mask !== undefined && MASKABLE_TYPES.has(type)
       ? parseMask(mask, maskTokens)
       : null;
+
+  // A value a script writes into the input - React Hook Form's
+  // `register()`, `setValue()` - stays, and the clear button follows it.
+  // React writing the default laid into the mask is none: a later default
+  // still replaces it.
+  const { fieldRef, handleChange, value } = useFormControl({
+    ...props,
+    // The form takes the characters alone from a hidden input
+    commitBeforeChange: !!parsedMask && unmask,
+    defaultValue,
+    followScriptWrites: true,
+    ref: ownRef,
+    shownDefault:
+      parsedMask && defaultValue !== undefined
+        ? conformToMask(parsedMask, String(defaultValue)).formatted
+        : undefined,
+  });
+
   // The value the field reported last, while a parent that keeps the raw
   // characters gives them back: they need not read as what was typed - the
   // raw "070" of `07### ######` is also its own text "070", and the typed

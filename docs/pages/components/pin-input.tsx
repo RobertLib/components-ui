@@ -12,8 +12,9 @@ export default function PinInputPage() {
             code once all cells are filled - by typing, by a paste into any
             cell, or by the code the phone offers from a text message (the first
             cell has <code>autocomplete="one-time-code"</code>, the field
-            spreads the code over the others). <code>onChange</code> gets every
-            change.
+            spreads the code over the others). The form holds the code by then,
+            so <code>onComplete</code> may submit it. <code>onChange</code> gets
+            every change.
           </p>
         }
         name="pin-input/basic"
@@ -70,7 +71,7 @@ export default function PinInputPage() {
               of a complete code. Typing moves on to the next cell; characters
               the code does not take are ignored. A digit key types its digit
               also where the keyboard layout puts a letter on it (the ě š č of a
-              Czech keyboard).
+              Czech keyboard) - in an alphanumeric code too.
             </li>
             <li>
               Backspace clears the character of the cell, or - in an empty cell

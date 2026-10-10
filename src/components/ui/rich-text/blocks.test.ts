@@ -182,6 +182,18 @@ describe("lists", () => {
     expect(editor.innerHTML).toBe("<ul><li>A</li><li>B</li><li>C</li></ul>");
   });
 
+  it("keeps the content after a nested list after it - an item of its own", () => {
+    // A loose list of Markdown - pasted, the sanitizer keeps it so
+    const editor = createEditor(
+      "<ul><li>alpha<ul><li>beta</li></ul>gamma</li></ul><p>x</p>",
+    );
+
+    run(editor, selectText(editor, "x"), (lines) => toggleList(lines, "ul"));
+    expect(editor.innerHTML).toBe(
+      "<ul><li>alpha<ul><li>beta</li></ul></li><li>gamma</li><li>x</li></ul>",
+    );
+  });
+
   it("takes an item out of a list as a heading", () => {
     const editor = createEditor("<ul><li>A</li><li>B</li><li>C</li></ul>");
 

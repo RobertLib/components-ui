@@ -215,7 +215,11 @@ export default function DateTimePickerPage() {
             <code>presets</code> offers days of your own beside the calendar
             (above it on phones) - a click picks the day and closes the popup; a
             preset that cannot be picked is disabled, the one of the value is
-            marked (<code>aria-pressed</code>).
+            marked (<code>aria-pressed</code>). Today is the browser&apos;s -
+            give a <code>timeZone</code> (e.g.{" "}
+            <code>&quot;America/New_York&quot;</code>) for today of another
+            zone, also where the popups open and the year of a date typed
+            without one.
           </p>
         }
         name="datetime-picker/popup-actions"

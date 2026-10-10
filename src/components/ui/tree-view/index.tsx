@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import cn from "../../../utils/cn";
 import logger from "../../../utils/logger";
 import Spinner from "../spinner";
@@ -752,13 +752,15 @@ export default function TreeView<T extends TreeItem>({
     onExpandedChange?.(next as T["id"][]);
   };
 
+  // The hidden inputs hold the value before the change handlers, which may
+  // submit the form. A controlled parent can only render it after them.
   const changeSelected = (next: TreeItemId[]) => {
-    if (!isSelectedControlled) setInternalSelected(next);
+    if (!isSelectedControlled) flushSync(() => setInternalSelected(next));
     onSelectedChange?.(next as T["id"][]);
   };
 
   const changeChecked = (next: TreeItemId[]) => {
-    if (!isCheckedControlled) setInternalChecked(next);
+    if (!isCheckedControlled) flushSync(() => setInternalChecked(next));
     onCheckedChange?.(next as T["id"][]);
   };
 

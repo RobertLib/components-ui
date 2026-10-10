@@ -5,7 +5,8 @@ import Sparkline, { type SparklineProps } from "./sparkline";
 import { toIntlLocale } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 
-type StatTrend = "up" | "down" | "neutral";
+/** The direction a `Stat` changed in. */
+export type StatTrend = "up" | "down" | "neutral";
 
 export interface StatProps extends React.ComponentProps<"div"> {
   /**

@@ -1,7 +1,7 @@
 {
   "name": "components-ui",
   "private": true,
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "React + Tailwind CSS component library with localization, router integration and REST / GraphQL friendly data components.",
   "license": "MIT",
   "repository": {
@@ -37,7 +37,14 @@
     "**/*.css"
   ],
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": ">=22.12.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^22.22.2 || ^24.15.0 || >=26.0.0",
+      "onFail": "warn"
+    }
   },
   "scripts": {
     "dev": "vite",
@@ -52,7 +59,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "playwright test",
-    "test:source": "node --test scripts/test-source-copy.mjs scripts/test-sync-source.mjs scripts/test-vite-plugin.mjs && vitest run --mode source-copy",
+    "test:source": "node --test scripts/test-source-copy.mjs scripts/test-sync-source.mjs scripts/test-vite-plugin.mjs scripts/test-package.mjs && vitest run --mode source-copy",
     "check": "npm run typecheck && npm run lint && npm run test:tailwind && npm run test && npm run test:source && prettier --check .",
     "prepare": "npm run build:lib",
     "format": "prettier --write .",
@@ -62,7 +69,13 @@
   "peerDependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tailwindcss": "^4.3.0"
+    "tailwindcss": "^4.3.0",
+    "vite": "*"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
   },
   "dependencies": {
     "lucide-react": "^1.47.0"

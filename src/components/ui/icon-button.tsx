@@ -3,7 +3,8 @@ import Tooltip, { type TooltipProps } from "./tooltip";
 import type { LinkComponentProps } from "../../providers/router";
 import { useRouterActions } from "../../providers/ui-context";
 
-type IconButtonColor = "default" | "primary" | "secondary" | "danger";
+/** The colors of the icon of an `IconButton`. */
+export type IconButtonColor = "default" | "primary" | "secondary" | "danger";
 
 export interface IconButtonProps extends Omit<
   React.ComponentProps<"button">,

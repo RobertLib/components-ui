@@ -1,8 +1,10 @@
 import cn from "../../utils/cn";
+import useIsHydrated from "../../hooks/use-is-hydrated";
 import { toIntlLocale } from "../../i18n/ui/format";
 import type { Locale } from "../../i18n/ui/types";
 import { useLocale } from "../../providers/ui-context";
 import { usesHour12 } from "../../utils/date";
+import { dateTimeZone } from "../../utils/time-zone";
 
 export type TimelineColor =
   | "primary"
@@ -41,7 +43,10 @@ export interface TimelineItem {
   /**
    * When it happened - a `Date` is written by the locale (see
    * `timeFormat`) in a `<time>` element, a string is shown as it is (e.g.
-   * "2 hours ago").
+   * "2 hours ago"). A `Date` is on the clock of the `timeZone` of
+   * `timeFormat`, of its own zone (a date of `useToday` or `inTimeZone`),
+   * else of the browser - so empty on the server and while a
+   * server-rendered page hydrates, whose clock may be another.
    */
   time?: Date | string;
   /** What happened, e.g. "Jana Nováková approved the order". */
@@ -66,8 +71,9 @@ export interface TimelineProps extends React.ComponentProps<"ol"> {
   /**
    * `Intl.DateTimeFormat` options of the times given as dates - the medium
    * date and the short time on the clock of the locale by default, e.g.
-   * `{ timeStyle: "short" }` for the time alone. Rendered on the server,
-   * add the `timeZone` of the user - the server writes its own otherwise.
+   * `{ timeStyle: "short" }` for the time alone. Add the `timeZone` of
+   * the user for a page rendered on the server - without one, a time is
+   * written on the clock of the browser, once the page has hydrated.
    */
   timeFormat?: Intl.DateTimeFormatOptions;
 }
@@ -77,16 +83,21 @@ const DEFAULT_TIME_FORMAT: Intl.DateTimeFormatOptions = {
   timeStyle: "short",
 };
 
-/** Writes the times given as dates - on the clock of the locale. */
+/**
+ * Writes the times given as dates - on the clock of the locale, in
+ * `timeZone` (the browser's without one).
+ */
 const createTimeFormat = (
   locale: Locale,
   options: Intl.DateTimeFormatOptions = DEFAULT_TIME_FORMAT,
+  timeZone?: string,
 ) =>
   new Intl.DateTimeFormat(toIntlLocale(locale.code), {
     // The locale's time format decides - `h:mm A` is the 12-hour clock.
     // An `hour12` of the options wins over it.
     hourCycle: usesHour12(locale.formats.time) ? "h12" : "h23",
     ...options,
+    timeZone,
   });
 
 const sizeClasses = {
@@ -235,15 +246,15 @@ const hasTime = (time: Date | string | undefined): time is Date | string =>
     ? time !== ""
     : !!time && !Number.isNaN(time.getTime());
 
-/** The time of an item - a date in a `<time>` element. */
+/** The time of an item - a date in a `<time>` element, written by `write`. */
 function TimelineTime({
   className,
-  format,
   time,
+  write,
 }: {
   className?: string;
-  format: Intl.DateTimeFormat;
   time: Date | string;
+  write: (time: Date) => string;
 }) {
   if (typeof time === "string") {
     return <span className={className}>{time}</span>;
@@ -251,7 +262,7 @@ function TimelineTime({
 
   return (
     <time className={className} dateTime={time.toISOString()}>
-      {format.format(time)}
+      {write(time)}
     </time>
   );
 }
@@ -274,8 +285,24 @@ export default function Timeline({
   ...props
 }: TimelineProps) {
   const locale = useLocale();
+  const isHydrated = useIsHydrated();
   const sizes = sizeClasses[size];
-  const format = createTimeFormat(locale, timeFormat);
+
+  // A format for each time zone the dates are written in
+  const formats = new Map<string | undefined, Intl.DateTimeFormat>();
+  const writeTime = (time: Date) => {
+    // The zone of `timeFormat`, or of a date of `useToday` or `inTimeZone`,
+    // is the same on the server and in the browser - the browser's own not
+    const timeZone = timeFormat?.timeZone ?? dateTimeZone(time);
+    if (!timeZone && !isHydrated) return "";
+
+    let format = formats.get(timeZone);
+    if (!format) {
+      format = createTimeFormat(locale, timeFormat, timeZone);
+      formats.set(timeZone, format);
+    }
+    return format.format(time);
+  };
 
   return (
     <ol
@@ -416,8 +443,8 @@ export default function Timeline({
                           "shrink-0 text-xs whitespace-nowrap text-neutral-500 dark:text-neutral-400",
                           alternate && "md:hidden",
                         )}
-                        format={format}
                         time={time}
+                        write={writeTime}
                       />
                     )}
                   </div>
@@ -445,8 +472,8 @@ export default function Timeline({
                   >
                     <TimelineTime
                       className="text-xs leading-5 whitespace-nowrap text-neutral-500 dark:text-neutral-400"
-                      format={format}
                       time={time}
+                      write={writeTime}
                     />
                   </div>
                 )}

@@ -1071,6 +1071,72 @@ describe("Dialog giving the focus back", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("button", { name: "Actions" })).toHaveFocus();
   });
+
+  it("gives it to what opened the first of two dialogs, one replacing the other", async () => {
+    const user = userEvent.setup();
+
+    // The next step is rendered after the first one - the focus has gone
+    // with the first one by the time it opens
+    function Wizard() {
+      const [step, setStep] = useState(0);
+      return (
+        <>
+          <button onClick={() => setStep(1)}>Start</button>
+          <Dialog onClose={() => setStep(0)} open={step === 1} title="Step 1">
+            <button onClick={() => setStep(2)}>Next</button>
+          </Dialog>
+          <Dialog onClose={() => setStep(0)} open={step === 2} title="Step 2">
+            <button onClick={() => setStep(0)}>Finish</button>
+          </Dialog>
+        </>
+      );
+    }
+
+    render(<Wizard />);
+    await user.click(screen.getByRole("button", { name: "Start" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("button", { name: "Finish" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Start" })).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Finish" }));
+    expect(screen.getByRole("button", { name: "Start" })).toHaveFocus();
+  });
+
+  it("leaves it to an autoFocus field rendered as it closes", async () => {
+    const user = userEvent.setup();
+
+    function Rows() {
+      const [open, setOpen] = useState(false);
+      const [editing, setEditing] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Add</button>
+          {editing && <input aria-label="Row name" autoFocus />}
+          <Dialog onClose={() => setOpen(false)} open={open} title="Add row">
+            <button
+              onClick={() => {
+                setOpen(false);
+                setEditing(true);
+              }}
+            >
+              Add and edit
+            </button>
+          </Dialog>
+        </>
+      );
+    }
+
+    render(<Rows />);
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(screen.getByRole("button", { name: "Add and edit" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Row name" })).toHaveFocus();
+  });
 });
 
 describe("Dialog and Escape", () => {
@@ -1270,7 +1336,9 @@ describe("Dialog and the page behind it", () => {
 
 describe("Dialog page scroll lock", () => {
   afterEach(() => {
+    document.body.style.paddingLeft = "";
     document.body.style.paddingRight = "";
+    document.documentElement.removeAttribute("dir");
   });
 
   it("keeps the width of the page while its scrollbar is hidden", () => {
@@ -1287,6 +1355,42 @@ describe("Dialog page scroll lock", () => {
     rerender(<Dialog open={false} title="Edit" />);
     expect(document.body.style.overflow).toBe("");
     expect(document.body.style.paddingRight).toBe("4px");
+  });
+
+  it("keeps the room of the scrollbar on the left of a right-to-left page", () => {
+    document.documentElement.dir = "rtl";
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(
+      1009,
+    );
+    // Firefox shows the scrollbar there - fixed elements start right of it
+    const measure = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        return this.style.position === "fixed"
+          ? new DOMRect(15, 0, 0, 0)
+          : measure.call(this);
+      },
+    );
+    document.body.style.paddingLeft = "4px";
+
+    const { rerender } = render(<Dialog open title="Edit" />);
+    expect(document.body.style.paddingLeft).toBe("19px");
+    expect(document.body.style.paddingRight).toBe("");
+
+    rerender(<Dialog open={false} title="Edit" />);
+    expect(document.body.style.paddingLeft).toBe("4px");
+  });
+
+  it("keeps it on the right of a right-to-left page where the scrollbar is", () => {
+    // Chrome keeps the scrollbar of the page on the right
+    document.documentElement.dir = "rtl";
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(
+      1009,
+    );
+
+    render(<Dialog open title="Edit" />);
+    expect(document.body.style.paddingRight).toBe("15px");
+    expect(document.body.style.paddingLeft).toBe("");
   });
 
   it("locks a page whose root scrolls - a scrollbar always shown", () => {

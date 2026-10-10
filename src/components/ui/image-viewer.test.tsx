@@ -45,6 +45,32 @@ describe("ImageViewer", () => {
     expect(onIndexChange.mock.calls.map(([index]) => index)).toEqual([1, 0]);
   });
 
+  it("leaves the arrow keys, Home and End to the area of the image zoomed in", async () => {
+    const user = userEvent.setup();
+    const onIndexChange = vi.fn();
+    render(
+      <ImageViewer defaultOpen images={images} onIndexChange={onIndexChange} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Zoom in" }));
+    // The area that scrolls the image - focused, it pans it
+    const area = screen.getByRole("img", { name: "First landscape" })
+      .parentElement as HTMLElement;
+    act(() => area.focus());
+
+    for (const key of ["ArrowRight", "ArrowLeft", "Home", "End"]) {
+      // Not prevented - the browser scrolls the area
+      expect(fireEvent.keyDown(area, { key })).toBe(true);
+    }
+    expect(onIndexChange).not.toHaveBeenCalled();
+    expect(screen.getByText("150%")).toBeInTheDocument();
+
+    // Not zoomed in, it moves on
+    await user.click(screen.getByRole("button", { name: "Reset zoom" }));
+    act(() => area.focus());
+    await user.keyboard("{ArrowRight}");
+    expect(onIndexChange).toHaveBeenCalledWith(1);
+  });
+
   it("supports controlled index, boundaries and thumbnail navigation", async () => {
     const user = userEvent.setup();
     function Gallery() {

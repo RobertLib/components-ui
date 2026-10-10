@@ -19,10 +19,12 @@ import IconButton from "./icon-button";
 import {
   getActiveElement,
   getActiveFocusReturnTargets,
+  hasFocusLeftWith,
   hasModalOverlayFrom,
   isEscapeKey,
   isTopmostOverlay,
   lockPageScroll,
+  noteModalFocusLoss,
   OverlayContext,
   returnFocus,
   useFocusTrap,
@@ -161,6 +163,9 @@ export default function ModalDialog({
   ...props
 }: ModalDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  // The panel while it is rendered - also in the commit a render without the
+  // compiler swaps the ref callback in, which empties `dialogRef` meanwhile
+  const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   // Where the focus goes back to, best first - see getFocusReturnTargets
   const returnFocusRef = useRef<HTMLElement[]>([]);
@@ -320,7 +325,8 @@ export default function ModalDialog({
   // Gone once it has animated out. An uncontrolled dialog gives the focus
   // back then and tells the parent. Not the focus while a dialog opened
   // from it is still open - its focus trap keeps it, and gives it back
-  // where this one would have once it closes.
+  // where this one would have once it closes - nor once something else has
+  // taken it meanwhile.
   useEffect(() => {
     if (!exiting) return;
 
@@ -329,7 +335,10 @@ export default function ModalDialog({
       if (isControlled) return;
 
       focusReturnedRef.current = true;
-      if (!hasModalOverlayFrom(dialogId)) {
+      if (
+        !hasModalOverlayFrom(dialogId) &&
+        hasFocusLeftWith(dialogRef.current)
+      ) {
         returnFocus(returnFocusRef.current, dialogRef.current);
       }
       onCloseRef.current?.();
@@ -359,17 +368,25 @@ export default function ModalDialog({
   // deleted), to the Tab stop next to it. Insertion effects run before the
   // layout phase, in which an `autoFocus` field of the dialog takes the
   // focus. Read at every opening - also when it opens again while it is
-  // animating out, from another button (the next row of a list).
+  // animating out, from another button (the next row of a list). Closing
+  // with the focus in it, it passes them on to a dialog opened in the same
+  // commit - the next step of a wizard, rendered after it - which finds the
+  // focus on the page body, or still in this one as it animates out.
   useInsertionEffect(() => {
-    if (isRequestedOpen) {
-      returnFocusRef.current = getActiveFocusReturnTargets();
-    }
+    if (!isRequestedOpen) return;
+    returnFocusRef.current = getActiveFocusReturnTargets();
+    return () => noteModalFocusLoss(returnFocusRef.current, panelRef.current);
   }, [isRequestedOpen]);
 
   // While open: lock the page scroll
   useEffect(() => {
     if (!isRendered) return;
     return lockPageScroll();
+  }, [isRendered]);
+
+  // Gone - nothing keeps the panel
+  useLayoutEffect(() => {
+    if (!isRendered) panelRef.current = null;
   }, [isRendered]);
 
   // The topmost overlay closes on Escape - unless an open popover, dropdown
@@ -423,7 +440,8 @@ export default function ModalDialog({
   useFocusTrap(isOpen, dialogId, dialogRef);
 
   // Move the focus into the dialog, and back where it was once it closes -
-  // unless a dialog opened from it is still open (see above)
+  // unless a dialog opened from it is still open (see above), or something
+  // else has taken the focus as it closed (an `autoFocus` field in its place)
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!isOpen || !dialog) return;
@@ -448,7 +466,9 @@ export default function ModalDialog({
 
     const targets = returnFocusRef.current;
     return () => {
-      if (!hasModalOverlayFrom(dialogId)) returnFocus(targets, dialog);
+      if (!hasModalOverlayFrom(dialogId) && hasFocusLeftWith(dialog)) {
+        returnFocus(targets, dialog);
+      }
     };
   }, [dialogId, isControlled, isOpen]);
 
@@ -623,6 +643,7 @@ export default function ModalDialog({
           // The dialog's own ref, and the one given to it
           ref={(element) => {
             dialogRef.current = element;
+            if (element) panelRef.current = element;
             const detachRef = attachRef(ref, element);
             return () => {
               dialogRef.current = null;

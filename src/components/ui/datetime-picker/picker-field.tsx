@@ -75,7 +75,7 @@ interface PickerFieldProps extends Omit<
   inputRef: React.RefObject<HTMLInputElement | null>;
   /** Whether the popup is open. */
   isOpen: boolean;
-  /** Called by the clear button and for an emptied field. */
+  /** Called by the clear button. */
   onClear: () => void;
   /** `byKeyboard` - the popup opens on a key press, not on a click. */
   onOpenChange: (open: boolean, byKeyboard: boolean) => void;
@@ -279,7 +279,7 @@ export default function PickerField({
     if (typed === displayValue) return;
 
     if (!typed) {
-      if (value) onClear();
+      if (value) onValueChange("", true);
       return;
     }
 
@@ -287,7 +287,7 @@ export default function PickerField({
     if ("error" in parsed) {
       setRejected({ error: parsed.error, text: typed });
     } else if (parsed.value !== value) {
-      onValueChange(parsed.value);
+      onValueChange(parsed.value, true);
     }
   };
 

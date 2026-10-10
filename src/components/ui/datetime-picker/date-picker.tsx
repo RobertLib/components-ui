@@ -11,9 +11,10 @@ import {
   formatDate,
   formatPlaceholder,
   parseISODate,
-  startOfDay,
   toISODate,
+  toLocalDay,
 } from "../../../utils/date";
+import { inTimeZone } from "../../../utils/time-zone";
 import { useLocale } from "../../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
 
@@ -30,6 +31,7 @@ export default function DatePicker({
   placeholder,
   popupActions,
   presets,
+  timeZone,
   value,
   ...props
 }: CustomPickerProps) {
@@ -68,11 +70,12 @@ export default function DatePicker({
       : "";
   };
 
-  // A picked day, a preset or today - the popup closes
+  // A picked day, a preset or today - the popup closes first: the field
+  // takes the focus while the button pressed (Clear) is still there
   const pick = (date: string) => {
     markPicked();
-    onValueChange(date);
     close();
+    onValueChange(date);
   };
 
   // Out of `min` / `max`, or a disabled day - one typed too, which is kept
@@ -85,9 +88,11 @@ export default function DatePicker({
       formatValue,
     ) || getUnavailableMessage(value);
 
-  // Only in the open popup - "today" is the browser's, the next day after
-  // midnight
-  const today = useToday() ?? startOfDay(new Date());
+  // Only in the open popup - "today" of `timeZone` (the browser's by
+  // default), the next day after midnight
+  const today = toLocalDay(
+    useToday(timeZone) ?? inTimeZone(new Date(), timeZone),
+  );
   const hasClear = !!selectedDate && (props.clearable ?? !props.required);
   const presetItems = (presets ?? []).map((preset) => {
     const day = parseISODate(preset.value);
@@ -119,7 +124,14 @@ export default function DatePicker({
       // Wider with the presets beside the days
       panelClassName={hasPresets && !isMobile ? undefined : "w-72"}
       parseText={(text) => {
-        const typed = parseDisplayValue(text, locale.formats.date, "date");
+        // A year left out is the one of today of `timeZone`
+        const typed = parseDisplayValue(
+          text,
+          locale.formats.date,
+          "date",
+          undefined,
+          inTimeZone(new Date(), timeZone),
+        );
         if (!typed) return { error: "format" };
         return isInRange(typed, min, max)
           ? { value: typed, validityMessage: getUnavailableMessage(typed) }
@@ -154,6 +166,7 @@ export default function DatePicker({
             onEscape={close}
             onSelect={(date) => pick(toISODate(date))}
             selected={selectedDate}
+            timeZone={timeZone}
           />
 
           {popupActions && (

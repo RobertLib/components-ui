@@ -131,6 +131,34 @@ describe("useColumnManagement with a delayed controlled owner", () => {
     expect(result.current.columnOrder).toEqual(["id", "city", "team", "name"]);
   });
 
+  it("drops a column of no group past a group as a whole, and keeps grouped ones in theirs", () => {
+    const drop = (columnKey: string) =>
+      ({
+        dataTransfer: { getData: () => columnKey },
+        preventDefault: () => {},
+      }) as unknown as React.DragEvent<HTMLElement>;
+    const { lastChange, rerender, result } = controlledColumns(
+      [...columns, { key: "id", label: "Id" }],
+      {},
+      { city: "details", team: "details" },
+    );
+    expect(result.current.columnOrder).toEqual(["name", "team", "city", "id"]);
+
+    // Moving on, after the group - also dropped on its first column
+    act(() => result.current.handleDrop(drop("name"), "team"));
+    expect(lastChange().order).toEqual(["team", "city", "name", "id"]);
+    rerender({ state: lastChange() });
+    // Moving back, before it - also dropped on its last column
+    act(() => result.current.handleDrop(drop("id"), "city"));
+    expect(lastChange().order).toEqual(["id", "team", "city", "name"]);
+    rerender({ state: lastChange() });
+
+    // A column of the group stays in it
+    const calls = lastChange();
+    act(() => result.current.handleDrop(drop("team"), "name"));
+    expect(lastChange()).toBe(calls);
+  });
+
   it("builds later edits on a pending reset", () => {
     const { lastChange, rerender, result } = controlledColumns(columns, {
       order: ["city", "team", "name"],

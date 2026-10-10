@@ -1,5 +1,311 @@
 # Changelog
 
+## 0.7.0
+
+Fixes from a review of the whole library at 0.6.1. Some change what an app
+sees or needs - see **Breaking**.
+
+- **Breaking - Node.js** - an install from git builds the package with
+  Node.js 22.12 or newer (`engines` was `^20.19.0 || >=22.12.0`: Node.js 20
+  has been out of support since April 2026, and the build tools need 22.12).
+  A tarball or a registry install runs no code of the library as it
+  installs. Working on the library needs Node.js 22.22, 24.15 or 26
+  (`devEngines` - jsdom of the tests).
+- **Breaking - Timeline** - a `Date` is written in the `timeZone` of
+  `timeFormat`, or in its own zone (a date of `useToday` or `inTimeZone`).
+  Without one it is on the browser's clock - so empty on the server and
+  until the page hydrates, as `useFormatDate` does since 0.6.0. 0.6.1 wrote
+  the server's time, which hydration then replaced with a mismatch error.
+  Give a `timeZone` for a page rendered only on the server. A date of
+  `inTimeZone` is now written in its own zone, not the browser's.
+- **Breaking - FileUpload** - with controlled `attachments` and without
+  `multiple`, a new file replaces the attachment as in an uncontrolled
+  field. With `upload`, `onRemove` hears of the attachment the stored file
+  replaces - before, only `onAttachmentsChange` got the new list. Without
+  `upload`, a picked file reports `onAttachmentsChange([])` next to
+  `onRemove`, and the attachment stays listed until the parent applies that
+  list - before, the field dropped it while the parent's list kept it. An
+  app that controls `attachments` without applying `onAttachmentsChange`
+  keeps the replaced attachment listed.
+- **Breaking - RepeatableField** - the count message (`min`, `max`,
+  `required`) shows, and the focus moves to the group, only at a submit or
+  `reportValidity()`, together with the browser's own message, as in
+  Autocomplete and Rating. `form.checkValidity()` no longer shows it or
+  takes the focus - call `reportValidity()` where the app showed the
+  message that way. The group has `aria-invalid` only while the message (or
+  an `error`) shows; with `required` or `min` and no group it was announced
+  invalid from the first render. `data-invalid` still marks a count out of
+  range from the start.
+- **Breaking - getBaseError** - a list of objects it cannot give to a field
+  (`violations: [{ propertyPath, message }]`) no longer hides the error's
+  own `detail`, `message` or `title`: `getBaseError` gives that message
+  where it gave nothing. An app that showed its own text for such a body
+  may now show both. Lists of messages, also in nested records and lists,
+  still hide it.
+- **Forms** - an uncontrolled field holds its new value in the form by the
+  time its callback runs, so a callback that submits the form
+  (`form.requestSubmit()`) or reads `new FormData(form)` gets it - it got
+  the value before the change, and a `required` field just filled failed
+  validation:
+  - `onChange` of Autocomplete, TreeSelect, TagsInput, TransferList,
+    CheckboxGroup ("Select all"), NumberInput (typed, stepped, clamped),
+    ColorInput (picked), PhoneInput (typed, a country picked), Input with
+    `mask` and `unmask`, Rating, and RepeatableField after an add, a remove
+    or a move;
+  - `onChange` of DateTimePicker, DateRangePicker, DateCalendar and
+    RangeCalendar for a value picked in the popup or the calendar, Today,
+    Clear and presets (typed values already worked) - DateTimePicker now
+    calls it after its own update in custom mode;
+  - `onSelectedChange` and `onCheckedChange` of TreeView;
+  - `onComplete` of PinInput (with `required` the last cell stopped the
+    submit as empty, and a pasted code was submitted as `""`) and
+    `onChangeEnd` of Slider (after a key or a tap on the track);
+  - `onFilesChange`, `onUpload` and `onAttachmentsChange` of FileUpload -
+    the picked files, the value of a stored file, no longer a removed one,
+    and no longer waiting for the upload that just ended.
+
+  A controlled field's inputs get the value only when the parent renders
+  the new `value` - submit the value the callback gets there.
+
+- **Forms** - every failed submit focuses a `required` Autocomplete,
+  TreeSelect, TransferList, Rating, RepeatableField, DateCalendar or
+  RangeCalendar and shows the browser's message. Safari focused none of
+  them and reported nothing; Firefox focused them only at the first submit.
+- **Input** - a masked field follows every `defaultValue` that arrives
+  later (loaded data, the next record of an edit form) until the user edits
+  it, as an unmasked one does. It kept the first default laid into the mask
+  ("123 45") from its first change on, and the form submitted the previous
+  record's value. A keystroke the mask refuses no longer stops it following
+  either.
+- **Textarea** - the counter counts a line break as one character, as
+  `maxLength` does, also the "\r\n" of a value a form posted: "ab\r\ncd"
+  with `maxLength={5}` is "5 / 5", no longer "6 / 5" in red with "1
+  character over" announced.
+- **PinInput** - a digit key whose layout types another character (the ě
+  of a Czech keyboard, the é of a French one) types its digit in an
+  alphanumeric code too: "AB12CD" typed without Shift was "ABCD". An
+  alphanumeric code takes full-width letters ("ＡＢ１２") as the Latin ones
+  instead of leaving them out ("12"). A code a keyboard inserts after the
+  character of a cell is that code: "654321" next to a 1 completed as
+  "165432".
+- **PhoneInput** - picking another country keeps the national digits of
+  the number under the new calling code, also those of a number in another
+  country than the selected or controlled one, or in a country the picker
+  does not offer: "+49 30 1234567" became "+42149301234567" with SK and was
+  reported valid. A number with a calling code of no known country stays as
+  it is.
+- **PhoneInput** - reads more of what people paste: a number with the
+  invisible direction marks of one copied from WhatsApp or the contacts is
+  international (the selected country's code was put in front of it,
+  "+44420777123456", valid); a "(0)" after an international calling code
+  ("+44 (0)20 7946 0958") is dropped; full-width digits, "＋" and
+  parentheses of a Japanese or Chinese input method, and Arabic, Persian
+  and Devanagari digits are read as Latin ones ("090-１２３４-5678" became
+  +810905678). A calling code several listed countries share takes its
+  main country (the United States for +1, Russia for +7, the United
+  Kingdom for +44, …) unless the selected country shares it: "+12125551234"
+  with CZ selected showed Canada.
+- **PhoneInput** - the app's `ref` stays attached while the user types or
+  picks a country in a source copy too. It was detached and attached again
+  on every render, so a ref that focuses the field took the focus from the
+  country picker.
+- **RepeatableField** - a group's `onChange` replaces its value in the
+  latest groups: two groups changed in one event both keep their new values
+  (0.6.1 kept only the last one), and a group updated after an `await` (an
+  upload or an address lookup finishing) no longer reverts what the user
+  typed in other groups meanwhile, in an uncontrolled field and in the list
+  a controlled parent receives. A late update of a group removed meanwhile
+  is ignored. Add, remove and reorder build on the latest groups too, and a
+  change a controlled parent declined does not come back with the next one.
+- **RepeatableField** - a removal a controlled parent declines or defers
+  leaves the focus where it is. The next render (the next keystroke in
+  another group) moved the focus to the group after the one not removed,
+  and the typing went on there. Removing the only group at `max={1}` moves
+  the focus to Add; it was dropped to the page.
+- **Field** - a click on a button or a link inside the `label` (an info
+  button, a help link) no longer also focuses a control a label cannot
+  reach (a `div` with a role), as with a native label.
+- **getFieldError, getBaseError** - ASP.NET's model-level errors
+  (`ModelState.AddModelError("", …)`, `IValidatableObject`, a root rule of
+  FluentValidation), which come under the key `""`, are the general
+  message: `getBaseError` gives "Invalid login attempt." where it gave
+  nothing, not even the `title`. A body System.Text.Json cannot read
+  (`"$"`) gives its error there too, and keys like `"$.age"` and
+  `"$.items[0].name"` are the fields `age` and `items.0.name`.
+- **getFieldError, getBaseError** - the `errors` of problem details
+  (RFC 9457) are read by their `pointer`:
+  `{ detail, pointer: "#/profile/color" }` is the message of the field
+  `profile.color`. Pointer escapes and the percent-encoding of the `#`
+  form are decoded. Such an entry is no longer the general message; one
+  pointing at the whole body (`"#"`, `""`) is.
+  FastAPI's `{ detail: [{ loc: ["body", "email"], msg }] }` and RFC 7807's
+  `invalid-params: [{ name, reason }]` give their messages to their fields.
+- **TransferList** - a `checkValidity()` of the page (e.g. to enable a Save
+  button) no longer moves the focus into the field or shows its error - a
+  submit or `reportValidity()` still does, now with the browser's message
+  too. A transfer button with nothing left to move keeps the focus of the
+  keyboard (`aria-disabled`) instead of dropping it to the page. Enter in a
+  search no longer submits the form, and a search ignores the spaces around
+  the term (one a phone keyboard adds).
+- **Autocomplete** - the typed term of a `multiple` field is cleared once
+  the focus leaves the field - it stayed, looking like a value it is not.
+  It still stays after a pick, Escape, or on a chip, to pick more of what
+  it found.
+- **useDataTableQuery, useUrlState** - a change undone before a router that
+  loads data first shows it no longer stays pending - a Back onto it was
+  taken for the router catching up, and the next change was built on the
+  undone state.
+- **DataTable** - a cell whose row can no longer be edited (`editable`
+  refuses it after new `data`, e.g. a refetch locked the row, or
+  `onCellEdit` is gone) ends its editing. Its field disappeared but the
+  rows stayed as they were when the editing started: rows the app added did
+  not show and the sorting did not apply again until another edit ended or
+  the query changed.
+- **DataTable** - offers "Select all N rows" (`filteredSelection`) also
+  when some rows of the page cannot be selected (`isRowSelectable`) and
+  more matching rows can be selected on other pages - it compared the rows
+  that can be selected with all rows of the page, and the offer was
+  missing.
+- **DataTable** - orders the row groups of `groupBy` by the `sortFn` of
+  their column (priorities by their rank, not their names), in its
+  direction when sorted, an empty value last. Groups ignored `sortFn` and
+  went by the raw values.
+- **DataTable** - a group's `summaryValues` from `groupMetadata` replace
+  the `summary` only of the columns they name; the other columns summarize
+  the loaded rows of the group, as in the table's summary row. They showed
+  nothing ("Count –").
+- **DataTable** - a column outside any column group can be dragged onto a
+  column of a group: it goes past the whole group, after it moving on and
+  before it moving back, as the arrow keys in the column settings move it.
+  The drop was ignored.
+- **Calendar** - with a `timeZone` other than the browser's, the keys of
+  the month view go by the days of the calendar: Page Up / Page Down move
+  to the same day of the next month (from September 1 to October 1, where
+  they stayed in September on the 30th), and the arrow keys reach the first
+  row of the grid and no longer lose the focus past its last day. The
+  agenda opens at today of the calendar's zone instead of past today's
+  events. Both happened when the browser was ahead of the calendar's zone,
+  e.g. a European browser showing a calendar in `America/New_York`.
+- **Calendar** - the week and timeline headers write the month of each day
+  in the calendar's `timeZone` ("1 Oct" showed as "1 Sep" when the browser
+  was behind that zone). After the app switches `timeZone`, the `timeText`
+  of `renderEvent` and the announcements of events moved by the keys use
+  the new zone in every view - the week, day and timeline views kept the
+  old one.
+- **Calendar** - a `timeZone` the browser does not know (a typo, or a
+  renamed zone like `Europe/Kyiv` in an older browser) shows the browser's
+  zone with a console warning, instead of crashing the calendar.
+- **DateTimePicker** - new `timeZone` prop. It sets the zone of today: the
+  day the Today button picks and the popup marks, the day, month or week
+  the popup opens at without a value, and the year of a value typed without
+  one. The value stays a time on the clock. An unknown zone falls back to
+  the browser's, with a warning. The Calendar passes its `timeZone` to its
+  date field, so the field's Today matches the calendar's Today button.
+- **Dialog, Sheet** - a dialog that replaces another as it closes - the
+  next step of a wizard, rendered after it - gives the focus back to what
+  opened the first one; the focus fell to the page. A dialog closing no
+  longer takes the focus from an `autoFocus` field (or a ref that focuses)
+  rendered as it closes; it gives the focus back only when the focus went
+  with the dialog. The same goes for `useOverlay` with `modal`.
+- **Dialog, Sheet, Drawer** - in a right-to-left page whose scrollbar is on
+  the left (Firefox), locking the page scroll keeps the room of the
+  scrollbar on that side, so the page no longer shifts under the overlay.
+  Chrome keeps that scrollbar on the right, which stays as it was.
+- **Menubar** - a field or another control in the custom content of a menu
+  keeps ArrowLeft and ArrowRight (the caret moves); only the menu itself
+  and the triggers switch menus.
+- **Dropdown, ContextMenu** - ArrowUp in a menu opened by a click or a
+  right click, with no item highlighted, goes to the last item; it did
+  nothing.
+- **ImageViewer** - the arrow keys, Home and End on the image area pan the
+  image while it is zoomed in, as the area scrolls; the buttons move on
+  meanwhile. They moved to another image.
+- **RichTextEditor** - text typed after inline code made by `` `code` `` or
+  by switching code off at the caret keeps its space and is no code. Chrome
+  and Safari dropped the space and typed the rest into the code; Firefox
+  dropped the space.
+- **RichTextEditor** - code blocks in Safari: Enter on the empty last line
+  leaves the block, and turning the block off makes each of its lines a
+  paragraph. Safari ran them into one paragraph, and `maxLength` counted
+  its line breaks as characters.
+- **RichTextEditor** - Bold makes the text after a heading or header cell
+  bold (and plain again) when the selection starts in one, e.g. Select All
+  in a note that starts with a heading - Chrome on a Mac and Safari did
+  nothing. The Bold button shows the state of that text.
+- **RichTextEditor** - lines pasted or dropped into a heading stay in it.
+  In Chrome and Safari the line after a line break left the heading as text
+  outside of any block, and Safari split a heading pasted into in the
+  middle.
+- **RichTextEditor** - pasted or dropped HTML that keeps nothing to show (a
+  MathML formula, the text of an SVG drawing, an image without the image
+  tool) goes in as its plain text. Nothing was pasted and a selection was
+  deleted.
+- **RichTextEditor** - with `maxLength`, blocks pasted over a whole heading
+  or list item are cut after what fits - they were cut as if the selected
+  text stayed. At `maxLength`, dropped content and a custom tool's
+  `insertHtml` insert nothing (they inserted an empty paragraph), and
+  content cut at the start of a list item or paragraph no longer leaves it
+  empty.
+- **RichTextEditor** - list commands keep text that follows a nested list
+  in an item after the nested items, as an item of its own. It was joined
+  to the item's text before them ("alpha" + "gamma" became "alphagamma").
+- **RichTextEditor** - the link and image forms say why they refuse an
+  address, under the field and to screen readers ("Enter a web address, an
+  e-mail address or a phone number.", "Enter the web address of an
+  image.").
+- **Chart** - the chart is one tab stop: the arrow keys, Home and End move
+  between its points, and Tab moves on past it. Every point and pie sector
+  was a tab stop of its own. The legend of a pie or donut chart lists only
+  the categories it can draw - not those of zero, negative or missing
+  values - and categories with the same label no longer clash. A sector is
+  named after the first series alone, the one it draws, and its tooltip
+  shows over the sector.
+- **Avatar** - on a server-rendered page, a picture that fails to load
+  before the page hydrates shows the initials, not a broken image.
+- **Alert** - closed from its button by clearing its message
+  (`<Alert onClose={() => setError(null)}>{error}</Alert>`), it gives the
+  focus to the next control, as when it is removed. The focus was lost to
+  the page.
+- **Types** - `LinkColor`, `IconButtonColor`, `AlertType`, `AlertVariant`
+  and `StatTrend` are exported.
+- **Source copies** - the copied `ui-styles.css` no longer leaves the app's
+  own `src/types/` out of Tailwind's sources. Its `@source not "./types"`
+  and `@source not "./**/*.map"` were meant for the declarations and source
+  maps of the package build, which now adds them to `dist/styles.css`
+  alone. Classes of the app in `src/types/` (`statusClass = "bg-lime-700"`)
+  were missing from its CSS. In a copy made by hand, delete the two lines
+  from `ui-styles.css`.
+- **Vite plugin** - leaves classes out also where the path of the library
+  has `@`, `+`, `(` or `!` in it - in the store of pnpm
+  (`node_modules/.pnpm/components-ui@0.6.1/…`), under a scope - or is typed
+  in other case than on the disk (macOS, Windows, also short names such as
+  `RUNNER~1`). It escaped those characters, which Tailwind took for part of
+  the name, or missed the modules of the app, and kept all the classes
+  without a warning. It also finds a package published under another name
+  (`@acme/components-ui`, as the Installation page describes for a
+  registry), by its `exports` instead of its name.
+- **Vite plugin** - `vite.d.ts` imports no types of Vite: a source copy in
+  an app without Vite (Next.js, webpack) type-checks with
+  `skipLibCheck: false` too. The package declares Vite as an optional peer
+  dependency, so Yarn PnP and pnpm with a global store let the plugin
+  import it. The docs import the plugin of a source copy with its extension
+  (`./src/components/ui/vite.js`): Vite warns of an import without it,
+  which its coming loader of the configuration (`configLoader: "native"`)
+  does not find.
+- **sync:source** - the manifest names the commit of the library by its
+  release tag (`v0.6.1`, not `v0.1.0-22-gc3e1104`: the tags have no
+  message), and marks it `-dirty` also for files of the copy not yet added
+  to Git - only where the files the copy takes differ, not for the docs or
+  the tests.
+- A complete custom locale needs the new texts
+  `richTextEditor.linkInvalid` and `richTextEditor.imageUrlInvalid`
+  (locales made with `createLocale` get them from their base locale).
+- **Development** - CI checks the packed package (its files, declared
+  imports, `"use client"` banners, the types under bundler, node16 and
+  nodenext, the Vite plugin from the installed copy), builds it on the
+  oldest supported Node.js, and runs the Vite plugin on macOS and Windows.
+  The browser tests cover the fixes above that only show in a real browser.
+
 ## 0.6.1
 
 An app bundles only what it uses of the library - its scripts with any
@@ -18,7 +324,7 @@ bundler, its CSS with Vite.
   - keep it when copying the folder by hand. The package build gains the
     same where an app takes a module for one of its exports.
 - **Vite plugin** - `componentsUi()` (`components-ui/vite`, or
-  `./src/components/ui/vite` in a source copy) leaves the classes of the
+  `./src/components/ui/vite.js` in a source copy) leaves the classes of the
   components an app does not use out of its CSS in a build: 8 kB with gzip
   instead of 25 kB for an app with a `Button`, 15 kB for one with 15
   components. Tailwind generates the classes of all the files it scans -

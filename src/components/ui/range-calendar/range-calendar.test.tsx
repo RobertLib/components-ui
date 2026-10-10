@@ -655,3 +655,41 @@ describe("RangeCalendar on the server", () => {
     container.remove();
   });
 });
+
+// `onChange={() => form.requestSubmit()}` submits the new range - the
+// hidden inputs of an uncontrolled calendar hold it already
+describe("RangeCalendar onChange of a range the form holds", () => {
+  it("of a range picked", async () => {
+    const submitted: unknown[] = [];
+    render(
+      <form aria-label="Stay">
+        <RangeCalendar
+          defaultValue={{ end: "2026-09-12", start: "2026-09-10" }}
+          endName="to"
+          label="Stay"
+          name="stay"
+          onChange={() => {
+            const data = new FormData(screen.getByRole("form"));
+            submitted.push([
+              data.get("stay"),
+              data.get("from"),
+              data.get("to"),
+            ]);
+          }}
+          startName="from"
+        />
+      </form>,
+    );
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getByRole("button", { name: "September 24, 2026" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "September 26, 2026" }),
+    );
+    expect(submitted).toEqual([
+      ["2026-09-24/2026-09-26", "2026-09-24", "2026-09-26"],
+    ]);
+  });
+});

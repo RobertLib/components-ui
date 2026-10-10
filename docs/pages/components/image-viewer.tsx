@@ -52,8 +52,9 @@ export default function ImageViewerPage() {
             a touch screen a swipe sideways moves to the next or the previous
             image - not while zoomed in, when it pans the image; a pinch with
             two fingers zooms the page as usual. Zoom runs from 100% to 300%;
-            scroll the image viewport to inspect it. Changing the image or
-            reopening resets zoom.
+            scroll the image viewport to inspect it - focused, it keeps the
+            arrow keys, Home and End to pan the image zoomed in, and the buttons
+            move on. Changing the image or reopening resets zoom.
           </p>
           <p>
             The viewer uses Dialog's focus trap, Escape and backdrop closing,

@@ -59,6 +59,26 @@ describe("nested and server grouping", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("1,250")).toBeInTheDocument();
   });
+  it("summarizes the loaded rows of a group for the columns the server left out", () => {
+    const { container } = render(
+      <DataTable
+        columns={[
+          ...columns,
+          { key: "id", label: "Count", summary: "count" as const },
+        ]}
+        data={rows.slice(0, 2)}
+        groupBy="team"
+        groupMetadata={{
+          [getDataTableGroupKey(["A"])]: { summaryValues: { amount: 1250 } },
+        }}
+      />,
+    );
+    // The total of the server, the count of the loaded rows
+    expect(
+      container.querySelector("tbody tr:not([data-group-key]):last-child")
+        ?.textContent,
+    ).toBe("Sum1,250Count2");
+  });
   it("reports controlled collapse requests and uses collision-free paths", () => {
     const change = vi.fn();
     const key = getDataTableGroupKey(["A", "Prague"]);

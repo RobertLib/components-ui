@@ -51,6 +51,71 @@ describe("FileUpload controlled attachments and removal", () => {
     expect(screen.queryByText("one.pdf")).toBeNull();
   });
 
+  it("tells onRemove of the attachment a controlled single-file upload replaces", async () => {
+    const onRemove = vi.fn();
+    const onAttachmentsChange = vi.fn();
+    function Field() {
+      const [attachments, setAttachments] = useState(initial);
+      return (
+        <FileUpload
+          attachments={attachments}
+          onAttachmentsChange={(list) => {
+            onAttachmentsChange(list);
+            setAttachments(list);
+          }}
+          onRemove={onRemove}
+          upload={async (file) => ({
+            id: file.name,
+            filename: file.name,
+            value: file.name,
+          })}
+        />
+      );
+    }
+    render(<Field />);
+    fireEvent.change(document.querySelector("input[type=file]")!, {
+      target: { files: [new File(["x"], "new.pdf")] },
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Remove new.pdf" }),
+      ).toBeInTheDocument(),
+    );
+    expect(onAttachmentsChange).toHaveBeenCalledExactlyOnceWith([
+      expect.objectContaining({ id: "new.pdf" }),
+    ]);
+    // As without `attachments` - the app can delete the replaced file
+    expect(onRemove).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining(initial[0]),
+    );
+    expect(screen.queryByText("one.pdf")).toBeNull();
+  });
+
+  it("reports the attachment a controlled single-file pick replaces", () => {
+    const onRemove = vi.fn();
+    const onAttachmentsChange = vi.fn();
+    const props = { name: "doc", onAttachmentsChange, onRemove };
+    const { rerender } = render(
+      <FileUpload {...props} attachments={initial} />,
+    );
+    fireEvent.change(document.querySelector("input[type=file]")!, {
+      target: { files: [new File(["x"], "new.pdf")] },
+    });
+
+    expect(onRemove).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining(initial[0]),
+    );
+    expect(onAttachmentsChange).toHaveBeenCalledExactlyOnceWith([]);
+    // The parent's list decides what is attached
+    expect(screen.getByText("one.pdf")).toBeInTheDocument();
+    expect(screen.getByText("new.pdf")).toBeInTheDocument();
+
+    rerender(<FileUpload {...props} attachments={[]} />);
+    expect(screen.queryByText("one.pdf")).toBeNull();
+    expect(screen.getByText("new.pdf")).toBeInTheDocument();
+  });
+
   it("keeps native picked files when controlled stored attachments refresh", async () => {
     const onFilesChange = vi.fn();
     const props = { multiple: true, onFilesChange };

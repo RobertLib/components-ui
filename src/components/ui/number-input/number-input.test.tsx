@@ -710,6 +710,35 @@ describe("NumberInput", () => {
     expect(spinbutton()).toHaveValue("10");
   });
 
+  it("holds the value of an uncontrolled field in the form by onChange", async () => {
+    const user = userEvent.setup();
+    const seen: unknown[] = [];
+    render(
+      <form aria-label="Order">
+        <NumberInput
+          label="Quantity"
+          max={10}
+          name="quantity"
+          onChange={() =>
+            seen.push(
+              new FormData(
+                screen.getByRole<HTMLFormElement>("form", { name: "Order" }),
+              ).get("quantity"),
+            )
+          }
+        />
+      </form>,
+    );
+
+    // Typed, stepped, moved into the bounds as the field loses the focus
+    await user.type(spinbutton(), "1,5");
+    await user.keyboard("{ArrowUp}");
+    await user.clear(spinbutton());
+    await user.type(spinbutton(), "25");
+    await user.tab();
+    expect(seen).toEqual(["1", "1.5", "2", "", "2", "25", "10"]);
+  });
+
   it("submits an empty value for an empty field, and nothing while disabled", () => {
     const { rerender } = render(
       <form aria-label="Order">

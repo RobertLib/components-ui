@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 
 type FieldElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 type FieldValue = string | number | readonly string[];
@@ -312,6 +313,16 @@ function sameValue(a: FieldValue | undefined, b: FieldValue | undefined) {
 }
 
 /**
+ * Whether `written` is what the element shows for its default - also as a
+ * mask lays it out, which React writes for a default given without it.
+ */
+const showsDefault = (
+  written: FieldValue | undefined,
+  defaultValue: FieldValue | undefined,
+  shownDefault: FieldValue | undefined,
+) => sameValue(written, defaultValue ?? "") || sameValue(written, shownDefault);
+
+/**
  * The value of a field that works controlled (`value` + `onChange`) and
  * uncontrolled (`defaultValue`). A controlled field always shows `value`, so
  * a change the parent rejects does not show up.
@@ -334,13 +345,21 @@ function sameValue(a: FieldValue | undefined, b: FieldValue | undefined) {
  * by one, or setting the `value` attribute, is seen at the next change.
  */
 export function useFormControl<T extends FieldElement = FieldElement>({
+  commitBeforeChange = false,
   defaultValue,
   followScriptWrites = false,
   form,
   onChange,
   ref,
+  shownDefault,
   value,
 }: {
+  /**
+   * Renders what the user entered into an uncontrolled field before
+   * `onChange`, which may submit the form - for a value the form takes from
+   * another element than the field's (a hidden input).
+   */
+  commitBeforeChange?: boolean;
   defaultValue?: FieldValue;
   /** Makes a value a script writes into the element the field's value. */
   followScriptWrites?: boolean;
@@ -348,6 +367,11 @@ export function useFormControl<T extends FieldElement = FieldElement>({
   form?: string;
   onChange?: React.ChangeEventHandler<T>;
   ref?: React.Ref<T>;
+  /**
+   * The text the element shows for `defaultValue` when it differs - laid
+   * into a mask. React writing it is no value a script entered.
+   */
+  shownDefault?: FieldValue;
   value?: FieldValue;
 }) {
   // What the user (or a script) entered into an uncontrolled field. Until
@@ -368,26 +392,34 @@ export function useFormControl<T extends FieldElement = FieldElement>({
     // The entered value was written by a script, not typed
     fromScript: false,
     isControlled,
+    shownDefault,
     writeDuringReset: undefined as Event | undefined,
   });
 
   const handleChange = useCallback(
     (event: React.ChangeEvent<T>) => {
-      onChange?.(event);
-      if (isControlled) return;
+      const enter = () => {
+        // Some composite fields report a value-only target; the refs still
+        // point at their real form controls.
+        for (const element of elements.current) {
+          supersedeResets(element, supersededResets.current, form);
+        }
+        const entered = readValue(event.target);
+        latest.current.entered = entered;
+        latest.current.fromScript = false;
+        latest.current.writeDuringReset = undefined;
+        setEnteredValue(entered);
+      };
 
-      // Some composite fields report a value-only target; the refs still
-      // point at their real form controls.
-      for (const element of elements.current) {
-        supersedeResets(element, supersededResets.current, form);
+      if (commitBeforeChange && !isControlled) {
+        flushSync(enter);
+        onChange?.(event);
+        return;
       }
-      const entered = readValue(event.target);
-      latest.current.entered = entered;
-      latest.current.fromScript = false;
-      latest.current.writeDuringReset = undefined;
-      setEnteredValue(entered);
+      onChange?.(event);
+      if (!isControlled) enter();
     },
-    [form, isControlled, onChange],
+    [commitBeforeChange, form, isControlled, onChange],
   );
 
   // A reset fires an event on the form only, none on its fields
@@ -422,7 +454,7 @@ export function useFormControl<T extends FieldElement = FieldElement>({
         const written = readValue(element);
         if (
           state.entered === undefined &&
-          sameValue(written, state.defaultValue ?? "")
+          showsDefault(written, state.defaultValue, state.shownDefault)
         ) {
           return;
         }
@@ -476,7 +508,8 @@ export function useFormControl<T extends FieldElement = FieldElement>({
     state.defaultValue = defaultValue;
     state.form = form;
     state.isControlled = isControlled;
-  }, [defaultValue, form, isControlled]);
+    state.shownDefault = shownDefault;
+  }, [defaultValue, form, isControlled, shownDefault]);
 
   useLayoutEffect(() => {
     const state = latest.current;
@@ -487,13 +520,13 @@ export function useFormControl<T extends FieldElement = FieldElement>({
       !isControlled &&
       enteredValue === undefined &&
       state.fromScript &&
-      sameValue(state.entered, defaultValue ?? "")
+      showsDefault(state.entered, defaultValue, shownDefault)
     ) {
       state.entered = undefined;
       state.fromScript = false;
       setEnteredValue(undefined);
     }
-  }, [defaultValue, enteredValue, isControlled]);
+  }, [defaultValue, enteredValue, isControlled, shownDefault]);
 
   // Activity keeps these controls in their form but skips layout effects
   // while hidden. Their reset defaults must follow hidden commits too.

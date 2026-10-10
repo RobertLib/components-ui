@@ -4,7 +4,8 @@ type ErrorDetails = Record<string, unknown>;
 
 /**
  * One entry of an error list - a GraphQL user error, a JSON:API error, a
- * Spring Boot field error or an express-validator error.
+ * Spring Boot field error, an express-validator or FastAPI error, an error
+ * or an invalid parameter of problem details.
  */
 interface ListedError {
   /** Field path of a GraphQL user error, e.g. `"email"` or `["input", "email"]`. */
@@ -20,6 +21,13 @@ interface ListedError {
   msg?: string;
   param?: string;
   path?: unknown;
+  /** FastAPI - `["body", "email"]` */
+  loc?: (number | string)[];
+  /** Problem details (RFC 9457) - `"#/email"` in the request body */
+  pointer?: string;
+  /** An `invalid-params` entry of problem details (RFC 7807) */
+  name?: string;
+  reason?: string;
 }
 
 /** The field messages of an error, and where they come from. */
@@ -52,11 +60,14 @@ const sameSegment = (segment: string, name: string) =>
  * The segments of a field name - dotted (`items.0.name`) or with brackets
  * (`items[0].name`, `order[items][0][name]`), which name the same field.
  */
-const toPath = (name: string) =>
-  name
+const toPath = (name: string) => {
+  const path = name
     .replace(/\[([^\]]*)\]/g, ".$1")
     .split(".")
     .filter(Boolean);
+  // System.Text.Json (ASP.NET) names a member of the body `$.age`
+  return path[0] === "$" ? path.slice(1) : path;
+};
 
 const samePath = (path: string[], fieldPath: string[]) =>
   path.length === fieldPath.length &&
@@ -123,7 +134,8 @@ const isListedError = (item: unknown): item is ListedError =>
     "detail" in item ||
     "title" in item ||
     "defaultMessage" in item ||
-    "msg" in item);
+    "msg" in item ||
+    "reason" in item);
 
 /**
  * A list of validation problems - one such entry is enough, the entries
@@ -224,7 +236,8 @@ const getErrorDetails = (error: unknown): Details | undefined => {
 };
 
 /**
- * The error list of `{ errors: [...] }`, `{ userErrors: [...] }` or a bare
+ * The error list of `{ errors: [...] }`, `{ userErrors: [...] }`, FastAPI's
+ * `{ detail: [...] }`, the `invalid-params` of problem details or a bare
  * list. Every entry of `userErrors` is a user error - also one without a
  * field.
  */
@@ -232,6 +245,8 @@ const getErrorList = (error: unknown): ListedError[] | undefined => {
   if (isErrorList(error)) return error;
   if (!isRecord(error)) return undefined;
   if (isErrorList(error.errors)) return error.errors;
+  if (isErrorList(error.detail)) return error.detail;
+  if (isErrorList(error["invalid-params"])) return error["invalid-params"];
 
   const { userErrors } = error;
   return Array.isArray(userErrors) && userErrors.every(isRecord)
@@ -294,10 +309,24 @@ const getNestedValue = (details: Details, path: string[]) => {
   return value;
 };
 
-/** A list of messages, or a record of such lists (nested objects). */
+/**
+ * Messages getFieldError can give to a field - a list of texts, or records
+ * and lists that hold one (`{ address: { street: [...] } }`,
+ * `items.0.price`). A list of other objects is none - `[{ propertyPath,
+ * message }]`.
+ */
 const holdsMessages = (value: unknown): boolean =>
-  (Array.isArray(value) && value.length > 0) ||
-  (isRecord(value) && Object.values(value).some(holdsMessages));
+  Array.isArray(value)
+    ? (typeof value[0] === "string" && value[0] !== "") ||
+      value.some(holdsMessages)
+    : isRecord(value) && Object.values(value).some(holdsMessages);
+
+/**
+ * A key of the whole body, no field - `""` of ASP.NET's model-level errors
+ * (`ModelState.AddModelError("", …)`), `"$"` of a body System.Text.Json
+ * cannot read.
+ */
+const isBodyKey = (key: string) => toPath(key).length === 0;
 
 /**
  * Whether the details carry field messages. Next to the members of the
@@ -305,11 +334,45 @@ const holdsMessages = (value: unknown): boolean =>
  * `extensions` (`classification: "DataFetchingException"`).
  */
 const hasFieldMessages = ({ enveloped, fields }: Details) =>
-  Object.entries(fields).some(([key, value]) =>
-    enveloped
-      ? !isErrorMember(key, value) && holdsMessages(value)
-      : holdsMessages(value) || (typeof value === "string" && value !== ""),
+  Object.entries(fields).some(
+    ([key, value]) =>
+      !isBodyKey(key) &&
+      (enveloped
+        ? !isErrorMember(key, value) && holdsMessages(value)
+        : holdsMessages(value) || (typeof value === "string" && value !== "")),
   );
+
+/**
+ * The segments of a JSON Pointer - `"/profile/color"`, or as the URI
+ * fragment `"#/profile/color"` (percent-encoded) - with `~1` read as `/` and
+ * `~0` as `~`. `""`, `"/"` and `"#"` point at the whole document.
+ */
+const fromPointer = (pointer: string) => {
+  let text = pointer;
+
+  if (text.startsWith("#")) {
+    text = text.slice(1);
+    try {
+      text = decodeURIComponent(text);
+    } catch {
+      // Not percent-encoded after all - a "%" of the name itself
+    }
+  }
+
+  return text
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
+};
+
+// Where FastAPI took a value from - before the field in its `loc`
+const FASTAPI_LOCATIONS = new Set([
+  "body",
+  "cookie",
+  "header",
+  "path",
+  "query",
+]);
 
 const getListedErrorPath = (item: ListedError): string[] | null => {
   if (Array.isArray(item.field)) return item.field.map(String);
@@ -318,10 +381,21 @@ const getListedErrorPath = (item: ListedError): string[] | null => {
   if (typeof item.path === "string") return toPath(item.path);
   if (typeof item.param === "string") return toPath(item.param);
 
+  if (Array.isArray(item.loc)) {
+    // ["body", "email"] -> ["email"]; ["body"] is the whole body
+    const path = item.loc.map(String);
+    return FASTAPI_LOCATIONS.has(path[0]) ? path.slice(1) : path;
+  }
+
+  // The `name` of an invalid parameter - only next to its `reason`
+  if (typeof item.name === "string" && typeof item.reason === "string") {
+    return toPath(item.name);
+  }
+
   const pointer = item.source?.pointer ?? item.source?.parameter;
   if (pointer) {
     // "/data/attributes/email" -> ["email"]
-    const segments = pointer.split("/").filter(Boolean);
+    const segments = fromPointer(pointer);
     // "/data" (or "") points at the whole resource - a general error
     if (
       segments.length === 0 ||
@@ -331,6 +405,10 @@ const getListedErrorPath = (item: ListedError): string[] | null => {
     }
     return segments.slice(segments.indexOf("attributes") + 1);
   }
+
+  // Problem details point into the request body as it is - no JSON:API
+  // `data` or `attributes` around the fields
+  if (typeof item.pointer === "string") return fromPointer(item.pointer);
 
   return null;
 };
@@ -347,7 +425,12 @@ const matchesArgumentPath = (path: string[], fieldPath: string[]) =>
   samePath(path.slice(1), fieldPath);
 
 const getListedErrorMessage = (item: ListedError) =>
-  item.message ?? item.defaultMessage ?? item.msg ?? item.detail ?? item.title;
+  item.message ??
+  item.defaultMessage ??
+  item.msg ??
+  item.detail ??
+  item.title ??
+  item.reason;
 
 /**
  * The message for one form field from a server error, or `undefined`.
@@ -358,15 +441,19 @@ const getListedErrorMessage = (item: ListedError) =>
  * - GraphQL user errors - `[{ field: ["input", "email"], message }]`,
  * - REST bodies - `{ email: ["is taken"] }`, `{ errors: { email: [...] } }`,
  *   `{ errors: [{ field, message }] }`, JSON:API `errors` with a
- *   `source.pointer`, Spring Boot `{ errors: [{ field, defaultMessage }] }`,
- *   express-validator `{ errors: [{ path, msg }] }` and Zod's `flatten()`,
- *   `{ formErrors, fieldErrors: { email: [...] } }` - also with one of the
- *   two left out, in a body, in its `errors` or in an error class.
+ *   `source.pointer`, problem details `errors` with a `pointer` (`"#/email"`,
+ *   RFC 9457) or `invalid-params` (`[{ name, reason }]`, RFC 7807), Spring
+ *   Boot `{ errors: [{ field, defaultMessage }] }`, express-validator
+ *   `{ errors: [{ path, msg }] }`, FastAPI `{ detail: [{ loc: ["body",
+ *   "email"], msg }] }` and Zod's `flatten()`, `{ formErrors, fieldErrors:
+ *   { email: [...] } }` - also with one of the two left out, in a body, in
+ *   its `errors` or in an error class.
  *
  * Field names are matched in camelCase, snake_case and any letter case, and
  * `address.street` (or `address[street]`, `items[0].name`) addresses a
- * nested field - also in nested objects (`{ address: { street: [...] } }`)
- * and in a GraphQL user error below the argument (`["input", "address",
+ * nested field - also in nested objects (`{ address: { street: [...] } }`),
+ * in a key of System.Text.Json (`"$.address.street"`, ASP.NET) and in a
+ * GraphQL user error below the argument (`["input", "address",
  * "street"]`). In a body without an `errors` map, a text in a member that
  * describes the error itself (`message`, `code`, `title`, `detail`,
  * `status`, `type`, …) is no field message - a list there is
@@ -376,8 +463,12 @@ export const getFieldError = (
   error: unknown,
   fieldName: string,
 ): string | undefined => {
-  const list = getErrorList(error);
   const fieldPath = toPath(fieldName);
+  // `""` and `"$"` are the whole body - its messages are those of
+  // getBaseError
+  if (fieldPath.length === 0) return undefined;
+
+  const list = getErrorList(error);
 
   if (list) {
     const paths = list.map(getListedErrorPath);
@@ -434,11 +525,14 @@ const firstText = (...values: unknown[]) =>
 
 /**
  * The general message of a server error that is not tied to a field -
- * `base` (Rails), `non_field_errors` (Django REST framework), `formErrors`
- * (Zod - a list or one text, also without `fieldErrors`), a plain list of
- * messages (`{ errors: ["…"] }`) or an error list entry without a field (a
- * Spring Boot global error, or a JSON:API one pointing at the whole
- * resource, `"/data"`). An error without field messages gives its own
+ * `base` (Rails), `non_field_errors` (Django REST framework), `""` (the
+ * model-level errors of ASP.NET, `"$"` for a body it cannot read),
+ * `formErrors` (Zod - a list or one text, also without `fieldErrors`), a
+ * plain list of messages (`{ errors: ["…"] }`) or an error list entry
+ * without a field (a Spring Boot global error, a JSON:API one pointing at
+ * the whole resource, `"/data"`, one of problem details pointing at the
+ * whole body, `"#"`, or a FastAPI one at `["body"]`). An error without field
+ * messages - none that getFieldError can give to a field - gives its own
  * message: that of a GraphQL error (`"Not authorized"`), a `detail` (Django
  * REST framework, problem details), a `message`, or the `title` of problem
  * details (ASP.NET).
@@ -460,6 +554,8 @@ export const getBaseError = (error: unknown): string | undefined => {
     getFirstMessage(details?.fields.base) ??
     getFirstMessage(details?.fields.non_field_errors) ??
     getFirstMessage(details?.fields.nonFieldErrors) ??
+    getFirstMessage(details?.fields[""]) ??
+    getFirstMessage(details?.fields.$) ??
     getFirstMessage(details?.formErrors);
 
   if (base) return base;

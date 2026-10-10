@@ -5,6 +5,7 @@ import {
   useFormReset,
 } from "../../hooks/use-form-control";
 import { useCallback, useId, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import useCustomValidity from "../../hooks/use-custom-validity";
 import cn, { joinTokens } from "../../utils/cn";
 import {
@@ -287,10 +288,11 @@ function CheckboxRow({
         readOnly
           ? ignoreChange
           : (event) => {
-              onChange(event.target.checked);
               // The click cleared it - a parent refusing the change renders
-              // nothing that would bring it back
+              // nothing that would bring it back. Before `onChange`, which
+              // renders the new state at once in an uncontrolled group.
               if (indeterminate) event.target.indeterminate = true;
+              onChange(event.target.checked);
             }
       }
       onClick={
@@ -490,7 +492,10 @@ export default function CheckboxGroup<
       ...selected.filter((picked) => !optionKeys.has(String(picked))),
     ];
 
-    if (!isControlled) setPickedValues(next);
+    // The checkboxes "Select all" changes are checked before `onChange`,
+    // which may submit the form. A controlled parent can only render them
+    // after `onChange`.
+    if (!isControlled) flushSync(() => setPickedValues(next));
     onChange?.(next);
   };
 

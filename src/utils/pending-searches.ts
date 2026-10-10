@@ -51,8 +51,16 @@ export const getPendingSearches = (
 
 /** Takes note of the search the router shows. */
 export function observeSearch(entry: PendingSearches, search: string) {
-  // Only a change counts - not every render with the same search
-  if (search === entry.seen) return;
+  // Only a change counts - not every render with the same search. Unless
+  // the changes end where the router is (a change, then back): a router
+  // that shows only the last of several navigations - one that loads data
+  // first - never shows the ones before it, which must not wait for good,
+  // or the Back button onto one of them would be taken for the router
+  // catching up, and the next change built on the end
+  if (search === entry.seen) {
+    if (entry.pending.at(-1) === search) entry.pending = [];
+    return;
+  }
   entry.seen = search;
 
   const index = entry.pending.indexOf(search);

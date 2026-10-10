@@ -165,6 +165,98 @@ describe("DateTimePicker Today and Clear", () => {
   });
 });
 
+// Kiritimati (UTC+14) and Pago Pago (UTC-11) are on different days all
+// along - whatever the zone of the browser, it is on another day than one
+describe("DateTimePicker today of timeZone", () => {
+  const zones = ["Pacific/Kiritimati", "Pacific/Pago_Pago"];
+
+  it.each([
+    [zones[0], "2026-10-01", "October 2026", "October 1, 2026"],
+    [zones[1], "2026-09-30", "September 2026", "September 30, 2026"],
+  ])(
+    "opens at, marks and picks today in %s",
+    async (timeZone, today, month, day) => {
+      vi.setSystemTime(new Date("2026-09-30T12:00:00Z"));
+      const { input, onChange, user } = renderPicker({ timeZone });
+
+      await user.click(input);
+      const dialog = screen.getByRole("dialog", { name: "Select date" });
+      expect(within(dialog).getByRole("grid", { name: month })).toBeVisible();
+      expect(within(dialog).getByRole("button", { name: day })).toHaveAttribute(
+        "aria-current",
+        "date",
+      );
+
+      await user.click(within(dialog).getByRole("button", { name: "Today" }));
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(today);
+    },
+  );
+
+  it.each([
+    [zones[0], "2026-10-01T08:00"],
+    [zones[1], "2026-09-30T08:00"],
+  ])(
+    "sets the time of today in %s without a day picked",
+    async (timeZone, value) => {
+      vi.setSystemTime(new Date("2026-09-30T12:00:00Z"));
+      const { input, onChange, user } = renderPicker({
+        timeZone,
+        type: "datetime-local",
+      });
+
+      await user.click(input);
+      const hours = screen.getByRole("listbox", { name: "Hours" });
+      await user.click(within(hours).getByRole("option", { name: "8 AM" }));
+      expect(onChange).toHaveBeenLastCalledWith(value);
+    },
+  );
+
+  it.each([
+    [zones[0], "month", "October 2026", "2026-09-30T12:00:00Z"],
+    [zones[1], "month", "September 2026", "2026-09-30T12:00:00Z"],
+    // Monday and Sunday, October 5 and 4
+    [zones[0], "week", "Week 41, 2026", "2026-10-04T12:00:00Z"],
+    [zones[1], "week", "Week 40, 2026", "2026-10-04T12:00:00Z"],
+  ] as const)(
+    "in %s opens the %s grid at the current one",
+    async (timeZone, type, current, now) => {
+      vi.setSystemTime(new Date(now));
+      const { input, user } = renderPicker({ timeZone, type });
+
+      await user.click(input);
+      expect(screen.getByRole("button", { name: current })).toHaveAttribute(
+        "tabindex",
+        "0",
+      );
+    },
+  );
+
+  it.each([
+    [zones[0], "2027-06-15"],
+    [zones[1], "2026-06-15"],
+  ])("takes a year left out from today in %s", async (timeZone, value) => {
+    // New Year's Day in Kiritimati, New Year's Eve in Pago Pago
+    vi.setSystemTime(new Date("2026-12-31T12:00:00Z"));
+    const { input, onChange, user } = renderPicker({ timeZone });
+
+    await user.type(input, "6/15{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith(value);
+  });
+
+  it("takes today of the browser for a zone it does not know", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { input, onChange, user } = renderPicker({ timeZone: "Mars/Base" });
+
+    await user.click(input);
+    const dialog = screen.getByRole("dialog", { name: "Select date" });
+    await user.click(within(dialog).getByRole("button", { name: "Today" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("2026-09-24");
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/timeZone "Mars\/Base"/),
+    );
+  });
+});
+
 describe("DateTimePicker presets", () => {
   const presets = [
     { label: "Tomorrow", value: "2026-09-25" },

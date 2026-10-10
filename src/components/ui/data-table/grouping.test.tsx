@@ -245,6 +245,57 @@ describe("DataTable row groups", () => {
     ]);
   });
 
+  it("orders the groups by the sortFn of their column", async () => {
+    const user = userEvent.setup();
+    const ranks = ["Low", "Medium", "High"];
+    render(
+      <DataTable
+        clientSide
+        columns={[
+          {
+            key: "priority",
+            label: "Priority",
+            sortable: true,
+            sortFn: (a, b) =>
+              ranks.indexOf(a.priority) - ranks.indexOf(b.priority),
+          },
+        ]}
+        data={[
+          { id: 1, priority: "High" },
+          { id: 2, priority: "" },
+          { id: 3, priority: "Low" },
+          { id: 4, priority: "Medium" },
+        ]}
+        groupBy="priority"
+      />,
+    );
+    const groups = () =>
+      screen
+        .getAllByRole("button", { name: /^Priority:/ })
+        .map((b) => b.textContent);
+
+    // By rank, not by name - an empty value last
+    expect(groups()).toEqual([
+      "Priority: Low (1 row)",
+      "Priority: Medium (1 row)",
+      "Priority: High (1 row)",
+      "Priority: (empty) (1 row)",
+    ]);
+
+    // Sorted descending - the groups too
+    const sort = within(
+      screen.getByRole("columnheader", { name: "Priority" }),
+    ).getByRole("button");
+    await user.click(sort);
+    await user.click(sort);
+    expect(groups()).toEqual([
+      "Priority: High (1 row)",
+      "Priority: Medium (1 row)",
+      "Priority: Low (1 row)",
+      "Priority: (empty) (1 row)",
+    ]);
+  });
+
   it("counts all rows of a group on a page of it", () => {
     render(
       <DataTable

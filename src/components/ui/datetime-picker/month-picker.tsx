@@ -18,6 +18,7 @@ import {
   pad2,
   padYear,
 } from "../../../utils/date";
+import { inTimeZone } from "../../../utils/time-zone";
 import { useLocale } from "../../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
 
@@ -39,6 +40,8 @@ interface MonthGridProps {
   onSelect: (year: number, month: number) => void;
   /** The selected month - the grid starts at it (or this month). */
   selected: ReturnType<typeof parseMonth>;
+  /** The IANA time zone of today - its month is shown without a selected one. */
+  timeZone?: string;
 }
 
 // Months in a row of the grid
@@ -58,6 +61,7 @@ function MonthGrid({
   onEscape,
   onSelect,
   selected,
+  timeZone,
 }: MonthGridProps) {
   const locale = useLocale();
   const messages = locale.messages.ui.dateTimePicker;
@@ -67,11 +71,12 @@ function MonthGrid({
   );
 
   const [year, setYear] = useState(
-    () => selected?.year ?? new Date().getFullYear(),
+    () => selected?.year ?? inTimeZone(new Date(), timeZone).getFullYear(),
   );
   // 0 - 11
   const [focusedMonth, setFocusedMonth] = useState(
-    () => (selected?.month ?? new Date().getMonth() + 1) - 1,
+    () =>
+      (selected?.month ?? inTimeZone(new Date(), timeZone).getMonth() + 1) - 1,
   );
   const gridRef = useRef<HTMLDivElement>(null);
   // The focused month takes the focus when a key moved it - not when the
@@ -288,6 +293,7 @@ export default function MonthPicker({
   // Of the date popup only
   popupActions: _popupActions,
   presets: _presets,
+  timeZone,
   value,
   ...props
 }: CustomPickerProps) {
@@ -339,7 +345,14 @@ export default function MonthPicker({
       onValueChange={onValueChange}
       panelClassName="w-64"
       parseText={(text) => {
-        const typed = parseDisplayValue(text, locale.formats.month, "month");
+        // A year left out is the one of today of `timeZone`
+        const typed = parseDisplayValue(
+          text,
+          locale.formats.month,
+          "month",
+          undefined,
+          inTimeZone(new Date(), timeZone),
+        );
         if (!typed) return { error: "format" };
         return isInRange(typed, min, max)
           ? { value: typed, validityMessage: getUnavailableMessage(typed) }
@@ -375,6 +388,7 @@ export default function MonthPicker({
           close();
         }}
         selected={selected}
+        timeZone={timeZone}
       />
     </PickerField>
   );

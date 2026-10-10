@@ -1,4 +1,5 @@
 import { useCallback, useId, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   attachRef,
   isAriaInvalid,
@@ -86,6 +87,9 @@ export interface ColorInputProps extends Omit<
   /**
    * Called with the new color in `format` - as it is typed (on Enter or
    * leaving the field), picked or dragged; `""` when the field is emptied.
+   * The hidden input of an uncontrolled field holds it by then - the form
+   * can be submitted from here. That of a controlled one gets it only when
+   * the parent renders the new `value`, after `onChange`.
    */
   onChange?: (value: string) => void;
   /**
@@ -288,7 +292,9 @@ export default function ColorInput({
 
   const commit = (next: string) => {
     if (next === value) return;
-    if (!isControlled) setEnteredValue(next);
+    // The hidden input holds the color before `onChange`, which may submit
+    // the form. A controlled parent can only render it after `onChange`.
+    if (!isControlled) flushSync(() => setEnteredValue(next));
     onChange?.(next);
   };
 

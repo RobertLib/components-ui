@@ -75,12 +75,13 @@ export default function TimelinePage() {
       <Callout title="Dates and server rendering">
         <p>
           Dates are written by the locale of <code>UIProvider</code>, on its 12-
-          or 24-hour clock, in the time zone of the device. A page rendered on
-          the server (e.g. Next.js) writes them in the time zone of the server -
-          and hydration then finds other texts in the browser. Pass the time
-          zone of the user in <code>timeFormat</code> (
+          or 24-hour clock, in the time zone of the device. The server (e.g.
+          Next.js) does not know it - a page rendered there leaves such a date
+          empty until it has hydrated, as <code>useFormatDate</code> does. Pass
+          the time zone of the user in <code>timeFormat</code> (
           <code>{'{ dateStyle: "medium", timeStyle: "short", timeZone }'}</code>
-          ), or strings written by the app.
+          ), dates of <code>useToday</code> or <code>inTimeZone</code>, which
+          carry their zone, or strings written by the app.
         </p>
       </Callout>
 

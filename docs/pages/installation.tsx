@@ -3,7 +3,7 @@ import CodeBlock from "../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 
 const installGit = `# a tagged version from your git host - npm builds dist/ on install
-npm install git+https://github.com/RobertLib/components-ui.git#v0.6.1
+npm install git+https://github.com/RobertLib/components-ui.git#v0.7.0
 
 # the latest commit of a branch
 npm install git+https://github.com/RobertLib/components-ui.git#main
@@ -30,8 +30,8 @@ resolve: {
 },`;
 
 const installTarball = `# a copy instead of a link - like an install from a registry
-cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.6.1.tgz
-cd ../my-app && npm install ../components-ui/components-ui-0.6.1.tgz`;
+cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.7.0.tgz
+cd ../my-app && npm install ../components-ui/components-ui-0.7.0.tgz`;
 
 const installRegistry = `# in the library: set a scoped name, remove "private": true, then
 npm publish --registry https://npm.your-company.com
@@ -141,7 +141,7 @@ const sourceFallback = `/* Only if Tailwind does not pick up the classes of the 
 
 const vitePlugin = `// vite.config.ts - the CSS of a build only for the components the app uses
 import componentsUi from "components-ui/vite";
-// in a source copy: import componentsUi from "./src/components/ui/vite";
+// in a source copy: import componentsUi from "./src/components/ui/vite.js";
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), componentsUi()],
@@ -229,6 +229,8 @@ export default function Installation() {
           </ul>
           <p>
             <code>lucide-react</code> (the icons) is installed with the library.
+            An install from git builds the package (<code>prepare</code>) - with
+            Node.js 22.12 or newer.
           </p>
         </Prose>
       </Section>
@@ -342,11 +344,12 @@ export default function Installation() {
             Include ES2023 and browser API definitions in your TypeScript
             configuration. This is a <code>lib</code> setting, not a requirement
             to emit ES2023 JavaScript. Source copies need React's types but do
-            not need Node types, import aliases or the React Compiler. The
-            compiler is optional: expensive queries and list rows have their own
-            memoization. <code>npm run test:source</code> checks the exported
-            sources in a standalone Vite app and runs the tests without the
-            compiler.
+            not need Node or Vite types (also with{" "}
+            <code>skipLibCheck: false</code>), import aliases or the React
+            Compiler. The compiler is optional: expensive queries and list rows
+            have their own memoization. <code>npm run test:source</code> checks
+            the exported sources in a standalone Vite app and runs the tests
+            without the compiler.
           </p>
         </Prose>
         <CodeBlock code={sourceTypeScript} />

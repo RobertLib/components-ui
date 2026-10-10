@@ -166,6 +166,8 @@ export default function ImageViewer({
   // parent (an inline function) is no reason to call it again
   const latest = useRef({ index: 0, loadedKey, onLoadMore });
   const swipeStart = useRef<{ id: number; x: number; y: number } | null>(null);
+  // The area of the image - it scrolls while the image is zoomed in
+  const imageAreaRef = useRef<HTMLDivElement>(null);
 
   // The next images load as the last loaded one shows, so that moving on
   // does not wait for them
@@ -328,6 +330,14 @@ export default function ImageViewer({
           event.nativeEvent.isComposing
         )
           return;
+        // The image zoomed in pans with the keys of its area, which takes the
+        // focus for it - the buttons move on meanwhile
+        if (
+          zoom > 1 &&
+          event.target instanceof Node &&
+          imageAreaRef.current?.contains(event.target)
+        )
+          return;
         const rtl = isRtl(event.currentTarget);
         if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           event.preventDefault();
@@ -426,6 +436,7 @@ export default function ImageViewer({
                 // or the page is zoomed in - a pinch still zooms the page
                 zoom === 1 && !pageZoomed && "touch-pan-y touch-pinch-zoom",
               )}
+              ref={imageAreaRef}
               tabIndex={0}
             >
               {failed === image.src ? (

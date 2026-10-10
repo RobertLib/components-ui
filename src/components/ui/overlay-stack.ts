@@ -317,8 +317,21 @@ export function getFocusReturnTargets(element: Element | null) {
 }
 
 // Where the focus that went away with the elements of a closing overlay
-// would have gone back to - for an overlay opened in the same commit
-let lostFocusTargets: HTMLElement[] | null = null;
+// would have gone back to - for an overlay opened in the same commit. Also
+// while the focus is still `within` the overlay, which animates out.
+let lostFocus: {
+  targets: HTMLElement[];
+  within?: Element | null;
+} | null = null;
+
+const noteLostFocus = (targets: HTMLElement[], within?: Element | null) => {
+  const lost = { targets, within };
+  lostFocus = lost;
+  // Until the commit is over
+  queueMicrotask(() => {
+    if (lostFocus === lost) lostFocus = null;
+  });
+};
 
 /**
  * Call it when `element`, which has the focus, is about to be removed with
@@ -329,11 +342,35 @@ let lostFocusTargets: HTMLElement[] | null = null;
  * the commit is over (a microtask).
  */
 export function noteFocusLoss(element: Element) {
-  const targets = getFocusReturnTargets(element);
-  lostFocusTargets = targets;
-  queueMicrotask(() => {
-    if (lostFocusTargets === targets) lostFocusTargets = null;
-  });
+  noteLostFocus(getFocusReturnTargets(element));
+}
+
+/**
+ * Whether the focus went with the closing overlay `container` - it is on the
+ * page body (the overlay is gone), or still in the overlay as it animates
+ * out. Not when it is elsewhere: something has taken it meanwhile, like an
+ * `autoFocus` field rendered as the overlay closed - it keeps it.
+ */
+export function hasFocusLeftWith(container: Element | null | undefined) {
+  const active = getActiveElement();
+  return (
+    !active ||
+    active === active.ownerDocument.body ||
+    (!!container && composedContains(container, active))
+  );
+}
+
+/**
+ * Call it as the modal overlay `container` closes - leaves the stack - with
+ * the focus in it, or lost with it: a modal one opened in the same commit,
+ * the next step of a wizard that replaces it, gives the focus back to its
+ * `targets` once it closes, instead of to the page body.
+ */
+export function noteModalFocusLoss(
+  targets: HTMLElement[],
+  container: Element | null | undefined,
+) {
+  if (hasFocusLeftWith(container)) noteLostFocus(targets, container);
 }
 
 /**
@@ -454,15 +491,23 @@ function isLeftByClick(active: Element | null, control: HTMLElement) {
 /**
  * `getFocusReturnTargets` of the focused element - or, when the focus has
  * just gone away with a closing overlay (see `noteFocusLoss`), of the
- * element that had it; when the focus is where the click of a control that
- * did not take it left it, of that control (see `clickedTargets`) -
- * followed by the Tab stops next to the last of them, for when all of them
- * are gone by the time the overlay closes.
+ * element that had it, and when it went with a closing modal one (see
+ * `noteModalFocusLoss`), where that one would have given it back; when the
+ * focus is where the click of a control that did not take it left it, of
+ * that control (see `clickedTargets`) - followed by the Tab stops next to
+ * the last of them, for when all of them are gone by the time the overlay
+ * closes.
  */
 export function getActiveFocusReturnTargets() {
   const active = getActiveElement();
   const onBody = !active || active === document.body;
-  if (onBody && lostFocusTargets) return withNeighborStops(lostFocusTargets);
+  if (
+    lostFocus &&
+    (onBody ||
+      (!!lostFocus.within && composedContains(lostFocus.within, active)))
+  ) {
+    return withNeighborStops(lostFocus.targets);
+  }
 
   const clicked = isTrackingClicks ? clickedTargets : null;
   if (clicked && isLeftByClick(active, clicked[0])) {
@@ -810,10 +855,11 @@ const createEntry = (
 let scrollLocks = 0;
 let unlockedStyle: {
   overflow: string;
-  paddingRight: string;
+  /** The padding the lock set, as it was - on the side of the scrollbar. */
+  padding: { side: "paddingLeft" | "paddingRight"; value: string } | null;
   /** The overflow of the root, when the lock set it too. */
   root: { overflowX: string; overflowY: string } | null;
-} = { overflow: "", paddingRight: "", root: null };
+} = { overflow: "", padding: null, root: null };
 
 /**
  * The width of the page's scrollbar - 0 for overlay scrollbars, which take
@@ -828,22 +874,39 @@ const getScrollbarWidth = () => {
   return window.innerWidth - root.clientWidth;
 };
 
+/**
+ * Whether the scrollbar of the page is on its left - in a right-to-left page
+ * of some browsers (Firefox), while others keep it on the right (Chrome).
+ * Fixed elements start right of it.
+ */
+const isScrollbarOnLeft = () => {
+  const root = document.documentElement;
+  if (getDirection(root) !== "rtl") return false;
+
+  const probe = document.createElement("div");
+  probe.style.cssText =
+    "position: fixed; top: 0; left: 0; width: 0; height: 0; visibility: hidden";
+  root.append(probe);
+  const { left } = probe.getBoundingClientRect();
+  probe.remove();
+  return left > 0;
+};
+
 export const lockPageScroll = () => {
   if (scrollLocks === 0) {
     const { style } = document.body;
     const root = document.documentElement;
-    unlockedStyle = {
-      overflow: style.overflow,
-      paddingRight: style.paddingRight,
-      root: null,
-    };
+    unlockedStyle = { overflow: style.overflow, padding: null, root: null };
 
     // The scrollbar goes away with the overflow - its room is kept as
-    // padding, so the page does not shift sideways under the overlay
+    // padding on its side, so the page does not shift sideways under the
+    // overlay
     const scrollbarWidth = getScrollbarWidth();
     if (scrollbarWidth > 0) {
-      const padding = parseFloat(getComputedStyle(document.body).paddingRight);
-      style.paddingRight = `${(padding || 0) + scrollbarWidth}px`;
+      const side = isScrollbarOnLeft() ? "paddingLeft" : "paddingRight";
+      const padding = parseFloat(getComputedStyle(document.body)[side]);
+      unlockedStyle.padding = { side, value: style[side] };
+      style[side] = `${(padding || 0) + scrollbarWidth}px`;
     }
     style.overflow = "hidden";
     // A page whose root has an overflow of its own (`html { overflow-y:
@@ -860,8 +923,8 @@ export const lockPageScroll = () => {
     scrollLocks -= 1;
     if (scrollLocks === 0) {
       document.body.style.overflow = unlockedStyle.overflow;
-      document.body.style.paddingRight = unlockedStyle.paddingRight;
-      const { root } = unlockedStyle;
+      const { padding, root } = unlockedStyle;
+      if (padding) document.body.style[padding.side] = padding.value;
       if (root) {
         const { style } = document.documentElement;
         style.overflow = "";
@@ -1114,8 +1177,9 @@ export interface UseOverlayOptions {
    * focus moves into `ref` and stays there (Tab cycles through it, focus
    * that lands outside comes back), the page behind is hidden from screen
    * readers (`aria-hidden`) and does not scroll, and the focus goes back
-   * where it was once it closes. Leave it off for a panel next to
-   * the page, like the one of a Popover.
+   * where it was once it closes - unless something else has taken it, like
+   * an `autoFocus` field rendered as it closes. Leave it off for a panel
+   * next to the page, like the one of a Popover.
    */
   modal?: boolean;
   /**
@@ -1205,12 +1269,13 @@ export function useOverlay({
   const isModalOpen = open && modal;
 
   // Where the focus was before it opened - before an `autoFocus` field in
-  // it takes the focus in the layout phase
+  // it takes the focus in the layout phase. A modal overlay opened as it
+  // closes gives the focus back there too.
   useInsertionEffect(() => {
-    if (isModalOpen) {
-      returnFocusRef.current = getActiveFocusReturnTargets();
-    }
-  }, [isModalOpen]);
+    if (!isModalOpen) return;
+    returnFocusRef.current = getActiveFocusReturnTargets();
+    return () => noteModalFocusLoss(returnFocusRef.current, ref.current);
+  }, [isModalOpen, ref]);
 
   useEffect(() => {
     if (!isModalOpen) return;
@@ -1220,7 +1285,7 @@ export function useOverlay({
   useFocusTrap(isModalOpen, id, ref);
 
   // In when it opens, unless an `autoFocus` field has the focus already, and
-  // back once it closes
+  // back once it closes - unless something else has taken it meanwhile
   useEffect(() => {
     const container = ref.current;
     if (!isModalOpen || !container) return;
@@ -1231,7 +1296,7 @@ export function useOverlay({
 
     const targets = returnFocusRef.current;
     return () => {
-      returnFocus(targets, container);
+      if (hasFocusLeftWith(container)) returnFocus(targets, container);
     };
   }, [isModalOpen, ref]);
 

@@ -1,4 +1,5 @@
-import { useCallback, useId, useRef } from "react";
+import { useCallback, useEffect, useId, useRef } from "react";
+import { flushSync } from "react-dom";
 import useCustomValidity from "../../../hooks/use-custom-validity";
 import cn, { joinTokens } from "../../../utils/cn";
 import DatePicker from "./date-picker";
@@ -20,6 +21,8 @@ import {
   getDayPeriods,
   parseISODate,
 } from "../../../utils/date";
+import { isTimeZone } from "../../../utils/time-zone";
+import logger from "../../../utils/logger";
 import { useLocale } from "../../../providers/ui-context";
 import type { CustomPickerProps, DateTimePickerPreset } from "./types";
 import type { Locale } from "../../../i18n/ui/types";
@@ -124,7 +127,8 @@ export interface DateTimePickerProps extends Omit<
   // too - React types its own event handlers the same way
   /**
    * Called with the new value in `event.target.value` (see
-   * `DateTimePickerChangeEvent`).
+   * `DateTimePickerChangeEvent`) - once the form has it, so it may submit
+   * the form (`form.requestSubmit()`).
    */
   onChange?(event: DateTimePickerChangeEvent): void;
   /** The focus entered the picker - see `onBlur`. */
@@ -150,6 +154,15 @@ export interface DateTimePickerProps extends Omit<
    * out: their minutes come from `minuteStep`.
    */
   step?: number | string;
+  /**
+   * The IANA time zone of today, e.g. `"America/New_York"` - the day the
+   * Today button picks and the popup marks, the day, month or week the
+   * popup opens at without a value, and the year of a value typed without
+   * one. The browser's by default, also for a zone it does not know (with a
+   * warning in the console). The value stays a time on the clock, the same
+   * in every zone. Not in `native` mode, whose popup is the browser's.
+   */
+  timeZone?: string;
   /**
    * The visible text field - e.g. for `focus()`. Its `value` is the text it
    * shows (`24.09.2026`); the value itself comes with `onChange` and, with a
@@ -259,18 +272,31 @@ export default function DateTimePicker({
   ref,
   required,
   step,
+  timeZone: timeZoneProp,
   type = "date",
   value: valueProp,
   ...inputProps
 }: DateTimePickerProps) {
   const locale = useLocale();
+  // A zone `Intl` does not know would throw - the browser's instead
+  const timeZone =
+    timeZoneProp && isTimeZone(timeZoneProp) ? timeZoneProp : undefined;
+  useEffect(() => {
+    if (timeZoneProp && !timeZone) {
+      logger.warn(
+        `DateTimePicker: timeZone "${timeZoneProp}" is no IANA time zone this browser knows - today is the browser's.`,
+      );
+    }
+  }, [timeZone, timeZoneProp]);
   const { fieldRef, handleChange, value } = useFormControl({
     defaultValue,
     // A value a script writes into the native input stays - `register()`.
     // The custom pickers' `fieldRef` is on a field showing formatted text.
     followScriptWrites: mode === "native",
     form: inputProps.form,
-    onChange,
+    // A native input holds its new value before its `onChange` - a custom
+    // picker calls it itself, once its hidden input does
+    onChange: mode === "native" ? onChange : undefined,
     ref,
     value: valueProp,
   });
@@ -406,7 +432,7 @@ export default function DateTimePicker({
     name,
     onBlur,
     onFocus,
-    onValueChange: (newValue) => {
+    onValueChange: (newValue, typed) => {
       const target = { name: name ?? "", value: newValue };
       const event: DateTimePickerChangeEvent = {
         currentTarget: target,
@@ -415,8 +441,16 @@ export default function DateTimePicker({
         target,
         type: "change",
       };
-      // The form control reads just `target.value` of it
-      handleChange(event as unknown as React.ChangeEvent<HTMLInputElement>);
+      // The form control reads just `target.value` of the event
+      const change = () =>
+        handleChange(event as unknown as React.ChangeEvent<HTMLInputElement>);
+      // The hidden input holds the value before `onChange`, which may
+      // submit the form or read its `FormData` - a typed text it holds
+      // already, and a render in the blur taking it would come before the
+      // focus moved on into the popup
+      if (typed) change();
+      else flushSync(change);
+      onChange?.(event);
     },
     placeholder: getPlaceholder(),
     popupActions,
@@ -424,6 +458,7 @@ export default function DateTimePicker({
     readOnly,
     required,
     sourceValue: String(value ?? ""),
+    timeZone,
     value: sanitizePickerValue(String(value ?? ""), type),
   };
 

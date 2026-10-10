@@ -249,12 +249,18 @@ export default function TimelineView({
     return minutes >= START_HOUR * 60 && minutes < END_HOUR * 60;
   };
 
-  // When a moved event would take place - for screen readers
+  // When a moved event would take place - for screen readers. In the zone
+  // of the calendar: a formatter keeps the zone it was made with, also
+  // after the app switches `timeZone`.
+  const timeZone = dateTimeZone(currentDate);
   const timeLabel = useMemo(
-    () => createTimeLabeler(locale, resourceList ?? undefined),
-    [locale, resourceList],
+    () => createTimeLabeler(locale, resourceList ?? undefined, timeZone),
+    [locale, resourceList, timeZone],
   );
-  const timeText = useMemo(() => createTimeTextFormatter(locale), [locale]);
+  const timeText = useMemo(
+    () => createTimeTextFormatter(locale, timeZone),
+    [locale, timeZone],
+  );
 
   const move = useEventMove({
     announce,
@@ -441,16 +447,16 @@ export default function TimelineView({
   const selectedRange = slotDragState ?? keyboardRange;
 
   const getSlotLabel = createSlotLabeler(locale);
-  const dayLabelFormat = createDayFormat(locale, dateTimeZone(currentDate));
+  const dayLabelFormat = createDayFormat(locale, timeZone);
 
   // Unknown on the server and while a server-rendered page hydrates - its
   // clock and time zone may differ from the browser's. Another day after
   // midnight, also in a view left open.
-  const today = useToday(dateTimeZone(currentDate));
+  const today = useToday(timeZone);
   const isToday = (date: Date) => today !== null && isSameDay(date, today);
   const now = useCurrentMinute(
     nowIndicator && axis.days.some(({ day }) => isToday(day)),
-    dateTimeZone(currentDate),
+    timeZone,
   );
   // The line of the current time - within the hours shown of today
   const nowX = now && isShownTime(now) ? xOf(now) : null;
@@ -762,6 +768,8 @@ export default function TimelineView({
                         {day.day.toLocaleString(toIntlLocale(locale.code), {
                           calendar: "gregory",
                           month: "short",
+                          // The month of the day in the zone of the calendar
+                          timeZone,
                         })}
                       </span>
                     </span>

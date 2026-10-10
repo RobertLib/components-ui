@@ -42,6 +42,30 @@ describe("PhoneInput", () => {
     fireEvent.blur(screen.getByLabelText(/^Phone/));
     expect(screen.getByLabelText(/^Phone/)).toHaveValue("+420777123456");
   });
+  it("holds the number of an uncontrolled field in the form by onChange", async () => {
+    const user = userEvent.setup();
+    const seen: unknown[] = [];
+    const { container } = render(
+      <form>
+        <PhoneInput
+          countries={countries}
+          defaultCountry="CZ"
+          label="Phone"
+          name="phone"
+          onChange={() =>
+            seen.push(
+              new FormData(container.querySelector("form")!).get("phone"),
+            )
+          }
+        />
+      </form>,
+    );
+
+    // Typed, and a country picked
+    await user.type(screen.getByLabelText(/^Phone/), "77");
+    await user.selectOptions(screen.getByRole("combobox"), "SK");
+    expect(seen).toEqual(["+4207", "+42077", "+42177"]);
+  });
   it("detects international prefixes and keeps national digits when selecting another country", async () => {
     const user = userEvent.setup();
     const changeCountry = vi.fn();
@@ -330,6 +354,198 @@ describe("PhoneInput", () => {
     expect(new FormData(container.querySelector("form")!).has("phone")).toBe(
       false,
     );
+  });
+  it("keeps the national digits after the calling code a number carries when picking a country", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <PhoneInput
+        countries={countries}
+        defaultCountry="CZ"
+        label="Phone"
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByLabelText(/^Phone/);
+    const picker = screen.getByRole("combobox");
+    // A calling code of a country the picker does not offer
+    fireEvent.change(input, { target: { value: "+49 30 1234567" } });
+    await user.selectOptions(picker, "SK");
+    expect(onChange).toHaveBeenLastCalledWith("+421301234567", {
+      country: "SK",
+      isPossible: true,
+      isValid: true,
+    });
+    // A calling code of no known country stays as it is
+    fireEvent.change(input, { target: { value: "+7 912 345 67 89" } });
+    await user.selectOptions(picker, "CZ");
+    expect(onChange).toHaveBeenLastCalledWith("+79123456789", {
+      country: "CZ",
+      isPossible: true,
+      isValid: false,
+    });
+    expect(picker).toHaveValue("CZ");
+    fireEvent.blur(input);
+    expect(input).toHaveValue("+79123456789");
+    expect(input).toBeInvalid();
+  });
+  it("keeps the national digits of a controlled number of another country than the controlled one", async () => {
+    const onChange = vi.fn();
+    const onCountryChange = vi.fn();
+    render(
+      <PhoneInput
+        countries={countries}
+        country="CZ"
+        label="Phone"
+        onChange={onChange}
+        onCountryChange={onCountryChange}
+        value="+421905123456"
+      />,
+    );
+    await userEvent.setup().selectOptions(screen.getByRole("combobox"), "SK");
+    expect(onCountryChange).toHaveBeenLastCalledWith("SK");
+    expect(onChange).toHaveBeenLastCalledWith("+421905123456", {
+      country: "SK",
+      isPossible: true,
+      isValid: true,
+    });
+  });
+  it.each([
+    "‪+420 777 123 456‬",
+    "⁦+420 777 123 456⁩",
+    "‎+420 777 123 456‏",
+    "؜00420 777 123 456",
+  ])("reads a number with bidi marks %j as international", (text) => {
+    const onChange = vi.fn();
+    render(
+      <PhoneInput
+        defaultCountry="GB"
+        defaultValue={text}
+        label="Phone"
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByLabelText(/^Phone/);
+    expect(screen.getByRole("combobox")).toHaveValue("CZ");
+    expect(input).toHaveValue("+420777123456");
+    fireEvent.change(input, { target: { value: text.replace("777", "778") } });
+    expect(onChange).toHaveBeenLastCalledWith("+420778123456", {
+      country: "CZ",
+      isPossible: true,
+      isValid: true,
+    });
+  });
+  it.each([
+    ["+44 (0)20 7946 0958", "+442079460958"],
+    ["0044 ( 0 ) 20 7946 0958", "+442079460958"],
+    ["+(44) (0)20 7946 0958", "+442079460958"],
+    // A national trunk prefix stays as typed
+    ["(0)20 7946 0958", "+4402079460958"],
+  ])(
+    "drops the (0) after an international calling code of %j",
+    (text, value) => {
+      const onChange = vi.fn();
+      render(
+        <PhoneInput defaultCountry="GB" label="Phone" onChange={onChange} />,
+      );
+      fireEvent.change(screen.getByLabelText(/^Phone/), {
+        target: { value: text },
+      });
+      expect(onChange).toHaveBeenLastCalledWith(value, {
+        country: "GB",
+        isPossible: true,
+        isValid: true,
+      });
+    },
+  );
+  it.each([
+    ["０９０１２３４５６７８", "+8109012345678"],
+    ["090-１２３４-5678", "+8109012345678"],
+    ["＋８１ ９０ １２３４ ５６７８", "+819012345678"],
+    ["００８１（０）９０１２３４５６７８", "+819012345678"],
+  ])("reads the full-width digits of %j", (text, value) => {
+    const onChange = vi.fn();
+    render(
+      <PhoneInput defaultCountry="JP" label="Phone" onChange={onChange} />,
+    );
+    fireEvent.change(screen.getByLabelText(/^Phone/), {
+      target: { value: text },
+    });
+    expect(onChange).toHaveBeenLastCalledWith(value, {
+      country: "JP",
+      isPossible: true,
+      isValid: true,
+    });
+  });
+  it("takes the main country of a shared calling code unless the selected one shares it", () => {
+    const onChange = vi.fn();
+    const { unmount } = render(
+      <PhoneInput
+        defaultCountry="CZ"
+        defaultValue="+12125551234"
+        label="Phone"
+        onChange={onChange}
+      />,
+    );
+    expect(screen.getByRole("combobox")).toHaveValue("US");
+    fireEvent.change(screen.getByLabelText(/^Phone/), {
+      target: { value: "+12125551235" },
+    });
+    expect(onChange).toHaveBeenLastCalledWith("+12125551235", {
+      country: "US",
+      isPossible: true,
+      isValid: true,
+    });
+    unmount();
+
+    // Also of a list of the app's, whatever its order
+    render(
+      <PhoneInput
+        countries={[
+          { code: "CZ", callingCode: "420" },
+          { code: "KZ", callingCode: "7" },
+          { code: "RU", callingCode: "7" },
+        ]}
+        defaultCountry="CZ"
+        defaultValue="+79123456789"
+        label="Phone"
+      />,
+    );
+    expect(screen.getByRole("combobox")).toHaveValue("RU");
+  });
+  it("keeps the app's ref attached while typing and picking a country", async () => {
+    const user = userEvent.setup();
+    const ref = vi.fn();
+    render(
+      <form>
+        <PhoneInput
+          countries={countries}
+          defaultCountry="CZ"
+          label="Phone"
+          ref={ref}
+        />
+      </form>,
+    );
+    const input = screen.getByLabelText(/^Phone/);
+    await user.type(input, "777");
+    await user.selectOptions(screen.getByRole("combobox"), "SK");
+    expect(ref.mock.calls).toEqual([[input]]);
+  });
+  it("leaves the focus in the picker with a ref that focuses the field once attached", async () => {
+    const focus = (element: HTMLInputElement | null) => element?.focus();
+    render(
+      <PhoneInput
+        countries={countries}
+        defaultCountry="CZ"
+        label="Phone"
+        ref={focus}
+      />,
+    );
+    const picker = screen.getByRole("combobox");
+    expect(screen.getByLabelText(/^Phone/)).toHaveFocus();
+    await userEvent.setup().selectOptions(picker, "SK");
+    expect(picker).toHaveValue("SK");
+    expect(picker).toHaveFocus();
   });
   it("renders custom country lists on the server without a DOM", () => {
     expect(

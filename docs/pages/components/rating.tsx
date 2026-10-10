@@ -46,7 +46,10 @@ export default function RatingPage() {
             With a <code>name</code>, a hidden input submits the value - an
             empty one while nothing is picked. <code>required</code> keeps the
             form from being submitted without a rating, and a reset brings back
-            the <code>defaultValue</code>.
+            the <code>defaultValue</code>. The hidden input of an uncontrolled
+            rating holds the new value by the time <code>onChange</code> comes,
+            which may submit the form; that of a controlled one gets it when the
+            parent renders the new <code>value</code>.
           </p>
         }
         name="rating/form"

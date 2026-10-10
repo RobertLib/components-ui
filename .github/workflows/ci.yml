@@ -32,7 +32,11 @@ jobs:
           retention-days: 14
 
   # The sync renames in case where the file system ignores case - macOS and
-  # Windows. Its tests skip that on Linux, and Windows has junctions of its own
+  # Windows. Its tests skip that on Linux, and Windows has junctions of its
+  # own. The Vite plugin goes by the paths of the modules - in other case on
+  # macOS and Windows, with drive letters and the short names of the
+  # temporary folder (RUNNER~1) on Windows - and the package test packs and
+  # installs the build with the tools of each system
   sync-source:
     strategy:
       fail-fast: false
@@ -44,6 +48,20 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      # No install - the tests of the sync need Node and Git alone. Those of
-      # the export build an app with Vite, which the job on Linux runs
-      - run: node --test scripts/test-sync-source.mjs
+          cache: npm
+      # `prepare` builds the library on install - the package of the test
+      - run: npm ci
+      - run: node --test scripts/test-sync-source.mjs scripts/test-vite-plugin.mjs scripts/test-package.mjs
+
+  # The oldest Node of `engines` - an install from git builds the package
+  # with it (`prepare`). The other tests need a newer one (`devEngines`)
+  oldest-node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - run: node --test scripts/test-package.mjs

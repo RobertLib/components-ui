@@ -40,7 +40,7 @@ export interface ChartProps extends Omit<
   data: readonly ChartDataPoint[];
   /** Series to draw, in legend order. */
   series: readonly ChartSeries[];
-  /** Chart type. Pie and donut use the first series as category values; negative values are omitted. */
+  /** Chart type. Pie and donut use the first series as category values; values that are not positive are omitted, also from the legend. */
   type?: ChartType;
   /** Stack bar and area series by sign. Defaults to false. */
   stacked?: boolean;
@@ -86,7 +86,11 @@ const palette: ChartColor[] = [
 const numeric = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
-/** A responsive multi-series chart with axes, keyboard tooltips and a data table. */
+/**
+ * A responsive multi-series chart with axes, keyboard tooltips and a data
+ * table. It is one tab stop - the arrow keys, Home and End move between its
+ * points.
+ */
 export default function Chart({
   className,
   data,
@@ -116,6 +120,9 @@ export default function Chart({
   const [hiddenPoints, setHiddenPoints] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  // The point the chart is a tab stop at - the arrow keys move between the
+  // points, Tab past the chart
+  const [focusedPoint, setFocusedPoint] = useState(0);
   const typeOf = (entry: ChartSeries) =>
     type === "mixed" ? (entry.type ?? "line") : type;
   const ranges = data.map((point) => {
@@ -139,12 +146,14 @@ export default function Chart({
   const allValues = ranges.flatMap((point) =>
     [...point.values()].flatMap((value) => (value ? [value.end] : [])),
   );
-  const radialPoints = data.flatMap((point, index) => {
+  // The categories a pie can draw - the legend lists these, hidden or not
+  const radialCategories = data.flatMap((point, index) => {
     const value = point[series[0]?.key];
-    return numeric(value) && value > 0 && !hiddenPoints.has(point.label)
-      ? [{ index, value }]
-      : [];
+    return numeric(value) && value > 0 ? [{ index, value }] : [];
   });
+  const radialPoints = radialCategories.filter(
+    ({ index }) => !hiddenPoints.has(data[index].label),
+  );
   const radialMax = radialPoints.reduce(
     (max, point) => Math.max(max, point.value),
     0,
@@ -198,8 +207,35 @@ export default function Chart({
     formatValue ? formatValue(value) : formatter.format(value);
   const colorOf = (entry: ChartSeries) =>
     colors[entry.color ?? palette[series.indexOf(entry) % palette.length]];
+  // What a point tells - a pie draws the first series alone
+  const pointSeries = radial ? series.slice(0, 1) : visible;
   const pointLabel = (index: number) =>
-    `${data[index].label}: ${visible.map((entry) => `${entry.label} ${numeric(data[index][entry.key]) ? valueText(data[index][entry.key] as number) : messages.noValue}`).join(", ")}`;
+    `${data[index].label}: ${pointSeries.map((entry) => `${entry.label} ${numeric(data[index][entry.key]) ? valueText(data[index][entry.key] as number) : messages.noValue}`).join(", ")}`;
+  // The sectors of a pie, from the top clockwise
+  const radius = Math.min(width, chartHeight) / 2 - 20;
+  const sectors: { fraction: number; index: number; start: number }[] = [];
+  let angle = 0;
+  for (const { index, value } of radialPoints) {
+    const fraction = value / radialMax / radialTotal;
+    sectors.push({ fraction, index, start: angle });
+    angle += fraction * Math.PI * 2;
+  }
+  // One tab stop - the point focused last, or the first one drawn
+  const pointIndexes = radial
+    ? sectors.map(({ index }) => index)
+    : data.map((_, index) => index);
+  const tabStop = pointIndexes.includes(focusedPoint)
+    ? focusedPoint
+    : pointIndexes[0];
+  /** Where the tooltip of a point goes across the chart. */
+  const tooltipX = (index: number) => {
+    const sector = sectors.find((candidate) => candidate.index === index);
+    // Over the middle of the sector
+    return sector
+      ? width / 2 +
+          radius * 0.6 * Math.sin(sector.start + sector.fraction * Math.PI)
+      : x(index);
+  };
   const segments = (entry: ChartSeries) => {
     const result: { x: number; y: number; base: number }[][] = [];
     let current: { x: number; y: number; base: number }[] = [];
@@ -219,9 +255,12 @@ export default function Chart({
     "aria-label": pointLabel(index),
     "data-chart-point": index,
     role: "img" as const,
-    tabIndex: 0,
+    tabIndex: index === tabStop ? 0 : -1,
     onBlur: () => setActive(null),
-    onFocus: () => setActive(index),
+    onFocus: () => {
+      setActive(index);
+      setFocusedPoint(index);
+    },
     onClick: () => setActive(index),
     onMouseEnter: () => setActive(index),
     onKeyDown: (event: React.KeyboardEvent<SVGElement>) => {
@@ -260,7 +299,6 @@ export default function Chart({
     },
   });
   const bars = visible.filter((entry) => typeOf(entry) === "bar");
-  let angle = 0;
   return (
     <div
       {...props}
@@ -302,9 +340,12 @@ export default function Chart({
           role="group"
         >
           {(radial
-            ? data.map((point, index) => ({
-                key: point.label,
-                label: point.label,
+            ? // The categories it can draw - an index apart, as labels
+              // may repeat
+              radialCategories.map(({ index }) => ({
+                id: `${index}`,
+                key: data[index].label,
+                label: data[index].label,
                 color: palette[index % palette.length],
               }))
             : series
@@ -316,7 +357,7 @@ export default function Chart({
                   ? "line-through opacity-50"
                   : undefined
               }
-              key={entry.key}
+              key={"id" in entry ? entry.id : entry.key}
               onClick={() => {
                 (radial ? setHiddenPoints : setHidden)((previous) => {
                   const next = new Set(previous);
@@ -353,33 +394,27 @@ export default function Chart({
             viewBox={`0 0 ${width} ${chartHeight}`}
           >
             {radial ? (
-              radialPoints.map(({ index, value }) => {
-                const fraction = value / radialMax / radialTotal;
-                const radius = Math.min(width, chartHeight) / 2 - 20;
-                const path = sectorPath(
-                  width / 2,
-                  chartHeight / 2,
-                  radius,
-                  type === "donut" ? radius * 0.6 : 0,
-                  angle,
-                  fraction,
-                );
-                angle += fraction * Math.PI * 2;
-                return (
-                  <path
-                    {...pointEvents(index)}
-                    className={cn(
-                      colors[palette[index % palette.length]],
-                      "stroke-2 focus:outline-2 focus:outline-primary-500",
-                    )}
-                    d={path}
-                    fillRule="evenodd"
-                    key={index}
-                  >
-                    <title>{pointLabel(index)}</title>
-                  </path>
-                );
-              })
+              sectors.map(({ fraction, index, start }) => (
+                <path
+                  {...pointEvents(index)}
+                  className={cn(
+                    colors[palette[index % palette.length]],
+                    "stroke-2 focus:outline-2 focus:outline-primary-500",
+                  )}
+                  d={sectorPath(
+                    width / 2,
+                    chartHeight / 2,
+                    radius,
+                    type === "donut" ? radius * 0.6 : 0,
+                    start,
+                    fraction,
+                  )}
+                  fillRule="evenodd"
+                  key={index}
+                >
+                  <title>{pointLabel(index)}</title>
+                </path>
+              ))
             ) : (
               <>
                 {Array.from({ length: 5 }, (_, index) => {
@@ -508,10 +543,12 @@ export default function Chart({
           {active !== null && data[active] && (
             <div
               className="pointer-events-none absolute top-2 z-1 max-w-64 rounded border border-neutral-200 bg-surface p-2 text-sm shadow dark:border-neutral-700 dark:bg-surface-dark"
-              style={{ left: `${Math.min(70, (x(active) / width) * 100)}%` }}
+              style={{
+                left: `${Math.min(70, (tooltipX(active) / width) * 100)}%`,
+              }}
             >
               <div className="font-semibold">{data[active].label}</div>
-              {visible.map((entry) => (
+              {pointSeries.map((entry) => (
                 <div key={entry.key}>
                   {entry.label}:{" "}
                   {numeric(data[active][entry.key])

@@ -246,8 +246,9 @@ export default function Textarea({
   const descriptionId = description ? `${textareaId}-description` : undefined;
   const invalid = !!error || isAriaInvalid(props["aria-invalid"]);
 
-  // The characters as `maxLength` counts them
-  const count = text.length;
+  // The characters as `maxLength` counts them - a line break as one, also
+  // the "\r\n" of a value a form posted (the textarea reads it as "\n")
+  const count = text.replace(/\r\n?/g, "\n").length;
   const limit =
     typeof props.maxLength === "number" && props.maxLength >= 0
       ? props.maxLength

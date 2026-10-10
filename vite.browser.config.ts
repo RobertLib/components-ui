@@ -13,6 +13,6 @@ export default defineConfig({
     tailwindcss(),
   ],
   publicDir: false,
-  optimizeDeps: { entries: ["tests/browser/index.html"] },
+  optimizeDeps: { entries: ["tests/browser/*.html"] },
   server: { host: "127.0.0.1", port: 4174, strictPort: true },
 });

@@ -67,7 +67,7 @@ export default function HiddenEvents({
   const locale = useLocale();
   const messages = locale.messages.ui;
   const timeFormat = createTimeFormat(locale, dateTimeZone(day));
-  const timeText = createTimeTextFormatter(locale);
+  const timeText = createTimeTextFormatter(locale, dateTimeZone(day));
 
   // When an event of the list takes place that day - its start, or "until"
   // its end for one running into the day from the one before, like the

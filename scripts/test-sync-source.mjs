@@ -20,7 +20,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { MANIFEST, shellWord, syncSource } from "./sync-source.mjs";
+import {
+  libraryVersion,
+  MANIFEST,
+  shellWord,
+  syncSource,
+} from "./sync-source.mjs";
 
 const script = fileURLToPath(new URL("sync-source.mjs", import.meta.url));
 
@@ -1198,4 +1203,59 @@ test("Syncing a source copy", async (t) => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Dry run - nothing was written\.$/m);
   });
+});
+
+test("The version of the library in the manifest", (t) => {
+  // A library in a repository of its own, released by a tag without a
+  // message, as the releases of the library are tagged
+  const library = mkdtempSync(join(tmpdir(), "components-ui-library-"));
+  t.after(() => rmSync(library, { force: true, recursive: true }));
+  const git = (...args) =>
+    spawnSync(
+      "git",
+      [
+        ...["-C", library, "-c", "user.name=Test"],
+        ...["-c", "user.email=test@example.com", "-c", "commit.gpgsign=false"],
+        ...["-c", "tag.gpgsign=false", ...args],
+      ],
+      { encoding: "utf8" },
+    );
+  if (git("--version").status !== 0) {
+    t.skip("no Git");
+    return;
+  }
+  const write = (file, content = "// a file\n") => {
+    mkdirSync(join(library, file, ".."), { recursive: true });
+    writeFileSync(join(library, file), content);
+  };
+  write("package.json", '{"version":"1.2.3"}\n');
+  write("LICENSE");
+  write("src/hooks/use-a.ts");
+  for (const args of [
+    ["init", "-q"],
+    ["add", "-A"],
+    ["commit", "--no-verify", "-qm", "1.2.3"],
+    ["tag", "v1.2.3"],
+  ]) {
+    const result = git(...args);
+    assert.equal(result.status, 0, result.stderr);
+  }
+  assert.deepEqual(libraryVersion(library), {
+    commit: "v1.2.3",
+    version: "1.2.3",
+  });
+
+  // Not in a copy - a test, a file of the system, the docs
+  write("src/hooks/use-a.test.ts");
+  write("src/hooks/.DS_Store");
+  write("docs/guide.md");
+  assert.equal(libraryVersion(library).commit, "v1.2.3");
+
+  // A file of the copy not in Git yet - the sync takes it along
+  write("src/hooks/use-b.ts");
+  assert.equal(libraryVersion(library).commit, "v1.2.3-dirty");
+  rmSync(join(library, "src/hooks/use-b.ts"));
+  // And one changed since the commit
+  write("src/hooks/use-a.ts", "// changed\n");
+  assert.equal(libraryVersion(library).commit, "v1.2.3-dirty");
 });

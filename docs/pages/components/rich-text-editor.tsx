@@ -526,17 +526,21 @@ export default function RichTextEditorPage() {
             so the editor shows what it submits. Blocks that replace the line or
             table as a whole, from its start on (select all), or fill an empty
             line keep their kinds; text of one line stays in the line, like
-            typed text. A table of more than 50 columns or 10 000 cells arrives
-            without its merged cells, and where it is still too big as lines of
-            text - a few kilobytes of <code>colspan</code> cannot grow into
-            millions of cells.
+            typed text. HTML that keeps nothing to show - a formula (MathML),
+            the text of a drawing (SVG) - is pasted as its plain text. A table
+            of more than 50 columns or 10 000 cells arrives without its merged
+            cells, and where it is still too big as lines of text - a few
+            kilobytes of <code>colspan</code> cannot grow into millions of
+            cells.
           </p>
           <p>
             The link tool takes web addresses (<code>example.com</code>,{" "}
             <code>localhost:3000</code>, <code>192.168.1.1</code> get{" "}
             <code>https://</code>), e-mail addresses (<code>mailto:</code>) and
-            phone numbers (<code>tel:</code>, also typed with it). With the
-            caret in a link it edits the address or removes the link.
+            phone numbers (<code>tel:</code>, also typed with it); an address it
+            cannot take (<code>javascript:</code>, <code>data:</code>) is
+            refused with a message under the field. With the caret in a link it
+            edits the address or removes the link.
           </p>
         </Prose>
       </Section>

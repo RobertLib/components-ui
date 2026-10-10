@@ -355,10 +355,17 @@ export default function MenuList({
         event.preventDefault();
         moveTo(navigableIndexes().find((index) => index > activeIndex));
         break;
-      case "ArrowUp":
+      case "ArrowUp": {
         event.preventDefault();
-        moveTo(navigableIndexes().findLast((index) => index < activeIndex));
+        // With none highlighted (opened by a click) - from the end
+        const indexes = navigableIndexes();
+        moveTo(
+          activeIndex === -1
+            ? indexes.at(-1)
+            : indexes.findLast((index) => index < activeIndex),
+        );
         break;
+      }
       case "Home":
       case "End":
         if (own) {

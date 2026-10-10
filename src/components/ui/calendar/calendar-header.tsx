@@ -161,6 +161,8 @@ export default function CalendarHeader({
             }}
             // The calendar always shows a date
             clearable={false}
+            // Its Today is the one of the calendar
+            timeZone={dateTimeZone(currentDate)}
             type="date"
             value={toISODate(currentDate)}
           />

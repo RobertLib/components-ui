@@ -19,10 +19,11 @@ import {
   formatPlaceholder,
   getDayPeriods,
   parseISODate,
-  startOfDay,
   toISODate,
+  toLocalDay,
   usesHour12,
 } from "../../../utils/date";
+import { inTimeZone } from "../../../utils/time-zone";
 import { useLocale } from "../../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
 
@@ -37,6 +38,7 @@ export default function DateTimePanelPicker({
   // Of the date popup only
   popupActions: _popupActions,
   presets: _presets,
+  timeZone,
   value,
   ...props
 }: CustomPickerProps) {
@@ -70,11 +72,13 @@ export default function DateTimePanelPicker({
 
   // The day the time lists set - without a picked one today, moved into the
   // allowed days, or the nearest one that is not disabled. Local date -
-  // toISOString() would give the UTC one. Today follows the clock past
-  // midnight.
+  // toISOString() would give the UTC one. Today - of `timeZone` - follows
+  // the clock past midnight.
   const minDate = parseISODate(minDay);
   const maxDate = parseISODate(maxDay);
-  const today = useToday() ?? startOfDay(new Date());
+  const today = toLocalDay(
+    useToday(timeZone) ?? inTimeZone(new Date(), timeZone),
+  );
   const day =
     datePart ||
     toISODate(
@@ -174,11 +178,14 @@ export default function DateTimePanelPicker({
       onOpenChange={onOpenChange}
       onValueChange={onValueChange}
       parseText={(text) => {
+        // A year left out is the one of today of `timeZone`
+        const now = inTimeZone(new Date(), timeZone);
         const typed = parseDisplayValue(
           text,
           locale.formats.dateTime,
           "datetime-local",
           dayPeriods,
+          now,
         );
         if (typed) {
           // An allowed date-time goes onto the minute step
@@ -189,7 +196,13 @@ export default function DateTimePanelPicker({
 
         // A day alone is taken like a day picked in the popup: with the
         // time it had, moved into `min` / `max` on their days
-        const typedDay = parseDisplayValue(text, locale.formats.date, "date");
+        const typedDay = parseDisplayValue(
+          text,
+          locale.formats.date,
+          "date",
+          undefined,
+          now,
+        );
         if (!typedDay) return { error: "format" };
         return isInRange(typedDay, minDay, maxDay)
           ? parsedValue(toAllowed(typedDay, hours, minutes))
@@ -216,6 +229,7 @@ export default function DateTimePanelPicker({
             onEscape={close}
             onSelect={(date) => change(toISODate(date), hours, minutes)}
             selected={selectedDate}
+            timeZone={timeZone}
           />
         </div>
 

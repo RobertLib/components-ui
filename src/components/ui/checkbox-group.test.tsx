@@ -697,6 +697,27 @@ describe("CheckboxGroup", () => {
       ]);
     });
 
+    it("checks the options in the form before onChange, which may submit it", async () => {
+      const user = userEvent.setup();
+      const submitted: FormDataEntryValue[][] = [];
+      render(
+        <form aria-label="Notifications">
+          <CheckboxGroup
+            label="Channels"
+            name="channels"
+            onChange={() =>
+              submitted.push(new FormData(getForm()).getAll("channels"))
+            }
+            options={channels}
+            selectAll
+          />
+        </form>,
+      );
+
+      await user.click(checkbox("Select all"));
+      expect(submitted).toEqual([["email", "sms", "push"]]);
+    });
+
     it("takes a label and speaks the language of the locale", () => {
       const { rerender } = render(
         <UIProvider locale={cs}>

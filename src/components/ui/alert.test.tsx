@@ -99,6 +99,31 @@ describe("Alert", () => {
     expect(screen.getByRole("button", { name: "After" })).toHaveFocus();
   });
 
+  it("gives the focus to the next control also when its message is cleared", async () => {
+    const user = userEvent.setup();
+
+    // Placed unconditionally - it stays, rendering nothing
+    function Page() {
+      const [error, setError] = useState<string | null>("The export failed.");
+      return (
+        <>
+          <button type="button">Before</button>
+          <Alert onClose={() => setError(null)} type="danger">
+            {error}
+          </Alert>
+          <button type="button">After</button>
+        </>
+      );
+    }
+
+    render(<Page />);
+    screen.getByRole("button", { name: "Close alert" }).focus();
+    await user.keyboard("{Enter}");
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "After" })).toHaveFocus();
+  });
+
   it("shows its actions under the message", () => {
     render(
       <Alert actions={<button type="button">Retry</button>} type="danger">

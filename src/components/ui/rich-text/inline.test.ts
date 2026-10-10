@@ -108,6 +108,24 @@ describe("insertTextWithCode", () => {
     insertTextWithCode(editor, range, " ", false);
     expect(editor.innerHTML).toBe("<p><code>ab</code> <code>cd</code></p>");
   });
+
+  it("types the spaces that would collapse as no-break ones", () => {
+    // At the end of the line a plain space shows nothing - the caret after
+    // it would fall back into the code
+    const editor = createEditor("<p><code>ab</code></p>");
+    const range = document.createRange();
+    range.setStart(textNode(editor, "ab"), 2);
+
+    insertTextWithCode(editor, range, " ", false);
+    expect(editor.innerHTML).toBe("<p><code>ab</code>&nbsp;</p>");
+
+    // After a plain space, and a run of them
+    const line = createEditor("<p>a <br></p>");
+    const caret = document.createRange();
+    caret.setStart(textNode(line, "a "), 2);
+    insertTextWithCode(line, caret, " b  c", true);
+    expect(line.innerHTML).toBe("<p>a <code>&nbsp;b &nbsp;c</code></p>");
+  });
 });
 
 describe("clearFormatting", () => {

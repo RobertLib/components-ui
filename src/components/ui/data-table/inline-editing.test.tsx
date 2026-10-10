@@ -1006,6 +1006,35 @@ describe("DataTable inline editing", () => {
     expect(cell(0, 0)).not.toHaveAttribute("tabindex");
   });
 
+  it("ends the editing of a cell that can no longer be edited", () => {
+    const lockable: Column<Row>[] = [
+      { ...columns[0], editable: (row) => row.active },
+    ];
+    const { rerender } = render(
+      <DataTable
+        clientSide
+        columns={lockable}
+        data={rows.slice(0, 1)}
+        onCellEdit={vi.fn()}
+      />,
+    );
+    fireEvent.doubleClick(cell(0, 0));
+    expect(screen.getByRole("textbox", { name: "Name" })).toBeInTheDocument();
+
+    // A refetch locked the edited row and brought another one - the field
+    // goes, and the rows are no longer kept as they were for it
+    rerender(
+      <DataTable
+        clientSide
+        columns={lockable}
+        data={[{ ...rows[0], active: false }, rows[1]]}
+        onCellEdit={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(cell(1, 0)).toHaveTextContent("Běla");
+  });
+
   it("builds the field of a column with renderEditor", async () => {
     const user = userEvent.setup();
     const onCellEdit = vi.fn();

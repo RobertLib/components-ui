@@ -2,13 +2,10 @@ import assert from "node:assert/strict";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
+  readFileSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -16,131 +13,19 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { build, normalizePath } from "vite";
 import { exportSource } from "./export-source.mjs";
+import {
+  buildApp,
+  classesOf,
+  createApp,
+  entryOf,
+  missingClasses,
+  styles,
+} from "./vite-app.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
-/** An empty app in a temporary folder, with a page that loads `src/main.tsx`. */
-function createApp(t, prefix) {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
-  mkdirSync(join(directory, "src"));
-  writeFileSync(
-    join(directory, "package.json"),
-    '{"private":true,"type":"module"}\n',
-  );
-  writeFileSync(
-    join(directory, "index.html"),
-    '<div id="root"></div><script type="module" src="/src/main.tsx"></script>',
-  );
-  return directory;
-}
-
-/** An entry that imports `names` from `from` and uses them. */
-const entryOf = (names, from = "./components/ui") =>
-  `import "./index.css";
-import { ${names.join(", ")} } from "${from}";
-(globalThis as { used?: unknown }).used = [${names.join(", ")}];
-`;
-
-/**
- * Builds the app in `directory`: its scripts and stylesheet, the code the
- * modules of the library (`isLibrary`) rendered into the bundle before
- * minifying, and the warnings of the build.
- */
-async function buildApp(directory, { isLibrary, plugins = [], alias = {} }) {
-  const warnings = [];
-  const result = await build({
-    configFile: false,
-    root: directory,
-    logLevel: "silent",
-    customLogger: {
-      info() {},
-      warn: (message) => warnings.push(message),
-      warnOnce: (message) => warnings.push(message),
-      error() {},
-      clearScreen() {},
-      hasErrorLogged: () => false,
-      hasWarned: false,
-    },
-    resolve: { alias },
-    plugins: [react(), tailwindcss(), ...plugins],
-    build: { write: false },
-  });
-  assert.ok(!Array.isArray(result) && "output" in result);
-  const chunks = result.output.filter((file) => file.type === "chunk");
-  return {
-    css: result.output
-      .filter((file) => file.fileName.endsWith(".css"))
-      .map((file) => String(file.source))
-      .join(""),
-    js: chunks.map((file) => file.code).join("\n"),
-    rendered: chunks
-      .flatMap((file) => Object.entries(file.modules))
-      .filter(([id, module]) => isLibrary(id) && module.renderedLength > 0)
-      .map(([, module]) => module.code ?? "")
-      .join("\n"),
-    warnings: warnings.filter((message) =>
-      message.includes("[plugin components-ui]"),
-    ),
-  };
-}
-
-/** The words of the strings in `code` - the classes among them. */
-function classesOf(code) {
-  const classes = new Set();
-  for (const match of code.matchAll(
-    /"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g,
-  )) {
-    for (const word of (match[1] ?? match[2] ?? match[3]).split(/\s+/)) {
-      if (word) classes.add(word);
-    }
-  }
-  return classes;
-}
-
-/** A class as a selector writes it - `CSS.escape`. */
-function escapeClass(name) {
-  let escaped = "";
-  for (const [index, char] of [...name].entries()) {
-    if (/\d/.test(char) && (index === 0 || (index === 1 && name[0] === "-"))) {
-      escaped += `\\${char.charCodeAt(0).toString(16)} `;
-    } else if (/[\w-]/.test(char) || char.charCodeAt(0) >= 0x80) {
-      escaped += char;
-    } else {
-      escaped += `\\${char}`;
-    }
-  }
-  return escaped;
-}
-
-/**
- * Whether `css` has a rule of the class - one whose selector starts with
- * it, not one that only names it (`:where(.group)`, `[&>.popover]:flex`).
- */
-function styles(css, name) {
-  const selector = `.${escapeClass(name)}`;
-  for (
-    let index = css.indexOf(selector);
-    index !== -1;
-    index = css.indexOf(selector, index + 1)
-  ) {
-    const before = index === 0 ? "}" : css[index - 1];
-    const after = css[index + selector.length];
-    if (
-      /[{},;\s]/.test(before) &&
-      (after === undefined || /[\s,{:.[>+~)]/.test(after))
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/** The classes of the library's code that `full` styles and `app` does not. */
-const missingClasses = (app, full) =>
-  [...classesOf(app.rendered)].filter(
-    (name) => styles(full.css, name) && !styles(app.css, name),
-  );
+// The plugin of the package - its build and the files npm publishes - is
+// tested in test-package.mjs
 
 test("The Vite plugin of a source copy", async (t) => {
   const directory = createApp(t, "components-ui-vite-");
@@ -331,58 +216,89 @@ const name = "reports";
     assert.ok(app.js.includes("ui-styles.css"));
     assert.ok(!app.js.includes("@source not"));
   });
-});
 
-test(
-  "The Vite plugin of the package",
-  {
-    skip:
-      !existsSync(join(root, "dist/index.js")) &&
-      "needs the package build - npm run build:lib",
-  },
-  async (t) => {
-    const directory = createApp(t, "components-ui-vite-package-");
-    const modules = join(directory, "node_modules");
-    mkdirSync(modules);
-    for (const name of [
-      "@tailwindcss",
-      "lucide-react",
-      "react",
-      "react-dom",
-      "scheduler",
-      "tailwindcss",
-    ]) {
+  await t.test("works with the paths typed in other case", async (t) => {
+    // One folder on macOS and Windows - Vite gives the ids of the modules by
+    // the names on the disk, also for a root typed in other case
+    const other = directory.toUpperCase();
+    if (other === directory || !existsSync(other)) {
+      t.skip("the file system tells case apart");
+      return;
+    }
+    write("main.tsx", entryOf(["Button"]));
+    const app = await buildApp(directory, {
+      isLibrary,
+      plugins: [componentsUi()],
+    });
+    const { default: typed } = await import(
+      pathToFileURL(join(other, "src/components/ui/vite.js")).href
+    );
+    const typedApp = await buildApp(other, { isLibrary, plugins: [typed()] });
+    assert.deepEqual(typedApp.warnings, []);
+    assert.equal(typedApp.css, app.css);
+  });
+
+  await t.test(
+    "works in a folder with characters of a glob in its name",
+    async (t) => {
+      // As the store of pnpm names its folders - `.pnpm/@acme+ui@1.0.0`,
+      // `components-ui@0.6.1(react@19.2.0)` - and a scope; braces Tailwind
+      // would expand
+      const other = createApp(
+        t,
+        "components-ui-vite-@acme+ui(react@19)[x]{y}-",
+      );
+      exportSource(other);
       symlinkSync(
-        join(root, "node_modules", name),
-        join(modules, name),
+        join(root, "node_modules"),
+        join(other, "node_modules"),
         "junction",
       );
-    }
-    symlinkSync(root, join(modules, "components-ui"), "junction");
-    writeFileSync(
-      join(directory, "src/index.css"),
-      '@import "tailwindcss";\n@import "components-ui/styles.css";\n',
-    );
-    const build = normalizePath(join(root, "dist"));
-    const isLibrary = (id) => id.startsWith(`${build}/`);
-    const { default: componentsUi } = await import(
-      pathToFileURL(join(root, "src/components/ui/vite.js")).href
-    );
-
-    for (const names of [["Button"], ["Calendar", "DataTable"]]) {
       writeFileSync(
-        join(directory, "src/main.tsx"),
-        entryOf(names, "components-ui"),
+        join(other, "src/index.css"),
+        '@import "tailwindcss";\n@import "./ui-styles.css";\n',
       );
-      const full = await buildApp(directory, { isLibrary });
-      const app = await buildApp(directory, {
-        isLibrary,
-        plugins: [componentsUi()],
+      writeFileSync(join(other, "src/main.tsx"), entryOf(["Button"]));
+      const { default: plugin } = await import(
+        pathToFileURL(join(other, "src/components/ui/vite.js")).href
+      );
+      const otherLibrary = normalizePath(join(other, "src"));
+      const isOtherLibrary = (id) =>
+        id.startsWith(`${otherLibrary}/`) && !id.endsWith("/src/main.tsx");
+      const full = await buildApp(other, { isLibrary: isOtherLibrary });
+      const app = await buildApp(other, {
+        isLibrary: isOtherLibrary,
+        plugins: [plugin()],
       });
-      assert.equal(app.js, full.js, `${names}: the scripts changed`);
-      assert.deepEqual(missingClasses(app, full), [], `${names}`);
-      assert.ok(app.css.length < full.css.length, `${names}: no smaller`);
-      assert.deepEqual(app.warnings, []);
+      assert.deepEqual(missingClasses(app, full), []);
+      assert.ok(
+        app.css.length < full.css.length / 2,
+        `${app.css.length} of ${full.css.length} characters`,
+      );
+    },
+  );
+
+  await t.test("loads by the imports the docs show - by Node too", async () => {
+    // Vite reads vite.config.ts by Node itself with `configLoader: "native"`
+    // (a default to come) - an import without the extension it warns of
+    const imports = [
+      "README.md",
+      "docs/pages/installation.tsx",
+      "src/components/ui/vite.js",
+    ].flatMap((file) =>
+      Array.from(
+        readFileSync(join(root, file), "utf8").matchAll(
+          /import componentsUi from "(\.[^"]+)"/g,
+        ),
+        ([, specifier]) => specifier,
+      ),
+    );
+    assert.ok(imports.length >= 3, imports.join(", "));
+    for (const specifier of imports) {
+      const plugin = await import(
+        pathToFileURL(join(directory, specifier)).href
+      );
+      assert.equal(typeof plugin.default, "function", specifier);
     }
-  },
-);
+  });
+});

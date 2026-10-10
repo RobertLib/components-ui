@@ -43,7 +43,12 @@ export {
   default as AccordionGroup,
   type AccordionGroupProps,
 } from "./accordion-group";
-export { default as Alert, type AlertProps } from "./alert";
+export {
+  default as Alert,
+  type AlertProps,
+  type AlertType,
+  type AlertVariant,
+} from "./alert";
 export { default as AppShell, type AppShellProps } from "./app-shell";
 export {
   default as Autocomplete,
@@ -273,7 +278,11 @@ export {
 export { default as FormDialog, type FormDialogProps } from "./form-dialog";
 export { default as FormError, type FormErrorProps } from "./form-error";
 export { default as Header, type HeaderProps } from "./header";
-export { default as IconButton, type IconButtonProps } from "./icon-button";
+export {
+  default as IconButton,
+  type IconButtonColor,
+  type IconButtonProps,
+} from "./icon-button";
 export { default as Input, type InputProps } from "./input";
 export {
   applyMask,
@@ -282,7 +291,7 @@ export {
   type MaskTokens,
 } from "./input-mask";
 export { default as Kbd, type KbdProps } from "./kbd";
-export { default as Link, type LinkProps } from "./link";
+export { default as Link, type LinkColor, type LinkProps } from "./link";
 export {
   default as List,
   ListItem,
@@ -390,7 +399,7 @@ export {
   type SparklineProps,
 } from "./sparkline";
 export { default as Splitter, type SplitterProps } from "./splitter";
-export { default as Stat, type StatProps } from "./stat";
+export { default as Stat, type StatProps, type StatTrend } from "./stat";
 export {
   default as Stepper,
   type StepperProps,

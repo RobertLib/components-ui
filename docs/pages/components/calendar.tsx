@@ -425,9 +425,11 @@ export default function CalendarPage() {
           <p>
             <code>timeZone</code> accepts an IANA zone such as{" "}
             <code>Europe/Prague</code>. It controls day boundaries, labels,
-            navigation, the current-time marker and recurrence clock time; omit
-            it to use the browser zone. Pass the same zone as the fourth
-            argument options of{" "}
+            navigation (also the keys and the Today of the date field), the
+            current-time marker and recurrence clock time; omit it to use the
+            browser zone, which also stands in for a zone the browser does not
+            know (with a warning in the console). Pass the same zone as the
+            fourth argument options of{" "}
             <code>
               getCalendarVisibleRange(date, view, weekStartsOn, {`{ timeZone }`}
               )

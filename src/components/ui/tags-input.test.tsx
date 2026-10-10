@@ -150,6 +150,32 @@ describe("TagsInput", () => {
     expect(field).toHaveValue("");
   });
 
+  it("holds an added value in the form before onChange, which may submit it", async () => {
+    const user = userEvent.setup();
+    const submitted: FormDataEntryValue[][] = [];
+    render(
+      <form aria-label="Article">
+        <TagsInput
+          label="Tags"
+          name="tags"
+          onChange={() =>
+            submitted.push(
+              new FormData(screen.getByRole("form") as HTMLFormElement).getAll(
+                "tags",
+              ),
+            )
+          }
+        />
+      </form>,
+    );
+
+    await user.type(
+      screen.getByRole("textbox", { name: /Tags/ }),
+      "react{Enter}",
+    );
+    expect(submitted).toEqual([["react"]]);
+  });
+
   it("leaves Enter in an empty input to the form", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());

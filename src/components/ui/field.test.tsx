@@ -194,6 +194,39 @@ describe("Field label", () => {
     expect(screen.getByText("*")).toHaveClass("cui-required-mark");
   });
 
+  it("leaves a click on a button or a link in it to them", async () => {
+    const user = userEvent.setup();
+    const showHelp = vi.fn();
+    render(
+      <Field
+        label={
+          <>
+            Rating{" "}
+            <button onClick={showHelp} type="button">
+              Help
+            </button>{" "}
+            <a href="#scale">Scale</a>
+          </>
+        }
+      >
+        {(controlProps) => (
+          <div {...controlProps} aria-valuenow={3} role="slider" tabIndex={0} />
+        )}
+      </Field>,
+    );
+
+    const slider = screen.getByRole("slider");
+    const help = screen.getByRole("button", { name: "Help" });
+    await user.click(help);
+    expect(showHelp).toHaveBeenCalledOnce();
+    expect(help).toHaveFocus();
+    await user.click(screen.getByRole("link", { name: "Scale" }));
+    expect(slider).not.toHaveFocus();
+    // The text of the label still focuses the control
+    await user.click(screen.getByText(/^Rating/));
+    expect(slider).toHaveFocus();
+  });
+
   it("names nothing without a label", () => {
     render(
       <Field label={false}>

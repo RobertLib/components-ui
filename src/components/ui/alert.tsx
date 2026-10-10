@@ -5,8 +5,11 @@ import cn from "../../utils/cn";
 import { getNextTabbable, getPreviousTabbable } from "../../utils/tabbable";
 import { useMessages } from "../../providers/ui-context";
 
-type AlertType = "success" | "danger" | "warning" | "info";
-type AlertVariant = "subtle" | "solid" | "outline";
+/** What an `Alert` tells - its color, icon and role. */
+export type AlertType = "success" | "danger" | "warning" | "info";
+
+/** The look of an `Alert`. */
+export type AlertVariant = "subtle" | "solid" | "outline";
 
 export interface AlertProps extends Omit<React.ComponentProps<"div">, "title"> {
   /**
@@ -23,8 +26,8 @@ export interface AlertProps extends Omit<React.ComponentProps<"div">, "title"> {
   noIcon?: boolean;
   /**
    * Shows a close button at the end, which calls this - remove the alert
-   * then. The focus moves on to the next control of the page once the
-   * alert is gone.
+   * then, or clear its message. The focus moves on to the next control of
+   * the page once the alert is gone.
    */
   onClose?: () => void;
   /** Bold heading above the message. */
@@ -161,6 +164,20 @@ const styles: Record<AlertVariant, Record<AlertType, AlertStyles>> = {
   },
 };
 
+/**
+ * Gives the focus to `target` once the alert it was in is gone - unless the
+ * page has already put it elsewhere.
+ */
+function restoreFocus(target: HTMLElement | null) {
+  const { activeElement } = document;
+  if (
+    target?.isConnected &&
+    (!activeElement || activeElement === document.body)
+  ) {
+    target.focus();
+  }
+}
+
 const icons = {
   danger: XCircle,
   info: Info,
@@ -195,27 +212,20 @@ export default function Alert({
   // Where the focus goes once the alert closed from its button is gone
   const focusAfterClose = useRef<HTMLElement | null>(null);
 
+  const isShown = !!children;
+
   useEffect(() => {
+    // Closed by clearing its message - placed unconditionally, it renders
+    // nothing and stays: the focus moves on as at a removal
+    if (!isShown) restoreFocus(focusAfterClose.current);
     // Rendered again - the alert was not removed (yet), the focus stays
     focusAfterClose.current = null;
   });
 
-  useEffect(
-    () => () => {
-      // Removed - the focus was on its close button, now on the page
-      const target = focusAfterClose.current;
-      const { activeElement } = document;
-      if (
-        target?.isConnected &&
-        (!activeElement || activeElement === document.body)
-      ) {
-        target.focus();
-      }
-    },
-    [],
-  );
+  // Removed - the focus was on its close button, now on the page
+  useEffect(() => () => restoreFocus(focusAfterClose.current), []);
 
-  if (!children) return null;
+  if (!isShown) return null;
 
   const IconComponent = icons[type] ?? Info;
   const typeStyles =

@@ -154,7 +154,9 @@ export interface NumberInputProps extends Omit<
    * Called with the new value - `null` for an empty field. While typing,
    * whenever the typed text stands for another number; when the field loses
    * the focus or on Enter, with the value moved into `min` - `max`; and for
-   * every step.
+   * every step. The hidden input of an uncontrolled field holds the value
+   * by then - the form can be submitted from here. That of a controlled one
+   * gets it only when the parent renders the new `value`, after `onChange`.
    */
   onChange?: (value: number | null) => void;
   /**
@@ -313,7 +315,9 @@ export default function NumberInput({
   const commitValue = (next: number | null) => {
     const rounded = next === null ? null : numberFormat.round(next);
     if (rounded === sourceValue) return;
-    if (!isControlled) setEnteredValue(rounded);
+    // The hidden input holds the value before `onChange`, which may submit
+    // the form. A controlled parent can only render it after `onChange`.
+    if (!isControlled) flushSync(() => setEnteredValue(rounded));
     onChange?.(rounded);
   };
 

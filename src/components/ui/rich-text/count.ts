@@ -94,9 +94,38 @@ function cutAt(text: string, length: number) {
   return length > 0 && code >= 0xd800 && code <= 0xdbff ? length - 1 : length;
 }
 
+// The parts of a table - a cut keeps them, so its rows keep their cells
+const TABLE_PARTS = new Set([
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+]);
+
+/**
+ * The outermost element `text` starts - a cut at its start takes the
+ * element along, instead of leaving it empty (an empty paragraph or list
+ * item would be inserted). Not a part of a table.
+ */
+function startedBy(text: Text, root: Node) {
+  let node: Node = text;
+  while (
+    !node.previousSibling &&
+    node.parentNode &&
+    node.parentNode !== root &&
+    !TABLE_PARTS.has(node.parentNode.nodeName)
+  ) {
+    node = node.parentNode;
+  }
+  return node;
+}
+
 /**
  * HTML cut after `max` characters - whatever follows goes, its elements
- * closed where they are cut.
+ * closed where they are cut, and those it would leave empty with it.
  */
 export function truncateHtml(html: string, max: number) {
   const template = parseHtml(html);
@@ -112,8 +141,10 @@ export function truncateHtml(html: string, max: number) {
 
     // The text as it shows - so its characters are those counted
     text.data = shown;
+    const cut = cutAt(shown, Math.max(max - count, 0));
     const range = root.ownerDocument.createRange();
-    range.setStart(text, cutAt(shown, Math.max(max - count, 0)));
+    if (cut > 0) range.setStart(text, cut);
+    else range.setStartBefore(startedBy(text, root));
     range.setEnd(root, root.childNodes.length);
     range.deleteContents();
     break;

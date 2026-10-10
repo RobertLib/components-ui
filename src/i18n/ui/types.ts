@@ -817,6 +817,8 @@ export interface UIMessages {
     imageUploading: string;
     /** The URL field of the image form. */
     imageUrl: string;
+    /** Under the URL field of the image form, for an address it refuses. */
+    imageUrlInvalid: string;
     indent: string;
     /** The confirm button and the name of the table form. */
     insertTable: string;
@@ -831,6 +833,8 @@ export interface UIMessages {
       shift: string;
     };
     link: string;
+    /** Under the field of the link form, for a link it refuses. */
+    linkInvalid: string;
     linkPrompt: string;
     numberedList: string;
     outdent: string;

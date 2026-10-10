@@ -5,9 +5,11 @@ import {
   useFormReset,
 } from "../../hooks/use-form-control";
 import { useCallback, useId, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
+import { getActiveElement } from "./overlay-stack";
 import { formatNumber, formatPlural } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
@@ -99,7 +101,12 @@ export interface RatingProps extends Omit<
   name?: string;
   /** Called when the rating loses the focus. */
   onBlur?: React.FocusEventHandler<HTMLDivElement>;
-  /** Called with the new value - `0` when the rating is cleared. */
+  /**
+   * Called with the new value - `0` when the rating is cleared. The hidden
+   * input of an uncontrolled rating holds it by then - the form can be
+   * submitted from here. That of a controlled one gets it only when the
+   * parent renders the new `value`, after `onChange`.
+   */
   onChange?: (value: number) => void;
   /** Called when the rating gets the focus. */
   onFocus?: React.FocusEventHandler<HTMLDivElement>;
@@ -273,7 +280,9 @@ export default function Rating({
 
   const commit = (next: number) => {
     if (!interactive || next === current) return;
-    if (!isControlled) setEnteredValue(next);
+    // The hidden input holds the value before `onChange`, which may submit
+    // the form. A controlled parent can only render it after `onChange`.
+    if (!isControlled) flushSync(() => setEnteredValue(next));
     onChange?.(next);
   };
 
@@ -470,7 +479,6 @@ export default function Rating({
       )}
       {required && !readOnly && (
         <input
-          aria-hidden="true"
           disabled={disabled}
           form={form}
           // Neither focusable nor seen by assistive technology - until the
@@ -478,11 +486,27 @@ export default function Rating({
           // focus the browser gives it, with its message
           inert
           onChange={() => {}}
-          // The user belongs in the rating (the message still shows)
-          onFocus={() => sliderElement.current?.focus()}
+          // The user belongs in the rating (the message still shows) - once
+          // the browser is done focusing this input: moved at once, Firefox
+          // would not focus it at the next submit again
+          onFocus={(event) => {
+            const validationInput = event.currentTarget;
+            queueMicrotask(() => {
+              if (
+                getActiveElement(validationInput.ownerDocument) ===
+                validationInput
+              ) {
+                sliderElement.current?.focus();
+              }
+            });
+          }}
           onInvalid={(event) => {
             const validationInput = event.currentTarget;
             validationInput.removeAttribute("inert");
+            // Laid out anew at once (a call, which the React Compiler keeps) -
+            // Safari would focus it by its styles of before, inert, and so
+            // report nothing
+            validationInput.getBoundingClientRect();
             setTimeout(() => validationInput.setAttribute("inert", ""));
           }}
           required

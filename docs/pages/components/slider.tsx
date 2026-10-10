@@ -36,7 +36,8 @@ export default function SliderPage() {
             not cross - <code>minDistance</code> keeps them apart. A press on
             the track moves the nearest thumb there. <code>onChange</code> comes
             with every step of a drag, <code>onChangeEnd</code> once it is done
-            - the time to load data.
+            - the time to load data, or to submit the form: the hidden inputs
+            hold the value by then.
           </p>
         }
         name="slider/range"

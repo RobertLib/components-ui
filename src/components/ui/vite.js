@@ -6,7 +6,7 @@
 // not`). `vite dev` keeps all the classes.
 //
 //   // vite.config.ts
-//   import componentsUi from "./src/components/ui/vite"; // or "components-ui/vite"
+//   import componentsUi from "./src/components/ui/vite.js"; // or "components-ui/vite"
 //   export default defineConfig({ plugins: [react(), tailwindcss(), componentsUi()] });
 //
 // A module of the app it cannot read (a virtual module of another plugin, a
@@ -32,7 +32,21 @@ const ALL = Symbol("all");
 
 // Paths as Vite gives the ids of modules - with `/` also on Windows
 const pathOf = (...parts) => normalizePath(join(...parts));
-const real = (file) => normalizePath(realpathSync(file));
+
+/**
+ * Where `file` is, by the names on the disk, as Vite gives the ids too -
+ * `realpathSync` keeps the case a path was typed in (macOS, Windows) and the
+ * short names of Windows (`RUNNER~1`): the plugin then found no module of
+ * the library among those of the app, and left no class out.
+ */
+function real(file) {
+  try {
+    return normalizePath(realpathSync.native(file));
+  } catch {
+    // A drive the call of the system cannot read - a RAM disk on Windows
+    return normalizePath(realpathSync(file));
+  }
+}
 
 const here = real(dirname(fileURLToPath(import.meta.url)));
 
@@ -72,14 +86,26 @@ function packageOf(file) {
 /**
  * The public API of the library and the folders of its modules - of a
  * source copy, or of the package and its build, which an app imports by the
- * package name.
+ * package name (`name`, `undefined` for a copy). The package is the one whose
+ * `exports` give this plugin, by any name - published under a scope too
+ * (`@acme/components-ui`).
  */
 function findLibrary() {
   const sources = pathOf(here, "../..");
   const entries = [pathOf(here, "index.ts")];
   const roots = [sources];
   const root = pathOf(sources, "..");
-  if (packageOf(pathOf(root, "package.json"))?.name === "components-ui") {
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  } catch {
+    // A source copy in a folder without a manifest
+  }
+  const plugin = manifest?.exports?.["./vite"];
+  const file = typeof plugin === "string" ? plugin : plugin?.default;
+  const isPackage =
+    typeof file === "string" && pathOf(root, file) === pathOf(here, "vite.js");
+  if (isPackage) {
     entries.push(
       pathOf(sources, "index.ts"),
       pathOf(root, "dist/index.js"),
@@ -87,7 +113,11 @@ function findLibrary() {
     );
     roots.push(pathOf(root, "dist"));
   }
-  return { entries: entries.filter((file) => existsSync(file)), roots };
+  return {
+    entries: entries.filter((entry) => existsSync(entry)),
+    name: isPackage ? manifest.name : undefined,
+    roots,
+  };
 }
 
 /** The name an import or export specifier gives - also a string one. */
@@ -264,9 +294,13 @@ function isInside(folder, file) {
   return !path.startsWith("..") && !isAbsolute(path);
 }
 
-/** A path for `@source` - the special characters of a glob escaped. */
-const sourcePath = (file) =>
-  normalizePath(file).replace(/[\\*?[\]{}()!+@"]/g, "\\$&");
+/**
+ * A path for `@source` - its braces escaped, which Tailwind would expand
+ * (`{a,b}`), and its quotes. The other characters of a glob Tailwind takes
+ * as they are in the path of a file: escaped, it matched none - `\@` of a
+ * scope or of the store of pnpm (`.pnpm/components-ui@0.6.1`), `\(`, `\+`.
+ */
+const sourcePath = (file) => normalizePath(file).replace(/[{}"]/g, "\\$&");
 
 /**
  * The modules of the library the app does not use - or why the plugin
@@ -287,7 +321,7 @@ async function findUnusedModules(context, config, input) {
   // The library - the modules its public API imports, with the modules they
   // import resolved
   const library = new Map();
-  const { entries, roots } = findLibrary();
+  const { entries, name: packageName, roots } = findLibrary();
   const isLibraryFile = (file) =>
     SCRIPT.test(file) && roots.some((folder) => isInside(folder, file));
   const pending = [...entries];
@@ -385,8 +419,9 @@ async function findUnusedModules(context, config, input) {
       cannotRead(resolved.id);
     } else if (
       !file.includes("/node_modules/") ||
-      packageOf(file)?.dependencies?.["components-ui"] ||
-      packageOf(file)?.peerDependencies?.["components-ui"]
+      (packageName !== undefined &&
+        (packageOf(file)?.dependencies?.[packageName] ||
+          packageOf(file)?.peerDependencies?.[packageName]))
     ) {
       enqueue(file);
     }

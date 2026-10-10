@@ -94,18 +94,27 @@ function parseList(list: Element, level: number, items: Item[]) {
 
   for (const child of Array.from(list.childNodes)) {
     if (isElement(child) && child.tagName === "LI") {
-      const content = Array.from(child.childNodes);
-      items.push(
-        createLine(
-          child,
-          flattenItem(content.filter((node) => !isListElement(node))),
-          type,
-          level,
-        ),
-      );
-      for (const nested of content.filter(isListElement)) {
-        parseList(nested, level + 1, items);
+      // Content after a list nested in the item is an item of its own after
+      // the nested ones - in the line of the item, it would move before them
+      let element: HTMLElement | null = child;
+      let run: Node[] = [];
+      const flush = () => {
+        if (element || run.some(isContent)) {
+          items.push(createLine(element, flattenItem(run), type, level));
+        }
+        element = null;
+        run = [];
+      };
+
+      for (const node of Array.from(child.childNodes)) {
+        if (isListElement(node)) {
+          flush();
+          parseList(node, level + 1, items);
+        } else {
+          run.push(node);
+        }
       }
+      flush();
     } else if (isListElement(child)) {
       // A list right in a list - Chrome indents so
       parseList(child, level + 1, items);

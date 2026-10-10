@@ -391,7 +391,8 @@ export interface DataTableProps<T> extends Omit<
    * is needed when normalization returns the original value, which a poll
    * still holding old data looks like too. Without a result, changed data
    * wins and unchanged data keeps the draft. Another page, sorting or
-   * filter ends the editing.
+   * filter ends the editing, and so does new `data` in which the cell can
+   * no longer be edited (`editable` refuses its row).
    */
   onCellEdit?: (
     row: T,
@@ -1121,6 +1122,9 @@ export default function DataTable<T>({
   const selectedCount = isAllFilteredSelected
     ? Math.max(0, selectionTotal - excludedRows.length)
     : selectedIdList.length;
+  // Matching rows to select beyond those of the page - by the rows that can
+  // be selected, which alone the total counts
+  const hasMoreToSelect = selectionTotal > selectableRows.length;
   const displayedSelectedIds = isAllFilteredSelected
     ? new Set(selectableRows.map(getRowId).filter((id) => !excludedIds.has(id)))
     : selectedIds;
@@ -1886,9 +1890,11 @@ export default function DataTable<T>({
           columnLabel: group.columnLabel,
           level: group.level,
           size: collapsed ? 0 : group.rows.length,
-          summary:
-            metadata?.summaryValues ??
-            summarizeGroup(sortedVisibleColumns, group.allRows),
+          summary: summarizeGroup(
+            sortedVisibleColumns,
+            group.allRows,
+            metadata?.summaryValues,
+          ),
           children: group.children
             ? collapsed
               ? []
@@ -2014,16 +2020,25 @@ export default function DataTable<T>({
   // A row gone from the data takes its editing along, and so do a hidden
   // column and another query - rows frozen for a field left open with an
   // invalid value would not follow the page, sorting or filters the header
-  // and the pagination show - and a collapsed group
-  if (
-    editingCell &&
-    (!shownRows.some((row) => getRowId(row) === editingCell.rowId) ||
-      !sortedVisibleColumns.some(
-        (column) => column.key === editingCell.columnKey,
-      ) ||
-      (frozenRows && !isSameQuery(frozenRows.query, query)))
-  ) {
-    setEditingCell(null);
+  // and the pagination show - a collapsed group, and a cell that can no
+  // longer be edited (a refetch locked its row), whose field is gone but
+  // whose frozen rows would stay
+  if (editingCell) {
+    const editingRowIndex = shownRows.findIndex(
+      (row) => getRowId(row) === editingCell.rowId,
+    );
+    const editingColumn = sortedVisibleColumns.find(
+      (column) => column.key === editingCell.columnKey,
+    );
+    if (
+      editingRowIndex === -1 ||
+      !editingColumn ||
+      !hasCellEditing ||
+      !isEditableCell(editingColumn, shownRows[editingRowIndex]) ||
+      (frozenRows && !isSameQuery(frozenRows.query, query))
+    ) {
+      setEditingCell(null);
+    }
   }
 
   // By whether there is an `onCellEdit`, not by its identity - a new one on
@@ -2403,7 +2418,7 @@ export default function DataTable<T>({
                       rows.filter((row) => selectedIds.has(getRowId(row)))
                         .length,
                     )}{" "}
-                    {isAllSelected && selectionTotal > rows.length && (
+                    {isAllSelected && hasMoreToSelect && (
                       <button
                         className="font-semibold text-primary-700 underline hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"
                         onClick={() => commitSelection([], [])}

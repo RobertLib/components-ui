@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { flushSync } from "react-dom";
 import cn from "../../../utils/cn";
 import CalendarField from "./calendar-field";
 import DayGrid from "../datetime-picker/day-grid";
@@ -94,7 +95,10 @@ interface SingleDateProps {
   defaultValue?: string | null;
   /** Several days can be picked - a click adds or removes one. */
   multiple?: false;
-  /** Called with the picked day, `YYYY-MM-DD`. */
+  /**
+   * Called with the picked day, `YYYY-MM-DD` - once the form has it, so it
+   * may submit the form (`form.requestSubmit()`).
+   */
   onChange?: (value: string) => void;
   /** The day, `YYYY-MM-DD` - controlled; `null` for none. */
   value?: string | null;
@@ -106,7 +110,10 @@ interface MultipleDatesProps {
   defaultValue?: string[] | null;
   /** Several days can be picked - a click adds or removes one. */
   multiple: true;
-  /** Called with the picked days, `YYYY-MM-DD`, in order. */
+  /**
+   * Called with the picked days, `YYYY-MM-DD`, in order - once the form has
+   * them, so it may submit the form (`form.requestSubmit()`).
+   */
   onChange?: (values: string[]) => void;
   /** The days, `YYYY-MM-DD` - controlled. */
   value?: string[] | null;
@@ -200,11 +207,13 @@ export default function DateCalendar({
   // The props are a union by `multiple` - `report` passes what it takes
   const report = onChange as ((value: string | string[]) => void) | undefined;
 
+  // The hidden inputs hold the days before `onChange`, which may submit
+  // the form or read its `FormData`
   const pick = (day: Date) => {
     const key = toISODate(day);
     if (!multiple) {
       if (keys[0] === key && keys.length === 1) return;
-      if (!isControlled) setEntered([key]);
+      if (!isControlled) flushSync(() => setEntered([key]));
       report?.(key);
       return;
     }
@@ -212,12 +221,14 @@ export default function DateCalendar({
     const next = keys.includes(key)
       ? keys.filter((picked) => picked !== key)
       : [...keys, key].sort();
-    setPicked({
-      day: key,
-      pendingSelection: next.join(","),
-      selection: selectionKey,
+    flushSync(() => {
+      setPicked({
+        day: key,
+        pendingSelection: next.join(","),
+        selection: selectionKey,
+      });
+      if (!isControlled) setEntered(next);
     });
-    if (!isControlled) setEntered(next);
     report?.(next);
   };
 

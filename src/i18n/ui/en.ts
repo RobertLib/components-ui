@@ -488,6 +488,7 @@ export const en: Locale = {
         imageUploadError: "The image could not be uploaded.",
         imageUploading: "Uploading the image…",
         imageUrl: "Image URL",
+        imageUrlInvalid: "Enter the web address of an image.",
         indent: "Increase indent",
         insertTable: "Insert table",
         italic: "Italic",
@@ -497,6 +498,8 @@ export const en: Locale = {
           shift: "Shift",
         },
         link: "Link",
+        linkInvalid:
+          "Enter a web address, an e-mail address or a phone number.",
         linkPrompt: "Enter the link URL:",
         numberedList: "Numbered list",
         outdent: "Decrease indent",

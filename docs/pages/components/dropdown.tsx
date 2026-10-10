@@ -14,11 +14,13 @@ export default function DropdownPage() {
             Items are <code>{"{ label, onClick }"}</code> objects. The menu
             opens on click, or from the keyboard (Enter, Space, ArrowDown) at
             its first item - ArrowUp opens it at the last one. The arrow keys
-            and Home / End move through it, typed letters jump to the next item
-            starting with them, Enter or Space picks an item (a link item is
-            followed as on a click) and Escape closes it. Tab and Shift+Tab
-            leave the menu as if it followed the trigger. A trigger without text
-            is named with <code>aria-label</code> - it names the menu too.
+            and Home / End move through it - opened by a click, with no item
+            highlighted, ArrowDown goes to the first item and ArrowUp to the
+            last - typed letters jump to the next item starting with them, Enter
+            or Space picks an item (a link item is followed as on a click) and
+            Escape closes it. Tab and Shift+Tab leave the menu as if it followed
+            the trigger. A trigger without text is named with{" "}
+            <code>aria-label</code> - it names the menu too.
           </p>
         }
         name="dropdown/basic"

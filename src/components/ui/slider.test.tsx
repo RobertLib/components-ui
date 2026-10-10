@@ -476,6 +476,55 @@ describe("Slider", () => {
       expect(new FormData(getForm()).getAll("price")).toEqual(["20", "80"]);
     });
 
+    it.each([false, true])(
+      "holds the value in the form by onChangeEnd, which may submit it (controlled: %s)",
+      async (controlled) => {
+        const user = userEvent.setup();
+        const onSubmit = vi.fn();
+        function Filter() {
+          const [price, setPrice] = useState<[number, number]>([20, 80]);
+          return (
+            <form
+              aria-label="Filter"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onSubmit(new FormData(event.currentTarget).getAll("price"));
+              }}
+            >
+              <Slider
+                aria-label="Price"
+                defaultValue={controlled ? undefined : price}
+                name="price"
+                onChange={setPrice}
+                onChangeEnd={() => getForm().requestSubmit()}
+                value={controlled ? price : undefined}
+              />
+            </form>
+          );
+        }
+        render(<Filter />);
+        const start = screen.getByRole("slider", { name: "Price minimum" });
+        const rail = layOutTrack(start);
+
+        start.focus();
+        await user.keyboard("{ArrowRight}");
+        expect(onSubmit).toHaveBeenLastCalledWith(["21", "80"]);
+
+        // A tap of a finger on the track - the thumb moves as it lifts
+        const finger = { ...press, pointerType: "touch" };
+        fireEvent.pointerDown(rail, { ...finger, clientX: 20 });
+        fireEvent.pointerUp(document, { ...finger, clientX: 20 });
+        expect(onSubmit).toHaveBeenLastCalledWith(["10", "80"]);
+
+        // The end of a drag
+        fireEvent.pointerDown(start, { ...press, clientX: 20 });
+        fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 60 });
+        fireEvent.pointerUp(document, { ...press, clientX: 60 });
+        expect(onSubmit).toHaveBeenLastCalledWith(["30", "80"]);
+        expect(onSubmit).toHaveBeenCalledTimes(3);
+      },
+    );
+
     it("moves the nearest thumb to a press on the track", () => {
       const onChange = vi.fn();
       render(

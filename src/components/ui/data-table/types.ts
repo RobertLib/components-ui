@@ -176,7 +176,11 @@ export interface Column<T> {
   resizable?: boolean;
   /** Makes the header label a sort toggle. */
   sortable?: boolean;
-  /** Client-side ascending comparison of rows; descending reverses it. */
+  /**
+   * Client-side ascending comparison of rows; descending reverses it. It
+   * also orders the row groups of a `groupBy` by the column - by a row of
+   * each, an empty value last.
+   */
   sortFn?: (a: T, b: T) => number;
   /**
    * Adds the column to the summary row under the table - computed from all
@@ -329,6 +333,9 @@ export interface FilteredSelectionConfig {
 export interface DataTableGroupMetadata {
   /** Total matching rows across pages; omitted counts the rows loaded for this group. */
   count?: number;
-  /** Totals across pages, by column key; omitted summarizes the loaded rows. */
+  /**
+   * Totals across pages, by column key - they win over the `summary` of the
+   * columns; a column left out summarizes the loaded rows of the group.
+   */
   summaryValues?: Record<string, React.ReactNode>;
 }

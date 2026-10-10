@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import Chip, { type ChipSize } from "../chip";
 import cn, { joinTokens } from "../../../utils/cn";
 import FormDescription from "../form-description";
@@ -456,7 +457,9 @@ export default function TreeSelect<T extends TreeItem>({
   );
 
   const commit = (next: TreeItemId[]) => {
-    if (!isControlled) setPickedValues(next);
+    // The hidden inputs hold the value before `onChange`, which may submit
+    // the form. A controlled parent can only render it after `onChange`.
+    if (!isControlled) flushSync(() => setPickedValues(next));
 
     const picked = next.map((itemId) => index.byId.get(itemId) ?? null);
     if (multiple) reportChange?.(next, picked);
@@ -804,11 +807,24 @@ export default function TreeSelect<T extends TreeItem>({
           // it can take the focus the browser gives it, with the message
           inert
           onChange={() => {}}
-          // The user belongs in the visible field (the message still shows)
-          onFocus={() => comboboxRef.current?.focus()}
+          // The user belongs in the visible field (the message still shows) -
+          // once the browser is done focusing this one: moved at once,
+          // Firefox would not focus it at the next submit again
+          onFocus={(event) => {
+            const input = event.currentTarget;
+            queueMicrotask(() => {
+              if (getActiveElement(input.ownerDocument) === input) {
+                comboboxRef.current?.focus();
+              }
+            });
+          }}
           onInvalid={(event) => {
             const input = event.currentTarget;
             input.removeAttribute("inert");
+            // Laid out anew at once (a call, which the React Compiler keeps) -
+            // Safari would focus it by its styles of before, inert, and so
+            // report nothing
+            input.getBoundingClientRect();
             setTimeout(() => input.setAttribute("inert", ""));
           }}
           required

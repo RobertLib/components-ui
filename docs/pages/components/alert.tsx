@@ -36,10 +36,11 @@ export default function AlertPage() {
         description={
           <p>
             <code>onClose</code> adds a close button at the end - named "Close
-            alert" in the language of the page; remove the alert in it. When the
-            button had the focus, the focus moves on to the next control of the
-            page once the alert is gone. <code>actions</code> are buttons under
-            the message - small ones fit best.
+            alert" in the language of the page; remove the alert in it, or clear
+            its message. When the button had the focus, the focus moves on to
+            the next control of the page once the alert is gone.{" "}
+            <code>actions</code> are buttons under the message - small ones fit
+            best.
           </p>
         }
         name="alert/dismissible"

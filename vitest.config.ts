@@ -9,7 +9,7 @@ const timeZoneTests = [
   "src/hooks/use-format-date.test.tsx",
   "src/components/ui/datetime-picker/{availability,grid-keyboard,skipped-month-end}.test.{ts,tsx}",
   "src/components/ui/date-range-picker/{midnight-dst,skipped-month-end}.test.{ts,tsx}",
-  "src/components/ui/calendar/{calendar,date-utils,drag,midnight-dst,recurrence,skipped-day,ssr}.test.{ts,tsx}",
+  "src/components/ui/calendar/{calendar,date-utils,drag,midnight-dst,recurrence,skipped-day,ssr,time-zone}.test.{ts,tsx}",
 ];
 
 // Unit and component tests of the library - `npm test`. The React Compiler

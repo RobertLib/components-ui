@@ -82,8 +82,11 @@ export interface CustomPickerProps {
   onBlur?: React.FocusEventHandler<HTMLInputElement>;
   /** The focus entered the picker. */
   onFocus?: React.FocusEventHandler<HTMLInputElement>;
-  /** Called with the new value, in the value format of the picker. */
-  onValueChange: (value: string) => void;
+  /**
+   * Called with the new value, in the value format of the picker - `typed`
+   * for a text typed into the field, whose hidden input holds it already.
+   */
+  onValueChange: (value: string, typed?: boolean) => void;
   /** Placeholder of the empty field. */
   placeholder?: string;
   /** The date popup: the Today and Clear buttons under the days. */
@@ -96,6 +99,8 @@ export interface CustomPickerProps {
   required?: boolean;
   /** The supplied value, before sanitization - a change also replaces a draft. */
   sourceValue?: string;
+  /** The IANA time zone of today - see `DateTimePickerProps`. */
+  timeZone?: string;
   /** The value in the format of the native input - `""` without one. */
   value: string;
 }

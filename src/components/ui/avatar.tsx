@@ -1,5 +1,5 @@
 import { UserCircle } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import cn from "../../utils/cn";
 import { formatMessage } from "../../i18n/ui/format";
 import { useMessages } from "../../providers/ui-context";
@@ -192,6 +192,18 @@ export default function Avatar({
   const messages = useMessages().ui;
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const showImage = src && failedSrc !== src;
+  // A picture of a server-rendered page that failed before it hydrated
+  // fired its `error` before React listened. A broken one rejects decoding;
+  // one without a size of its own (an SVG) has no `naturalWidth` either,
+  // but decodes. jsdom has no `decode`.
+  const imageRef = useCallback(
+    (image: HTMLImageElement | null) => {
+      if (image?.complete && image.naturalWidth === 0 && src) {
+        image.decode?.().catch(() => setFailedSrc(src));
+      }
+    },
+    [src],
+  );
   const initials = name ? getInitials(name) : "";
   // The avatar stands for the person - named like the picture would be
   const label = alt ?? name;
@@ -248,6 +260,7 @@ export default function Avatar({
             status && "rounded-[inherit]",
           )}
           onError={() => setFailedSrc(src)}
+          ref={imageRef}
           src={src}
         />
       ) : initials ? (

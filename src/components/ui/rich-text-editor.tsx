@@ -71,7 +71,7 @@ import {
   toggleList,
   type Line,
 } from "./rich-text/blocks";
-import { leaveCodeBlock } from "./rich-text/code-blocks";
+import { breakCodeLines, leaveCodeBlock } from "./rich-text/code-blocks";
 import {
   countCharacters,
   countHtmlCharacters,
@@ -129,6 +129,7 @@ import {
   isAllIn,
   linkAt,
   removeLink,
+  startOutside,
   toggleCode,
   toggleUnderline,
 } from "./rich-text/inline";
@@ -713,7 +714,13 @@ function readToolState(
   return {
     active: {
       blockquote: block.type === "quote",
-      bold: !inBoldBlock && isMarkActive(editor, range, "bold", "b, strong"),
+      // Of a selection starting in a heading, the browser tells the bold of
+      // the heading - that of the text after it counts
+      bold:
+        !inBoldBlock &&
+        (boldBlock && !range.collapsed
+          ? isAllIn(editor, range, "b, strong", BOLD_BLOCKS)
+          : isMarkActive(editor, range, "bold", "b, strong")),
       bulletList: block.type === "ul",
       code: isAtPending(range, pending) ? pending?.on : inCode,
       codeBlock: block.type === "code",
@@ -1121,6 +1128,8 @@ export default function RichTextEditor({
   const labelId = useId();
   const labelTextId = useId();
   const linkInputId = useId();
+  const linkErrorId = `${linkInputId}-error`;
+  const imageErrorId = useId();
   const tableLabelId = useId();
   // The ids of the messages derive from the id of the field, like those of
   // the other fields
@@ -1322,6 +1331,9 @@ export default function RichTextEditor({
   // An IME composition changes its text until it ends - one step of the
   // undo history
   const isComposing = useRef(false);
+  // The editor runs a command within a change it reports as a whole - the
+  // input of that command is no change of its own
+  const isInserting = useRef(false);
   // The editor shows nothing but an empty line - its placeholder shows. An
   // empty list, table or rule has no text either, but it shows.
   const [blank, setBlank] = useState(true);
@@ -1551,6 +1563,9 @@ export default function RichTextEditor({
     const editor = editorRef.current;
     if (!editor) return;
 
+    // The lines of code blocks as line breaks - WebKit breaks them with
+    // "\n" - but not in the middle of a composition
+    if (!isComposing.current) breakCodeLines(editor);
     // Read once - it is the whole content
     const html = editor.innerHTML;
     const history = getHistory(editor);
@@ -1704,9 +1719,20 @@ export default function RichTextEditor({
     });
 
   // Headings and header cells stay bold - of a selection that reaches past
-  // them, the browser "unbolds" them with a style the value does not keep
+  // them, the browser "unbolds" them with a style the value does not keep.
+  // Of one starting in them, Chrome on a Mac and Safari take their bold for
+  // that of all of it, and the text after them could never be made bold -
+  // the browser gets the selection from that text on.
   const toggleBold = () =>
-    runCommand((editor) => {
+    runCommand((editor, range) => {
+      const { startContainer, startOffset } = range;
+      const start = startOutside(editor, range, BOLD_BLOCKS);
+      if (start) {
+        const after = range.cloneRange();
+        after.setStart(...start);
+        select(after);
+      }
+
       execCommand("bold");
       for (const element of Array.from(
         editor.querySelectorAll<HTMLElement>(
@@ -1714,6 +1740,14 @@ export default function RichTextEditor({
         ),
       )) {
         element.style.removeProperty("font-weight");
+      }
+
+      // The selection starts where the user started it again
+      const result = start && rangeIn(editor);
+      if (result && editor.contains(startContainer)) {
+        const restored = result.cloneRange();
+        restored.setStart(startContainer, startOffset);
+        select(restored);
       }
       return true;
     });
@@ -2353,9 +2387,12 @@ export default function RichTextEditor({
       insertHtml: (html) =>
         runCommand((element, range) => {
           if (element.getAttribute("contenteditable") !== "true") return false;
-          return execCommand(
-            "insertHTML",
-            fitHtml(element, range, sanitizeInserted(html, range)),
+          // Nothing more fits - like a paste at `maxLength`
+          const room = roomAt(element, range);
+          if (room <= 0 && readInserted(html, "").count > 0) return false;
+          return insertSanitized(
+            element,
+            fitHtml(sanitizeInserted(html, range), room),
           );
         }),
       insertText: (text) =>
@@ -2678,6 +2715,9 @@ export default function RichTextEditor({
   };
 
   const handleInput = (event: React.FormEvent<HTMLDivElement>) => {
+    // Part of a change that is reported as a whole
+    if (isInserting.current) return;
+
     const input = event.nativeEvent as InputEvent;
     const typed = input.inputType === "insertText" ? input.data : null;
     if (autoformat && typed && !isComposing.current) {
@@ -2805,12 +2845,75 @@ export default function RichTextEditor({
         countCharacters(editor) +
         (range ? countRangeCharacters(editor, range) : 0);
 
-  /** Pasted or dropped HTML that fits into `maxLength` - cut after it. */
-  const fitHtml = (editor: HTMLElement, range: Range | null, html: string) => {
-    const room = roomAt(editor, range);
-    return countHtmlCharacters(html) > room
+  /**
+   * Pasted or dropped HTML that fits into the `room` of `roomAt` - cut after
+   * it. The room is taken before `sanitizeInserted`, which may build the
+   * line of the selection anew.
+   */
+  const fitHtml = (html: string, room: number) =>
+    countHtmlCharacters(html) > room
       ? truncateHtml(html, Math.max(room, 0))
       : html;
+
+  /**
+   * The HTML of a paste or a drop, and its characters as it is kept - not
+   * the text of its styles and title (Word's HTML of a copied picture has
+   * both). HTML that keeps nothing to show of a plain `text` that has some -
+   * a formula (MathML), the text of a drawing (SVG) - is none: the text goes
+   * in instead.
+   */
+  const readInserted = (html: string, text: string) => {
+    const kept = html
+      ? sanitizeRichText(html, { allowImageDataUrls, formats })
+      : "";
+    const count = countHtmlCharacters(kept);
+    const shows = count > 0 || kept.includes("<img") || !text.trim();
+    return { count, html: shows ? html : "" };
+  };
+
+  /**
+   * Inserts sanitized HTML at the selection. Lines go into a heading by
+   * hand - Chrome and Safari end the heading at an inserted line break, the
+   * line after it left as text outside of any block.
+   */
+  const insertSanitized = (editor: HTMLElement, html: string) => {
+    const inHeading = (range: Range | null) =>
+      !!range && !!closestIn(editor, range.startContainer, HEADING_SELECTOR);
+    const range = rangeIn(editor);
+    if (!html.includes("<br") || !inHeading(range)) {
+      return execCommand("insertHTML", html);
+    }
+
+    if (!range?.collapsed) {
+      // The browser deletes the selection, joining what is left of its lines
+      isInserting.current = true;
+      execCommand("delete");
+      isInserting.current = false;
+    }
+    const caret = rangeIn(editor);
+    if (!caret || !inHeading(caret)) return execCommand("insertHTML", html);
+    // Whatever the browser left of the selection
+    caret.deleteContents();
+
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    const last = template.content.lastChild;
+    if (!last) return false;
+    caret.insertNode(template.content);
+
+    // The line break that held an empty heading open is no longer needed
+    const next = last.nextSibling;
+    if (
+      next?.nodeName === "BR" &&
+      !next.nextSibling &&
+      last.nodeName !== "BR"
+    ) {
+      next.remove();
+    }
+    const after = document.createRange();
+    after.setStartAfter(last);
+    select(after);
+    return true;
   };
 
   /**
@@ -2839,22 +2942,19 @@ export default function RichTextEditor({
     if (!editor || !isEditable) return;
     event.preventDefault();
 
-    const pastedHtml = event.clipboardData.getData("text/html");
     const pastedText = event.clipboardData.getData("text/plain");
+    const { count: htmlCount, html: pastedHtml } = readInserted(
+      event.clipboardData.getData("text/html"),
+      pastedText,
+    );
     const range = rangeIn(editor);
-    // The characters of the HTML as it is kept - not the text of its styles
-    // and title (Word's HTML of a copied picture has both)
-    const htmlCount = () =>
-      countHtmlCharacters(
-        sanitizeRichText(pastedHtml, { allowImageDataUrls, formats }),
-      );
 
     // A screenshot, a copied image - the files, not their HTML of no text
     const images = imageFilesOf(event.clipboardData);
     if (
       images.length > 0 &&
       !pastedText.trim() &&
-      htmlCount() === 0 &&
+      htmlCount === 0 &&
       uploadDropped(editor, range, images)
     ) {
       return;
@@ -2862,9 +2962,10 @@ export default function RichTextEditor({
 
     if (!pastedHtml && !pastedText) return;
     // Nothing more fits - like a native field at its `maxLength`
+    const room = roomAt(editor, range);
     if (
-      roomAt(editor, range) <= 0 &&
-      (pastedHtml ? htmlCount() : countTextCharacters(pastedText)) > 0
+      room <= 0 &&
+      (pastedHtml ? htmlCount : countTextCharacters(pastedText)) > 0
     ) {
       return;
     }
@@ -2875,13 +2976,13 @@ export default function RichTextEditor({
       execCommand(
         "insertHTML",
         pastedText
-          ? codeHtml(truncateText(pastedText, roomAt(editor, range)))
-          : fitHtml(editor, range, sanitizeInserted(pastedHtml, range)),
+          ? codeHtml(truncateText(pastedText, room))
+          : fitHtml(sanitizeInserted(pastedHtml, range), room),
       );
     } else if (pastedHtml) {
-      execCommand(
-        "insertHTML",
-        fitHtml(editor, range, sanitizeInserted(pastedHtml, range)),
+      insertSanitized(
+        editor,
+        fitHtml(sanitizeInserted(pastedHtml, range), room),
       );
     } else {
       // Lines replacing a heading, list item or quoted line as a whole are
@@ -2897,10 +2998,7 @@ export default function RichTextEditor({
       ) {
         makeParagraphAt(editor, range);
       }
-      execCommand(
-        "insertText",
-        truncateText(pastedText, roomAt(editor, rangeIn(editor))),
-      );
+      execCommand("insertText", truncateText(pastedText, room));
     }
     reportChange(null, true);
   };
@@ -2966,11 +3064,20 @@ export default function RichTextEditor({
     editor.focus();
     const range = caretRangeAt(event.clientX, event.clientY);
     select(range);
+    const droppedText = event.dataTransfer.getData("text/plain");
+    const { count, html } = readInserted(droppedHtml, droppedText);
+    // Nothing more fits - like a paste at `maxLength`
+    const room = roomAt(editor, range);
+    if (room <= 0 && (html ? count : countTextCharacters(droppedText)) > 0) {
+      return;
+    }
+
     getHistory(editor).beforeChange(saveSelection(editor, range));
-    execCommand(
-      "insertHTML",
-      fitHtml(editor, range, sanitizeInserted(droppedHtml, range)),
-    );
+    if (html) {
+      insertSanitized(editor, fitHtml(sanitizeInserted(html, range), room));
+    } else {
+      execCommand("insertText", truncateText(droppedText, room));
+    }
     reportChange(null, true);
   };
 
@@ -3200,6 +3307,7 @@ export default function RichTextEditor({
               {texts.linkPrompt}
             </label>
             <input
+              aria-describedby={isLinkInvalid ? linkErrorId : undefined}
               aria-invalid={isLinkInvalid || undefined}
               autoCapitalize="none"
               autoFocus
@@ -3251,6 +3359,10 @@ export default function RichTextEditor({
                 {messages.common.cancel}
               </Button>
             </div>
+            {/* Why the link was refused - not only the color of the field */}
+            <FormError className="basis-full" id={linkErrorId}>
+              {isLinkInvalid && texts.linkInvalid}
+            </FormError>
           </div>
         )}
 
@@ -3264,6 +3376,9 @@ export default function RichTextEditor({
             <label className="flex min-w-56 flex-1 items-center gap-1.5 text-sm">
               {texts.imageUrl}
               <input
+                aria-describedby={
+                  imageForm.isInvalid ? imageErrorId : undefined
+                }
                 aria-invalid={imageForm.isInvalid || undefined}
                 autoCapitalize="none"
                 // The focus goes to the URL of a new image - to the
@@ -3339,6 +3454,9 @@ export default function RichTextEditor({
                 {messages.common.cancel}
               </Button>
             </div>
+            <FormError className="basis-full" id={imageErrorId}>
+              {imageForm.isInvalid && texts.imageUrlInvalid}
+            </FormError>
           </div>
         )}
 

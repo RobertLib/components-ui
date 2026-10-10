@@ -30,6 +30,7 @@ export default function TimePicker({
   placeholder,
   popupActions: _popupActions,
   presets: _presets,
+  timeZone: _timeZone,
   value,
   ...props
 }: CustomPickerProps) {

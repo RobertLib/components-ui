@@ -122,6 +122,27 @@ describe("PinInput", () => {
     expect(cell(2, 4)).toHaveFocus();
   });
 
+  it("types the digit of such a key in an alphanumeric code too", () => {
+    render(<PinInput aria-label="Code" type="alphanumeric" />);
+    act(() =>
+      screen.getByRole("textbox", { name: "Character 1 of 6" }).focus(),
+    );
+
+    // "AB12CD" on a Czech keyboard without Shift - the 1 key types "+"
+    for (const [key, code] of [
+      ["A", "KeyA"],
+      ["B", "KeyB"],
+      ["+", "Digit1"],
+      ["ě", "Digit2"],
+      ["C", "KeyC"],
+      ["D", "KeyD"],
+    ]) {
+      fireEvent.keyDown(document.activeElement!, { code, key });
+    }
+
+    expect(cellValues()).toBe("AB12CD");
+  });
+
   it("moves on when a character is typed over the same one", async () => {
     const user = userEvent.setup();
     render(<PinInput aria-label="Code" defaultValue="1234" length={4} />);
@@ -233,6 +254,31 @@ describe("PinInput", () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith("1234");
   });
 
+  it("takes the full-width letters of a pasted code as the Latin ones", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <>
+        <PinInput aria-label="Code" length={4} onChange={onChange} />
+        <PinInput
+          aria-label="Voucher"
+          length={4}
+          onChange={onChange}
+          type="alphanumeric"
+        />
+      </>,
+    );
+
+    // "ＡＢ１２" - a numeric code takes its digits only, as before
+    await user.click(cell(1, 4));
+    await user.paste("\uFF21\uFF22\uFF11\uFF12");
+    expect(onChange).toHaveBeenLastCalledWith("12");
+
+    await user.click(screen.getByRole("textbox", { name: "Character 1 of 4" }));
+    await user.paste("\uFF21\uFF42\uFF11\uFF12");
+    expect(onChange).toHaveBeenLastCalledWith("Ab12");
+  });
+
   it("takes the Arabic-Indic and Persian digits of a pasted code as the Latin ones", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -266,6 +312,36 @@ describe("PinInput", () => {
     expect(cellValues()).toBe("654321");
     expect(onComplete).toHaveBeenCalledWith("654321");
   });
+
+  it.each([
+    // "654321" after the 1 and before it - the caret tells "165432" put
+    // before it from "654321" after it
+    ["1654321", 7, "654321"],
+    ["6543211", 6, "654321"],
+    ["1654321", 6, "165432"],
+  ])(
+    "takes a code a keyboard puts next to the character of a cell as the code (%s, caret at %i)",
+    (text, caret, expected) => {
+      const onComplete = vi.fn();
+      render(
+        <PinInput aria-label="Code" defaultValue="1" onComplete={onComplete} />,
+      );
+      const input = cell(1);
+      act(() => input.focus());
+
+      // As a keyboard inserts the code it offers - at the caret, the cell
+      // not selected (a tap put the caret next to its character)
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, text);
+      input.setSelectionRange(caret, caret);
+      fireEvent.input(input);
+
+      expect(cellValues()).toBe(expected);
+      expect(onComplete).toHaveBeenCalledExactlyOnceWith(expected);
+    },
+  );
 
   it.each([false, true])(
     "keeps an IME draft until completion and ignores its trailing input (controlled: %s)",
@@ -592,6 +668,47 @@ describe("PinInput", () => {
     await user.keyboard("4");
     expect(getForm().checkValidity()).toBe(true);
   });
+
+  it.each([false, true])(
+    "holds the code in the form by onComplete, which may submit it (controlled: %s)",
+    async (controlled) => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn();
+      function Verify() {
+        const [code, setCode] = useState("");
+        return (
+          <form
+            aria-label="Verify"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSubmit(new FormData(event.currentTarget).get("code"));
+            }}
+          >
+            <PinInput
+              aria-label="Code"
+              length={4}
+              name="code"
+              onChange={setCode}
+              onComplete={() => getForm().requestSubmit()}
+              required
+              value={controlled ? code : undefined}
+            />
+          </form>
+        );
+      }
+      render(<Verify />);
+
+      // The last cell is filled - the browser does not stop the submit
+      await user.click(cell(1, 4));
+      await user.keyboard("1234");
+      expect(onSubmit).toHaveBeenCalledExactlyOnceWith("1234");
+
+      await user.keyboard("{Backspace}");
+      await user.click(cell(1, 4));
+      await user.paste("5678");
+      expect(onSubmit).toHaveBeenLastCalledWith("5678");
+    },
+  );
 
   it("neither submits nor validates a disabled field", () => {
     render(

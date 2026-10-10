@@ -39,10 +39,31 @@ test("transfer native validation, limits, submit and reset", async ({
   await expect(
     page.getByRole("searchbox", { name: "Search available items" }),
   ).toBeFocused();
-  await page.getByRole("button", { name: "Add all visible items" }).click();
+  // Every submit focuses the field - Firefox too
+  await page.getByRole("button", { name: "Save members" }).click();
   await expect(
-    page.getByRole("button", { name: "Add all visible items" }),
-  ).toBeDisabled();
+    page.getByRole("searchbox", { name: "Search available items" }),
+  ).toBeFocused();
+  // A checkValidity() of the page takes no focus and shows no error of its own
+  await page.getByRole("button", { name: "Reset members" }).click();
+  await expect(page.getByText("Select at least 1 item.")).toHaveCount(0);
+  await page.getByRole("button", { name: "Open gallery" }).focus();
+  expect(
+    await page
+      .getByRole("form", { name: "Assignment" })
+      .evaluate((form) => (form as HTMLFormElement).checkValidity()),
+  ).toBe(false);
+  await expect(
+    page.getByRole("button", { name: "Open gallery" }),
+  ).toBeFocused();
+  await expect(page.getByText("Select at least 1 item.")).toHaveCount(0);
+  // Pressed from the keyboard, a button with nothing left to move keeps the
+  // focus - a disabled one would drop it to the page
+  const addAll = page.getByRole("button", { name: "Add all visible items" });
+  await addAll.focus();
+  await page.keyboard.press("Enter");
+  await expect(addAll).toBeDisabled();
+  await expect(addAll).toBeFocused();
   await expect(
     page
       .getByRole("list", { name: "Available", exact: true })

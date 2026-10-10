@@ -133,6 +133,14 @@ export function parseISODate(value: string | null | undefined): Date | null {
 export const startOfDay = (date: Date) =>
   dateOf(date.getFullYear(), date.getMonth(), date.getDate(), date);
 
+/**
+ * Local midnight of the calendar day `date` has on its own clock - the day
+ * of a date of another time zone (`inTimeZone`) as the pickers, whose days
+ * are local, take it.
+ */
+export const toLocalDay = (date: Date) =>
+  dateOf(date.getFullYear(), date.getMonth(), date.getDate());
+
 export const addDays = (date: Date, days: number) => {
   const result = copyDate(date);
   result.setDate(result.getDate() + days);

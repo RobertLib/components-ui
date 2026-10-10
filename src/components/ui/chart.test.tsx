@@ -86,6 +86,33 @@ describe("Chart", () => {
     expect(screen.queryByText("Sales: 10")).toBeNull();
   });
 
+  it("is one tab stop, at the point focused last", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Chart
+          data={data}
+          legend={false}
+          series={series}
+          showDataTable={false}
+          title="Results"
+        />
+        <button type="button">After</button>
+      </>,
+    );
+    const points = screen.getAllByRole("img");
+
+    await user.tab();
+    expect(points[0]).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(points[1]).toHaveFocus();
+    // Past the other points, out of the chart
+    await user.tab();
+    expect(screen.getByRole("button", { name: "After" })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(points[1]).toHaveFocus();
+  });
+
   it("breaks lines at gaps and draws grouped negative bars", () => {
     const { container, rerender } = render(
       <Chart data={data} series={series} title="Results" />,

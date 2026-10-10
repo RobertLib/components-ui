@@ -148,6 +148,43 @@ describe("useOverlay", () => {
     expect(opener).toHaveFocus();
   });
 
+  it("leaves the focus to an autoFocus field rendered as it closes", async () => {
+    const user = userEvent.setup();
+
+    function Page() {
+      const [open, setOpen] = useState(false);
+      const [editing, setEditing] = useState(false);
+      const panelRef = useRef<HTMLDivElement>(null);
+      useOverlay({ modal: true, open, ref: panelRef });
+      return (
+        <>
+          <button onClick={() => setOpen(true)} type="button">
+            Filters
+          </button>
+          {editing && <input aria-label="Filter name" autoFocus />}
+          {open && (
+            <div aria-label="Filters" ref={panelRef} role="dialog">
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  setEditing(true);
+                }}
+                type="button"
+              >
+                Save as
+              </button>
+            </div>
+          )}
+        </>
+      );
+    }
+
+    render(<Page />);
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    await user.click(screen.getByRole("button", { name: "Save as" }));
+    expect(screen.getByRole("textbox", { name: "Filter name" })).toHaveFocus();
+  });
+
   it("gets Escape only while it is the topmost overlay", async () => {
     const user = userEvent.setup();
     const onEscape = vi.fn();

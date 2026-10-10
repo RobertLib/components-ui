@@ -258,6 +258,29 @@ describe("Dropdown", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("goes to the last item with ArrowUp in a menu opened by a click", async () => {
+    const user = userEvent.setup();
+    render(
+      <Dropdown
+        aria-label="Actions"
+        items={[{ label: "Edit" }, { label: "Archive" }, { label: "Delete" }]}
+        trigger={<span>Menu</span>}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    const menu = screen.getByRole("menu");
+    // None highlighted yet
+    expect(menu).toHaveFocus();
+    expect(menu).not.toHaveAttribute("aria-activedescendant");
+
+    await user.keyboard("{ArrowUp}");
+    expect(menu).toHaveAttribute(
+      "aria-activedescendant",
+      screen.getByRole("menuitem", { name: "Delete" }).id,
+    );
+  });
+
   it("makes a button trigger the menu button itself", async () => {
     const user = userEvent.setup();
     render(

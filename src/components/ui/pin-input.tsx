@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
@@ -101,7 +102,9 @@ export interface PinInputProps extends Omit<
   /**
    * Called with the code once the user has filled all cells - by typing,
    * pasting or the one-time code the phone offers. Also after each change
-   * of a complete code, not after a change of `value` by the parent.
+   * of a complete code, not after a change of `value` by the parent. The
+   * cells and the hidden input hold the code by then (a controlled field's
+   * once `onChange` has set `value`) - the form can be submitted from here.
    */
   onComplete?: (value: string) => void;
   /** Called when the focus moves into the cells. */
@@ -132,17 +135,24 @@ export interface PinInputProps extends Omit<
 
 const NUMERIC = /^\d$/;
 const ALPHANUMERIC = /^[\da-z]$/i;
+// The full-width "ＡＢｃ" of Japanese and Chinese input methods
+const FULL_WIDTH_LETTER = /^[\uFF21-\uFF3A\uFF41-\uFF5A]$/;
 
 /**
  * The characters of `text` a code of `type` takes - spaces, dashes and the
  * like of a pasted "123 456" are left out. Digits of other scripts - the
  * full-width "１２３" of Japanese and Chinese input methods, Arabic-Indic,
  * Persian and Devanagari ones - are taken as the Latin ones, as a mask
- * takes them.
+ * takes them, and so are the full-width letters of an alphanumeric code.
  */
 function sanitize(text: string, type: PinType) {
   const allowed = type === "numeric" ? NUMERIC : ALPHANUMERIC;
-  return Array.from(text, (char) => toLatinDigit(char) ?? char)
+  return Array.from(
+    text,
+    (char) =>
+      toLatinDigit(char) ??
+      (FULL_WIDTH_LETTER.test(char) ? char.normalize("NFKC") : char),
+  )
     .filter((char) => allowed.test(char))
     .join("");
 }
@@ -347,8 +357,12 @@ export default function PinInput({
 
   const commit = (next: string) => {
     if (next === code) return;
-    if (!isControlled) setEnteredValue(next);
-    onChange?.(next);
+    // The cells and the hidden input hold the code before `onComplete`,
+    // which may submit the form - a controlled parent renders in here too
+    flushSync(() => {
+      if (!isControlled) setEnteredValue(next);
+      onChange?.(next);
+    });
     if (next.length === length) onComplete?.(next);
   };
 
@@ -463,14 +477,17 @@ export default function PinInput({
     }
 
     event.preventDefault();
-    const digit =
-      type === "numeric" && !NUMERIC.test(key) ? digitOfKey(event) : undefined;
+    // A key whose character the code does not take types its digit - also
+    // in an alphanumeric code
+    const digit = sanitize(key, type) ? undefined : digitOfKey(event);
     insert(index, digit ?? key);
   };
 
   const changeText = (
     cellIndex: number,
     text: string,
+    // Where the edit left the caret - after what was typed
+    caret: number | null,
     replacesCell = false,
   ) => {
     const index = targetIndex(cellIndex);
@@ -482,16 +499,23 @@ export default function PinInput({
       return;
     }
 
-    // Typed next to the character of the cell instead of over it
-    const typed =
-      !replacesCell && current && text.length === 2
-        ? text.startsWith(current)
-          ? text.slice(1)
-          : text.endsWith(current)
-            ? text.slice(0, -1)
-            : text
-        : text;
-    insert(index, typed);
+    // Typed next to the character of the cell instead of over it - before
+    // it when the caret stays before it. A whole code inserted so (the one
+    // a keyboard offers) is the code without the character too.
+    if (!replacesCell && current) {
+      const after = text.startsWith(current) ? text.slice(1) : undefined;
+      const before = text.endsWith(current) ? text.slice(0, -1) : undefined;
+      const typed =
+        caret === text.length - 1 ? (before ?? after) : (after ?? before);
+      if (
+        typed !== undefined &&
+        (text.length === 2 || sanitize(typed, type).length >= length)
+      ) {
+        insert(index, typed);
+        return;
+      }
+    }
+    insert(index, text);
   };
 
   const startComposition = (cellIndex: number, element: HTMLInputElement) => {
@@ -556,7 +580,7 @@ export default function PinInput({
       return;
     }
 
-    changeText(cellIndex, text);
+    changeText(cellIndex, text, element.selectionEnd);
   };
 
   const endComposition = (event: React.CompositionEvent<HTMLInputElement>) => {
@@ -588,7 +612,12 @@ export default function PinInput({
       return;
     }
 
-    changeText(composing.index, text, composing.replacesCell);
+    changeText(
+      composing.index,
+      text,
+      element.selectionEnd,
+      composing.replacesCell,
+    );
   };
 
   const handleFocus = (

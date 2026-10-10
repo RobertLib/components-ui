@@ -31,7 +31,8 @@ export default function FieldPage() {
             A <code>&lt;label&gt;</code> names only native controls. The control
             props also carry <code>aria-labelledby</code>, which names a{" "}
             <code>div</code> with a role, and a click on the label focuses such
-            a control too.
+            a control too - not a click on a button or a link inside the label,
+            as with a native control.
           </p>
         }
         name="field/custom-control"

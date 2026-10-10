@@ -19,8 +19,9 @@ export default function TransferListPage() {
           <p>
             Check choices in either list, then move the checked items. The
             double arrows move all visible items. Each list has its own search;
-            searches ignore case and accents and preserve choices hidden by the
-            search. Disabled options stay in their current list.
+            searches ignore case, accents and the spaces around the term, and
+            preserve choices hidden by the search. Disabled options stay in
+            their current list.
           </p>
         }
       />
@@ -38,9 +39,9 @@ export default function TransferListPage() {
             including locked selections; an empty list submits an empty value.{" "}
             <code>form</code> connects to a form outside the component.{" "}
             <code>required</code>, <code>min</code> and <code>max</code>{" "}
-            validate the selected count. Submission shows an error and focuses
-            the field when the minimum is not met. Additions stop at the
-            maximum.
+            validate the selected count. A submit shows an error and focuses the
+            field when the minimum is not met - a <code>checkValidity()</code>{" "}
+            of the page only reports it. Additions stop at the maximum.
           </p>
           <p>
             <code>disabled</code> prevents interaction, submission and

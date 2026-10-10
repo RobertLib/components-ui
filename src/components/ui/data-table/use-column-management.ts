@@ -309,12 +309,14 @@ export default function useColumnManagement<T>(
       event.preventDefault();
 
       const draggedColumnKey = event.dataTransfer.getData("columnKey");
+      const draggedGroup = groupOf[draggedColumnKey];
+      const targetGroup = groupOf[targetColumnKey];
 
       // Something else dropped here - a file, a text, a column of another
-      // table - or a column of another group, which it stays in
+      // table - or a column of a group dropped out of it, which it stays in
       if (
         !columnOrder.includes(draggedColumnKey) ||
-        groupOf[draggedColumnKey] !== groupOf[targetColumnKey]
+        (draggedGroup !== undefined && draggedGroup !== targetGroup)
       ) {
         return;
       }
@@ -323,7 +325,17 @@ export default function useColumnManagement<T>(
         setColumnOrder((prevOrder) => {
           const newOrder = [...prevOrder];
           const draggedIdx = newOrder.indexOf(draggedColumnKey);
-          const targetIdx = newOrder.indexOf(targetColumnKey);
+          let targetIdx = newOrder.indexOf(targetColumnKey);
+
+          // A column of none dropped on a group goes past it as a whole -
+          // after it moving on, before it moving back - as the arrow keys
+          // move it
+          if (draggedGroup === undefined && targetGroup !== undefined) {
+            targetIdx =
+              draggedIdx < targetIdx
+                ? newOrder.findLastIndex((key) => groupOf[key] === targetGroup)
+                : newOrder.findIndex((key) => groupOf[key] === targetGroup);
+          }
 
           newOrder.splice(draggedIdx, 1);
           newOrder.splice(targetIdx, 0, draggedColumnKey);

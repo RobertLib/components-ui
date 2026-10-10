@@ -8,12 +8,11 @@
  * Override any token in your own @theme block after the import.
  */
 
-/* Lets Tailwind find the classes used by the components next to this file -
-   not in the source maps and the type declarations of the build, whose
-   comments would only add classes nobody uses */
+/* Lets Tailwind find the classes used by the components next to this file.
+   The build of the package leaves out its source maps and type declarations
+   here (vite.lib.config.ts) - not this file: in a source copy, `./types`
+   would be a folder of the app */
 @source "./";
-@source not "./**/*.map";
-@source not "./types";
 
 @theme {
   --color-primary-50: oklch(0.97 0.014 254.604);

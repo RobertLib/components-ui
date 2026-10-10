@@ -1129,3 +1129,44 @@ describe("DateRangePicker states", () => {
     expect(screen.getByRole("combobox", { name: /Period/ })).toBeDisabled();
   });
 });
+
+// `onChange={() => form.requestSubmit()}` submits the new range - the
+// hidden inputs of an uncontrolled picker hold it already
+describe("DateRangePicker onChange of a range the form holds", () => {
+  it("of a range picked, of a preset and cleared", async () => {
+    const submitted: unknown[] = [];
+    render(
+      <form aria-label="Stay">
+        <DateRangePicker
+          endName="to"
+          label="Period"
+          name="period"
+          onChange={() => {
+            const data = new FormData(screen.getByRole("form"));
+            submitted.push([
+              data.get("period"),
+              data.get("from"),
+              data.get("to"),
+            ]);
+          }}
+          presets={["today"]}
+          startName="from"
+        />
+      </form>,
+    );
+    const input = screen.getByRole("combobox", { name: /Period/ });
+    const user = userEvent.setup();
+
+    await user.click(input);
+    await user.click(day("September 24, 2026"));
+    await user.click(day("September 26, 2026"));
+    await user.click(input);
+    await user.click(screen.getByRole("button", { name: "Today" }));
+    await user.click(screen.getByRole("button", { name: "Clear value" }));
+    expect(submitted).toEqual([
+      ["2026-09-24/2026-09-26", "2026-09-24", "2026-09-26"],
+      ["2026-09-24/2026-09-24", "2026-09-24", "2026-09-24"],
+      ["", "", ""],
+    ]);
+  });
+});

@@ -485,6 +485,43 @@ describe("FileUpload", () => {
     ).toEqual(["blob-a", "blob-b"]);
   });
 
+  it("holds the stored files in the form by onUpload and onAttachmentsChange", async () => {
+    const { pending, upload } = controllableUpload();
+    const seen: [string, string[], boolean][] = [];
+    const record = (callback: string) => {
+      const form = screen.getByRole<HTMLFormElement>("form", {
+        name: "Order",
+      });
+      // Also whether the form waits no more for the upload
+      seen.push([callback, submitted(form, "files"), form.checkValidity()]);
+    };
+    render(
+      <form aria-label="Order">
+        <FileUpload
+          defaultAttachments={[
+            { id: "old", filename: "old.pdf", value: "old" },
+          ]}
+          multiple
+          name="files"
+          onAttachmentsChange={() => record("attachments")}
+          onUpload={() => record("upload")}
+          upload={upload}
+        />
+      </form>,
+    );
+
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    await act(async () => pending[0].resolve({ value: "blob-a" }));
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Remove old.pdf" }));
+    expect(seen).toEqual([
+      ["attachments", ["old", "blob-a"], true],
+      ["upload", ["old", "blob-a"], true],
+      ["attachments", ["blob-a"], true],
+    ]);
+  });
+
   it.each([false, true])(
     "respects the caller's drop handler with preventDefault=%s",
     (preventDefault) => {
@@ -1625,6 +1662,32 @@ describe("FileUpload without upload", () => {
     expect(onFilesChange).toHaveBeenCalledTimes(1);
     expect(form.checkValidity()).toBe(true);
     expect(submitted(form, "file")).toEqual(["a.pdf"]);
+  });
+
+  it("holds the picked files in the form by onFilesChange, which may submit it", async () => {
+    const seen: string[][] = [];
+    render(
+      <form aria-label="Order">
+        <FileUpload
+          multiple
+          name="files"
+          onFilesChange={() =>
+            seen.push(
+              submitted(
+                screen.getByRole<HTMLFormElement>("form", { name: "Order" }),
+                "files",
+              ),
+            )
+          }
+        />
+      </form>,
+    );
+
+    drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Remove a.pdf" }));
+    expect(seen).toEqual([["a.pdf", "b.pdf"], ["b.pdf"]]);
   });
 
   it("waits for every independent file check before submitting", async () => {

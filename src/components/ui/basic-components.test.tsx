@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import Avatar from "./avatar";
 import AvatarGroup from "./avatar-group";
 import Breadcrumbs from "./breadcrumbs";
@@ -351,5 +351,23 @@ describe("Public helpers", () => {
     // Rendered in the browser only - hydrated from the first render
     expect(hydrated).toBe(true);
     expect(typeof apple).toBe("boolean");
+  });
+
+  it("export the types of the props - as those of the other components", () => {
+    expectTypeOf<ui.LinkColor>().toEqualTypeOf<
+      NonNullable<ui.LinkProps["color"]>
+    >();
+    expectTypeOf<ui.IconButtonColor>().toEqualTypeOf<
+      NonNullable<ui.IconButtonProps["color"]>
+    >();
+    expectTypeOf<ui.AlertType>().toEqualTypeOf<
+      NonNullable<ui.AlertProps["type"]>
+    >();
+    expectTypeOf<ui.AlertVariant>().toEqualTypeOf<
+      NonNullable<ui.AlertProps["variant"]>
+    >();
+    expectTypeOf<ui.StatTrend>().toEqualTypeOf<
+      NonNullable<ui.StatProps["trend"]>
+    >();
   });
 });

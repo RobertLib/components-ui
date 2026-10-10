@@ -208,6 +208,46 @@ describe("Autocomplete with static options", () => {
     expect([...new FormData(form).keys()]).toEqual([]);
   });
 
+  it("holds the pick in the form before onChange, which may submit it", async () => {
+    const user = userEvent.setup();
+    const submitted: [FormDataEntryValue[], boolean][] = [];
+    const read = () => {
+      const form = screen.getByRole("form") as HTMLFormElement;
+      submitted.push([new FormData(form).getAll("city"), form.checkValidity()]);
+    };
+    const { rerender } = render(
+      <form aria-label="Trip">
+        <Autocomplete
+          label="City"
+          name="city"
+          onChange={read}
+          options={cities}
+          required
+        />
+      </form>,
+    );
+    const input = screen.getByRole("combobox", { name: /City/ });
+    await user.click(input);
+    await user.click(screen.getByRole("option", { name: "Praha" }));
+    expect(submitted).toEqual([[["praha"], true]]);
+
+    rerender(
+      <form aria-label="Trip">
+        <Autocomplete
+          key="multiple"
+          label="Cities"
+          multiple
+          name="city"
+          onChange={read}
+          options={cities}
+        />
+      </form>,
+    );
+    await user.click(screen.getByRole("combobox", { name: /Cities/ }));
+    await user.click(screen.getByRole("option", { name: "Plzeň" }));
+    expect(submitted.at(-1)).toEqual([["plzen"], true]);
+  });
+
   it("submits a cleared single field as empty, an empty multiple one not at all", async () => {
     const user = userEvent.setup();
     const { container } = render(
@@ -573,6 +613,41 @@ describe("Autocomplete keyboard", () => {
     await user.keyboard("{Delete}");
     expect(onChange).toHaveBeenLastCalledWith(["praha"], [null]);
     expect(screen.getByRole("combobox", { name: /Stops/ })).toHaveFocus();
+  });
+
+  it("keeps the typed term of a multiple field while the focus is in it, not once it leaves", async () => {
+    const user = userEvent.setup();
+    render(
+      <form aria-label="Trip">
+        <Autocomplete
+          defaultValue={["zurich"]}
+          label="Stops"
+          multiple
+          name="stops"
+          options={cities}
+        />
+        <input aria-label="Note" />
+      </form>,
+    );
+
+    const input = screen.getByRole("combobox", { name: /Stops/ });
+    await user.click(input);
+    await user.type(input, "P");
+    // To pick more of what it found - after a pick, Escape, on a chip
+    await user.click(screen.getByRole("option", { name: "Praha" }));
+    await user.keyboard("{Escape}");
+    expect(input).toHaveValue("P");
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Clear Praha" })).toHaveFocus();
+    await user.tab();
+    expect(input).toHaveValue("P");
+
+    // Leaving the field, it would look like a value it is not
+    await user.tab();
+    expect(screen.getByRole("textbox", { name: "Note" })).toHaveFocus();
+    expect(input).toHaveValue("");
+    const form = screen.getByRole("form") as HTMLFormElement;
+    expect(new FormData(form).getAll("stops")).toEqual(["zurich", "praha"]);
   });
 
   it("leaves the list alone on the arrow keys of a chip", async () => {
@@ -2412,12 +2487,15 @@ describe("Autocomplete keyboard and focus details", () => {
     expect(input).toHaveFocus();
     expect(input).toHaveAttribute("aria-expanded", "false");
 
-    // The browser focuses the invalid field on submit
+    // The browser focuses the invalid field on submit - the field takes the
+    // focus once the browser is done (Firefox focuses it again next time)
     const validation =
       container.querySelector<HTMLInputElement>("input[required]")!;
     act(() => input.blur());
     fireEvent.invalid(validation);
     act(() => validation.focus());
+    expect(validation).toHaveFocus();
+    await act(async () => {});
     expect(input).toHaveFocus();
     expect(input).toHaveAttribute("aria-expanded", "false");
 
@@ -2436,9 +2514,12 @@ describe("Autocomplete keyboard and focus details", () => {
     expect(validation).toHaveAttribute("inert");
     expect(validation).not.toHaveAttribute("aria-hidden");
 
-    // The browser can then focus it and show its message
+    // The browser can then focus it and show its message - Safari by its
+    // styles laid out anew
+    const layout = vi.spyOn(validation, "getBoundingClientRect");
     fireEvent.invalid(validation);
     expect(validation).not.toHaveAttribute("inert");
+    expect(layout).toHaveBeenCalled();
     await waitFor(() => expect(validation).toHaveAttribute("inert"));
   });
 

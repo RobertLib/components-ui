@@ -231,12 +231,18 @@ export default function TimeGrid({
     [columns],
   );
 
-  // When a moved event would take place - for screen readers
+  // When a moved event would take place - for screen readers. In the zone
+  // of the calendar: a formatter keeps the zone it was made with, also
+  // after the app switches `timeZone`.
+  const timeZone = dateTimeZone(currentDate);
   const timeLabel = useMemo(
-    () => createTimeLabeler(locale, resourceList ?? undefined),
-    [locale, resourceList],
+    () => createTimeLabeler(locale, resourceList ?? undefined, timeZone),
+    [locale, resourceList, timeZone],
   );
-  const timeText = useMemo(() => createTimeTextFormatter(locale), [locale]);
+  const timeText = useMemo(
+    () => createTimeTextFormatter(locale, timeZone),
+    [locale, timeZone],
+  );
 
   const move = useEventMove({
     announce,
@@ -455,7 +461,7 @@ export default function TimeGrid({
       columns[columnIndex].resource?.title,
       getSlotLabel(columns[columnIndex].date, slotFrom(slotIndex)),
     );
-  const dayLabelFormat = createDayFormat(locale, dateTimeZone(currentDate));
+  const dayLabelFormat = createDayFormat(locale, timeZone);
 
   // The events of each resource - a dragged one in the resource it is
   // dragged to - so a column looks through those of its resource only
@@ -484,14 +490,11 @@ export default function TimeGrid({
   // Unknown on the server and while a server-rendered page hydrates - its
   // clock and time zone may differ from the browser's. Another day after
   // midnight, also in a view left open.
-  const today = useToday(dateTimeZone(currentDate));
+  const today = useToday(timeZone);
   const isToday = (date: Date) => today !== null && isSameDay(date, today);
   // The line of the current time - moved on every minute, while the grid
   // shows today
-  const now = useCurrentMinute(
-    nowIndicator && days.some(isToday),
-    dateTimeZone(currentDate),
-  );
+  const now = useCurrentMinute(nowIndicator && days.some(isToday), timeZone);
 
   // Like the month view: on each day the event spans - a moved one on the
   // days it is moved to
@@ -755,6 +758,8 @@ export default function TimeGrid({
           {day.date.toLocaleString(toIntlLocale(locale.code), {
             calendar: "gregory",
             month: "short",
+            // The month of the day in the zone of the calendar
+            timeZone,
           })}
         </Line>
       </>

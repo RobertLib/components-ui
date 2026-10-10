@@ -1,12 +1,13 @@
 import { act, render, screen, within } from "@testing-library/react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { cs } from "../../i18n/ui/cs";
 import { en } from "../../i18n/ui/en";
 import { createLocale } from "../../i18n/ui/format";
 import Timeline, { type TimelineItem } from "./timeline";
 import UIProvider from "../../providers/ui-provider";
+import { inTimeZone } from "../../utils/time-zone";
 
 /** September 24, 2026 - a Thursday. */
 const at = (hours: number, minutes = 0) =>
@@ -159,6 +160,45 @@ describe("Timeline", () => {
     // The second item is on the left of the line
     expect(approved.children[1]).toHaveClass("md:col-start-1", "md:text-end");
     expect(created.children[1]).toHaveClass("md:col-start-3");
+  });
+
+  it("writes a date without a time zone once the page has hydrated - on the clock of the browser", async () => {
+    const timeline = <Timeline items={items} />;
+
+    // The server's clock may be another than the browser's
+    const html = renderToString(timeline);
+    expect(html).toContain(`dateTime="${at(9, 5).toISOString()}"`);
+    expect(html).not.toContain("9:05");
+
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.append(container);
+    onTestFinished(() => container.remove());
+    const onRecoverableError = vi.fn();
+
+    const root = await act(async () =>
+      hydrateRoot(container, timeline, { onRecoverableError }),
+    );
+    expect(onRecoverableError).not.toHaveBeenCalled();
+    expect(container.querySelector("time")).toHaveTextContent(
+      "Sep 24, 2026, 9:05 AM",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("writes a date of a time zone on its clock, also on the server", () => {
+    const tokyo = inTimeZone(
+      new Date(Date.UTC(2026, 8, 24, 7, 5)),
+      "Asia/Tokyo",
+    );
+    const timeline = <Timeline items={[{ time: tokyo, title: "Shipped" }]} />;
+
+    expect(renderToString(timeline)).toContain("Sep 24, 2026, 4:05 PM");
+    const { container } = render(timeline);
+    expect(container.querySelector("time")).toHaveTextContent(
+      "Sep 24, 2026, 4:05 PM",
+    );
   });
 
   it("renders on the server and hydrates with the time zone given", async () => {

@@ -75,8 +75,9 @@ export interface RowGroup<T> {
 
 /**
  * The rows of the page by the value of a column - in the order of the
- * value (`order`), the rows keeping their order within their group. The
- * groups count their rows among `allRows`, all rows matching the query.
+ * value (`order`), by the column's `sortFn` when it has one, an empty value
+ * last; the rows keep their order within their group. The groups count
+ * their rows among `allRows`, all rows matching the query.
  */
 export function groupRows<T>(
   rows: T[],
@@ -117,10 +118,21 @@ export function groupRows<T>(
 
   const collator = getCollator(locale.code);
   const direction = order === "desc" ? -1 : 1;
+  const { sortFn } = column;
 
   return [...groups.entries()]
     .map(([key, group]) => ({ ...group, key, sortKey: toSortKey(group.value) }))
-    .sort((a, b) => compareSortKeys(a.sortKey, b.sortKey, collator, direction))
+    .sort((a, b) => {
+      // In the order a sorting by the column has - e.g. priorities by their
+      // rank, not by their names. A row of each group stands for its value.
+      const custom =
+        sortFn && !a.sortKey.empty && !b.sortKey.empty
+          ? (sortFn(a.rows[0], b.rows[0]) || 0) * direction
+          : 0;
+      return (
+        custom || compareSortKeys(a.sortKey, b.sortKey, collator, direction)
+      );
+    })
     .map((group) => ({
       allRows: group.allRows,
       key: group.key,
@@ -148,13 +160,24 @@ export interface BodyRowGroup {
   summary: Record<string, unknown> | null;
 }
 
-/** The summaries of the columns over the rows of a group. */
-export function summarizeGroup<T>(columns: Column<T>[], rows: T[]) {
+/**
+ * The summaries of the columns over the rows of a group - a value the
+ * server gave for a column (`serverValues`) wins over its `summary`, as in
+ * the summary row of the table; the other columns summarize the rows.
+ */
+export function summarizeGroup<T>(
+  columns: Column<T>[],
+  rows: T[],
+  serverValues?: Readonly<Record<string, unknown>>,
+) {
   const values = columnRecord<unknown>();
   let hasValues = false;
 
   for (const column of columns) {
-    if (column.summary !== undefined) {
+    if (serverValues && Object.hasOwn(serverValues, column.key)) {
+      values[column.key] = serverValues[column.key];
+      hasValues = true;
+    } else if (column.summary !== undefined) {
       values[column.key] = computeSummary(column.summary, column, rows);
       hasValues = true;
     }

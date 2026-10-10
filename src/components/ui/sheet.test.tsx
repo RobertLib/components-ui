@@ -209,6 +209,76 @@ describe("Sheet", () => {
     expect(screen.getByRole("button", { name: "Petr" })).toHaveFocus();
   });
 
+  it("gives the focus to what opened the sheet another one replaced", async () => {
+    const user = userEvent.setup();
+
+    // The second sheet opens while the first slides out with the focus
+    function Steps() {
+      const [step, setStep] = useState(0);
+      return (
+        <>
+          <button onClick={() => setStep(1)} type="button">
+            Start
+          </button>
+          <Sheet onClose={() => setStep(0)} open={step === 1} title="Step 1">
+            <button onClick={() => setStep(2)} type="button">
+              Next
+            </button>
+          </Sheet>
+          <Sheet onClose={() => setStep(0)} open={step === 2} title="Step 2">
+            <input aria-label="Details" />
+          </Sheet>
+        </>
+      );
+    }
+
+    render(<Steps />);
+    await user.click(screen.getByRole("button", { name: "Start" }));
+    await act(() => sleep(20));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await act(() => sleep(20));
+    expect(screen.getByRole("textbox", { name: "Details" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: "Start" })).toHaveFocus();
+  });
+
+  it("leaves the focus to an autoFocus field rendered as it slides out", async () => {
+    const user = userEvent.setup();
+
+    function Notes() {
+      const [open, setOpen] = useState(false);
+      const [editing, setEditing] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)} type="button">
+            Notes
+          </button>
+          {editing && <input aria-label="Note" autoFocus />}
+          <Sheet onClose={() => setOpen(false)} open={open} title="Notes">
+            <button
+              onClick={() => {
+                setOpen(false);
+                setEditing(true);
+              }}
+              type="button"
+            >
+              Add a note
+            </button>
+          </Sheet>
+        </>
+      );
+    }
+
+    render(<Notes />);
+    await user.click(screen.getByRole("button", { name: "Notes" }));
+    await act(() => sleep(20));
+    await user.click(screen.getByRole("button", { name: "Add a note" }));
+    expect(screen.getByRole("textbox", { name: "Note" })).toHaveFocus();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("textbox", { name: "Note" })).toHaveFocus();
+  });
+
   it.each([
     ["right", "right-0", "translate-x-full"],
     ["left", "left-0", "-translate-x-full"],

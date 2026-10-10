@@ -4,6 +4,7 @@ import {
   useFormReset,
 } from "../../hooks/use-form-control";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
@@ -113,7 +114,9 @@ export interface SliderProps<T extends SliderValue = number> extends Omit<
    * Called with the value once a change is done - the pointer released,
    * or a key pressed. For work too heavy for every step of a drag, like
    * loading data. A drag canceled by changed limits or interaction
-   * settings, or by hiding the slider, does not call it.
+   * settings, or by hiding the slider, does not call it. The hidden inputs
+   * hold the value by then (a controlled slider's once `onChange` has set
+   * `value`) - the form can be submitted from here.
    */
   onChangeEnd?: (value: T) => void;
   /** Called when the focus moves into the thumbs. */
@@ -501,8 +504,12 @@ export default function Slider<T extends SliderValue = number>({
     (isRange ? [nextValues[0], nextValues[1]] : nextValues[0]) as T;
 
   const commit = (nextValues: number[]) => {
-    if (!isControlled) setEnteredValues(nextValues);
-    onChange?.(report(nextValues));
+    // The hidden inputs hold the value before `onChangeEnd`, which may
+    // submit the form - a controlled parent renders in here too
+    flushSync(() => {
+      if (!isControlled) setEnteredValues(nextValues);
+      onChange?.(report(nextValues));
+    });
   };
 
   // Where a thumb may go - the thumbs of a range keep `minDistance` apart.

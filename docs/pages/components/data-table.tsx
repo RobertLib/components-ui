@@ -303,9 +303,10 @@ export default function DataTablePage() {
             Without <code>clientSide</code>, only loaded rows are grouped. Pass{" "}
             <code>groupMetadata</code> keyed by{" "}
             <code>getDataTableGroupKey([groupValue, ...nestedValues])</code> to
-            supply full server counts and summary values. Filtering, sorting and
-            pagination remain server operations; the server should page
-            consistently within its grouping order.
+            supply full server counts and summary values - a column the server
+            leaves out summarizes the loaded rows of the group. Filtering,
+            sorting and pagination remain server operations; the server should
+            page consistently within its grouping order.
           </p>
         }
       />
@@ -319,10 +320,10 @@ export default function DataTablePage() {
             <code>scope=&quot;colgroup&quot;</code>). The columns are reordered
             within their group - by dragging or from the column settings, which
             list them under the group&apos;s name; a column of no group steps
-            over a group as a whole. Pinned, a column takes its part of the
-            group header along - a group split by pinning shows its header over
-            each part. Hidden columns leave it; a group with no visible column
-            has no header.
+            over a group as a whole, also dropped on one of its columns. Pinned,
+            a column takes its part of the group header along - a group split by
+            pinning shows its header over each part. Hidden columns leave it; a
+            group with no visible column has no header.
           </p>
         }
         name="data-table/column-groups"
@@ -437,12 +438,13 @@ export default function DataTablePage() {
             spaces around names when saving. While a cell is edited the rows
             keep their places: sort by name and rename a person - the row moves
             once the editing ends, not while its next cell is edited. Another
-            page, sorting or filter ends the editing. A field left as it was
-            saves nothing - also when a refetch changed the cell meanwhile, so
-            another user&apos;s change is not overwritten. A number field
-            refuses text that is no number instead of emptying the cell. An
-            empty cell is edited in the field the other values of its column
-            need; set <code>editor</code> for a column that may be all empty.
+            page, sorting or filter ends the editing, and so do new rows in
+            which the cell can no longer be edited. A field left as it was saves
+            nothing - also when a refetch changed the cell meanwhile, so another
+            user&apos;s change is not overwritten. A number field refuses text
+            that is no number instead of emptying the cell. An empty cell is
+            edited in the field the other values of its column need; set{" "}
+            <code>editor</code> for a column that may be all empty.
           </p>
         }
         name="data-table/inline-editing"
@@ -745,8 +747,9 @@ export default function DataTablePage() {
             payloads. With server data, selecting all filtered rows also
             requires <code>filteredSelection.total</code> to count eligible
             records. <code>Column.sortFn</code> compares complete rows for
-            client sorting; the table applies ascending/descending direction.
-            This example sorts names by priority. <code>expandedIds</code> and{" "}
+            client sorting; the table applies ascending/descending direction. It
+            also orders the groups of a <code>groupBy</code> by its column. This
+            example sorts names by priority. <code>expandedIds</code> and{" "}
             <code>onExpandedIdsChange</code> control details;{" "}
             <code>defaultExpandedIds</code> initializes an uncontrolled set. A
             row renders again only when what it shows changes - without the

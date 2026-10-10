@@ -29,7 +29,8 @@ export default function ChartPage() {
             <code>stacked</code> combines bars or areas, with positive and
             negative values stacked separately. <code>type="mixed"</code> reads
             each series' <code>type</code>. Pie and donut charts use positive
-            values of the first series and let their legends toggle categories.
+            values of the first series and let their legends toggle the
+            categories they can draw.
           </p>
         }
       />
@@ -49,10 +50,11 @@ export default function ChartPage() {
           <p>
             The required <code>title</code> names the chart. Use{" "}
             <code>description</code> to explain the result. Every category has a
-            focusable point named by its series values: arrows, Home and End
-            move between them; Escape hides the tooltip. The data table
-            disclosure provides every value, including hidden series. Keep it
-            enabled when exact values matter.
+            point named by its series values - a pie sector by the value it
+            draws. The chart is one tab stop: arrows, Home and End move between
+            its points, Tab moves on past it, and Escape hides the tooltip. The
+            data table disclosure provides every value, including hidden series.
+            Keep it enabled when exact values matter.
           </p>
         </Prose>
       </Section>

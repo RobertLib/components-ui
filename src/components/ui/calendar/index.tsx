@@ -1,4 +1,4 @@
-import { copyDate, inTimeZone } from "../../../utils/time-zone";
+import { copyDate, inTimeZone, isTimeZone } from "../../../utils/time-zone";
 import type {
   CalendarAgendaPeriod,
   CalendarBusinessHours,
@@ -66,7 +66,12 @@ export interface CalendarProps extends Omit<
    * navigation moves by it - pass the same to `getCalendarVisibleRange`.
    */
   agendaPeriod?: CalendarAgendaPeriod;
-  /** IANA time zone used for days, event times, recurrence and callbacks. Defaults to the browser zone. */
+  /**
+   * IANA time zone used for days, event times, recurrence and callbacks -
+   * also by the date field of the header (its Today). Defaults to the
+   * browser zone, which also stands in for a zone the browser does not know
+   * (with a warning in the console).
+   */
   timeZone?: string;
   /** Classes of the calendar's frame. */
   className?: string;
@@ -331,7 +336,7 @@ export default function Calendar({
   loading = false,
   maxDate: sourceMaxDate,
   minDate: sourceMinDate,
-  timeZone,
+  timeZone: timeZoneProp,
   nowIndicator = true,
   onDateClick,
   onEventClick,
@@ -352,6 +357,18 @@ export default function Calendar({
   ...props
 }: CalendarProps) {
   const locale = useLocale();
+
+  // A zone `Intl` does not know would throw on every date - an old browser
+  // may lack a renamed one (Europe/Kyiv) - so the browser's instead
+  const timeZone =
+    timeZoneProp && isTimeZone(timeZoneProp) ? timeZoneProp : undefined;
+  useEffect(() => {
+    if (timeZoneProp && !timeZone) {
+      logger.warn(
+        `Calendar: timeZone "${timeZoneProp}" is no IANA time zone this browser knows - the calendar shows the browser's zone.`,
+      );
+    }
+  }, [timeZone, timeZoneProp]);
 
   // Default to current date if no initialDate provided - on the server a
   // date of its own, which is why server rendering should pass one

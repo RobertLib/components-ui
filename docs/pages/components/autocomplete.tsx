@@ -76,9 +76,10 @@ export default function AutocompletePage() {
             <p>
               <code>multiple</code> shows the selection as chips - click a chip,
               press Backspace / Delete on a focused one or Backspace in the
-              empty field to remove one. <code>maxSelections</code> caps the
-              count: once it is reached, the list says so and offers only the
-              selected options.
+              empty field to remove one. The typed term stays after a pick, to
+              pick more of what it found, until the focus leaves the field.{" "}
+              <code>maxSelections</code> caps the count: once it is reached, the
+              list says so and offers only the selected options.
             </p>
           }
           name="autocomplete/multiple"

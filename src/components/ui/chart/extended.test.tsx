@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import Chart from "../chart";
 const series = [
   { key: "a", label: "A" },
@@ -109,6 +109,13 @@ describe("extended charts", () => {
         />,
       );
       expect(screen.getAllByRole("img")).toHaveLength(2);
+      // The legend offers only what the chart can draw
+      expect(
+        screen.queryByRole("button", { name: "Negative" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Zero" }),
+      ).not.toBeInTheDocument();
       const first = screen.getByRole("img", { name: "One: A 10" });
       first.focus();
       fireEvent.keyDown(first, { key: "ArrowRight" });
@@ -122,4 +129,32 @@ describe("extended charts", () => {
       expect(screen.getByText("No chart data")).toBeInTheDocument();
     },
   );
+  it("tells of a sector what it draws, over the sector", () => {
+    const consoleError = vi.spyOn(console, "error");
+    const { container } = render(
+      <Chart
+        data={[
+          { label: "Other", a: 10, b: 1 },
+          { label: "Other", a: 10, b: 2 },
+        ]}
+        series={series}
+        title="Share"
+        type="pie"
+      />,
+    );
+    // Repeated labels are two categories of the legend
+    expect(screen.getAllByRole("button", { name: "Other" })).toHaveLength(2);
+    expect(consoleError).not.toHaveBeenCalled();
+
+    // The first series alone - the pie draws no other
+    const [right, left] = screen.getAllByRole("img", { name: "Other: A 10" });
+    const tooltip = () =>
+      container.querySelector<HTMLElement>(".pointer-events-none.absolute")!;
+    fireEvent.mouseEnter(right);
+    expect(tooltip()).toHaveTextContent(/^OtherA: 10$/);
+    // Over the middle of the sector - the right half, then the left one
+    expect(tooltip().style.left).toBe("60.5%");
+    fireEvent.mouseEnter(left);
+    expect(tooltip().style.left).toBe("39.5%");
+  });
 });

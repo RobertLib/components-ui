@@ -46,9 +46,17 @@ const DAY_KEYS: Record<string, number> = {
   ArrowUp: -7,
 };
 
-/** The day of a day button (`data-day`). */
-const dayOf = (target: EventTarget | null) =>
-  target instanceof HTMLElement ? parseISODate(target.dataset.day) : null;
+/**
+ * The day of a day button (`data-day`) - its start in the time zone of
+ * `reference`, not the browser's, whose midnight may be another day there.
+ */
+function dayOf(target: EventTarget | null, reference: Date) {
+  const day =
+    target instanceof HTMLElement ? parseISODate(target.dataset.day) : null;
+  return (
+    day && dateOf(day.getFullYear(), day.getMonth(), day.getDate(), reference)
+  );
+}
 
 /** A day of the grid of the month. */
 interface MonthDay {
@@ -116,11 +124,17 @@ export default function MonthView({
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
 
+  // In the zone of the calendar - a formatter keeps the zone it was made
+  // with, also after the app switches `timeZone`
+  const timeZone = dateTimeZone(currentDate);
   const timeLabel = useMemo(
-    () => createTimeLabeler(locale, resources),
-    [locale, resources],
+    () => createTimeLabeler(locale, resources, timeZone),
+    [locale, resources, timeZone],
   );
-  const timeText = useMemo(() => createTimeTextFormatter(locale), [locale]);
+  const timeText = useMemo(
+    () => createTimeTextFormatter(locale, timeZone),
+    [locale, timeZone],
+  );
 
   const move = useEventMove({
     announce,
@@ -265,7 +279,7 @@ export default function MonthView({
       stickyHeader ? (headerRef.current?.offsetHeight ?? 0) : 0,
     );
 
-    const day = dayOf(event.target);
+    const day = dayOf(event.target, currentDate);
     if (day && !isSameDay(day, focusedDate)) setFocusedDate(day);
   };
 
@@ -283,7 +297,7 @@ export default function MonthView({
 
   const handleGridKeyDown = (event: React.KeyboardEvent) => {
     // The day buttons only - not the events in the cells
-    const day = dayOf(event.target);
+    const day = dayOf(event.target, currentDate);
     if (!day) return;
 
     // Page Up / Down go to the same day of the previous / next month - with
@@ -333,11 +347,11 @@ export default function MonthView({
     setFocusedDate(next);
   };
 
-  const dayLabelFormat = createDayFormat(locale, dateTimeZone(currentDate));
+  const dayLabelFormat = createDayFormat(locale, timeZone);
   // Unknown on the server and while a server-rendered page hydrates - its
   // clock and time zone may differ from the browser's. Another day after
   // midnight, also in a view left open.
-  const today = useToday(dateTimeZone(currentDate));
+  const today = useToday(timeZone);
   // A grid the arrow keys move in with the day buttons - a table of the
   // days without them
   const isGrid = !!onDateClick;

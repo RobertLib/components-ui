@@ -2,7 +2,8 @@ import { ExternalLink } from "lucide-react";
 import cn, { joinTokens } from "../../utils/cn";
 import { useMessages, useRouterActions } from "../../providers/ui-context";
 
-type LinkColor =
+/** The colors of a `Link`. */
+export type LinkColor =
   | "primary"
   | "secondary"
   | "success"

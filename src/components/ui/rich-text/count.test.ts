@@ -123,6 +123,22 @@ describe("truncateHtml", () => {
     // Not half of an emoji
     expect(truncateHtml("<p>a😀</p>", 2)).toBe("<p>a</p>");
   });
+
+  it("takes the elements a cut at their start would leave empty along", () => {
+    expect(truncateHtml("<p>ab</p><ul><li>c</li><li>d</li></ul>", 3)).toBe(
+      "<p>ab</p><ul><li>c</li></ul>",
+    );
+    expect(truncateHtml("<p>ab</p><p><b>cd</b></p>", 2)).toBe("<p>ab</p>");
+    expect(truncateHtml("<p>ab <b>cd</b></p>", 3)).toBe("<p>ab </p>");
+    expect(truncateHtml("<p>ab</p>", 0)).toBe("");
+    // A table keeps the cells of its rows
+    expect(
+      truncateHtml(
+        "<table><tbody><tr><td>ab</td><td>cd</td></tr></tbody></table>",
+        2,
+      ),
+    ).toBe("<table><tbody><tr><td>ab</td><td></td></tr></tbody></table>");
+  });
 });
 
 describe("truncateText", () => {

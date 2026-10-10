@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { flushSync } from "react-dom";
 import cn from "../../../utils/cn";
 import CalendarField from "../date-calendar/calendar-field";
 import RangePanel from "../date-range-picker/range-panel";
@@ -120,7 +121,10 @@ export interface RangeCalendarProps extends Omit<
   name?: string;
   /** The focus left the calendar - moving within it is no blur. */
   onBlur?: React.FocusEventHandler<HTMLDivElement>;
-  /** Called with the new range once its last day is picked. */
+  /**
+   * Called with the new range once its last day is picked - and the form
+   * has it, so it may submit the form (`form.requestSubmit()`).
+   */
   onChange?: (range: DateRange) => void;
   /** The focus entered the calendar - see `onBlur`. */
   onFocus?: React.FocusEventHandler<HTMLDivElement>;
@@ -295,7 +299,9 @@ export default function RangeCalendar({
         onPick={(picked) => {
           const next = toDateRange(picked);
           if (encodeRange(next) === encodeRange(days)) return;
-          if (!isControlled) setEntered(next);
+          // The hidden inputs hold the range before `onChange`, which may
+          // submit the form or read its `FormData`
+          if (!isControlled) flushSync(() => setEntered(next));
           onChange?.(next);
         }}
         presets={presets === true ? DEFAULT_PRESETS : presets || []}

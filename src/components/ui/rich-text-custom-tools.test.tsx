@@ -68,6 +68,41 @@ describe("RichTextEditor custom tools", () => {
       "Hel",
     );
   });
+  it("inserts no HTML where nothing more fits", () => {
+    document.execCommand = vi.fn(() => true);
+    const onChange = vi.fn();
+    render(
+      <RichTextEditor
+        customTools={[
+          {
+            id: "insert",
+            label: "Insert",
+            onClick: (context) =>
+              context.insertHtml("<p>Signed</p><ul><li>Team</li></ul>"),
+          },
+        ]}
+        defaultValue="<p>Hello</p>"
+        label="Note"
+        maxLength={5}
+        onChange={onChange}
+        toolbar={[]}
+      />,
+    );
+    const editor = screen.getByRole("textbox", { name: /^Note/ });
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+    // Not even the empty paragraph and list item of a cut at 0 characters
+    expect(document.execCommand).not.toHaveBeenCalledWith(
+      "insertHTML",
+      false,
+      expect.anything(),
+    );
+    expect(onChange).not.toHaveBeenCalled();
+  });
   it("includes custom tools in roving toolbar navigation and respects disabled/readOnly", () => {
     const click = vi.fn();
     const tools = [

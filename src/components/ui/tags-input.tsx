@@ -6,6 +6,7 @@ import {
   useFormReset,
 } from "../../hooks/use-form-control";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
@@ -277,7 +278,9 @@ export default function TagsInput({
   });
 
   const commit = (next: string[]) => {
-    if (!isControlled) setEnteredTags(next);
+    // The hidden inputs hold the values before `onChange`, which may submit
+    // the form. A controlled parent can only render them after `onChange`.
+    if (!isControlled) flushSync(() => setEnteredTags(next));
     onChange?.(next);
   };
 

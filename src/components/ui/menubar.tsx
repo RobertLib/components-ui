@@ -92,12 +92,14 @@ export default function Menubar({
           return;
         const target = event.target as Element;
         const onTrigger = !!rootRef.current?.contains(target);
-        const menu = target.closest("[data-menu-level]");
-        if (
-          !onTrigger &&
-          (!menu || menu.getAttribute("data-menu-level") !== "0")
-        )
-          return;
+        // The open menu itself - not a submenu, nor a control in its custom
+        // content, which keeps its arrow keys (the caret of a field)
+        const onMenu =
+          !!openId &&
+          !!target.id &&
+          buttons.current.get(openId)?.getAttribute("aria-controls") ===
+            target.id;
+        if (!onTrigger && !onMenu) return;
         const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
         const current = enabled.findIndex(
           (entry) => entry.id === (openId ?? tabStop),

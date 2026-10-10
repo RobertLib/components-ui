@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { flushSync } from "react-dom";
 import PickerField from "../datetime-picker/picker-field";
 import RangePanel from "./range-panel";
 import { getRangeMessage, parseDisplayRange } from "../datetime-picker/parse";
@@ -148,7 +149,10 @@ export interface DateRangePickerProps extends Omit<
    * field.
    */
   onBlur?: React.FocusEventHandler<HTMLInputElement>;
-  /** Called with the new range - `null` when cleared. */
+  /**
+   * Called with the new range - `null` when cleared - once the form has it,
+   * so it may submit the form (`form.requestSubmit()`).
+   */
   onChange?: (range: DateRange | null) => void;
   /** The focus entered the picker - see `onBlur`. */
   onFocus?: React.FocusEventHandler<HTMLInputElement>;
@@ -225,7 +229,6 @@ export default function DateRangePicker({
   const { fieldRef, handleChange, value } = useFormControl({
     defaultValue: encodeRange(defaultValue),
     form: inputProps.form,
-    onChange: (event) => onChange?.(decodeRange(event.target.value)),
     ref,
     value: valueProp === undefined ? undefined : encodeRange(valueProp),
   });
@@ -259,11 +262,19 @@ export default function DateRangePicker({
     minDays: toDayLimit(minDays),
   };
 
-  const changeValue = (newValue: string) => {
-    // The form control reads just `target.value` of it
-    handleChange({
-      target: { value: newValue },
-    } as React.ChangeEvent<HTMLInputElement>);
+  const changeValue = (newValue: string, typed = false) => {
+    // The form control reads just `target.value` of the event
+    const change = () =>
+      handleChange({
+        target: { value: newValue },
+      } as React.ChangeEvent<HTMLInputElement>);
+    // The hidden inputs hold the range before `onChange`, which may submit
+    // the form or read its `FormData` - a typed one they hold already, and
+    // a render in the blur taking it would come before the focus moved on
+    // into the popup
+    if (typed) change();
+    else flushSync(change);
+    onChange?.(decodeRange(newValue));
   };
 
   const pickRange = (picked: DayRange) => {

@@ -205,6 +205,9 @@ const attachmentsKey = (attachments: UploadedFile[]) =>
 const isPending = (file: ListedFile) =>
   file.status === "queued" || file.status === "uploading";
 
+/** An attached file - not one picked to be submitted by the form. */
+const isStored = (file: ListedFile) => file.status === "done" && !file.file;
+
 /** The picked files the form submits - without `upload`. */
 const pickedFiles = (files: ListedFile[]) =>
   files.flatMap((file) =>
@@ -700,9 +703,17 @@ export interface FileUploadProps<
    * action follows a save, which has kept them.
    */
   defaultAttachments?: UploadedFile[];
-  /** Controlled attached files; queued and uploading files stay internal. */
+  /**
+   * Controlled attached files; queued and uploading files stay internal. A
+   * file the user adds or removes changes the list once the parent applies
+   * `onAttachmentsChange` - also the attachment a new file replaces without
+   * `multiple`, of which `onRemove` hears as without `attachments`.
+   */
   attachments?: UploadedFile[];
-  /** The attached list after an upload or removal. Use with `attachments`. */
+  /**
+   * The attached list after an upload, a removal or a replacement. Use with
+   * `attachments`.
+   */
   onAttachmentsChange?: (attachments: UploadedFile[]) => void;
   /** Help text under the field, e.g. the accepted types and sizes. */
   description?: React.ReactNode;
@@ -769,7 +780,8 @@ export interface FileUploadProps<
   onError?: (error: unknown, file: File) => void;
   /**
    * Without `upload`: called with the picked files - the ones the form
-   * submits - whenever they change, also by a form reset.
+   * submits - whenever they change, also by a form reset. The form holds
+   * them by then - it can be submitted from here.
    */
   onFilesChange?: (files: File[]) => void;
   /**
@@ -788,7 +800,11 @@ export interface FileUploadProps<
    * closes. `0` once they have all finished, failed or been cancelled.
    */
   onPendingChange?: (pending: number) => void;
-  /** Called with the result of `upload` once a file is stored. */
+  /**
+   * Called with the result of `upload` once a file is stored - its hidden
+   * input is in the form by then (that of a controlled field once the
+   * parent applies `onAttachmentsChange`).
+   */
   onUpload?: (result: TResult) => void;
   /**
    * Shows a thumbnail in front of each file: a picked image from the
@@ -1139,10 +1155,10 @@ export default function FileUpload<
       if (!next) return;
 
       const version = ++state.pending;
-      flushSync(() => {
-        setReportVersion(version);
-        next(latest.current);
-      });
+      // The inputs hold the files of the change before the callbacks, which
+      // may submit the form - then what they set renders at once too
+      flushSync(() => setReportVersion(version));
+      flushSync(() => next(latest.current));
     },
     [],
   );
@@ -1261,11 +1277,11 @@ export default function FileUpload<
         value: result.value,
       };
 
-      // A single file field holds the new file only
-      const replaced =
-        multiple || latest.current.attachments !== undefined
-          ? []
-          : filesRef.current.filter((listed) => listed.key !== key);
+      // A single file field holds the new file only - a controlled one
+      // once its parent applies the new list, still told what it replaced
+      const replaced = multiple
+        ? []
+        : filesRef.current.filter((listed) => listed.key !== key);
       replaced.forEach(release);
       session.current.uploaded++;
       commit(
@@ -1472,8 +1488,17 @@ export default function FileUpload<
     const leaving = current.filter((file) => !kept.includes(file));
     if (added.length === 0 && (!pickerInput || leaving.length === 0)) return;
 
+    // Attachments of a parent stay listed until it applies the list without
+    // them - only a single file field replaces them, all of them
+    const controlled = latest.current.attachments !== undefined;
+    const replacesStored = controlled && leaving.some(isStored);
     leaving.forEach(release);
-    commit([...kept, ...added]);
+    commit([
+      ...(controlled
+        ? current.filter((file) => kept.includes(file) || isStored(file))
+        : kept),
+      ...added,
+    ]);
 
     if (!isNative) {
       setInteracted(true);
@@ -1482,9 +1507,10 @@ export default function FileUpload<
       return;
     }
 
-    report(({ onFilesChange, onRemove }) => {
+    report(({ onAttachmentsChange, onFilesChange, onRemove }) => {
       setInteracted(true);
       leaving.forEach((file) => onRemove?.(toUploadedFile(file)));
+      if (replacesStored) onAttachmentsChange?.([]);
       onFilesChange?.(pickedFiles(filesRef.current));
     });
     if (added.length > 0) {

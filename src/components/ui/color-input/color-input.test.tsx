@@ -450,6 +450,35 @@ describe("ColorInput", () => {
       expect(field()).toHaveValue("#ff0000");
     });
 
+    it("holds a picked color of an uncontrolled field in the form by onChange", async () => {
+      const user = userEvent.setup();
+      const seen: unknown[] = [];
+      render(
+        <form>
+          <ColorInput
+            defaultValue="#00ff00"
+            label="Color"
+            name="color"
+            // The open picker hides the form from the accessibility tree
+            onChange={() =>
+              seen.push(
+                new FormData(document.querySelector("form")!).get("color"),
+              )
+            }
+            swatches={[
+              { label: "Red", value: "#ff0000" },
+              { label: "Blue", value: "#0000ff" },
+            ]}
+          />
+        </form>,
+      );
+
+      const dialog = await openPicker(user);
+      await user.click(within(dialog).getByRole("radio", { name: "Blue" }));
+      await user.keyboard("{ArrowLeft}");
+      expect(seen).toEqual(["#0000ff", "#ff0000"]);
+    });
+
     it("takes a color from the screen where the browser can", async () => {
       const user = userEvent.setup();
       const open = vi.fn().mockResolvedValue({ sRGBHex: "#123456" });

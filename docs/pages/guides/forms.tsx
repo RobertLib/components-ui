@@ -7,8 +7,12 @@ const errorShapes = `// REST (Rails, Laravel, Django REST framework, ASP.NET, �
 { "errors": { "email": ["has already been taken"], "base": ["…"] } }
 { "errors": [{ "field": "email", "message": "has already been taken" }] }
 { "errors": [{ "source": { "pointer": "/data/attributes/email" }, "detail": "…" }] } // JSON:API
+{ "title": "…", "errors": { "": ["…"], "Email": ["…"], "$.age": ["…"] } } // ASP.NET - "" is the whole form
+{ "title": "…", "errors": [{ "pointer": "#/email", "detail": "…" }] } // problem details (RFC 9457)
+{ "title": "…", "invalid-params": [{ "name": "email", "reason": "…" }] } // problem details (RFC 7807)
 { "errors": [{ "field": "email", "defaultMessage": "must not be blank" }] } // Spring Boot
 { "errors": [{ "path": "email", "msg": "Invalid value" }] } // express-validator
+{ "detail": [{ "loc": ["body", "email"], "msg": "Field required" }] } // FastAPI
 { "formErrors": ["…"], "fieldErrors": { "email": ["…"] } } // Zod flatten()
 { "code": "VALIDATION_FAILED", "message": "…", "fieldErrors": { "email": ["…"] } }
 class ApiError extends Error { fieldErrors = { email: ["…"] }; formErrors = ["…"] } // an error class of your client

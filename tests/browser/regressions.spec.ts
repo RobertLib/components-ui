@@ -1337,3 +1337,52 @@ test("a press on a control of a row released on another cell opens nothing", asy
   await expect.poll(() => clicks.jsonValue()).toEqual(["TR"]);
   await expect(page).toHaveURL(/scenario=row-links$/);
 });
+
+// Chrome keeps the scrollbar of a right-to-left page on the right, unlike
+// Firefox - the room of the scrollbar a dialog hides is kept on its side,
+// or the page shifts sideways under the dialog
+test("locking the page scroll keeps a right-to-left page in place", async ({
+  baseURL,
+  browserName,
+  isMobile,
+  playwright,
+}) => {
+  test.skip(
+    browserName !== "chromium" || isMobile,
+    "Classic scrollbars - of Chromium, shown with a width of their own",
+  );
+  // Headless Chromium hides the scrollbars otherwise
+  const browser = await playwright.chromium.launch({
+    ignoreDefaultArgs: ["--hide-scrollbars"],
+  });
+  try {
+    const page = await browser.newPage({ baseURL });
+    await page.goto("/tests/browser/");
+    // A string, run as it is - the module comes from the fixture server
+    const shift = await page.evaluate(`(async () => {
+      document.head.insertAdjacentHTML(
+        "beforeend",
+        "<style>::-webkit-scrollbar { width: 15px }</style>",
+      );
+      document.documentElement.dir = "rtl";
+      document.body.style.minHeight = "300vh";
+      const { lockPageScroll } = await import(
+        "/src/components/ui/overlay-stack.ts"
+      );
+      const scrollbar = innerWidth - document.documentElement.clientWidth;
+      const main = document.querySelector("main");
+      const before = main.getBoundingClientRect();
+      const unlock = lockPageScroll();
+      const locked = main.getBoundingClientRect();
+      unlock();
+      return {
+        left: locked.left - before.left,
+        right: locked.right - before.right,
+        scrollbar,
+      };
+    })()`);
+    expect(shift).toEqual({ left: 0, right: 0, scrollbar: 15 });
+  } finally {
+    await browser.close();
+  }
+});

@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Heart } from "lucide-react";
 import { createRef, useState } from "react";
@@ -383,6 +389,76 @@ describe("Rating", () => {
     slider().focus();
     await user.keyboard("{ArrowRight}");
     expect(getForm().checkValidity()).toBe(true);
+  });
+
+  it("lets the browser focus its validation input once it is invalid", async () => {
+    const { container } = render(
+      <>
+        <Rating label="Quality" required />
+        <button type="button">Other</button>
+      </>,
+    );
+
+    const validation =
+      container.querySelector<HTMLInputElement>("input[required]")!;
+    expect(validation).toHaveAttribute("inert");
+    expect(validation).not.toHaveAttribute("aria-hidden");
+
+    // The browser can then focus it and show its message - Safari by its
+    // styles laid out anew
+    const layout = vi.spyOn(validation, "getBoundingClientRect");
+    fireEvent.invalid(validation);
+    expect(validation).not.toHaveAttribute("inert");
+    expect(layout).toHaveBeenCalled();
+
+    // The rating takes the focus once the browser is done focusing the
+    // input - Firefox focuses it again at the next submit then
+    act(() => validation.focus());
+    expect(validation).toHaveFocus();
+    await act(async () => {});
+    expect(slider()).toHaveFocus();
+
+    // Not when the focus has moved on meanwhile
+    const other = screen.getByRole("button", { name: "Other" });
+    fireEvent.invalid(validation);
+    act(() => {
+      validation.focus();
+      other.focus();
+    });
+    await act(async () => {});
+    expect(other).toHaveFocus();
+
+    // Kept from the focus and assistive technology again
+    await waitFor(() => expect(validation).toHaveAttribute("inert"));
+  });
+
+  it("holds the value of an uncontrolled rating in the form by onChange, which may submit it", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(
+      <form
+        aria-label="Review"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(new FormData(event.currentTarget).get("quality"));
+        }}
+      >
+        <Rating
+          label="Quality"
+          name="quality"
+          onChange={() => getForm().requestSubmit()}
+          required
+        />
+      </form>,
+    );
+
+    // Also the first value - the browser does not stop the submit
+    slider().focus();
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+    expect(onSubmit.mock.calls).toEqual([["1"], ["2"]]);
+
+    await user.click(slider().querySelector("[data-index='3']")!);
+    expect(onSubmit).toHaveBeenLastCalledWith("4");
   });
 
   it("is described by its error first, then its description", () => {

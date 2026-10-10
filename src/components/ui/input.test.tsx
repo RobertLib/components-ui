@@ -651,6 +651,38 @@ describe("Input mask", () => {
     expect(textbox(/Telefon/)).not.toHaveAttribute("name");
   });
 
+  it("holds the characters in the form by onChange, also with unmask", async () => {
+    const user = userEvent.setup();
+    const seen: unknown[] = [];
+    const formData = () =>
+      Object.fromEntries(
+        new FormData(screen.getByRole("form", { name: "Address" })),
+      );
+    render(
+      <form aria-label="Address">
+        <Input
+          label="PSČ"
+          mask="### ##"
+          name="zip"
+          onChange={() => seen.push(formData())}
+        />
+        <Input
+          label="Telefon"
+          mask="+420 ### ### ###"
+          name="phone"
+          onChange={() => seen.push(formData())}
+          unmask
+        />
+      </form>,
+    );
+
+    await user.type(textbox(/PSČ/), "1234");
+    await user.type(textbox(/Telefon/), "77");
+    // The last of each - the hidden input of `unmask` follows at once
+    expect(seen.at(3)).toEqual({ zip: "123 4", phone: "" });
+    expect(seen.at(-1)).toEqual({ zip: "123 4", phone: "77" });
+  });
+
   it("brings back the defaultValue on a form reset", async () => {
     const user = userEvent.setup();
     render(
@@ -667,6 +699,40 @@ describe("Input mask", () => {
 
     await user.click(screen.getByRole("button", { name: "Reset" }));
     expect(input).toHaveValue("123 45");
+  });
+
+  it("follows every later defaultValue until the user edits it", async () => {
+    const user = userEvent.setup();
+    const field = (zip?: string) => (
+      <form aria-label="Address">
+        <Input defaultValue={zip} label="PSČ" mask="### ##" name="zip" />
+      </form>
+    );
+    const { rerender } = render(field());
+    const input = textbox(/PSČ/);
+    const submitted = () =>
+      new FormData(screen.getByRole("form", { name: "Address" })).get("zip");
+
+    // React writing a default laid into the mask is no value of the user
+    for (const [zip, shown] of [
+      ["12345", "123 45"],
+      ["54321", "543 21"],
+      ["11122", "111 22"],
+    ]) {
+      rerender(field(zip));
+      expect(input).toHaveValue(shown);
+      expect(submitted()).toBe(shown);
+    }
+
+    // Nor is a keystroke the mask refuses, which puts the text back
+    await user.type(input, "x");
+    rerender(field("60200"));
+    expect(input).toHaveValue("602 00");
+
+    await user.clear(input);
+    await user.type(input, "999");
+    rerender(field("11000"));
+    expect(input).toHaveValue("999");
   });
 
   it("works with the register() of React Hook Form", async () => {
