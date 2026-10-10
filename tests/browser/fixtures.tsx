@@ -13,6 +13,7 @@ import {
   ConfirmDialog,
   ContextMenu,
   DataTable,
+  DateCalendar,
   DateTimePicker,
   Dialog,
   DialogFooter,
@@ -28,6 +29,7 @@ import {
   Popover,
   RichTextEditor,
   RadioGroup,
+  RangeCalendar,
   SegmentedControl,
   Select,
   Slider,
@@ -532,6 +534,59 @@ export function FormValidityActivityFixture({ kind }: { kind: string | null }) {
   );
 }
 
+export function CalendarValidityActivityFixture({
+  initiallyHidden,
+  kind,
+}: {
+  initiallyHidden: boolean;
+  kind: string | null;
+}) {
+  const [visible, setVisible] = useState(!initiallyHidden);
+  const [allowed, setAllowed] = useState(true);
+  const [submitted, setSubmitted] = useState(false);
+  const max = allowed ? "2026-09-30" : "2026-09-05";
+
+  return (
+    <>
+      <Button onClick={() => setVisible((current) => !current)}>
+        Toggle calendar field
+      </Button>
+      <Button onClick={() => setAllowed(false)}>Restrict calendar dates</Button>
+      <Button onClick={() => setAllowed(true)}>Allow calendar dates</Button>
+      <form
+        aria-label="Calendar activity form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSubmitted(true);
+        }}
+      >
+        <Activity mode={visible ? "visible" : "hidden"}>
+          {kind === "range" ? (
+            <RangeCalendar
+              label="Range"
+              max={max}
+              name="calendar"
+              value={{ start: "2026-09-10", end: "2026-09-12" }}
+            />
+          ) : (
+            <DateCalendar
+              label="Day"
+              max={max}
+              name="calendar"
+              value="2026-09-10"
+            />
+          )}
+        </Activity>
+        <Button type="submit">Submit calendar</Button>
+      </form>
+      <output aria-label="Calendar field visibility">
+        {visible ? "visible" : "hidden"}
+      </output>
+      <output aria-label="Calendar form submitted">{String(submitted)}</output>
+    </>
+  );
+}
+
 export function ChoiceResetActivityFixture({
   controlled,
 }: {
@@ -736,6 +791,7 @@ export function FormResetActivityFixture() {
 export function UploadActivityFixture() {
   const [visible, setVisible] = useState(true);
   const [stored, setStored] = useState<string[]>([]);
+  const [pending, setPending] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const finishes = useRef<(() => void)[]>([]);
 
@@ -749,7 +805,9 @@ export function UploadActivityFixture() {
           setSubmitted(true);
         }}
       >
-        <Button type="submit">Submit uploaded files</Button>
+        <Button disabled={pending > 0} type="submit">
+          Submit uploaded files
+        </Button>
       </form>
       <Activity mode={visible ? "visible" : "hidden"}>
         <FileUpload
@@ -758,6 +816,7 @@ export function UploadActivityFixture() {
           label="Background attachments"
           multiple
           name="attachments"
+          onPendingChange={setPending}
           // Each committed callback must see the latest consumer state,
           // including while Activity keeps the field hidden.
           onUpload={(result) => setStored([...stored, String(result.value)])}
@@ -787,6 +846,7 @@ export function UploadActivityFixture() {
         {visible ? "visible" : "hidden"}
       </output>
       <output aria-label="Stored upload results">{stored.join(",")}</output>
+      <output aria-label="Pending uploads">{pending}</output>
       <output aria-label="Upload form submitted">{String(submitted)}</output>
     </>
   );

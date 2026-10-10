@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState } from "react";
-import debounce from "../../../utils/debounce";
+import useDebouncedCallback from "../../../hooks/use-debounced-callback";
 
 // An owner that ignores the commits must not make the list grow forever
 const MAX_PENDING = 20;
@@ -81,12 +81,9 @@ export default function useDebouncedField(
     onCommit(next);
   };
 
-  // The commit callback travels with each call, so the latest one is used
-  const [debouncedCommit] = useState(() =>
-    debounce((next: string, commitLatest: (value: string) => void) => {
-      commitLatest(next);
-    }, delay),
-  );
+  // The owner can replace its handler before typing pauses. Resolve the
+  // latest committed callback when the timer runs, keeping its deadline.
+  const debouncedCommit = useDebouncedCallback(commit, delay);
 
   // Activity keeps the state while removing effects. A canceled draft must
   // stop counting as typing and show the owner's value again; already
@@ -111,7 +108,7 @@ export default function useDebouncedField(
 
   const change = (next: string) => {
     setField((current) => ({ ...current, isTyping: true, value: next }));
-    debouncedCommit(next.trim(), commit);
+    debouncedCommit(next.trim());
   };
 
   /** Sets the value and commits it right away. */

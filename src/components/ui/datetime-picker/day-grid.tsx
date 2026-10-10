@@ -276,7 +276,14 @@ function DayGridContent({
       "day" in active.dataset;
     const moveFocus = moveFocusRef.current || dayHasFocus;
     moveFocusRef.current = false;
-    if (!moveFocus) return;
+    // Native focus already reached this day. Scheduling it again could
+    // steal focus back after the user returns to the text field.
+    if (
+      !moveFocus ||
+      active === grid?.querySelector("[data-focused-day='true']")
+    ) {
+      return;
+    }
 
     const frame = requestAnimationFrame(() => {
       grid

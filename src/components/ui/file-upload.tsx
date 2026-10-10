@@ -1082,6 +1082,9 @@ export default function FileUpload<
   // Invalidates pending checks on a reset, unmount or a pick that replaces
   // the previous one (a single file, or the native picker of the fallback)
   const generation = useRef(0);
+  // A new pick supersedes validation, not removal of a still-listed file.
+  // Removal requests become obsolete only after a reset or unmount.
+  const removalGeneration = useRef(0);
   // The uploads that ended since the field last had none running - said
   // together once all have ended
   const session = useRef({ failed: 0, uploaded: 0 });
@@ -1095,6 +1098,7 @@ export default function FileUpload<
     // The list and the count as they are when the field goes away
     const listed = filesRef;
     const rounds = generation;
+    const removalRounds = removalGeneration;
     const reported = reportedPending;
     const callbacks = latest;
 
@@ -1102,6 +1106,7 @@ export default function FileUpload<
       mounted.current = false;
       reports.current.queue = [];
       rounds.current++;
+      removalRounds.current++;
       const pending = [...running.values()];
       const remaining = listed.current;
       running.clear();
@@ -1118,6 +1123,20 @@ export default function FileUpload<
       });
     };
   }, []);
+
+  // Activity removes passive effects while uploads keep running. Notify
+  // after its hidden commits too, outside the insertion effect so the
+  // caller can update its submit button. A visible effect or a newer commit
+  // may already have reported the count by the time this task runs.
+  useInsertionEffect(() => {
+    queueMicrotask(() => {
+      if (!mounted.current) return;
+      const currentPending = filesRef.current.filter(isPending).length;
+      if (currentPending === reportedPending.current) return;
+      reportedPending.current = currentPending;
+      latest.current.onPendingChange?.(currentPending);
+    });
+  }, [pendingCount]);
 
   // The form submits the picked files from this input, including a pick
   // whose asynchronous validation finishes in a hidden Activity.
@@ -1569,6 +1588,7 @@ export default function FileUpload<
   // the `defaultAttachments` and drops the uploads and the picked files
   const formResetRef = useFormReset(() => {
     generation.current++;
+    removalGeneration.current++;
     reports.current.queue = [];
     setCheckingPicks(0);
     const current = filesRef.current;
@@ -1692,7 +1712,7 @@ export default function FileUpload<
 
   const handleRemove = (file: ListedFile) => {
     if (removingRef.current.has(file.key)) return;
-    const round = generation.current;
+    const round = removalGeneration.current;
     const isCurrent = () => {
       const current = filesRef.current.find(
         (listed) => listed.key === file.key,
@@ -1704,7 +1724,11 @@ export default function FileUpload<
       );
     };
     const complete = () => {
-      if (!mounted.current || round !== generation.current || !isCurrent())
+      if (
+        !mounted.current ||
+        round !== removalGeneration.current ||
+        !isCurrent()
+      )
         return;
       release(file);
       if (isFallback && file.file && inputRef.current)
@@ -1749,7 +1773,11 @@ export default function FileUpload<
     setRemovalErrors((previous) => ({ ...previous, [file.key]: "" }));
     const outcome = attempt(() => onRemove(toUploadedFile(file)));
     const fail = (error: unknown) => {
-      if (!mounted.current || round !== generation.current || !isCurrent())
+      if (
+        !mounted.current ||
+        round !== removalGeneration.current ||
+        !isCurrent()
+      )
         return;
       logger.error("File removal failed", error);
       setRemovalErrors((previous) => ({
@@ -1772,7 +1800,7 @@ export default function FileUpload<
         if (accepted !== false) complete();
       }, fail)
       .finally(() => {
-        if (!mounted.current || round !== generation.current) return;
+        if (!mounted.current || round !== removalGeneration.current) return;
         removingRef.current.delete(file.key);
         setRemoving((previous) => {
           const next = new Set(previous);

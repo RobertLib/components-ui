@@ -59,6 +59,12 @@ export default function DateTimePickerPage() {
               The placeholder shows that format with the tokens of the language
               (<code>DD.MM.RRRR</code> in Czech).
             </p>
+            <p>
+              Set <code>preserveInvalidText</code> to keep invalid text on Enter
+              or blur so it can be corrected in place. The calendar can still be
+              opened with ArrowDown, and form submission stays blocked until the
+              value is valid. DataTable uses this behavior for date cells.
+            </p>
           </>
         }
         name="datetime-picker/types"

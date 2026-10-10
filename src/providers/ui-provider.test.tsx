@@ -18,7 +18,6 @@ import {
   useLocale,
   useMessages,
   useNavigate,
-  usePortalContainer,
   useRouter,
   useRouterActions,
 } from "./ui-context";
@@ -29,14 +28,13 @@ function TestLink({ href, ...props }: LinkComponentProps) {
 }
 
 /**
- * Reads all that `UIProvider` gives but the location, telling each render -
+ * Reads the locale and router actions, telling each render -
  * a `Profiler` misses one a context change causes (React propagates it
  * lazily, past the profiler).
  */
 function ContextReader({ onRender }: { onRender: () => void }) {
   useLocale();
   useMessages();
-  usePortalContainer();
   useRouterActions();
   onRender();
   return null;

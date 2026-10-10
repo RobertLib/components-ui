@@ -146,33 +146,78 @@ export const isInRange = (value: string, min?: string, max?: string) =>
   clampValue(value, min, max) === value;
 
 /**
- * Whether the time `time` (`HH:mm`) lies in [`min`, `max`]. A reversed range
- * - `min` after `max`, like 22:00 - 06:00 - spans midnight, as it does for
- * a native time input.
+ * Whether a time lies in [`min`, `max`], including supplied seconds. A
+ * reversed range spans midnight for a time input; a date-time's time part
+ * remains a linear range (`allowOvernight=false`).
  */
-export const isTimeInRange = (time: string, min?: string, max?: string) =>
-  min && max && min > max
-    ? time >= min || time <= max
-    : isInRange(time, min, max);
+export const isTimeInRange = (
+  time: string,
+  min?: string,
+  max?: string,
+  allowOvernight = true,
+) => {
+  const afterMin = !min || compareRangeValue(time, min, "time") >= 0;
+  const beforeMax = !max || compareRangeValue(time, max, "time") <= 0;
+  return allowOvernight && min && max && compareRangeValue(min, max, "time") > 0
+    ? afterMin || beforeMax
+    : afterMin && beforeMax;
+};
+
+/** A clock time whose lexical order includes seconds and fractional seconds. */
+function comparableTime(time: string) {
+  const [clock, fraction = ""] = time.split(".");
+  const seconds = clock.length === 5 ? `${clock}:00` : clock;
+  const decimals = fraction.replace(/0+$/, "");
+  return decimals ? `${seconds}.${decimals}` : seconds;
+}
+
+/** Supplied times retain seconds; whole-day date-time limits compare by day. */
+function compareRangeValue(
+  value: string,
+  limit: string,
+  type?: "time" | "datetime-local",
+) {
+  if (type === "time") {
+    value = comparableTime(value);
+    limit = comparableTime(limit);
+  } else if (type === "datetime-local") {
+    const day = value.slice(0, 10);
+    const limitDay = limit.slice(0, 10);
+    if (day !== limitDay) return day < limitDay ? -1 : 1;
+    if (limit.length === 10) return 0;
+    value = comparableTime(value.slice(11));
+    limit = comparableTime(limit.slice(11));
+  }
+  return value === limit ? 0 : value < limit ? -1 : 1;
+}
 
 /**
  * The validity message of a value out of `min` / `max` - `""` for one in
- * them, or for no value. The values compare as strings of one fixed-width
- * format, like in `clampValue`; `format` writes a limit as the field shows
- * values.
+ * them, or for no value. Fixed-width values compare like in `clampValue`;
+ * supplied times and date-times also compare their seconds when `type` is
+ * given. A date-only date-time limit allows its whole day. `format` writes
+ * a limit as the field shows values.
  */
 export function getRangeMessage(
   messages: UIMessages["dateTimePicker"],
   value: string | undefined,
   { max, min }: { max?: string; min?: string },
-  format: (limit: string) => string,
+  format: (limit: string, kind: Limit) => string,
+  type?: "time" | "datetime-local",
 ) {
   if (!value) return "";
-  if (min && value < min) {
-    return formatMessage(messages.rangeUnderflow, { min: format(min) });
+  // A reversed time range spans midnight; a value in its gap says its start.
+  if (type === "time" && min && max && compareRangeValue(min, max, type) > 0) {
+    return compareRangeValue(value, min, type) >= 0 ||
+      compareRangeValue(value, max, type) <= 0
+      ? ""
+      : formatMessage(messages.rangeUnderflow, { min: format(min, "min") });
   }
-  if (max && value > max) {
-    return formatMessage(messages.rangeOverflow, { max: format(max) });
+  if (min && compareRangeValue(value, min, type) < 0) {
+    return formatMessage(messages.rangeUnderflow, { min: format(min, "min") });
+  }
+  if (max && compareRangeValue(value, max, type) > 0) {
+    return formatMessage(messages.rangeOverflow, { max: format(max, "max") });
   }
   return "";
 }
@@ -192,7 +237,8 @@ const minutesOfDay = (time: string) =>
  * the `step` and in [`min`, `max`] (see `isTimeInRange`) - so a clamped,
  * kept or typed time is one of the options. A time half way between two
  * goes to the later one. When no option lies in the range, `time` moved
- * into the range. The nearest time of the same day - it never goes over
+ * into its whole minutes, or `undefined` if it has none. The nearest time
+ * of the same day - it never goes over
  * midnight, `23:58` with a step of 5 is `23:55` (not `00:00`, which would
  * be another day); `snapDateTime` goes on to the next day.
  */
@@ -201,6 +247,7 @@ export function snapTime(
   step: number,
   min?: string,
   max?: string,
+  allowOvernight = true,
 ) {
   const target = minutesOfDay(time);
   const minuteOptions = getMinuteOptions(step);
@@ -211,7 +258,7 @@ export function snapTime(
   for (let hour = 0; hour < 24; hour++) {
     for (const minute of minuteOptions) {
       const option = `${pad2(hour)}:${minute}`;
-      if (!isTimeInRange(option, min, max)) continue;
+      if (!isTimeInRange(option, min, max, allowOvernight)) continue;
 
       const distance = Math.abs(minutesOfDay(option) - target);
       if (distance <= nearestDistance) {
@@ -221,7 +268,15 @@ export function snapTime(
     }
   }
 
-  return nearest ?? clampValue(time, min, max);
+  if (nearest) return nearest;
+  const clamped = clampValue(
+    time,
+    normalizeTime(min, "min") ?? min,
+    normalizeTime(max, "max") ?? max,
+  );
+  return parseTime(clamped) && isTimeInRange(clamped, min, max, allowOvernight)
+    ? clamped
+    : undefined;
 }
 
 /**
@@ -237,20 +292,32 @@ export function snapDateTime(
   min?: string,
   max?: string,
 ) {
+  min = normalizeDateTime(min, "min") ?? min;
+  max = normalizeDateTime(max, "max") ?? max;
+  // Date-times never wrap over a reversed range. Rounding can also leave
+  // a valid second-level range without any selectable whole minute.
+  if (min && max && min > max) return undefined;
   const day = value.slice(0, 10);
   const time = value.slice(11, 16);
   const timeLimit = (limit: string | undefined) =>
     limit?.startsWith(day) ? limit.slice(11, 16) : undefined;
 
-  const snapped = `${day}T${snapTime(time, step, timeLimit(min), timeLimit(max))}`;
+  const snappedTime = snapTime(
+    time,
+    step,
+    timeLimit(min),
+    timeLimit(max),
+    false,
+  );
+  const snapped = snappedTime ? `${day}T${snappedTime}` : undefined;
 
   // The midnight ending the day - a tie goes to the later one, like above
   const date = parseISODate(day);
   if (!date) return snapped;
   const midnight = `${toISODate(addDays(date, 1))}T00:00`;
-  const distance = Math.abs(
-    minutesOfDay(snapped.slice(11)) - minutesOfDay(time),
-  );
+  const distance = snappedTime
+    ? Math.abs(minutesOfDay(snappedTime) - minutesOfDay(time))
+    : Infinity;
 
   return 1440 - minutesOfDay(time) <= distance && isInRange(midnight, min, max)
     ? midnight

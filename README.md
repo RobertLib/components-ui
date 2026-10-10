@@ -47,7 +47,7 @@ builds the package with Node.js 22.12 or newer.
    page):
 
    ```sh
-   npm install git+https://github.com/RobertLib/components-ui.git#v0.7.1
+   npm install git+https://github.com/RobertLib/components-ui.git#v0.7.2
    ```
 
    If npm reports that the `prepare` script of `components-ui` is not allowed

@@ -136,7 +136,12 @@ for (const controlled of [false, true]) {
     await expect(saved).toContainText('"color":"rgba(255, 0, 0, 0.5)"');
 
     for (const button of ["Load invalid color", "Load empty color"]) {
-      await page.getByRole("button", { name: button }).click();
+      // Keyboard activation moves focus away from the invalid field, so
+      // Firefox's native validation popup cannot intercept a pointer click.
+      await page.getByRole("button", { name: button }).press("Enter");
+      await expect(color).toHaveValue(
+        button === "Load invalid color" ? "hsl(1e308turn 100% 50%)" : "",
+      );
       await submit();
       await expect(submissions).toHaveText("2");
       expect(
@@ -145,7 +150,8 @@ for (const controlled of [false, true]) {
         ),
       ).toBe(false);
     }
-    await page.getByRole("button", { name: "Load valid color" }).click();
+    await page.getByRole("button", { name: "Load valid color" }).press("Enter");
+    await expect(color).toHaveValue("rgba(255, 0, 0, 0.5)");
     await submit();
     await expect(submissions).toHaveText("3");
     await expect(saved).toContainText('"color":"rgba(255, 0, 0, 0.5)"');

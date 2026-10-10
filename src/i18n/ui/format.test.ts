@@ -16,6 +16,26 @@ describe("formatMessage", () => {
     ).toBe("1–20 of 50");
     expect(formatMessage("Hello {name}")).toBe("Hello {name}");
   });
+
+  it("leaves inherited properties as unknown placeholders", () => {
+    const template = "{constructor} {toString} {hasOwnProperty} {__proto__}";
+    expect(formatMessage(template, {})).toBe(template);
+    const params = { count: 2 };
+    Object.setPrototypeOf(params, { name: "Ada" });
+    expect(formatMessage("Hello {name}, {count} items", params)).toBe(
+      "Hello {name}, 2 items",
+    );
+  });
+
+  it("fills explicitly supplied parameters that have prototype names", () => {
+    expect(
+      formatMessage("{constructor} {toString} {__proto__}", {
+        constructor: "Builder",
+        toString: "Text",
+        ["__proto__"]: "Prototype",
+      }),
+    ).toBe("Builder Text Prototype");
+  });
 });
 
 describe("formatPlural", () => {

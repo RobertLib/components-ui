@@ -698,6 +698,43 @@ describe("Toast with an action, a title or a spinner", () => {
     expect(onHide).toHaveBeenCalledTimes(1);
   });
 
+  it.each([false, true])(
+    "starts the full duration after a later loading phase (hovered: %s)",
+    (hovered) => {
+      vi.useFakeTimers();
+      const onHide = vi.fn();
+      const view = (loading: boolean) => (
+        <Toast
+          duration={1000}
+          loading={loading}
+          message="Export"
+          onHide={onHide}
+        />
+      );
+      const { rerender } = render(view(false));
+      const toast = screen.getByRole("status");
+      act(() => vi.advanceTimersByTime(800));
+      if (hovered) fireEvent.mouseEnter(toast);
+
+      rerender(view(true));
+      act(() => vi.advanceTimersByTime(5000));
+      expect(onHide).not.toHaveBeenCalled();
+
+      rerender(view(false));
+      if (hovered) {
+        act(() => vi.advanceTimersByTime(5000));
+        expect(onHide).not.toHaveBeenCalled();
+        fireEvent.mouseLeave(toast);
+      }
+      act(() => vi.advanceTimersByTime(999));
+      expect(toast).toHaveAttribute("data-state", "open");
+      expect(onHide).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(1));
+      expect(onHide).toHaveBeenCalledTimes(1);
+      expect(toast).toHaveAttribute("data-state", "closed");
+    },
+  );
+
   it("slides out when its parent sets open to false", () => {
     vi.useFakeTimers();
     const onClose = vi.fn();

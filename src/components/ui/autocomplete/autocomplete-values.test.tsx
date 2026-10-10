@@ -688,6 +688,82 @@ describe("Autocomplete onCreate", () => {
 });
 
 describe("Autocomplete allowCustomValue", () => {
+  it.each([false, true])(
+    "replaces a draft with a synchronized default, including after blur and reset (custom: %s)",
+    async (allowCustomValue) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const field = (defaultValue: string) => (
+        <form aria-label="form">
+          <Autocomplete
+            allowCustomValue={allowCustomValue}
+            defaultValue={defaultValue}
+            label="City"
+            name="city"
+            onChange={onChange}
+            options={cities}
+            syncWithDefaultValue
+          />
+          <button type="button">Next</button>
+        </form>
+      );
+      const { rerender } = render(field("praha"));
+
+      await user.clear(combobox());
+      await user.type(combobox(), "Old draft");
+      onChange.mockClear();
+      rerender(field("plzen"));
+
+      expect(combobox()).toHaveValue("Plzeň");
+      expect(formValues("city")).toEqual(["plzen"]);
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(combobox()).toHaveValue("Plzeň");
+      expect(formValues("city")).toEqual(["plzen"]);
+      expect(onChange).not.toHaveBeenCalled();
+
+      await user.clear(combobox());
+      await user.type(combobox(), "Another draft");
+      await act(async () => screen.getByRole<HTMLFormElement>("form").reset());
+      await waitFor(() => expect(combobox()).toHaveValue("Plzeň"));
+      expect(formValues("city")).toEqual(["plzen"]);
+    },
+  );
+
+  it.each([false, true])(
+    "keeps a draft when the new default does not control the field (controlled: %s)",
+    async (controlled) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const field = (defaultValue: string) => (
+        <form aria-label="form">
+          <Autocomplete
+            allowCustomValue
+            defaultValue={defaultValue}
+            label="City"
+            name="city"
+            onChange={onChange}
+            options={cities}
+            syncWithDefaultValue={controlled}
+            value={controlled ? "praha" : undefined}
+          />
+          <button type="button">Next</button>
+        </form>
+      );
+      const { rerender } = render(field("praha"));
+
+      await user.clear(combobox());
+      await user.type(combobox(), "Old draft");
+      onChange.mockClear();
+      rerender(field("plzen"));
+
+      expect(combobox()).toHaveValue("Old draft");
+      expect(formValues("city")).toEqual(["Old draft"]);
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(onChange).toHaveBeenCalledExactlyOnceWith("Old draft", null);
+      expect(combobox()).toHaveValue(controlled ? "Praha" : "Old draft");
+    },
+  );
+
   it("takes the typed text as the value as the focus leaves", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

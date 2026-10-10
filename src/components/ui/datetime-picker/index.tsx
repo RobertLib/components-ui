@@ -146,6 +146,11 @@ export interface DateTimePickerProps extends Omit<
    * the preset of the value marked.
    */
   presets?: DateTimePickerPreset[];
+  /**
+   * Keep invalid typed text available for correction instead of restoring
+   * the previous value on blur or Enter. Only in `custom` mode.
+   */
+  preserveInvalidText?: boolean;
   /** Shorthand for `minuteStep={15}`. */
   quarterMinutesOnly?: boolean;
   /**
@@ -267,6 +272,7 @@ export default function DateTimePicker({
   placeholder,
   popupActions = true,
   presets,
+  preserveInvalidText,
   quarterMinutesOnly = false,
   readOnly,
   ref,
@@ -455,6 +461,7 @@ export default function DateTimePicker({
     placeholder: getPlaceholder(),
     popupActions,
     presets,
+    preserveInvalidText,
     readOnly,
     required,
     sourceValue: String(value ?? ""),

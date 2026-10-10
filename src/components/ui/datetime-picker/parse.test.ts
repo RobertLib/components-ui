@@ -281,6 +281,15 @@ describe("time ranges and steps", () => {
     expect(isTimeInRange("18:00", undefined, "17:00")).toBe(false);
   });
 
+  it("uses the supplied seconds to distinguish narrow and overnight ranges", () => {
+    expect(isTimeInRange("10:00", "09:30:15", "09:30:45")).toBe(false);
+    expect(isTimeInRange("09:30", "09:30:15", "09:30:45")).toBe(false);
+    expect(isTimeInRange("09:30:30", "09:30:15", "09:30:45")).toBe(true);
+    expect(isTimeInRange("10:00", "09:30:45", "09:30:15")).toBe(true);
+    expect(isTimeInRange("09:30", "09:30:45", "09:30:15")).toBe(true);
+    expect(isTimeInRange("10:00", "09:31", "09:30", false)).toBe(false);
+  });
+
   it("moves a time onto the nearest minute of the step", () => {
     expect(snapTime("10:07", 15)).toBe("10:00");
     expect(snapTime("10:08", 15)).toBe("10:15");
@@ -303,6 +312,29 @@ describe("time ranges and steps", () => {
     expect(snapTime("20:00", 15, "22:00", "06:00")).toBe("22:00");
     // No minute of the step in the range - the range wins
     expect(snapTime("09:00", 15, "09:10", "09:14")).toBe("09:10");
+  });
+
+  it("has no whole-minute result for a range containing only seconds", () => {
+    expect(snapTime("10:00", 1, "09:30:15", "09:30:45")).toBeUndefined();
+    expect(snapTime("23:59", 1, "23:59:15", "23:59:45")).toBeUndefined();
+    expect(snapTime("23:59", 1, "23:59:15")).toBeUndefined();
+    expect(snapTime("10:00", 15, "09:30:45", "09:30:15")).toBe("10:00");
+    expect(
+      snapDateTime(
+        "2026-09-24T10:00",
+        1,
+        "2026-09-24T09:30:15",
+        "2026-09-24T09:30:45",
+      ),
+    ).toBeUndefined();
+    expect(
+      snapDateTime(
+        "2026-09-24T23:59",
+        1,
+        "2026-09-24T23:59:15",
+        "2026-09-24T23:59:45",
+      ),
+    ).toBeUndefined();
   });
 
   it("snaps the time of a date-time with the limits of its day", () => {

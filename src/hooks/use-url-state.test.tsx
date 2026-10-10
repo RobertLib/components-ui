@@ -238,4 +238,55 @@ describe("useUrlState", () => {
     expect(onState).toHaveBeenCalledOnce();
     expect(shown().q).toBe("jana");
   });
+
+  it("builds on Back after a delayed router acknowledges the last of repeated queries", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    function Search() {
+      const [state, update] = useUrlState({ q: "" });
+      return (
+        <>
+          <output>{state.q}</output>
+          <button
+            onClick={() => {
+              update({ q: "a" });
+              update({ q: "b" });
+              update({ q: "a" });
+            }}
+            type="button"
+          >
+            Search changes
+          </button>
+          <button
+            onClick={() => update((current) => ({ q: `${current.q}x` }))}
+            type="button"
+          >
+            Append
+          </button>
+        </>
+      );
+    }
+    const view = (search: string) => (
+      <UIProvider router={{ pathname: "/members", search, navigate }}>
+        <Search />
+      </UIProvider>
+    );
+    const { rerender } = render(view(""));
+    await user.click(screen.getByRole("button", { name: "Search changes" }));
+    expect(navigate.mock.calls.map(([href]) => href)).toEqual([
+      "/members?q=a",
+      "/members?q=b",
+      "/members?q=a",
+    ]);
+
+    rerender(view("?q=a"));
+    // Back is the next observed navigation: there is no intermediate render
+    // that happens to clear the stale tail of pending queries.
+    rerender(view("?q=b"));
+    expect(screen.getByRole("status")).toHaveTextContent("b");
+    await user.click(screen.getByRole("button", { name: "Append" }));
+    expect(navigate).toHaveBeenLastCalledWith("/members?q=bx", {
+      replace: false,
+    });
+  });
 });

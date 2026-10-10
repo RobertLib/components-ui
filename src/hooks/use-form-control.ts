@@ -6,6 +6,7 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
+import { usePortalContainer } from "../providers/ui-context";
 
 type FieldElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 type FieldValue = string | number | readonly string[];
@@ -781,20 +782,103 @@ function ownerFormOf(element: Element, formId?: string) {
  * `undefined` keeps the data, for a group with a name supplied by the app.
  */
 export function useOmitFormValue(name: string | undefined, formId?: string) {
+  const latest = useRef({ formId, name });
+  const retainWatch = useRetainedFieldWatch();
+  const getPortalContainer = usePortalContainer();
+
+  useInsertionEffect(() => {
+    latest.current = { formId, name };
+  });
+
+  const dropValue = useCallback((event: Event) => {
+    const { formId: currentForm, name: currentName } = latest.current;
+    const form = event.composedPath()[0] ?? event.target;
+    if (
+      currentName === undefined ||
+      !(form instanceof HTMLFormElement) ||
+      (currentForm !== undefined && findForm(form, currentForm) !== form)
+    ) {
+      return;
+    }
+
+    // The generated name is unique to this group. Check the submitted form's
+    // actual controls: refs never attach to an initially hidden Activity,
+    // while its radios still belong to their form and submit normally.
+    if (
+      Array.from(form.elements).some(
+        (control) =>
+          control instanceof HTMLInputElement &&
+          control.type === "radio" &&
+          control.name === currentName,
+      )
+    ) {
+      (event as FormDataEvent).formData.delete(currentName);
+    }
+  }, []);
+
+  // Insertion effects follow the actual lifetime, including an initially
+  // hidden Activity and updates to its name or external form association.
+  useInsertionEffect(() => {
+    document.addEventListener("formdata", dropValue, true);
+    return () => document.removeEventListener("formdata", dropValue, true);
+  }, [dropValue]);
+
+  // A provider getter may read a ref that attaches after insertion effects.
+  // Observe it after each commit too, including hidden commits and a stable
+  // getter whose element moved into another root. Only its current known
+  // root is kept; no DOM discovery or polling is needed.
+  const portalWatch = useRef({
+    active: false,
+    getPortalContainer,
+    root: null as ShadowRoot | null,
+  });
+  // Its own callback keeps changing portal roots from removing the retained
+  // listener of the group's actual root.
+  const dropFromRoot = useCallback(
+    (event: Event) => dropValue(event),
+    [dropValue],
+  );
+  const syncPortalRoot = useCallback(() => {
+    const watch = portalWatch.current;
+    if (!watch.active) return;
+    const node = watch.getPortalContainer().getRootNode();
+    const root = node instanceof ShadowRoot ? node : null;
+    if (watch.root === root) return;
+    watch.root?.removeEventListener("formdata", dropFromRoot, true);
+    watch.root = root;
+    root?.addEventListener("formdata", dropFromRoot, true);
+  }, [dropFromRoot]);
+
+  useInsertionEffect(() => {
+    const watch = portalWatch.current;
+    watch.active = true;
+    return () => {
+      watch.active = false;
+      watch.root?.removeEventListener("formdata", dropFromRoot, true);
+      watch.root = null;
+    };
+  }, [dropFromRoot]);
+
+  useInsertionEffect(() => {
+    portalWatch.current.getPortalContainer = getPortalContainer;
+    queueMicrotask(syncPortalRoot);
+  });
+  useLayoutEffect(syncPortalRoot);
+
   return useCallback(
     (element: Element | null) => {
-      if (!element || name === undefined) return;
+      if (!element) return;
 
       const root = element.getRootNode();
-      const dropValue = (event: Event) => {
-        if (event.target === ownerFormOf(element, formId)) {
-          (event as FormDataEvent).formData.delete(name);
-        }
-      };
-      root.addEventListener("formdata", dropValue, true);
-      return () => root.removeEventListener("formdata", dropValue, true);
+      // A formdata event stays inside its shadow root. Keep that listener
+      // while Activity detaches the ref but retains the form controls.
+      return retainWatch(element, () => {
+        if (!(root instanceof ShadowRoot)) return () => {};
+        root.addEventListener("formdata", dropValue, true);
+        return () => root.removeEventListener("formdata", dropValue, true);
+      });
     },
-    [formId, name],
+    [dropValue, retainWatch],
   );
 }
 

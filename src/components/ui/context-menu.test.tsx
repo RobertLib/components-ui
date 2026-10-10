@@ -236,6 +236,52 @@ describe("ContextMenu with the pointer", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  it.each(["disabled", "empty"] as const)(
+    "cancels a pending touch press when the menu becomes %s",
+    (unavailable) => {
+      vi.useFakeTimers();
+      const onOpenChange = vi.fn();
+      const onClick = vi.fn();
+      const items = [{ label: "Rename" }];
+      const menu = (enabled: boolean) => (
+        <ContextMenu
+          disabled={!enabled && unavailable === "disabled"}
+          items={!enabled && unavailable === "empty" ? [] : items}
+          onOpenChange={onOpenChange}
+        >
+          <button onClick={onClick} type="button">
+            Row
+          </button>
+        </ContextMenu>
+      );
+      const { rerender } = render(menu(true));
+      const row = screen.getByRole("button", { name: "Row" });
+      const touch = { pointerId: 7, pointerType: "touch" };
+
+      fireEvent.pointerDown(row, touch);
+      act(() => vi.advanceTimersByTime(300));
+      rerender(menu(false));
+      // Restoring availability must not resume the canceled touch.
+      rerender(menu(true));
+      act(() => vi.advanceTimersByTime(600));
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(onOpenChange).not.toHaveBeenCalled();
+
+      fireEvent.pointerUp(row, touch);
+      fireEvent.click(row, { detail: 1 });
+      expect(onClick).toHaveBeenCalledTimes(1);
+
+      // A new long press works after the menu becomes available again.
+      fireEvent.pointerDown(row, touch);
+      act(() => vi.advanceTimersByTime(500));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(true);
+      fireEvent.pointerUp(row, touch);
+      fireEvent.click(row, { detail: 1 });
+      expect(onClick).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it.each(["child", "menu", "wrapper"])(
     "keeps a prevented touch press closed with the %s handler",
     (handler) => {

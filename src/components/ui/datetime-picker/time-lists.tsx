@@ -5,6 +5,8 @@ import { formatPattern, getDayPeriods, pad2 } from "../../../utils/date";
 import { useLocale } from "../../../providers/ui-context";
 
 interface TimeListsProps {
+  /** A reversed time range spans midnight; date-time bounds never do. */
+  allowOvernight?: boolean;
   /** Moves the focus into the hour list - the popup was opened by a key. */
   autoFocus?: boolean;
   /** No time can be picked, e.g. the date of a date-time is disabled. */
@@ -19,11 +21,11 @@ interface TimeListsProps {
   /** Classes of both lists - their height. */
   listClassName?: string;
   /**
-   * Latest selectable time, `HH:mm`. Before `min` for a range over
+   * Latest selectable time, optionally with seconds. Before `min` for a range over
    * midnight (22:00 - 06:00).
    */
   max?: string;
-  /** Earliest selectable time, `HH:mm`. */
+  /** Earliest selectable time, optionally with seconds. */
   min?: string;
   /** Selected minutes - `null` without a value. */
   minutes: string | null;
@@ -275,6 +277,7 @@ function TimeList({
  * scrolls the selected values into the middle.
  */
 export default function TimeLists({
+  allowOvernight = true,
   autoFocus = false,
   disabled = false,
   hour12 = false,
@@ -298,10 +301,11 @@ export default function TimeLists({
   const isHourDisabled = (hour: string) =>
     disabled ||
     !minuteOptions.some((minute) =>
-      isTimeInRange(`${hour}:${minute}`, min, max),
+      isTimeInRange(`${hour}:${minute}`, min, max, allowOvernight),
     );
   const isMinuteDisabled = (minute: string) =>
-    disabled || !isTimeInRange(`${hours ?? "00"}:${minute}`, min, max);
+    disabled ||
+    !isTimeInRange(`${hours ?? "00"}:${minute}`, min, max, allowOvernight);
 
   return (
     <div className="flex gap-2">

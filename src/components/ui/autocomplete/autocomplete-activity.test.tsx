@@ -40,6 +40,87 @@ function scrollListToEnd() {
 }
 
 describe("Autocomplete Activity lifecycle", () => {
+  it("replaces a custom draft with a default synchronized while hidden", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const view = (mode: "hidden" | "visible", defaultValue: string) => (
+      <StrictMode>
+        <form aria-label="form">
+          <Activity mode={mode}>
+            <Autocomplete
+              allowCustomValue
+              defaultValue={defaultValue}
+              label="City"
+              name="city"
+              onChange={onChange}
+              options={[oslo, bergen]}
+              syncWithDefaultValue
+            />
+          </Activity>
+          <button type="button">Next</button>
+        </form>
+      </StrictMode>
+    );
+    const { rerender } = render(view("visible", "oslo"));
+    await user.clear(screen.getByRole("combobox"));
+    await user.type(screen.getByRole("combobox"), "Old draft");
+    onChange.mockClear();
+
+    rerender(view("hidden", "bergen"));
+    rerender(view("visible", "bergen"));
+
+    expect(screen.getByRole("combobox")).toHaveValue("Bergen");
+    const form = screen.getByRole<HTMLFormElement>("form");
+    expect(new FormData(form).getAll("city")).toEqual(["bergen"]);
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(new FormData(form).getAll("city")).toEqual(["bergen"]);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "ignores a creation replaced by a synchronized default while hidden (rejects: %s)",
+    async (rejects) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const user = userEvent.setup();
+      const pending = deferred<typeof oslo>();
+      const onChange = vi.fn();
+      const view = (mode: "hidden" | "visible", defaultValue: string) => (
+        <StrictMode>
+          <Activity mode={mode}>
+            <Autocomplete
+              allowCustomValue
+              defaultValue={defaultValue}
+              label="City"
+              onChange={onChange}
+              onCreate={() => pending.promise}
+              options={[bergen]}
+              syncWithDefaultValue
+            />
+          </Activity>
+        </StrictMode>
+      );
+      const { rerender } = render(view("visible", "initial"));
+      await user.clear(screen.getByRole("combobox"));
+      await user.type(screen.getByRole("combobox"), "Oslo");
+      await user.click(screen.getByRole("option", { name: "Add “Oslo”" }));
+      onChange.mockClear();
+
+      rerender(view("hidden", "bergen"));
+      await act(async () => {
+        if (rejects) pending.reject(new Error("Obsolete creation"));
+        else pending.resolve(oslo);
+      });
+      rerender(view("visible", "bergen"));
+
+      expect(screen.getByRole("combobox")).toHaveValue("Bergen");
+      expect(onChange).not.toHaveBeenCalled();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.queryByRole("status")?.textContent ?? "").not.toContain(
+        "Oslo",
+      );
+    },
+  );
+
   it.each([false, true])(
     "finishes creation across hiding and allows another creation (finish hidden: %s)",
     async (finishHidden) => {

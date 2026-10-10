@@ -66,6 +66,32 @@ describe("useDebouncedField", () => {
     expect(result.current.value).toBe("ab");
   });
 
+  it("uses the current callback without postponing a pending commit", () => {
+    vi.useFakeTimers();
+    try {
+      const previousCommit = vi.fn();
+      const currentCommit = vi.fn();
+      const { rerender, result } = renderHook(
+        ({ onCommit }) => useDebouncedField("", onCommit),
+        { initialProps: { onCommit: previousCommit } },
+      );
+
+      act(() => result.current.change(" draft "));
+      act(() => vi.advanceTimersByTime(150));
+      rerender({ onCommit: currentCommit });
+      act(() => vi.advanceTimersByTime(149));
+      expect(previousCommit).not.toHaveBeenCalled();
+      expect(currentCommit).not.toHaveBeenCalled();
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(previousCommit).not.toHaveBeenCalled();
+      expect(currentCommit).toHaveBeenCalledExactlyOnceWith("draft");
+      expect(result.current.value).toBe(" draft ");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(["", "original"])(
     "drops a text still to be committed when the key resets it (initially %j)",
     (initialValue) => {

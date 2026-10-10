@@ -1325,6 +1325,15 @@ function copyRowsAsLines(
  */
 function layOutCells(rows: Element[], spans: boolean) {
   const grid: (Element | null | undefined)[][] = rows.map(() => []);
+  // A rowspan ends at its source row group, even though the sanitized
+  // table combines its body sections. Count their remaining rows once.
+  const groupRemaining: number[] = [];
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    groupRemaining[index] =
+      rows[index].parentElement === rows[index + 1]?.parentElement
+        ? groupRemaining[index + 1] + 1
+        : 1;
+  }
   let cells = 0;
 
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
@@ -1337,8 +1346,8 @@ function layOutCells(rows: Element[], spans: boolean) {
         ? (cell as HTMLTableCellElement)
         : {};
       const columns = Math.max(colSpan, 1);
-      // 0 spans the rest of the rows
-      const remaining = rows.length - rowIndex;
+      // 0 spans the rest of the row group; positive spans stop there too.
+      const remaining = groupRemaining[rowIndex];
       const rowsSpanned = Math.min(rowSpan || remaining, remaining);
 
       cells += columns * rowsSpanned;

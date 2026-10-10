@@ -213,9 +213,19 @@ export default function TagsInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
   const isComposing = useRef(false);
+  // A reset discards an active composition, whose final events may still
+  // arrive afterward. Keep that session canceled until it ends.
+  const canceledComposition = useRef<{ resumed: boolean } | null>(null);
   // Some browsers deliver the last input after compositionend. Its text
   // was already handled there, so it must not add the same tags twice.
   const composedText = useRef<string | null>(null);
+
+  // A fresh key or paste starts ordinary editing again even if a
+  // browser canceled composition without ever sending its final event.
+  const resumeInput = () => {
+    if (canceledComposition.current) canceledComposition.current.resumed = true;
+    composedText.current = null;
+  };
 
   const generatedId = useId();
   const inputId = id ?? generatedId;
@@ -228,6 +238,9 @@ export default function TagsInput({
   // `form.reset()` - also the one after a React form action - brings back
   // the `defaultValue`, like it does for a native field
   const formResetRef = useFormReset(() => {
+    if (isComposing.current || canceledComposition.current) {
+      canceledComposition.current = { resumed: false };
+    }
     isComposing.current = false;
     composedText.current = null;
     setEnteredTags(undefined);
@@ -411,7 +424,7 @@ export default function TagsInput({
       return;
     }
 
-    composedText.current = null;
+    resumeInput();
     const input = event.currentTarget;
 
     switch (event.key) {
@@ -510,7 +523,7 @@ export default function TagsInput({
   };
 
   const handlePaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
-    composedText.current = null;
+    resumeInput();
     onPaste?.(event);
     if (event.defaultPrevented || locked) return;
 
@@ -635,18 +648,29 @@ export default function TagsInput({
         onBlur={onBlur}
         onChange={(event) => {
           const nextText = event.target.value;
+          const nativeComposing = (event.nativeEvent as InputEvent).isComposing;
+          const canceled = canceledComposition.current;
+          if (
+            canceled &&
+            (nativeComposing ||
+              (!canceled.resumed && event.nativeEvent.type === "input"))
+          )
+            return;
+          if (canceled) canceled.resumed = true;
           const previousComposition = composedText.current;
           composedText.current = null;
           if (nextText === previousComposition) return;
 
-          handleTextChange(
-            nextText,
-            isComposing.current ||
-              (event.nativeEvent as InputEvent).isComposing,
-          );
+          handleTextChange(nextText, isComposing.current || nativeComposing);
         }}
         onCompositionEnd={(event) => {
           onCompositionEnd?.(event);
+          if (canceledComposition.current) {
+            canceledComposition.current = null;
+            composedText.current = event.currentTarget.value;
+            event.currentTarget.value = text;
+            return;
+          }
           if (!isComposing.current) return;
           isComposing.current = false;
           composedText.current = event.currentTarget.value;
@@ -654,6 +678,7 @@ export default function TagsInput({
         }}
         onCompositionStart={(event) => {
           isComposing.current = true;
+          canceledComposition.current = null;
           composedText.current = null;
           onCompositionStart?.(event);
         }}

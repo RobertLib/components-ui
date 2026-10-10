@@ -3,7 +3,7 @@ import CodeBlock from "../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 
 const installGit = `# a tagged version from your git host - npm builds dist/ on install
-npm install git+https://github.com/RobertLib/components-ui.git#v0.7.1
+npm install git+https://github.com/RobertLib/components-ui.git#v0.7.2
 
 # the latest commit of a branch
 npm install git+https://github.com/RobertLib/components-ui.git#main
@@ -30,8 +30,8 @@ resolve: {
 },`;
 
 const installTarball = `# a copy instead of a link - like an install from a registry
-cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.7.1.tgz
-cd ../my-app && npm install ../components-ui/components-ui-0.7.1.tgz`;
+cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.7.2.tgz
+cd ../my-app && npm install ../components-ui/components-ui-0.7.2.tgz`;
 
 const installRegistry = `# in the library: set a scoped name, remove "private": true, then
 npm publish --registry https://npm.your-company.com
@@ -515,6 +515,11 @@ export default function Installation() {
             reachable. Render the portals of other libraries there too - a modal
             dialog in the container hides what they add to the body. The
             container must be in the page itself, not in an iframe.
+          </p>
+          <p>
+            For an app in shadow DOM, use a container in the same shadow root as
+            its form fields. This also keeps unnamed radio groups out of form
+            data in sections rendered hidden by React Activity.
           </p>
         </Prose>
         <CodeBlock code={portalContainer} />

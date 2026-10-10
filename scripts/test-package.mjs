@@ -437,6 +437,52 @@ componentsUi({});
     );
 
     await t.test(
+      "keeps all classes for a CommonJS wrapper of the package",
+      async () => {
+        const wrapper = join(directory, "node_modules", "commonjs-wrapper");
+        mkdirSync(wrapper);
+        writeFileSync(
+          join(wrapper, "package.json"),
+          JSON.stringify({
+            name: "commonjs-wrapper",
+            version: "1.0.0",
+            main: "./index.cjs",
+            peerDependencies: { "components-ui": "*" },
+          }),
+        );
+        writeFileSync(
+          join(wrapper, "index.cjs"),
+          'module.exports = require("components-ui").Button;\n',
+        );
+        writeFileSync(
+          join(directory, "src/index.css"),
+          '@import "tailwindcss";\n@import "components-ui/styles.css";\n',
+        );
+        writeFileSync(
+          join(directory, "src/main.tsx"),
+          'import "./index.css";\nimport Button from "commonjs-wrapper";\nglobalThis.button = Button;\n',
+        );
+        const isLibrary = (id) => id.startsWith(normalizePath(`${dist}/`));
+        const { default: componentsUi } = await import(
+          pathToFileURL(join(target, "src/components/ui/vite.js")).href
+        );
+        const full = await buildApp(directory, { isLibrary });
+        const used = await buildApp(directory, {
+          isLibrary,
+          plugins: [componentsUi()],
+        });
+        assert.equal(used.js, full.js);
+        assert.equal(used.css, full.css);
+        assert.deepEqual(missingClasses(used, full), []);
+        assert.equal(used.warnings.length, 1);
+        assert.match(
+          used.warnings[0],
+          /cannot follow CommonJS require calls .*index\.cjs/,
+        );
+      },
+    );
+
+    await t.test(
       "follows npm aliases of the library from wrapper packages",
       async () => {
         const modules = join(directory, "node_modules");

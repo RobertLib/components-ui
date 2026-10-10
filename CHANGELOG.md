@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.7.2
+
+- **Autocomplete** - with `allowCustomValue` and `syncWithDefaultValue`, a
+  changed default also clears the previous search text, so blur and form
+  submission keep the new value.
+- **DateCalendar and RangeCalendar** - native form validation follows
+  changed constraints while hidden by React Activity, including a field
+  mounted hidden and changes to `readOnly` or `disabled`.
+- **TagsInput** - resetting a form during IME composition discards the
+  canceled composition's final input instead of restoring the old text.
+- **FileUpload** - `onPendingChange` reports completed uploads while hidden
+  by React Activity, allowing the parent form to enable submission.
+- **Toast** - finishing a loading phase starts the full display duration,
+  including when the previous timer had already partly elapsed.
+- **Translations** - message placeholders use only the supplied object's
+  own parameters, keeping inherited names such as `constructor` literal.
+- **Vite plugin** - retains all component CSS when CommonJS `require`
+  calls or matching glob and dynamic imports of unsupported module types
+  prevent complete import analysis, so those builds remain valid.
+- **DateTimePicker** - validates supplied time and date-time values with
+  their seconds and fractional seconds, keeping that precision when the
+  form submits. The popup continues to offer whole minutes and disables
+  choices when the interval contains none.
+- **RichTextEditor** - counts a whitespace run across inline marks once,
+  so `maxLength` no longer removes text that fits. Pasted table row spans
+  stop at their original row group instead of shifting cells in later
+  sections.
+- **DataTable** - pending filter and search changes use the current
+  `onQueryChange` handler and query when the debounce finishes.
+- **UIProvider** - a changed `portalContainer` getter applies immediately
+  to newly opened and existing overlays.
+- **Calendar** - resizing through an unavailable position no longer leaves
+  the resize cursor active after the drag ends.
+- **Vite plugin** - the check for missing component CSS also recognizes
+  module IDs with queries and preserved symlink paths.
+- **FileUpload** - picking another file during asynchronous removal no
+  longer leaves the removal pending or permanently blocks form submission.
+- **DataTable** - invalid date drafts stay editable instead of closing
+  the cell editor or saving a previous valid draft on Enter, Tab or blur.
+  `DateTimePicker.preserveInvalidText` keeps rejected text while the user
+  corrects it by typing or opening the calendar with the keyboard.
+- **URL state** - repeated pending navigations are acknowledged together,
+  so a later Back navigation keeps the current filters for subsequent edits.
+- **RadioGroup and SegmentedControl** - internal radio names stay out of
+  form data while React Activity hides the groups, including initially
+  hidden groups and shadow apps configured through `portalContainer`.
+- **ContextMenu** - disabling the menu or removing its items cancels a
+  pending touch long press, including when availability returns before release.
+- **Date pickers and calendars** - focusing a day no longer queues a
+  redundant focus transfer that could steal focus back from another field.
+- **Tests** - the prefilled field browser test uses keyboard activation
+  for load buttons, preventing native validation popups from intercepting
+  clicks. Pointer tests wait for visible controls before measuring them.
+
 ## 0.7.1
 
 - **Vite plugin** - follows transitive dependencies on the library, so

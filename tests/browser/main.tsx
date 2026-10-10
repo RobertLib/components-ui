@@ -4,6 +4,7 @@ import {
   CalendarMoveFixture,
   CalendarKeyboardFixture,
   CalendarSlotFixture,
+  CalendarValidityActivityFixture,
   ChoiceResetActivityFixture,
   ConfirmCompositionFixture,
   CursorPaginationFixture,
@@ -38,6 +39,7 @@ import FeatureExpansion, {
   PrefilledInputsFixture,
 } from "./feature-expansion";
 import { RequiredFieldsFixture, RequiredSelectsFixture } from "./selection";
+import FormEditRegressions from "./form-edit-regressions";
 
 const params = new URLSearchParams(window.location.search);
 const container = document.getElementById("root");
@@ -46,7 +48,12 @@ if (!container) throw new Error("The browser fixture root is missing.");
 createRoot(container).render(
   <UIProvider locale={en}>
     <main>
-      {params.get("scenario") === "prefilled-inputs" ? (
+      {params.get("scenario") === "form-edit-regressions" ? (
+        <FormEditRegressions
+          initiallyHidden={params.get("initiallyHidden") === "true"}
+          shadow={params.get("shadow") === "true"}
+        />
+      ) : params.get("scenario") === "prefilled-inputs" ? (
         <PrefilledInputsFixture
           controlled={params.get("controlled") === "true"}
         />
@@ -108,6 +115,11 @@ createRoot(container).render(
         <FormResetActivityFixture />
       ) : params.get("scenario") === "form-validity-activity" ? (
         <FormValidityActivityFixture kind={params.get("kind")} />
+      ) : params.get("scenario") === "calendar-validity-activity" ? (
+        <CalendarValidityActivityFixture
+          initiallyHidden={params.get("initiallyHidden") === "true"}
+          kind={params.get("kind")}
+        />
       ) : params.get("scenario") === "editor-reset-activity" ? (
         <EditorResetActivityFixture
           controlled={params.get("controlled") === "true"}

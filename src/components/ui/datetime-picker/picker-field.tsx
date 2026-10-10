@@ -139,6 +139,7 @@ export default function PickerField({
   pickCount,
   placeholder,
   popupLabel,
+  preserveInvalidText,
   readOnly,
   required,
   sourceValue,
@@ -273,9 +274,10 @@ export default function PickerField({
   // dropped - the field shows the value again.
   const commitText = () => {
     if (text === null) return;
+    const typed = text.trim();
+    if (preserveInvalidText && typed && "error" in parseText(typed)) return;
     setText(null);
 
-    const typed = text.trim();
     if (typed === displayValue) return;
 
     if (!typed) {

@@ -12,6 +12,7 @@ import {
 import {
   RouterActionsContext,
   RouterLocationContext,
+  PortalContainerContext,
   UIContext,
   type PortalContainer,
 } from "./ui-context";
@@ -58,6 +59,7 @@ export default function UIProvider({
 }: UIProviderProps) {
   const parent = use(UIContext);
   const parentLocation = use(RouterLocationContext);
+  const parentContainer = use(PortalContainerContext);
   const baseLocale = locale ?? parent?.locale ?? en;
 
   // Compared by value - inline `messages` would give all that reads a text
@@ -100,30 +102,10 @@ export default function UIProvider({
       ? ownRouterScope
       : parent?.routerScope;
 
-  // A function of the container stays the same too, calling the latest one
-  // given - an inline one would be new on every render, and with it the
-  // context of all that reads a text
-  const latestContainer = useRef(portalContainer);
-  useInsertionEffect(() => {
-    latestContainer.current = portalContainer;
-  });
-  const isContainerFunction = typeof portalContainer === "function";
-  const stableContainer = useMemo(
-    () =>
-      isContainerFunction
-        ? () => {
-            const current = latestContainer.current;
-            return typeof current === "function" ? current() : current;
-          }
-        : undefined,
-    [isContainerFunction],
-  );
+  // Portals call the current getter during their render, before insertion
+  // effects run. A separate context keeps locale-only consumers stable.
   const container =
-    portalContainer === undefined
-      ? parent?.portalContainer
-      : isContainerFunction
-        ? stableContainer
-        : portalContainer;
+    portalContainer === undefined ? parentContainer : portalContainer;
 
   // The components get a `navigate` and a `back` that stay the same,
   // calling the latest ones given - a router's may change on every
@@ -162,14 +144,13 @@ export default function UIProvider({
   const value = useMemo(
     () => ({
       locale: resolvedLocale,
-      portalContainer: container,
       // A nested provider takes them over - the stable ones too. Not the
       // location, which changes on every navigation: all that reads a text
       // would render again with it.
       router: { Link, navigate: stableNavigate, back: stableBack },
       routerScope,
     }),
-    [resolvedLocale, container, Link, stableNavigate, stableBack, routerScope],
+    [resolvedLocale, Link, stableNavigate, stableBack, routerScope],
   );
   const location = useMemo(() => ({ pathname, search }), [pathname, search]);
   const actions = useMemo(
@@ -183,11 +164,13 @@ export default function UIProvider({
 
   return (
     <UIContext value={value}>
-      <RouterActionsContext value={actions}>
-        <RouterLocationContext value={location}>
-          {children}
-        </RouterLocationContext>
-      </RouterActionsContext>
+      <PortalContainerContext value={container}>
+        <RouterActionsContext value={actions}>
+          <RouterLocationContext value={location}>
+            {children}
+          </RouterLocationContext>
+        </RouterActionsContext>
+      </PortalContainerContext>
     </UIContext>
   );
 }

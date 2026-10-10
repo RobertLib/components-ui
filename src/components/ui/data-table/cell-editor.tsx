@@ -122,6 +122,20 @@ export default function CellEditor<T>({
     kind === "number" &&
     !!wrapperRef.current?.querySelector("input")?.validity.badInput;
 
+  // A date picker reports parsed text through native validity before it
+  // changes the draft. An invalid text must not save an earlier valid draft.
+  const lastDateErrorRef = useRef<string | undefined>(undefined);
+  const dateInputError = () => {
+    if (isCustom || kind !== "date") return undefined;
+    const input = wrapperRef.current?.querySelector("input");
+    // The deferred blur can finish during unmount, after the input and its
+    // custom validity were detached. Keep the last observed invalid draft.
+    if (!input) return lastDateErrorRef.current;
+    const message = !input.validity.valid ? input.validationMessage : undefined;
+    lastDateErrorRef.current = message;
+    return message;
+  };
+
   const validate = (value: unknown) =>
     (hasBadInput()
       ? messages.dataTable.invalidNumber
@@ -139,6 +153,12 @@ export default function CellEditor<T>({
 
   const commit = (value: unknown, move: -1 | 0 | 1, refocus: boolean) => {
     if (isDoneRef.current) return;
+
+    const dateError = dateInputError();
+    if (dateError) {
+      setError(dateError);
+      return;
+    }
 
     // A field left as it was saves nothing - not even the value the cell
     // had, which a refetch may have changed meanwhile (another user's edit
@@ -223,7 +243,29 @@ export default function CellEditor<T>({
   const handleDateKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     const isOpen = event.currentTarget.getAttribute("aria-expanded") === "true";
     if (isCompositionKey(event.nativeEvent)) return;
-    if (event.key !== "Tab" && (event.key !== "Enter" || isOpen)) return;
+    if (event.key === "Escape" && !isOpen) {
+      event.preventDefault();
+      cancel();
+      return;
+    }
+    if (
+      event.key !== "Tab" &&
+      event.key !== "Enter" &&
+      (event.key !== "ArrowDown" || isOpen)
+    ) {
+      return;
+    }
+    const dateError = dateInputError();
+    if (dateError) {
+      setError(dateError);
+      // ArrowDown still opens the calendar or moves into it, where the
+      // invalid text can be corrected. The picker preserves that draft.
+      if (event.key !== "ArrowDown") event.preventDefault();
+      return;
+    }
+    // The picker commits typed text on open Enter and on ArrowDown before
+    // opening. Valid text keeps that behavior; invalid text stays editable.
+    if (event.key === "ArrowDown" || (event.key === "Enter" && isOpen)) return;
 
     event.preventDefault();
     event.currentTarget.blur();
@@ -286,6 +328,7 @@ export default function CellEditor<T>({
         error={error}
         onChange={({ target }) => change(target.value)}
         onKeyDown={handleDateKeyDown}
+        preserveInvalidText
         type="date"
         value={String(draft)}
       />
@@ -307,6 +350,31 @@ export default function CellEditor<T>({
     <div
       // Room for the text of a date and the buttons of its picker
       className={kind === "date" && !isCustom ? "min-w-40" : "min-w-24"}
+      onBlurCapture={(event) => {
+        if (isDoneRef.current) return;
+        const dateError = dateInputError();
+        const input = event.target;
+        if (!dateError || !(input instanceof HTMLInputElement)) return;
+
+        // Keep the typed text: the picker's own blur would discard it and
+        // restore the previous value before this editor's save runs.
+        event.stopPropagation();
+        setError(dateError);
+        const next = event.relatedTarget;
+        const popupId = input.getAttribute("aria-controls");
+        const inEditor =
+          next instanceof Node &&
+          (wrapperRef.current?.contains(next) ||
+            (popupId &&
+              input.ownerDocument.getElementById(popupId)?.contains(next)));
+        if (inEditor) return;
+
+        // A focus transfer completes after blur. Restore it afterwards,
+        // unless a navigation or Escape has removed or ended the editor.
+        queueMicrotask(() => {
+          if (!isDoneRef.current && input.isConnected) input.focus();
+        });
+      }}
       onBlur={() => {
         // The focus may be moving into a popup of the field, a portal
         // elsewhere in the page, whose focus comes here right after

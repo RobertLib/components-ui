@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { Activity, StrictMode } from "react";
+import { Activity, StrictMode, useCallback, useRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import Input from "./input";
 import TagsInput from "./tags-input";
@@ -11,12 +11,21 @@ import Select from "./select";
 import Checkbox from "./checkbox";
 import CheckboxGroup from "./checkbox-group";
 import Switch from "./switch";
+import UIProvider from "../../providers/ui-provider";
+import { useOmitFormValue } from "../../hooks/use-form-control";
 
 const settleReset = async (form: HTMLFormElement) => {
   await act(async () => {
     form.reset();
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
+};
+
+const submittedValues = (form: HTMLFormElement) => {
+  const data = new FormData(form);
+  // jsdom builds FormData without the browser's formdata event.
+  form.dispatchEvent(Object.assign(new Event("formdata"), { formData: data }));
+  return [...data];
 };
 
 describe("Form fields hidden by Activity", () => {
@@ -34,6 +43,329 @@ describe("Form fields hidden by Activity", () => {
       segmented: data.get("segmented"),
     };
   };
+
+  it.each([
+    { label: "RadioGroup", Component: RadioGroup },
+    { label: "SegmentedControl", Component: SegmentedControl },
+  ])(
+    "does not submit unnamed $label choices before or after hiding",
+    async ({ Component }) => {
+      const view = (mode: "hidden" | "visible") => (
+        <StrictMode>
+          <form aria-label="Choices">
+            <Activity mode={mode}>
+              <Component defaultValue="first" options={options} />
+            </Activity>
+          </form>
+        </StrictMode>
+      );
+      const { rerender } = render(view("hidden"));
+      const form = screen.getByRole<HTMLFormElement>("form");
+
+      await act(async () => {});
+      expect(form.querySelector("input:checked")).not.toBeNull();
+      expect(submittedValues(form)).toEqual([]);
+      rerender(view("visible"));
+      expect(submittedValues(form)).toEqual([]);
+      await act(async () => rerender(view("hidden")));
+      expect(submittedValues(form)).toEqual([]);
+    },
+  );
+
+  it.each([
+    { label: "RadioGroup", Component: RadioGroup },
+    { label: "SegmentedControl", Component: SegmentedControl },
+  ])(
+    "omits initially hidden $label values in a configured shadow root",
+    async ({ Component }) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const shadow = host.attachShadow({ mode: "open" });
+      const container = document.createElement("div");
+      const portal = document.createElement("div");
+      shadow.append(container, portal);
+      const { unmount } = render(
+        <UIProvider portalContainer={portal}>
+          <form aria-label="Choices">
+            <Activity mode="hidden">
+              <Component defaultValue="first" options={options} />
+            </Activity>
+          </form>
+        </UIProvider>,
+        { container },
+      );
+      try {
+        await act(async () => {});
+        const form = within(container).getByRole<HTMLFormElement>("form");
+        expect(form.querySelector("input:checked")).not.toBeNull();
+        expect(submittedValues(form)).toEqual([]);
+      } finally {
+        unmount();
+        host.remove();
+      }
+    },
+  );
+
+  it("keeps the actual shadow listener when the provider's portal root changes", async () => {
+    const hosts = [
+      document.createElement("div"),
+      document.createElement("div"),
+    ];
+    const shadows = hosts.map((host) => host.attachShadow({ mode: "open" }));
+    const container = document.createElement("div");
+    const portals = [
+      document.createElement("div"),
+      document.createElement("div"),
+    ];
+    shadows[0].append(container, portals[0]);
+    shadows[1].append(portals[1]);
+    document.body.append(...hosts);
+    const view = (portal: HTMLElement, mode: "hidden" | "visible") => (
+      <UIProvider portalContainer={portal}>
+        <form aria-label="Choices">
+          <Activity mode={mode}>
+            <RadioGroup defaultValue="first" options={options} />
+          </Activity>
+        </form>
+      </UIProvider>
+    );
+    const { rerender, unmount } = render(view(portals[0], "visible"), {
+      container,
+    });
+    const form = within(container).getByRole<HTMLFormElement>("form");
+    try {
+      expect(submittedValues(form)).toEqual([]);
+      await act(async () => rerender(view(portals[0], "hidden")));
+      await act(async () => rerender(view(portals[1], "hidden")));
+      expect(submittedValues(form)).toEqual([]);
+      await act(async () => rerender(view(document.body, "hidden")));
+      expect(submittedValues(form)).toEqual([]);
+    } finally {
+      unmount();
+      hosts.forEach((host) => host.remove());
+    }
+  });
+
+  it("resolves a configured shadow getter after its portal ref attaches", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    const container = document.createElement("div");
+    shadow.append(container);
+    function HiddenChoice({
+      portalRef,
+    }: {
+      portalRef: React.Ref<HTMLDivElement>;
+    }) {
+      const groupRef = useOmitFormValue("late-portal-choice");
+      return (
+        <>
+          <form aria-label="Choices">
+            <Activity mode="hidden">
+              <div ref={groupRef}>
+                <input
+                  defaultChecked
+                  name="late-portal-choice"
+                  type="radio"
+                  value="first"
+                />
+              </div>
+            </Activity>
+          </form>
+          <div ref={portalRef} />
+        </>
+      );
+    }
+    function Page() {
+      const portalRef = useRef<HTMLDivElement>(null);
+      const getPortal = useCallback(() => portalRef.current, []);
+      return (
+        <UIProvider portalContainer={getPortal}>
+          <HiddenChoice portalRef={portalRef} />
+        </UIProvider>
+      );
+    }
+    const { unmount } = render(<Page />, { container });
+    try {
+      await act(async () => {});
+      const form = within(container).getByRole<HTMLFormElement>("form");
+      expect(form.querySelector("input:checked")).not.toBeNull();
+      expect(submittedValues(form)).toEqual([]);
+    } finally {
+      unmount();
+      host.remove();
+    }
+  });
+
+  it("follows a stable portal getter moving between shadow roots while initially hidden", async () => {
+    const hosts = [
+      document.createElement("div"),
+      document.createElement("div"),
+    ];
+    const shadows = hosts.map((host) => host.attachShadow({ mode: "open" }));
+    const container = document.createElement("div");
+    const portals = [
+      document.createElement("div"),
+      document.createElement("div"),
+    ];
+    shadows[0].append(container, portals[0]);
+    shadows[1].append(portals[1]);
+    document.body.append(...hosts);
+    let portal = portals[0];
+    const getPortal = () => portal;
+    const view = (commit: number) => (
+      <UIProvider portalContainer={getPortal}>
+        <form aria-label="Choices">
+          <Activity mode="hidden">
+            <RadioGroup
+              data-commit={commit}
+              defaultValue="first"
+              options={options}
+            />
+          </Activity>
+        </form>
+      </UIProvider>
+    );
+    const { rerender, unmount } = render(view(0), { container });
+    try {
+      await act(async () => {});
+      const form = within(container).getByRole<HTMLFormElement>("form");
+      const internalName = form.querySelector("input")!.name;
+      expect(submittedValues(form)).toEqual([]);
+
+      portal = portals[1];
+      shadows[1].append(container);
+      await act(async () => rerender(view(1)));
+      expect(submittedValues(form)).toEqual([]);
+
+      // The previously configured root no longer owns a listener.
+      const otherForm = document.createElement("form");
+      const other = document.createElement("input");
+      other.type = "radio";
+      other.name = internalName;
+      other.value = "other";
+      other.checked = true;
+      otherForm.append(other);
+      shadows[0].append(otherForm);
+      expect(submittedValues(otherForm)).toEqual([[internalName, "other"]]);
+
+      unmount();
+      shadows[1].append(otherForm);
+      expect(submittedValues(otherForm)).toEqual([[internalName, "other"]]);
+    } finally {
+      unmount();
+      hosts.forEach((host) => host.remove());
+    }
+  });
+
+  it.each([
+    { label: "RadioGroup", Component: RadioGroup },
+    { label: "SegmentedControl", Component: SegmentedControl },
+  ])(
+    "uses hidden $label name and form changes, and releases omission on unmount",
+    async ({ Component }) => {
+      const view = (
+        mode: "hidden" | "visible",
+        form: string,
+        name?: string,
+      ) => (
+        <StrictMode>
+          <form aria-label="First" id="first-form" />
+          <form aria-label="Second" id="second-form" />
+          <Activity mode={mode}>
+            <Component
+              defaultValue="first"
+              form={form}
+              name={name}
+              options={options}
+            />
+          </Activity>
+        </StrictMode>
+      );
+      const { rerender, unmount } = render(view("visible", "first-form"));
+      const first = screen.getByRole<HTMLFormElement>("form", {
+        name: "First",
+      });
+      const second = screen.getByRole<HTMLFormElement>("form", {
+        name: "Second",
+      });
+      const internalName =
+        screen.getAllByRole<HTMLInputElement>("radio")[0].name;
+      expect(submittedValues(first)).toEqual([]);
+
+      await act(async () => rerender(view("hidden", "second-form", "choice")));
+      expect(submittedValues(first)).toEqual([]);
+      expect(submittedValues(second)).toEqual([["choice", "first"]]);
+      await act(async () => rerender(view("hidden", "second-form")));
+      expect(submittedValues(second)).toEqual([]);
+
+      // A reused name in another form belongs to that form's own field.
+      const other = document.createElement("input");
+      other.type = "radio";
+      other.name = internalName;
+      other.value = "other";
+      other.checked = true;
+      first.append(other);
+      expect(submittedValues(first)).toEqual([[internalName, "other"]]);
+      expect(submittedValues(second)).toEqual([]);
+
+      // Reusing the hook's former form after its hidden unmount must no
+      // longer delete fields sharing its old generated name.
+      unmount();
+      second.append(other);
+      document.body.append(second);
+      try {
+        expect(submittedValues(second)).toEqual([[internalName, "other"]]);
+      } finally {
+        second.remove();
+      }
+    },
+  );
+
+  it.each([
+    { label: "RadioGroup", Component: RadioGroup },
+    { label: "SegmentedControl", Component: SegmentedControl },
+  ])(
+    "keeps unnamed $label omission inside its shadow root after hiding",
+    async ({ Component }) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const shadow = host.attachShadow({ mode: "open" });
+      const container = document.createElement("div");
+      shadow.append(container);
+      const view = (mode: "hidden" | "visible", name?: string) => (
+        <form aria-label="Choices">
+          <Activity mode={mode}>
+            <Component defaultValue="first" name={name} options={options} />
+          </Activity>
+        </form>
+      );
+      const { rerender, unmount } = render(view("visible"), { container });
+      const form = within(container).getByRole<HTMLFormElement>("form");
+      const internalName = form.querySelector("input")!.name;
+      try {
+        expect(submittedValues(form)).toEqual([]);
+        await act(async () => rerender(view("hidden")));
+        expect(submittedValues(form)).toEqual([]);
+        await act(async () => rerender(view("hidden", "choice")));
+        expect(submittedValues(form)).toEqual([["choice", "first"]]);
+        await act(async () => rerender(view("hidden")));
+        expect(submittedValues(form)).toEqual([]);
+        unmount();
+
+        const native = document.createElement("input");
+        native.type = "radio";
+        native.name = internalName;
+        native.value = "native";
+        native.checked = true;
+        form.append(native);
+        container.append(form);
+        expect(submittedValues(form)).toEqual([[internalName, "native"]]);
+      } finally {
+        host.remove();
+      }
+    },
+  );
 
   it.each([false, true])(
     "updates reset defaults in hidden commits without an entered value (controlled: %s)",

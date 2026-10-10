@@ -788,6 +788,54 @@ test("a native reset clears Activity-hidden fields and cancels their upload", as
   await expect(page.getByText("new.txt", { exact: true })).toHaveCount(0);
 });
 
+for (const kind of ["date", "range"]) {
+  for (const initiallyHidden of [false, true]) {
+    test(`a ${kind} calendar validates hidden constraints (initially hidden: ${initiallyHidden})`, async ({
+      page,
+    }) => {
+      await page.goto(
+        `/tests/browser/?scenario=calendar-validity-activity&kind=${kind}&initiallyHidden=${initiallyHidden}`,
+      );
+      const form = page.getByRole("form", { name: "Calendar activity form" });
+      const valid = () =>
+        form.evaluate((element) =>
+          (element as HTMLFormElement).checkValidity(),
+        );
+      await expect.poll(valid).toBe(true);
+      if (!initiallyHidden) {
+        await page
+          .getByRole("button", { name: "Toggle calendar field" })
+          .click();
+      }
+      await expect(page.getByLabel("Calendar field visibility")).toHaveText(
+        "hidden",
+      );
+
+      await page
+        .getByRole("button", { name: "Restrict calendar dates" })
+        .click();
+      await expect.poll(valid).toBe(false);
+      expect(
+        await form.evaluate((element) =>
+          new FormData(element as HTMLFormElement).get("calendar"),
+        ),
+      ).toBe(kind === "range" ? "2026-09-10/2026-09-12" : "2026-09-10");
+
+      await page.getByRole("button", { name: "Allow calendar dates" }).click();
+      await expect.poll(valid).toBe(true);
+      await page
+        .getByRole("button", { name: "Submit calendar", exact: true })
+        .click();
+      await expect(page.getByLabel("Calendar form submitted")).toHaveText(
+        "true",
+      );
+      await expect(page.getByLabel("Calendar field visibility")).toHaveText(
+        "hidden",
+      );
+    });
+  }
+}
+
 test("a required upload finishing while hidden permits native form submission", async ({
   page,
 }) => {
@@ -797,12 +845,17 @@ test("a required upload finishing while hidden permits native form submission", 
     mimeType: "text/plain",
     name: "first.txt",
   });
+  const submit = page.getByRole("button", { name: "Submit uploaded files" });
+  await expect(page.getByLabel("Pending uploads")).toHaveText("1");
+  await expect(submit).toBeDisabled();
   await page.getByRole("button", { name: "Toggle upload fields" }).click();
   await expect(page.getByLabel("Upload field visibility")).toHaveText("hidden");
   await page.getByRole("button", { name: "Finish first upload" }).click();
   await expect(page.getByLabel("Stored upload results")).toHaveText(
     "first.txt",
   );
+  await expect(page.getByLabel("Pending uploads")).toHaveText("0");
+  await expect(submit).toBeEnabled();
 
   const form = page.getByRole("form", { name: "Background upload form" });
   await expect
@@ -815,7 +868,7 @@ test("a required upload finishing while hidden permits native form submission", 
       new FormData(element as HTMLFormElement).getAll("attachments"),
     ),
   ).toEqual(["first.txt"]);
-  await page.getByRole("button", { name: "Submit uploaded files" }).click();
+  await submit.click();
   await expect(page.getByLabel("Upload form submitted")).toHaveText("true");
   await expect(page.getByLabel("Upload field visibility")).toHaveText("hidden");
 });
@@ -932,6 +985,7 @@ for (const change of ["limit", "date", "Activity"] as const) {
   }) => {
     await page.goto("/tests/browser/?scenario=calendar-slots");
     const slot = page.locator("[data-slot='0-0']");
+    await expect(slot).toBeVisible();
     const rect = await slot.boundingBox();
     if (!rect) throw new Error("The calendar slot is missing.");
     const x = rect.x + rect.width / 2;
@@ -970,6 +1024,7 @@ for (const change of ["limit", "date", "Activity"] as const) {
     }
     await expect(preview).toHaveCount(0);
 
+    await expect(slot).toBeVisible();
     const fresh = await slot.boundingBox();
     if (!fresh) throw new Error("The calendar slot did not return.");
     await page.mouse.move(x, fresh.y + fresh.height / 2);
@@ -986,6 +1041,8 @@ test("new splitter limits cancel a native pointer drag before Escape", async ({
   await page.goto("/tests/browser/?scenario=splitter-drag");
   const separator = page.getByRole("separator");
   const control = page.getByTestId("splitter-control");
+  await expect(separator).toBeVisible();
+  await expect(control).toBeVisible();
   const rect = await separator.boundingBox();
   const root = await control.boundingBox();
   if (!rect || !root) throw new Error("The splitter handle is missing.");

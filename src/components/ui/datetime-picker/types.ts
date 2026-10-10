@@ -93,6 +93,8 @@ export interface CustomPickerProps {
   popupActions: boolean;
   /** The date popup: days offered next to the calendar. */
   presets?: DateTimePickerPreset[];
+  /** Keep a rejected typed draft available for correction. */
+  preserveInvalidText?: boolean;
   /** The value is shown and submitted, but the popup does not open. */
   readOnly?: boolean;
   /** The browser checks that the field has a value. */

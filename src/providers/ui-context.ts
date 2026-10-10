@@ -18,7 +18,6 @@ export type PortalContainer =
 
 export interface UIContextValue {
   locale: Locale;
-  portalContainer?: PortalContainer;
   /** The router given - its location is in `RouterLocationContext`. */
   router?: Partial<Pick<RouterAdapter, "back" | "Link" | "navigate">>;
   /** Stable identity of the provider that configures navigation or location. */
@@ -28,6 +27,13 @@ export interface UIContextValue {
 export const UIContext = /* @__PURE__ */ createContext<UIContextValue | null>(
   null,
 );
+
+// Portals read their target during render. Keep the current getter in its
+// own context: a new inline getter must reach them immediately without
+// rendering every component that only reads a locale again.
+export const PortalContainerContext = /* @__PURE__ */ createContext<
+  PortalContainer | undefined
+>(undefined);
 
 /**
  * What of the router of the nearest `UIProvider` stays the same on a
@@ -68,7 +74,7 @@ export function useLocale(): Locale {
  * portal, not on the server.
  */
 export function usePortalContainer(): () => HTMLElement {
-  const container = use(UIContext)?.portalContainer;
+  const container = use(PortalContainerContext);
 
   return () =>
     (typeof container === "function" ? container() : container) ??

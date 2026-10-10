@@ -222,6 +222,47 @@ describe.each(views)(
 );
 
 describe("Calendar geometry and event updates during a move", () => {
+  it.each(["drop", "cancel", "unmount"] as const)(
+    "clears the resize cursor after an allowed/refused/allowed drag ends by %s",
+    (ending) => {
+      const onEventResize = vi.fn();
+      const { unmount } = render(
+        <Calendar
+          canDropEvent={(change) => change.newEnd <= d(24, 11)}
+          events={[review]}
+          initialDate={d(24)}
+          initialView="day"
+          onEventResize={onEventResize}
+        />,
+      );
+      fireEvent.pointerDown(
+        tile().querySelectorAll(".cursor-ns-resize")[1],
+        press,
+      );
+      for (const clientY of [228, 356, 228]) {
+        fireEvent.pointerMove(document, { buttons: 1, clientX: 400, clientY });
+      }
+      // A refused destination clears the preview, but resuming the same
+      // drag must not add a second global cursor style that outlives it.
+      expect(document.querySelectorAll("#calendar-resize-cursor")).toHaveLength(
+        1,
+      );
+
+      if (ending === "unmount") unmount();
+      else
+        fireEvent[ending === "drop" ? "pointerUp" : "pointerCancel"](document);
+
+      expect(document.getElementById("calendar-resize-cursor")).toBeNull();
+      if (ending === "drop") {
+        expect(onEventResize).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ newEnd: d(24, 11), newStart: d(24, 9) }),
+        );
+      } else {
+        expect(onEventResize).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   it.each([
     { update: { dayEndHour: 10 }, name: "hours" },
     { update: { slotDuration: 30 }, name: "slot size" },

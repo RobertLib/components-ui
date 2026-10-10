@@ -379,7 +379,7 @@ export default function useEventMove(options: UseEventMoveOptions) {
         }
         if (current && sameDisplay(next, current)) return;
 
-        if (!current && geometry.cursor) {
+        if (!cursorStyle && geometry.cursor) {
           cursorStyle = addCursor(geometry.cursor);
         }
         current = next;

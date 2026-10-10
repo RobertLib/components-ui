@@ -2,6 +2,7 @@ import {
   cloneElement,
   Fragment,
   isValidElement,
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -172,17 +173,20 @@ function useLongPress(
   } | null>(null);
   const onLongPressRef = useRef(onLongPress);
 
-  useLayoutEffect(() => {
-    onLongPressRef.current = onLongPress;
-  });
-
-  const cancel = () => {
+  const cancel = useCallback(() => {
     if (pressRef.current) clearTimeout(pressRef.current.timer);
     pressRef.current = null;
-  };
+  }, []);
+
+  useLayoutEffect(() => {
+    onLongPressRef.current = onLongPress;
+    // Availability can change before the finger is released. Forget that
+    // press even if the menu becomes available again before its timer fires.
+    if (!enabled) cancel();
+  });
 
   // A long press about to open the menu must not outlive the target
-  useEffect(() => cancel, []);
+  useEffect(() => cancel, [cancel]);
 
   return {
     cancel,

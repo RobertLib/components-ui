@@ -63,7 +63,10 @@ export function observeSearch(entry: PendingSearches, search: string) {
   }
   entry.seen = search;
 
-  const index = entry.pending.indexOf(search);
+  // A router may show only the latest navigation. When a query repeats
+  // (a, b, a), confirming its last occurrence must also discard the skipped
+  // ones, or Back onto b would look like another delayed confirmation.
+  const index = entry.pending.lastIndexOf(search);
   // Not one of the changes - from elsewhere, e.g. the back button, which
   // wins. Otherwise the router caught up with one of them - later ones
   // still wait.

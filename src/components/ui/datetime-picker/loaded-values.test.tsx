@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import DateTimePicker, { type DateTimePickerType } from ".";
 
@@ -205,4 +206,250 @@ describe("DateTimePicker supplied values", () => {
       true,
     );
   });
+});
+
+const preciseTimeRanges = [
+  { value: "17:00:45", max: "17:00:30", valid: false },
+  { value: "09:30:45", min: "09:30:30", valid: true },
+  { value: "09:30:15", min: "09:30:30", valid: false },
+  { value: "17:00:15", max: "17:00:30", valid: true },
+  { value: "09:30", min: "09:30:00.000", valid: true },
+  { value: "09:30:00.000", max: "09:30", valid: true },
+  {
+    value: "09:30:30.125",
+    min: "09:30:30.1000",
+    max: "09:30:30.2",
+    valid: true,
+  },
+  { value: "09:30:30.2", max: "09:30:30.125", valid: false },
+  { value: "09:30:30.1", min: "09:30:30.125", valid: false },
+];
+
+describe.each(["defaultValue", "value"] as const)(
+  "DateTimePicker precise supplied %s ranges",
+  (source) => {
+    describe.each(["time", "datetime-local"] as const)("%s", (type) => {
+      const toValue = (time: string | undefined) =>
+        time === undefined
+          ? undefined
+          : type === "time"
+            ? time
+            : `2026-09-24T${time}`;
+
+      it.each(preciseTimeRanges)(
+        "validates $value against $min / $max while preserving submitted seconds",
+        ({ max, min, valid, value }) => {
+          const supplied = toValue(value)!;
+          render(
+            <form aria-label="Booking">
+              <DateTimePicker
+                {...(source === "value"
+                  ? { value: supplied }
+                  : { defaultValue: supplied })}
+                label="When"
+                max={toValue(max)}
+                min={toValue(min)}
+                name="when"
+                type={type}
+              />
+              <input
+                aria-label="Native"
+                defaultValue={supplied}
+                max={toValue(max)}
+                min={toValue(min)}
+                step="any"
+                type={type}
+              />
+            </form>,
+          );
+          const form = screen.getByRole<HTMLFormElement>("form");
+          const field = screen.getByRole<HTMLInputElement>("combobox");
+          const native = screen.getByLabelText<HTMLInputElement>("Native");
+
+          expect(field.checkValidity()).toBe(valid);
+          expect(native.checkValidity()).toBe(valid);
+          expect(form.checkValidity()).toBe(valid);
+          expect(new FormData(form).get("when")).toBe(supplied);
+        },
+      );
+    });
+
+    it.each([
+      { value: "22:00:45", min: "22:00:30", max: "06:00:30", valid: true },
+      { value: "06:00:45", min: "22:00:30", max: "06:00:30", valid: false },
+      { value: "06:00:30", min: "22:00:30", max: "06:00:30", valid: true },
+      { value: "22:00:15", min: "22:00:30", max: "06:00:30", valid: false },
+      { value: "09:30:50", min: "09:30:45", max: "09:30:15", valid: true },
+      { value: "09:30:05", min: "09:30:45", max: "09:30:15", valid: true },
+      { value: "09:30:30", min: "09:30:45", max: "09:30:15", valid: false },
+    ])(
+      "checks seconds at the ends of the reversed time range $min / $max ($value)",
+      ({ max, min, valid, value }) => {
+        render(
+          <form aria-label="Booking">
+            <DateTimePicker
+              {...(source === "value" ? { value } : { defaultValue: value })}
+              label="When"
+              max={max}
+              min={min}
+              name="when"
+              type="time"
+            />
+          </form>,
+        );
+        const form = screen.getByRole<HTMLFormElement>("form");
+        expect(form.checkValidity()).toBe(valid);
+        expect(new FormData(form).get("when")).toBe(value);
+      },
+    );
+
+    it.each([
+      { value: "2026-09-24T00:00:00.000", valid: true },
+      { value: "2026-09-24T23:59:59.999", valid: true },
+      { value: "2026-09-25T00:00", valid: false },
+      { value: "2026-09-23T23:59:59.999", valid: false },
+    ])(
+      "allows every second of date-only bounds ($value)",
+      ({ value, valid }) => {
+        render(
+          <form aria-label="Booking">
+            <DateTimePicker
+              {...(source === "value" ? { value } : { defaultValue: value })}
+              label="When"
+              max="2026-09-24"
+              min="2026-09-24"
+              name="when"
+              type="datetime-local"
+            />
+          </form>,
+        );
+        const form = screen.getByRole<HTMLFormElement>("form");
+        expect(form.checkValidity()).toBe(valid);
+        expect(new FormData(form).get("when")).toBe(value);
+      },
+    );
+  },
+);
+
+it.each(["time", "datetime-local"] as const)(
+  "keeps the %s popup on whole minute options while a supplied second-level value is valid",
+  async (type) => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const toValue = (time: string) =>
+      type === "time" ? time : `2026-09-24T${time}`;
+    render(
+      <form aria-label="Booking">
+        <DateTimePicker
+          defaultValue={toValue("09:30:45")}
+          label="When"
+          min={toValue("09:30:30")}
+          minuteStep={15}
+          name="when"
+          onChange={onChange}
+          type={type}
+        />
+      </form>,
+    );
+    const form = screen.getByRole<HTMLFormElement>("form");
+    const field = screen.getByRole("combobox");
+    expect(form.checkValidity()).toBe(true);
+    await user.click(field);
+    const minutes = await screen.findByRole("listbox", { name: "Minutes" });
+    expect(within(minutes).getByRole("option", { name: "30" })).toBeDisabled();
+    await user.click(within(minutes).getByRole("option", { name: "45" }));
+
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        target: { name: "when", value: toValue("09:45") },
+      }),
+    );
+    expect(form.checkValidity()).toBe(true);
+    expect(new FormData(form).get("when")).toBe(toValue("09:45"));
+  },
+);
+
+describe.each(["time", "datetime-local"] as const)(
+  "%s second-level popup bounds",
+  (type) => {
+    it.each(["09:30", "23:59"])(
+      "offers no whole-minute selection between seconds 15–45 of %s",
+      async (time) => {
+        const user = userEvent.setup();
+        const onChange = vi.fn();
+        const toValue = (clock: string) =>
+          type === "time" ? clock : `2026-09-24T${clock}`;
+        const supplied = toValue(`${time}:30`);
+        render(
+          <form aria-label="Booking">
+            <DateTimePicker
+              defaultValue={supplied}
+              label="When"
+              max={toValue(`${time}:45`)}
+              min={toValue(`${time}:15`)}
+              minuteStep={15}
+              name="when"
+              onChange={onChange}
+              type={type}
+            />
+          </form>,
+        );
+        const form = screen.getByRole<HTMLFormElement>("form");
+        expect(form.checkValidity()).toBe(true);
+        await user.click(screen.getByRole("combobox"));
+        const hours = await screen.findByRole("listbox", { name: "Hours" });
+        const minutes = screen.getByRole("listbox", { name: "Minutes" });
+        for (const option of [
+          ...within(hours).getAllByRole("option"),
+          ...within(minutes).getAllByRole("option"),
+        ]) {
+          expect(option).toBeDisabled();
+        }
+
+        await user.click(within(hours).getByRole("option", { name: "10 AM" }));
+        await user.click(within(minutes).getByRole("option", { name: "00" }));
+        if (type === "datetime-local") {
+          await user.click(
+            screen.getByRole("button", { name: "September 24, 2026" }),
+          );
+        }
+        expect(onChange).not.toHaveBeenCalled();
+        expect(form.checkValidity()).toBe(true);
+        expect(new FormData(form).get("when")).toBe(supplied);
+      },
+    );
+  },
+);
+
+it("keeps a genuinely reversed second-level time range selectable across midnight", async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  render(
+    <form aria-label="Booking">
+      <DateTimePicker
+        defaultValue="09:30:50"
+        label="When"
+        max="09:30:15"
+        min="09:30:45"
+        minuteStep={15}
+        name="when"
+        onChange={onChange}
+        type="time"
+      />
+    </form>,
+  );
+  const form = screen.getByRole<HTMLFormElement>("form");
+  await user.click(screen.getByRole("combobox"));
+  const hours = await screen.findByRole("listbox", { name: "Hours" });
+  const minutes = screen.getByRole("listbox", { name: "Minutes" });
+  expect(within(minutes).getByRole("option", { name: "30" })).toBeEnabled();
+  const hour = within(hours).getByRole("option", { name: "10 AM" });
+  expect(hour).toBeEnabled();
+  await user.click(hour);
+
+  expect(onChange).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ target: { name: "when", value: "10:30" } }),
+  );
+  expect(form.checkValidity()).toBe(true);
+  expect(new FormData(form).get("when")).toBe("10:30");
 });

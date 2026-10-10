@@ -972,6 +972,9 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
 
     if (syncWithDefaultValue || (appliedDefaultKey === "[]" && !interacted)) {
       setInternalValues(toValues(defaultValue));
+      // The new value replaces the draft too: a custom value is submitted
+      // from `search`, and otherwise would overwrite this default on blur.
+      setSearch(null);
     }
   }
 

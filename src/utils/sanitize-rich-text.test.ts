@@ -258,6 +258,25 @@ describe("sanitizeRichText of pasted content", () => {
     );
   });
 
+  it.each([0, 2, 99])(
+    "keeps row spans of %i in their source row group",
+    (span) => {
+      expect(
+        sanitizeRichText(
+          `<table><thead><tr><th rowspan="${span}">Header</th><th>A</th></tr></thead>` +
+            `<tbody><tr><td rowspan="${span}">B</td><td>C</td></tr><tr><td>D</td></tr></tbody>` +
+            "<tbody><tr><td>E</td><td>F</td></tr></tbody>" +
+            "<tfoot><tr><td>G</td><td>H</td></tr></tfoot></table>",
+        ),
+      ).toBe(
+        "<table><thead><tr><th>Header</th><th>A</th></tr></thead><tbody>" +
+          "<tr><td>B</td><td>C</td></tr><tr><td></td><td>D</td></tr>" +
+          "<tr><td>E</td><td>F</td></tr><tr><td>G</td><td>H</td></tr>" +
+          "</tbody></table>",
+      );
+    },
+  );
+
   it("makes the blocks of a table cell its lines", () => {
     // Google Docs puts paragraphs into the cells
     expect(

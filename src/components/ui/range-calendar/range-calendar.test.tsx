@@ -332,7 +332,7 @@ describe("RangeCalendar", () => {
     expect(day("September 30, 2026")).toHaveAttribute("aria-disabled", "true");
     await user.click(day("September 28, 2026"));
     expect(new FormData(getForm()).get("stay")).toBe("2026-09-26/2026-09-28");
-    expect(validation()).toBeNull();
+    expect(validation()).toBeValid();
     expect(getForm().checkValidity()).toBe(true);
   });
 

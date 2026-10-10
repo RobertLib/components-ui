@@ -186,6 +186,71 @@ const name = "reports";
   );
 
   await t.test(
+    "keeps the classes of transformed modules loaded by globs and dynamic imports",
+    async () => {
+      mkdirSync(join(source, "mdx-pages"), { recursive: true });
+      write("mdx-pages/page.mdx", "<Button>Example</Button>\n");
+      const mdx = {
+        name: "mdx-pages",
+        transform: (_code, id) =>
+          id.split("?")[0].endsWith(".mdx")
+            ? 'export { Button as default } from "../components/ui";'
+            : undefined,
+      };
+      for (const entry of [
+        'globalThis.pages = import.meta.glob("./mdx-pages/*.mdx", { eager: true });',
+        'globalThis.pages = import.meta.glob("./mdx-pages/page.?dx", { eager: true });',
+        'const name = "page"; globalThis.pages = import(`./mdx-pages/${name}.mdx`);',
+        'const name = "page"; globalThis.pages = import(`./mdx-pages/${name}.mdx?component`);',
+      ]) {
+        write("main.tsx", `import "./index.css";\n${entry}\n`);
+        const full = await buildApp(directory, { isLibrary, plugins: [mdx] });
+        const app = await buildApp(directory, {
+          isLibrary,
+          plugins: [mdx, componentsUi()],
+        });
+        assert.equal(app.js, full.js, entry);
+        assert.equal(app.css, full.css, entry);
+        assert.deepEqual(missingClasses(app, full), [], entry);
+        assert.equal(app.warnings.length, 1, entry);
+        assert.match(
+          app.warnings[0],
+          /cannot read the module .*page\.mdx/,
+          entry,
+        );
+      }
+    },
+  );
+
+  await t.test(
+    "optimizes script globs beside unused transformed modules",
+    async () => {
+      mkdirSync(join(source, "mdx-pages"), { recursive: true });
+      write("mdx-pages/page.mdx", "<Button>Example</Button>\n");
+      write(
+        "mdx-pages/page.tsx",
+        'export { Button as default } from "../components/ui";\n',
+      );
+      for (const entry of [
+        'globalThis.pages = import.meta.glob("./mdx-pages/*.tsx", { eager: true });',
+        'const name = "page"; globalThis.pages = import(`./mdx-pages/${name}.tsx`);',
+        'const name = "page"; globalThis.pages = import(`./mdx-pages/${name}.tsx?component`);',
+      ]) {
+        write("main.tsx", `import "./index.css";\n${entry}\n`);
+        const full = await buildApp(directory, { isLibrary });
+        const app = await buildApp(directory, {
+          isLibrary,
+          plugins: [componentsUi()],
+        });
+        assert.equal(app.js, full.js, entry);
+        assert.deepEqual(missingClasses(app, full), [], entry);
+        assert.deepEqual(app.warnings, [], entry);
+        assert.ok(app.css.length < full.css.length / 2, entry);
+      }
+    },
+  );
+
+  await t.test(
     "fails a build with the code of a module it left out",
     async () => {
       // Another plugin adds an import the files of the app do not have
@@ -201,6 +266,35 @@ const name = "reports";
         buildApp(directory, { isLibrary, plugins: [imports, componentsUi()] }),
         /left out of Tailwind's sources/,
       );
+    },
+  );
+
+  await t.test(
+    "checks excluded modules with queries and preserved symlink paths",
+    async () => {
+      symlinkSync(source, join(directory, "linked-src"), "junction");
+      for (const [from, preserveSymlinks] of [
+        ["./components/ui/separator.tsx?injected", false],
+        ["../linked-src/components/ui/separator.tsx?injected", true],
+      ]) {
+        const imports = {
+          name: "imports-with-query",
+          config: () => ({ resolve: { preserveSymlinks } }),
+          transform: (code, id) =>
+            id.endsWith("/src/main.tsx")
+              ? `${code}\nimport Separator from ${JSON.stringify(from)};\nglobalThis.separator = Separator;\n`
+              : undefined,
+        };
+        write("main.tsx", entryOf(["Button"]));
+        await assert.rejects(
+          buildApp(directory, {
+            isLibrary,
+            plugins: [imports, componentsUi()],
+          }),
+          /src\/components\/ui\/separator\.tsx, which the plugin left out of Tailwind's sources/,
+          from,
+        );
+      }
     },
   );
 

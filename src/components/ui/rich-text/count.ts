@@ -21,6 +21,32 @@ const BLOCK_CONTAINERS = new Set([
 const WHITESPACE = /[\t\n\f\r ]+/g;
 const BLANK = /^[\t\n\f\r ]*$/;
 
+const BLOCK_ELEMENTS = new Set([
+  // Keep the names literal: spreading a Set makes an unused source copy
+  // retain its iterator as a possible side effect during tree shaking.
+  "BLOCKQUOTE",
+  "OL",
+  "TABLE",
+  "TBODY",
+  "TFOOT",
+  "THEAD",
+  "TR",
+  "UL",
+  "DIV",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "LI",
+  "P",
+  "PRE",
+  "TD",
+  "TH",
+]);
+const INLINE_BREAKS = new Set(["BR", "HR", "IMG"]);
+
 /** Whether a text node is in a code block, whose whitespace all shows. */
 function isInCode(node: Node, root: Node) {
   for (let parent = node.parentNode; parent; parent = parent.parentNode) {
@@ -30,50 +56,141 @@ function isInCode(node: Node, root: Node) {
   return false;
 }
 
-/** The text of a text node as it shows - its whitespace collapsed. */
-function shownText(text: Text, root: Node, data = text.data) {
-  if (isInCode(text, root)) return data;
-
+/** Source formatting between blocks, rather than a space between inline marks. */
+function isBetweenBlocks(text: Text, root: Node) {
   const parent = text.parentNode;
-  const isBetweenBlocks =
-    !parent || parent === root || BLOCK_CONTAINERS.has(parent.nodeName);
-  if (isBetweenBlocks && BLANK.test(text.data)) return "";
-
-  return data.replace(WHITESPACE, " ");
+  return (
+    !parent ||
+    BLOCK_CONTAINERS.has(parent.nodeName) ||
+    (parent === root &&
+      ((!text.previousSibling && !text.nextSibling) ||
+        BLOCK_ELEMENTS.has(text.previousSibling?.nodeName ?? "") ||
+        BLOCK_ELEMENTS.has(text.nextSibling?.nodeName ?? "")))
+  );
 }
 
-function textNodesOf(root: Node) {
-  const doc = root.ownerDocument ?? (root as Document);
-  const walker = doc.createTreeWalker(root, 0x4 /* SHOW_TEXT */);
-  const texts: Text[] = [];
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    texts.push(node as Text);
+/** The line whose inline nodes share collapsing whitespace. */
+function lineOf(text: Text, root: Node) {
+  for (
+    let parent = text.parentNode;
+    parent && parent !== root;
+    parent = parent.parentNode
+  ) {
+    if (BLOCK_ELEMENTS.has(parent.nodeName)) return parent;
   }
-  return texts;
+  return root;
+}
+
+/** Text nodes in document order; null separates independent whitespace runs. */
+function* contentParts(root: Node) {
+  const doc = root.ownerDocument ?? (root as Document);
+  const walker = doc.createTreeWalker(root, 0x5 /* SHOW_ELEMENT | SHOW_TEXT */);
+  let line: Node | null = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.nodeType === 1) {
+      if (
+        BLOCK_ELEMENTS.has(node.nodeName) ||
+        INLINE_BREAKS.has(node.nodeName)
+      ) {
+        yield null;
+      }
+      continue;
+    }
+
+    const text = node as Text;
+    const nextLine = lineOf(text, root);
+    if (nextLine !== line) yield null;
+    line = nextLine;
+    if (
+      !isInCode(text, root) &&
+      isBetweenBlocks(text, root) &&
+      BLANK.test(text.data)
+    ) {
+      continue;
+    }
+    yield text;
+  }
+}
+
+/**
+ * The text as it shows, collapsing whitespace across inline nodes. Code
+ * and no-break spaces keep their literal characters.
+ */
+function* shownTexts(root: Node) {
+  let endsWithSpace = false;
+  for (const text of contentParts(root)) {
+    if (!text) {
+      endsWithSpace = false;
+      continue;
+    }
+    if (isInCode(text, root)) {
+      endsWithSpace = false;
+      yield { text, shown: text.data };
+      continue;
+    }
+
+    let shown = text.data.replace(WHITESPACE, " ");
+    if (endsWithSpace && shown.startsWith(" ")) shown = shown.slice(1);
+    if (shown) endsWithSpace = shown.endsWith(" ");
+    yield { text, shown };
+  }
 }
 
 /** The characters of the content of a node - an element or a fragment. */
 export function countCharacters(root: Node) {
   let count = 0;
-  for (const text of textNodesOf(root)) count += shownText(text, root).length;
+  for (const { shown } of shownTexts(root)) count += shown.length;
   return count;
 }
 
 /**
- * The characters of a selection in its original context. Cloning the range
- * would lose its surrounding paragraph or code block, changing how its
- * whitespace is counted.
+ * The characters a selection replaces in its original context. A collapsed
+ * whitespace run frees one character only when the whole run is selected;
+ * deleting part of it leaves the same visible space in the editor.
  */
 export function countRangeCharacters(root: Node, range: Range) {
   if (range.collapsed) return 0;
 
   let count = 0;
-  for (const text of textNodesOf(root)) {
-    if (!range.intersectsNode(text)) continue;
-    const start = text === range.startContainer ? range.startOffset : 0;
-    const end = text === range.endContainer ? range.endOffset : text.length;
-    count += shownText(text, root, text.data.slice(start, end)).length;
+  let selectedSpace: boolean | undefined;
+  const endSpace = () => {
+    if (selectedSpace) count += 1;
+    selectedSpace = undefined;
+  };
+  for (const text of contentParts(root)) {
+    if (!text) {
+      endSpace();
+      continue;
+    }
+    const intersects = range.intersectsNode(text);
+    const start = intersects
+      ? range.startContainer === text
+        ? range.startOffset
+        : 0
+      : 0;
+    const end = intersects
+      ? range.endContainer === text
+        ? range.endOffset
+        : text.length
+      : 0;
+    if (isInCode(text, root)) {
+      endSpace();
+      count += end - start;
+      continue;
+    }
+
+    for (const part of text.data.matchAll(/[\t\n\f\r ]+|[^\t\n\f\r ]+/g)) {
+      const from = part.index;
+      const to = from + part[0].length;
+      if (BLANK.test(part[0])) {
+        selectedSpace = (selectedSpace ?? true) && start <= from && end >= to;
+      } else {
+        endSpace();
+        count += Math.max(0, Math.min(end, to) - Math.max(start, from));
+      }
+    }
   }
+  endSpace();
   return count;
 }
 
@@ -132,8 +249,7 @@ export function truncateHtml(html: string, max: number) {
   const root = template.content;
   let count = 0;
 
-  for (const text of textNodesOf(root)) {
-    const shown = shownText(text, root);
+  for (const { text, shown } of shownTexts(root)) {
     if (count + shown.length <= max) {
       count += shown.length;
       continue;

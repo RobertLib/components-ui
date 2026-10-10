@@ -2931,6 +2931,32 @@ describe("RichTextEditor character count", () => {
     expect(beforeInput("insertParagraph")).toBe(true);
   });
 
+  it("does not add room for a partial selection of a collapsed whitespace run", () => {
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+    render(
+      <RichTextEditor
+        defaultValue="<p>a <b> y</b></p>"
+        label="Note"
+        maxLength={3}
+        showCount
+      />,
+    );
+    expect(screen.getByText("3 / 3")).toBeVisible();
+    const text = textNode(" y");
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 1);
+    act(() => {
+      document.getSelection()?.removeAllRanges();
+      document.getSelection()?.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+    });
+
+    expect(beforeInput("insertText", "z")).toBe(false);
+    expect(execCommand).not.toHaveBeenCalled();
+  });
+
   it("cuts pasted content that does not fit", () => {
     const execCommand = vi.fn(() => true);
     document.execCommand = execCommand;

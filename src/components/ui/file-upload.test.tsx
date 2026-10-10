@@ -618,6 +618,71 @@ describe("FileUpload", () => {
     expect(onPendingChange.mock.calls).toEqual([[1], [0]]);
   });
 
+  it("reports pending changes to the latest callback while uploads finish hidden", async () => {
+    const first = vi.fn();
+    const latest = vi.fn();
+    const { pending, upload } = controllableUpload();
+    const view = (
+      mode: "hidden" | "visible",
+      onPendingChange: (pending: number) => void,
+    ) => (
+      <StrictMode>
+        <form aria-label="Files">
+          <Activity mode={mode}>
+            <FileUpload
+              concurrency={1}
+              multiple
+              name="files"
+              onPendingChange={onPendingChange}
+              upload={upload}
+            />
+          </Activity>
+        </form>
+      </StrictMode>
+    );
+    const { rerender } = render(view("visible", first));
+    const form = screen.getByRole<HTMLFormElement>("form");
+    drop(screen.getByRole("group"), [file("a.pdf"), file("b.pdf")]);
+    expect(first.mock.calls).toEqual([[2]]);
+    await act(async () => rerender(view("hidden", latest)));
+
+    await act(async () => pending[0].resolve({ value: "a" }));
+    expect(latest.mock.calls).toEqual([[1]]);
+    expect(form.checkValidity()).toBe(false);
+    await act(async () => pending[1].resolve({ value: "b" }));
+    expect(latest.mock.calls).toEqual([[1], [0]]);
+    expect(submitted(form, "files")).toEqual(["a", "b"]);
+    expect(form.checkValidity()).toBe(true);
+    rerender(view("visible", latest));
+    expect(latest.mock.calls).toEqual([[1], [0]]);
+  });
+
+  it("reports the end only once when a pending-count callback unmounts the field", async () => {
+    const { pending, upload } = controllableUpload();
+    const onPendingChange = vi.fn();
+    function Form() {
+      const [open, setOpen] = useState(true);
+      return open ? (
+        <FileUpload
+          upload={upload}
+          onPendingChange={(count) => {
+            onPendingChange(count);
+            if (count === 0) setOpen(false);
+          }}
+        />
+      ) : null;
+    }
+    render(
+      <StrictMode>
+        <Form />
+      </StrictMode>,
+    );
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    await act(async () => pending[0].resolve({ value: "a" }));
+    expect(onPendingChange.mock.calls).toEqual([[1], [0]]);
+    expect(screen.queryByRole("group")).not.toBeInTheDocument();
+  });
+
   it("cancels the upload - and aborts it when it goes away", async () => {
     const user = userEvent.setup();
     const { pending, upload } = controllableUpload();

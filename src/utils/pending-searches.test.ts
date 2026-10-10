@@ -47,4 +47,29 @@ describe("observeSearch", () => {
     observeSearch(entry, "?tab=2");
     expect(entry.pending).toEqual([]);
   });
+
+  it("acknowledges the latest occurrence of a repeated pending query before Back", () => {
+    const entry = getPendingSearches({}, "/people", "");
+    navigate(entry, "?q=a");
+    navigate(entry, "?q=b");
+    navigate(entry, "?q=a");
+
+    // A loader finishes only the last navigation, skipping a and b.
+    observeSearch(entry, "?q=a");
+    expect(entry.pending).toEqual([]);
+    observeSearch(entry, "?q=b");
+    expect(entry.pending).toEqual([]);
+    expect(entry.seen).toBe("?q=b");
+  });
+
+  it("keeps later distinct changes after a repeated query is acknowledged", () => {
+    const entry = getPendingSearches({}, "/people", "");
+    navigate(entry, "?q=a");
+    navigate(entry, "?q=b");
+    navigate(entry, "?q=a");
+    navigate(entry, "?q=c");
+
+    observeSearch(entry, "?q=a");
+    expect(entry.pending).toEqual(["?q=c"]);
+  });
 });

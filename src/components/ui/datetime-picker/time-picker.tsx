@@ -9,7 +9,6 @@ import {
 } from "./parse";
 import TimeLists from "./time-lists";
 import usePickerPopup from "./use-picker-popup";
-import { formatMessage } from "../../../i18n/ui/format";
 import {
   formatPattern,
   formatPlaceholder,
@@ -49,10 +48,6 @@ export default function TimePicker({
 
   const dayPeriods = getDayPeriods(locale.code);
   const time = parseTime(value);
-  // A reversed range (22:00 - 06:00) spans midnight, as for a native input
-  // - limits with seconds are rounded into the range
-  const minTime = normalizeTime(min, "min");
-  const maxTime = normalizeTime(max, "max");
 
   /** A time (`HH:mm`) as the field shows it. */
   const formatValue = (hoursAndMinutes: string) => {
@@ -67,19 +62,15 @@ export default function TimePicker({
   };
 
   const selectedTime = time ? `${time.hours}:${time.minutes}` : undefined;
-  // A time out of a range over midnight is before its start, and after its
-  // end - the start is said
-  const rangeMessage =
-    selectedTime && minTime && maxTime && minTime > maxTime
-      ? isTimeInRange(selectedTime, minTime, maxTime)
-        ? ""
-        : formatMessage(messages.rangeUnderflow, { min: formatValue(minTime) })
-      : getRangeMessage(
-          messages,
-          selectedTime,
-          { max: maxTime, min: minTime },
-          formatValue,
-        );
+  // Validate the supplied seconds that the form submits. The popup and the
+  // guidance in the message still offer whole minutes within those limits.
+  const rangeMessage = getRangeMessage(
+    messages,
+    value,
+    { max, min },
+    (limit, kind) => formatValue(normalizeTime(limit, kind) ?? limit),
+    "time",
+  );
 
   return (
     <PickerField
@@ -107,9 +98,10 @@ export default function TimePicker({
         );
         if (!typed) return { error: "format" };
         // An allowed time goes onto the minute step
-        return isTimeInRange(typed, minTime, maxTime)
-          ? { value: snapTime(typed, minuteStep, minTime, maxTime) }
-          : { error: "range" };
+        const snapped = isTimeInRange(typed, min, max)
+          ? snapTime(typed, minuteStep, min, max)
+          : undefined;
+        return snapped ? { value: snapped } : { error: "range" };
       }}
       pickCount={pickCount}
       placeholder={placeholder}
@@ -128,15 +120,15 @@ export default function TimePicker({
         autoFocus={openedByKeyboard}
         hour12={usesHour12(locale.formats.time)}
         hours={time?.hours ?? null}
-        max={maxTime}
-        min={minTime}
+        max={max}
+        min={min}
         minuteStep={minuteStep}
         minutes={time?.minutes ?? null}
         onChange={(hours, minutes) => {
+          const next = snapTime(`${hours}:${minutes}`, minuteStep, min, max);
+          if (!next) return;
           markPicked();
-          onValueChange(
-            snapTime(`${hours}:${minutes}`, minuteStep, minTime, maxTime),
-          );
+          onValueChange(next);
         }}
         onEscape={close}
       />

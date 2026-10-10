@@ -36,6 +36,17 @@ describe("countHtmlCharacters", () => {
     expect(countCharacters(editor)).toBe(11);
     expect(countRangeCharacters(editor, range)).toBe(3);
   });
+
+  it("collapses whitespace across inline marks without combining separate lines", () => {
+    expect(countHtmlCharacters("<p>a<b>x </b> y</p>")).toBe(4);
+    expect(countHtmlCharacters("<p>a <b> <i> </i> </b> y</p>")).toBe(3);
+    expect(countHtmlCharacters("<b>a</b> <b>b</b>")).toBe(3);
+    expect(countHtmlCharacters("<p>a </p><p> b</p>")).toBe(4);
+    expect(countHtmlCharacters("<p>a <br> b</p>")).toBe(4);
+    expect(countHtmlCharacters('<p>a <img src="/a.png"> b</p>')).toBe(4);
+    expect(countHtmlCharacters("<p>a&nbsp;<b> </b> b</p>")).toBe(4);
+    expect(countHtmlCharacters("<pre><code>a <b> </b> b</code></pre>")).toBe(5);
+  });
 });
 
 describe("countRangeCharacters", () => {
@@ -106,9 +117,53 @@ describe("countRangeCharacters", () => {
     range.selectNodeContents(editor);
     expect(countRangeCharacters(editor, range)).toBe(countCharacters(editor));
   });
+
+  it("counts selected whitespace across inline marks once in its original line", () => {
+    const editor = document.createElement("div");
+    editor.innerHTML = "<p>a<b>x </b> y</p>";
+    const bold = editor.querySelector("b")?.firstChild as Text;
+    const after = editor.querySelector("p")?.lastChild as Text;
+    const range = document.createRange();
+    range.setStart(bold, 1);
+    range.setEnd(after, 1);
+    expect(countRangeCharacters(editor, range)).toBe(1);
+    range.selectNodeContents(editor);
+    expect(countRangeCharacters(editor, range)).toBe(4);
+  });
+
+  it("does not free a collapsed space when only part of its run is selected", () => {
+    const editor = document.createElement("div");
+    editor.innerHTML = "<p>a <b> y</b></p>";
+    const first = editor.querySelector("p")?.firstChild as Text;
+    const second = editor.querySelector("b")?.firstChild as Text;
+    const range = document.createRange();
+    range.setStart(second, 0);
+    range.setEnd(second, 1);
+    expect(countRangeCharacters(editor, range)).toBe(0);
+    range.setStart(first, 1);
+    range.setEnd(first, 2);
+    expect(countRangeCharacters(editor, range)).toBe(0);
+    range.setEnd(second, 1);
+    expect(countRangeCharacters(editor, range)).toBe(1);
+
+    editor.innerHTML = "<p>a   b</p>";
+    const text = editor.querySelector("p")?.firstChild as Text;
+    range.setStart(text, 2);
+    range.setEnd(text, 3);
+    expect(countRangeCharacters(editor, range)).toBe(0);
+  });
 });
 
 describe("truncateHtml", () => {
+  it("keeps text that fits after collapsing whitespace across inline marks", () => {
+    const html = "<p>a<b>x </b> y</p>";
+    expect(truncateHtml(html, 4)).toBe(html);
+    expect(truncateHtml(html, 3)).toBe("<p>a<b>x </b></p>");
+    const cut = truncateHtml("<p>a <b> yZ</b></p>", 3);
+    expect(cut).toBe("<p>a <b>y</b></p>");
+    expect(countHtmlCharacters(cut)).toBe(3);
+  });
+
   it("cuts HTML after its characters, closing the elements it cuts", () => {
     expect(truncateHtml("<p>ab<b>cd</b>ef</p><p>gh</p>", 3)).toBe(
       "<p>ab<b>c</b></p>",

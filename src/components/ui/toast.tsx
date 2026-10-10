@@ -299,10 +299,11 @@ export default function Toast({
     return () => clearTimeout(timer);
   }, [isAnnounced, isGone]);
 
-  // The whole time again for a new duration - and for a new text
+  // The whole time again for an update or duration change, and after a
+  // loading phase - even one started partway through the previous timer.
   useEffect(() => {
     remainingTime.current = timeOnScreen;
-  }, [revision, timeOnScreen]);
+  }, [loading, revision, timeOnScreen]);
 
   useEffect(() => {
     if (persist || loading || isPaused || !isShown) return;

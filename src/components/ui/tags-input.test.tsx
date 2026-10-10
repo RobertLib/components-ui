@@ -150,6 +150,182 @@ describe("TagsInput", () => {
     expect(field).toHaveValue("");
   });
 
+  it.each(["before", "after"])(
+    "discards a reset composition with its final input %s compositionend",
+    async (finalInput) => {
+      const onChange = vi.fn();
+      render(
+        <form aria-label="Tags">
+          <TagsInput
+            defaultValue={["original"]}
+            name="tags"
+            onChange={onChange}
+            separators={[" "]}
+          />
+        </form>,
+      );
+      const field = input();
+      fireEvent.compositionStart(field);
+      fireEvent.input(field, { isComposing: true, target: { value: "你 好" } });
+      const finishInput = () =>
+        fireEvent.input(field, {
+          isComposing: false,
+          target: { value: "你 好" },
+        });
+      act(() => getForm().reset());
+      await waitFor(() => expect(field).toHaveValue(""));
+
+      fireEvent.input(field, { isComposing: true, target: { value: "你 好" } });
+      if (finalInput === "before") finishInput();
+      fireEvent.compositionEnd(field, {
+        data: "你 好",
+        target: { value: "你 好" },
+      });
+      if (finalInput === "after") finishInput();
+      expect(shownTags()).toEqual(["original"]);
+      expect(new FormData(getForm()).getAll("tags")).toEqual(["original"]);
+      expect(field).toHaveValue("");
+      expect(onChange).not.toHaveBeenCalled();
+
+      fireEvent.change(field, { target: { value: "new " } });
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(["original", "new"]);
+    },
+  );
+
+  it("accepts another edit when a reset cancels composition without its final event", async () => {
+    const onChange = vi.fn();
+    render(
+      <form aria-label="Tags">
+        <TagsInput name="tags" onChange={onChange} />
+      </form>,
+    );
+    const field = input();
+    fireEvent.compositionStart(field);
+    fireEvent.input(field, {
+      isComposing: true,
+      target: { value: "discarded," },
+    });
+    act(() => getForm().reset());
+    await waitFor(() => expect(field).toHaveValue(""));
+    fireEvent.change(field, { target: { value: "new," } });
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(["new"]);
+    expect(new FormData(getForm()).getAll("tags")).toEqual(["new"]);
+  });
+
+  it.each([
+    { interaction: "pointer", finalInput: "before" },
+    { interaction: "pointer", finalInput: "after" },
+    { interaction: "focus", finalInput: "before" },
+    { interaction: "focus", finalInput: "after" },
+  ])(
+    "discards a reset composition ending $finalInput compositionend after $interaction without an edit",
+    async ({ interaction, finalInput }) => {
+      const onChange = vi.fn();
+      render(
+        <form aria-label="Tags">
+          <TagsInput name="tags" onChange={onChange} />
+        </form>,
+      );
+      const field = input();
+      fireEvent.compositionStart(field);
+      fireEvent.input(field, {
+        isComposing: true,
+        target: { value: "ni hao," },
+      });
+      act(() => getForm().reset());
+      await waitFor(() => expect(field).toHaveValue(""));
+      if (interaction === "pointer") fireEvent.pointerDown(field);
+      else fireEvent.focus(field);
+      const finishInput = () =>
+        fireEvent.input(field, {
+          inputType: "insertText",
+          isComposing: false,
+          target: { value: "你 好," },
+        });
+      if (finalInput === "before") finishInput();
+      fireEvent.compositionEnd(field, {
+        data: "你 好,",
+        target: { value: "你 好," },
+      });
+      if (finalInput === "after") finishInput();
+      expect(field).toHaveValue("");
+      expect(onChange).not.toHaveBeenCalled();
+      expect(new FormData(getForm()).getAll("tags")).toEqual([]);
+    },
+  );
+
+  it("accepts typing the same discarded text after reset without compositionend", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <form aria-label="Tags">
+        <TagsInput name="tags" onChange={onChange} />
+      </form>,
+    );
+    const field = input();
+    await user.click(field);
+    fireEvent.compositionStart(field);
+    fireEvent.input(field, {
+      isComposing: true,
+      target: { value: "discarded," },
+    });
+    act(() => getForm().reset());
+    await waitFor(() => expect(field).toHaveValue(""));
+    await user.type(field, "discarded,");
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(["discarded"]);
+    expect(new FormData(getForm()).getAll("tags")).toEqual(["discarded"]);
+  });
+
+  it("accepts a single-value paste of the same discarded text without compositionend", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <form aria-label="Tags">
+        <TagsInput name="tags" onChange={onChange} />
+      </form>,
+    );
+    const field = input();
+    await user.click(field);
+    fireEvent.compositionStart(field);
+    fireEvent.input(field, {
+      isComposing: true,
+      target: { value: "draft" },
+    });
+    act(() => getForm().reset());
+    await waitFor(() => expect(field).toHaveValue(""));
+    await user.paste("draft");
+    expect(field).toHaveValue("draft");
+    expect(onChange).not.toHaveBeenCalled();
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(["draft"]);
+    expect(new FormData(getForm()).getAll("tags")).toEqual(["draft"]);
+  });
+
+  it("accepts a new composition after reset without the old compositionend", async () => {
+    const onChange = vi.fn();
+    render(
+      <form aria-label="Tags">
+        <TagsInput name="tags" onChange={onChange} />
+      </form>,
+    );
+    const field = input();
+    fireEvent.compositionStart(field);
+    fireEvent.input(field, {
+      isComposing: true,
+      target: { value: "discarded," },
+    });
+    act(() => getForm().reset());
+    await waitFor(() => expect(field).toHaveValue(""));
+    fireEvent.compositionStart(field);
+    fireEvent.input(field, {
+      isComposing: true,
+      target: { value: "new," },
+    });
+    fireEvent.compositionEnd(field, { data: "new," });
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(["new"]);
+    expect(new FormData(getForm()).getAll("tags")).toEqual(["new"]);
+  });
+
   it("holds an added value in the form before onChange, which may submit it", async () => {
     const user = userEvent.setup();
     const submitted: FormDataEntryValue[][] = [];

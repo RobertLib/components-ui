@@ -92,7 +92,10 @@ export default function DateTimePanelPicker({
   // A search with no enabled day keeps its starting day. An already
   // selected day can also become disabled while the popup is open.
   const timeDay = parseISODate(day);
-  const timeDisabled = !timeDay || !!isDateDisabled?.(timeDay);
+  const timeDisabled =
+    !timeDay ||
+    !!isDateDisabled?.(timeDay) ||
+    !!(minValue && maxValue && minValue > maxValue);
 
   // The time part of a limit applies on its own day only
   const timeLimit = (limit: string | undefined) =>
@@ -110,6 +113,7 @@ export default function DateTimePanelPicker({
   // A day or a time picked in the popup
   const change = (date: string, newHours: string, newMinutes: string) => {
     const next = toAllowed(date, newHours, newMinutes);
+    if (!next) return;
     const nextDay = parseISODate(next);
     // Rounding near midnight may reach another day, which must be enabled too.
     if (!nextDay || isDateDisabled?.(nextDay)) return;
@@ -156,10 +160,11 @@ export default function DateTimePanelPicker({
   const validityMessage =
     getRangeMessage(
       messages,
-      selectedValue,
-      { max: maxValue, min: minValue },
-      formatValue,
-    ) || parsedValue(selectedValue ?? "").validityMessage;
+      value,
+      { max, min },
+      (limit, kind) => formatValue(normalizeDateTime(limit, kind) ?? limit),
+      "datetime-local",
+    ) || parsedValue(value).validityMessage;
 
   return (
     <PickerField
@@ -189,9 +194,10 @@ export default function DateTimePanelPicker({
         );
         if (typed) {
           // An allowed date-time goes onto the minute step
-          return isInRange(typed, minValue, maxValue)
-            ? parsedValue(snapDateTime(typed, minuteStep, minValue, maxValue))
-            : { error: "range" };
+          const snapped = isInRange(typed, minValue, maxValue)
+            ? snapDateTime(typed, minuteStep, minValue, maxValue)
+            : undefined;
+          return snapped ? parsedValue(snapped) : { error: "range" };
         }
 
         // A day alone is taken like a day picked in the popup: with the
@@ -204,9 +210,10 @@ export default function DateTimePanelPicker({
           now,
         );
         if (!typedDay) return { error: "format" };
-        return isInRange(typedDay, minDay, maxDay)
-          ? parsedValue(toAllowed(typedDay, hours, minutes))
-          : { error: "range" };
+        const allowed = isInRange(typedDay, minDay, maxDay)
+          ? toAllowed(typedDay, hours, minutes)
+          : undefined;
+        return allowed ? parsedValue(allowed) : { error: "range" };
       }}
       pickCount={pickCount}
       placeholder={placeholder}
@@ -239,6 +246,7 @@ export default function DateTimePanelPicker({
           role="group"
         >
           <TimeLists
+            allowOvernight={false}
             disabled={timeDisabled}
             hour12={usesHour12(locale.formats.dateTime)}
             hours={time?.hours ?? null}

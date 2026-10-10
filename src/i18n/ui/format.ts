@@ -45,7 +45,7 @@ export function formatMessage(template: string, params?: MessageParams) {
   if (!params) return template;
 
   return template.replace(/\{(\w+)\}/g, (placeholder, key: string) =>
-    key in params ? String(params[key]) : placeholder,
+    Object.hasOwn(params, key) ? String(params[key]) : placeholder,
   );
 }
 

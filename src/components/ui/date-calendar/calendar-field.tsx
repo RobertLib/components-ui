@@ -1,9 +1,10 @@
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 import cn, { joinTokens } from "../../../utils/cn";
 import FormDescription from "../form-description";
 import FormError from "../form-error";
 import hasLabel from "../datetime-picker/has-label";
 import { attachRef } from "../../../hooks/use-form-control";
+import useCustomValidity from "../../../hooks/use-custom-validity";
 import { getActiveElement } from "../overlay-stack";
 import { useMessages } from "../../../providers/ui-context";
 import RequiredMark from "../required-mark";
@@ -125,11 +126,9 @@ export default function CalendarField({
     [ref],
   );
 
-  // The browser blocks a submit with the message, as for a native field.
-  // Leaving read-only mode mounts a new input even when the message stays.
-  useLayoutEffect(() => {
-    validationRef.current?.setCustomValidity(validityMessage);
-  }, [readOnly, validityMessage]);
+  // Its connected input still belongs to the form while Activity hides
+  // the calendar. Constraint changes follow it without clearing app errors.
+  useCustomValidity(validationRef, validityMessage, true);
 
   const isOwnElement = (node: EventTarget | null) =>
     node instanceof Node && !!groupRef.current?.contains(node);
@@ -202,46 +201,48 @@ export default function CalendarField({
       )}
       {/* Lets the browser enforce `required` and the limits - not of a
           read-only calendar, like a read-only native field */}
-      {(required || validityMessage) && !readOnly && (
-        <input
-          disabled={disabled}
-          form={form}
-          // Neither focusable nor seen by assistive technology - until the
-          // browser reports it invalid (a submit, `reportValidity()`), then
-          // it can take the focus the browser gives it, with the message
-          inert
-          onChange={() => {}}
-          // The user belongs in the calendar (the message still shows) -
-          // once the browser is done focusing this one: moved at once,
-          // Firefox would not focus it at the next submit again
-          onFocus={(event) => {
-            const validationInput = event.currentTarget;
-            queueMicrotask(() => {
-              if (
-                getActiveElement(validationInput.ownerDocument) ===
-                validationInput
-              ) {
-                focusCalendar(groupRef.current);
-              }
-            });
-          }}
-          onInvalid={(event) => {
-            const validationInput = event.currentTarget;
-            validationInput.removeAttribute("inert");
-            // Laid out anew at once (a call, which the React Compiler keeps) -
-            // Safari would focus it by its styles of before, inert, and so
-            // report nothing
-            validationInput.getBoundingClientRect();
-            setTimeout(() => validationInput.setAttribute("inert", ""));
-          }}
-          ref={validationRef}
-          required={required}
-          style={hiddenValidationStyle}
-          tabIndex={-1}
-          type="text"
-          value={hasValue ? "valid" : ""}
-        />
-      )}
+      <input
+        disabled={disabled}
+        form={form}
+        // Neither focusable nor seen by assistive technology - until the
+        // browser reports it invalid (a submit, `reportValidity()`), then
+        // it can take the focus the browser gives it, with the message
+        inert
+        onChange={() => {}}
+        // The user belongs in the calendar (the message still shows) -
+        // once the browser is done focusing this one: moved at once,
+        // Firefox would not focus it at the next submit again
+        onFocus={(event) => {
+          const validationInput = event.currentTarget;
+          queueMicrotask(() => {
+            if (
+              getActiveElement(validationInput.ownerDocument) ===
+              validationInput
+            ) {
+              focusCalendar(groupRef.current);
+            }
+          });
+        }}
+        onInvalid={(event) => {
+          const validationInput = event.currentTarget;
+          validationInput.removeAttribute("inert");
+          // Laid out anew at once (a call, which the React Compiler keeps) -
+          // Safari would focus it by its styles of before, inert, and so
+          // report nothing
+          validationInput.getBoundingClientRect();
+          setTimeout(() => validationInput.setAttribute("inert", ""));
+        }}
+        readOnly={readOnly}
+        ref={validationRef}
+        // A calendar first mounted in a hidden Activity has no refs or
+        // layout effects yet. Native required still blocks its invalid
+        // value until the localized custom message can be attached.
+        required={required || !!validityMessage}
+        style={hiddenValidationStyle}
+        tabIndex={-1}
+        type="text"
+        value={hasValue && !validityMessage ? "valid" : ""}
+      />
     </div>
   );
 }

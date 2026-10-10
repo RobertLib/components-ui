@@ -6,7 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { Activity, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import FileUpload, { type UploadedFile } from "./file-upload";
 
@@ -23,6 +23,15 @@ const deferred = <T,>() => {
   });
   return { promise, resolve, reject };
 };
+const removalOutcomes = ["success", "refusal", "rejection"] as const;
+const settleRemoval = (
+  request: ReturnType<typeof deferred<boolean>>,
+  outcome: (typeof removalOutcomes)[number],
+) =>
+  act(async () => {
+    if (outcome === "rejection") request.reject(new Error("Offline"));
+    else request.resolve(outcome === "success");
+  });
 
 describe("FileUpload controlled attachments and removal", () => {
   it("handles a rejected cleanup notification after single-file replacement", async () => {
@@ -256,6 +265,207 @@ describe("FileUpload controlled attachments and removal", () => {
     expect(screen.getByText("one.pdf")).toBeInTheDocument();
     expect(remove()).not.toBeDisabled();
   });
+
+  it.each(removalOutcomes)(
+    "settles a %s removal after a refused replacement pick",
+    async (outcome) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const request = deferred<boolean>();
+      const onRemove = vi
+        .fn()
+        .mockReturnValueOnce(request.promise)
+        .mockResolvedValue(true);
+      const upload = vi.fn();
+      render(
+        <form aria-label="Files">
+          <FileUpload
+            accept=".pdf"
+            defaultAttachments={initial}
+            name="files"
+            onRemove={onRemove}
+            upload={upload}
+          />
+        </form>,
+      );
+      const form = screen.getByRole("form") as HTMLFormElement;
+      fireEvent.click(remove());
+      expect(form.checkValidity()).toBe(false);
+      fireEvent.change(document.querySelector("input[type=file]")!, {
+        target: { files: [new File(["x"], "refused.txt")] },
+      });
+      expect(upload).not.toHaveBeenCalled();
+
+      await settleRemoval(request, outcome);
+      expect(form.checkValidity()).toBe(true);
+      if (outcome === "success") {
+        expect(screen.queryByText("one.pdf")).toBeNull();
+        expect(new FormData(form).getAll("files")).toEqual([]);
+      } else {
+        expect(remove()).not.toHaveAttribute("aria-disabled", "true");
+        expect(new FormData(form).getAll("files")).toEqual(["one"]);
+        if (outcome === "rejection") {
+          expect(
+            screen.getByText(
+              "The file could not be removed. Please try again.",
+            ),
+          ).toBeInTheDocument();
+        }
+        await userEvent.setup().click(remove());
+        expect(screen.queryByText("one.pdf")).toBeNull();
+        expect(onRemove).toHaveBeenCalledTimes(2);
+      }
+    },
+  );
+
+  it.each(removalOutcomes)(
+    "settles a %s removal while a replacement uploads",
+    async (outcome) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const request = deferred<boolean>();
+      const replacement = deferred<UploadedFile>();
+      const onRemove = vi
+        .fn()
+        .mockReturnValueOnce(request.promise)
+        .mockResolvedValue(true);
+      render(
+        <form aria-label="Files">
+          <FileUpload
+            defaultAttachments={initial}
+            name="files"
+            onRemove={onRemove}
+            upload={() => replacement.promise}
+          />
+        </form>,
+      );
+      const form = screen.getByRole("form") as HTMLFormElement;
+      fireEvent.click(remove());
+      fireEvent.change(document.querySelector("input[type=file]")!, {
+        target: { files: [new File(["x"], "new.pdf")] },
+      });
+      await settleRemoval(request, outcome);
+      expect(!!screen.queryByText("one.pdf")).toBe(outcome !== "success");
+      expect(form.checkValidity()).toBe(false);
+
+      await act(async () =>
+        replacement.resolve({ id: "two", filename: "new.pdf", value: "two" }),
+      );
+      expect(screen.queryByText("one.pdf")).toBeNull();
+      expect(screen.getByText("new.pdf")).toBeInTheDocument();
+      expect(new FormData(form).getAll("files")).toEqual(["two"]);
+      expect(form.checkValidity()).toBe(true);
+    },
+  );
+
+  it.each(removalOutcomes)(
+    "ignores a late %s removal of an uploaded replacement's old row",
+    async (outcome) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const request = deferred<boolean>();
+      const replacement = deferred<UploadedFile>();
+      const onRemove = vi
+        .fn()
+        .mockReturnValueOnce(request.promise)
+        .mockResolvedValue(true);
+      render(
+        <form aria-label="Files">
+          <FileUpload
+            defaultAttachments={initial}
+            name="files"
+            onRemove={onRemove}
+            upload={() => replacement.promise}
+          />
+        </form>,
+      );
+      const form = screen.getByRole("form") as HTMLFormElement;
+      fireEvent.click(remove());
+      fireEvent.change(document.querySelector("input[type=file]")!, {
+        target: { files: [new File(["x"], "new.pdf")] },
+      });
+      await act(async () =>
+        replacement.resolve({ id: "two", filename: "new.pdf", value: "two" }),
+      );
+      expect(screen.queryByText("one.pdf")).toBeNull();
+      await settleRemoval(request, outcome);
+      expect(screen.getByText("new.pdf")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Remove new.pdf" }),
+      ).not.toHaveAttribute("aria-disabled", "true");
+      expect(new FormData(form).getAll("files")).toEqual(["two"]);
+      expect(form.checkValidity()).toBe(true);
+      expect(
+        screen.queryByText("The file could not be removed. Please try again."),
+      ).toBeNull();
+    },
+  );
+
+  it("keeps removal alive while Activity hides a refused replacement pick", async () => {
+    const request = deferred<boolean>();
+    const props = {
+      accept: ".pdf",
+      defaultAttachments: initial,
+      name: "files",
+      onRemove: () => request.promise,
+      upload: vi.fn(),
+    };
+    const view = (mode: "visible" | "hidden") => (
+      <form aria-label="Files">
+        <Activity mode={mode}>
+          <FileUpload {...props} />
+        </Activity>
+      </form>
+    );
+    const { rerender } = render(view("visible"));
+    const form = screen.getByRole("form") as HTMLFormElement;
+    fireEvent.click(remove());
+    fireEvent.change(document.querySelector("input[type=file]")!, {
+      target: { files: [new File(["x"], "refused.txt")] },
+    });
+    rerender(view("hidden"));
+    await act(async () => request.resolve(true));
+    expect(form.checkValidity()).toBe(true);
+    expect(new FormData(form).getAll("files")).toEqual([]);
+    rerender(view("visible"));
+    expect(screen.queryByText("one.pdf")).toBeNull();
+  });
+
+  it.each(removalOutcomes)(
+    "keeps a new removal pending after a late %s result from before reset",
+    async (outcome) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const oldRequest = deferred<boolean>();
+      const newRequest = deferred<boolean>();
+      const onRemove = vi
+        .fn()
+        .mockReturnValueOnce(oldRequest.promise)
+        .mockReturnValueOnce(newRequest.promise);
+      render(
+        <form aria-label="Files">
+          <FileUpload
+            defaultAttachments={initial}
+            name="files"
+            onRemove={onRemove}
+          />
+        </form>,
+      );
+      const form = screen.getByRole("form") as HTMLFormElement;
+      fireEvent.click(remove());
+      await act(async () => form.reset());
+      await waitFor(() => expect(form.checkValidity()).toBe(true));
+      fireEvent.click(remove());
+      expect(onRemove).toHaveBeenCalledTimes(2);
+      await settleRemoval(oldRequest, outcome);
+      expect(screen.getByText("one.pdf")).toBeInTheDocument();
+      expect(remove()).toHaveAttribute("aria-disabled", "true");
+      expect(form.checkValidity()).toBe(false);
+      expect(
+        screen.queryByText("The file could not be removed. Please try again."),
+      ).toBeNull();
+
+      await act(async () => newRequest.resolve(true));
+      expect(screen.queryByText("one.pdf")).toBeNull();
+      expect(form.checkValidity()).toBe(true);
+    },
+  );
 
   it("ignores a late removal after reset", async () => {
     const request = deferred<boolean>();

@@ -21,6 +21,7 @@ import {
   extname,
   isAbsolute,
   join,
+  matchesGlob,
   relative,
   resolve,
 } from "node:path";
@@ -126,8 +127,10 @@ const nameOf = (node) => node.name ?? node.value;
 /**
  * What a module imports and exports - its imports with the names it takes
  * (none for an import of its effects), its re-exports, the sources of its
- * `export *`, the names it defines and its dynamic imports. Types are left
- * out: they add no code. `file` gives the language.
+ * `export *`, the names it defines and its dynamic imports. CommonJS calls
+ * need a conservative fallback: their resolver may choose other exports
+ * than an ES import. Types are left out: they add no code. `file` gives the
+ * language.
  */
 function readModule(file, code = readFileSync(file, "utf8")) {
   const extension = extname(file);
@@ -143,6 +146,7 @@ function readModule(file, code = readFileSync(file, "utf8")) {
     stars: [],
     locals: new Set(),
     dynamic: [],
+    commonjs: false,
   };
 
   // The names the imports bind - exported, they are re-exports, as the build
@@ -220,8 +224,22 @@ function readModule(file, code = readFileSync(file, "utf8")) {
         // `import(`./locales/${code}.ts`)` - Vite bundles the files the
         // start of the path matches. Another expression it leaves to the
         // browser, which loads the module from the server.
-        facts.dynamic.push({ prefix: source.quasis[0].value.cooked });
+        facts.dynamic.push({
+          prefix: source.quasis[0].value.cooked,
+          // Vite bundles the files before the query; it passes the query
+          // to their transforms instead of matching it against filenames.
+          pattern: source.quasis
+            .map((part) => part.value.cooked)
+            .join("*")
+            .split("?")[0],
+        });
       }
+    } else if (
+      node.type === "CallExpression" &&
+      node.callee.type === "Identifier" &&
+      node.callee.name === "require"
+    ) {
+      facts.commonjs = true;
     } else if (
       node.type === "CallExpression" &&
       node.callee.type === "MemberExpression" &&
@@ -273,15 +291,15 @@ function readPage(file) {
   return scripts;
 }
 
-/** The script files in `directory` and below it. */
-function scriptsIn(directory) {
+/** Scripts and modules another plugin may transform, below `directory`. */
+function modulesIn(directory) {
   const files = [];
   if (!existsSync(directory)) return files;
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...scriptsIn(path));
-    else if (SCRIPT.test(entry.name) && !entry.name.endsWith(".d.ts")) {
+    if (entry.isDirectory()) files.push(...modulesIn(path));
+    else if (!ASSET.test(entry.name) && !/\.d\.[cm]?ts$/.test(entry.name)) {
       files.push(path);
     }
   }
@@ -526,6 +544,25 @@ async function findUnusedModules(context, config, input) {
       : pathOf(root, base);
   };
 
+  /**
+   * Follow scripts conservatively as before, but inspect other module
+   * types only when the pattern can load them. A neighboring README or
+   * MDX page outside a `*.tsx` glob must not disable the optimization.
+   */
+  const followPattern = (pattern, importer) => {
+    const base = patternBase(pattern, importer);
+    if (base === undefined) return false;
+    const plain = pattern.slice(0, pattern.search(/[*?[\]{}()!]|$/));
+    const matcher = pattern.slice(plain.lastIndexOf("/") + 1);
+    for (const file of modulesIn(base)) {
+      if (SCRIPT.test(file)) enqueue(real(file));
+      else if (matchesGlob(normalizePath(relative(base, file)), matcher)) {
+        cannotRead(file);
+      }
+    }
+    return true;
+  };
+
   for (const entry of Array.isArray(input)
     ? input
     : Object.values(input ?? {})) {
@@ -553,6 +590,10 @@ async function findUnusedModules(context, config, input) {
       reason = `it cannot parse "${shortPath(importer)}"`;
       break;
     }
+    if (facts.commonjs) {
+      reason = `it cannot follow CommonJS require calls in "${shortPath(importer)}"`;
+      break;
+    }
     for (const { source, names } of facts.imports) {
       await follow(source, importer, names);
     }
@@ -564,19 +605,14 @@ async function findUnusedModules(context, config, input) {
       if (dynamic.source !== undefined) {
         await follow(dynamic.source, importer, [ALL]);
       } else if (dynamic.prefix !== undefined) {
-        const base = patternBase(dynamic.prefix, importer);
-        for (const script of base ? scriptsIn(base) : []) {
-          enqueue(real(script));
-        }
+        followPattern(dynamic.pattern, importer);
       } else {
         for (const pattern of dynamic.patterns) {
           if (pattern?.startsWith("!")) continue;
-          const base = pattern ? patternBase(pattern, importer) : undefined;
-          if (base === undefined) {
+          if (pattern === null || !followPattern(pattern, importer)) {
             reason ??= `it cannot follow a pattern of "${shortPath(importer)}"`;
             break;
           }
-          for (const script of scriptsIn(base)) enqueue(real(script));
         }
       }
     }
@@ -665,8 +701,13 @@ export default function componentsUi() {
           const rendered =
             module.code ?? (module.renderedLength > 0 ? '"' : "");
           const code = rendered.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
-          if (build.unused.has(id) && /["'`]/.test(code)) {
-            missed.add(normalizePath(relative(config.root, id)));
+          // Vite ids may have a query, or keep a symlink's path when
+          // preserveSymlinks is enabled. Match the real file, as the import
+          // analysis above and Tailwind's exclusions do.
+          const file = id.split("?")[0];
+          const canonical = existsSync(file) ? real(file) : normalizePath(file);
+          if (build.unused.has(canonical) && /["'`]/.test(code)) {
+            missed.add(normalizePath(relative(config.root, canonical)));
           }
         }
       }

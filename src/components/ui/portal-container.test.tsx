@@ -176,6 +176,39 @@ describe("A portalContainer in the page", () => {
     other.remove();
   });
 
+  it("uses a changed function in the same render that opens an overlay", () => {
+    const other = document.createElement("div");
+    document.body.append(other);
+    const { rerender, unmount } = render(
+      <UIProvider portalContainer={() => portalRoot}>{null}</UIProvider>,
+    );
+    rerender(
+      <UIProvider portalContainer={() => other}>
+        <UIProvider>
+          <Overlay data-testid="backdrop" />
+        </UIProvider>
+      </UIProvider>,
+    );
+    expect(screen.getByTestId("backdrop").parentElement).toBe(other);
+    unmount();
+    other.remove();
+  });
+
+  it("moves an existing overlay when only its container getter changes", () => {
+    const other = document.createElement("div");
+    document.body.append(other);
+    // The same child only renders again if its portal context changes.
+    const content = <Overlay data-testid="backdrop" />;
+    const { rerender, unmount } = render(
+      <UIProvider portalContainer={() => portalRoot}>{content}</UIProvider>,
+    );
+    expect(screen.getByTestId("backdrop").parentElement).toBe(portalRoot);
+    rerender(<UIProvider portalContainer={() => other}>{content}</UIProvider>);
+    expect(screen.getByTestId("backdrop").parentElement).toBe(other);
+    unmount();
+    other.remove();
+  });
+
   it("gives a popover the direction of its trigger where it differs from the container's", async () => {
     const user = userEvent.setup();
     portalRoot.dir = "rtl";
