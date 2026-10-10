@@ -13,6 +13,7 @@ import {
 } from "./input-mask";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Button from "./button";
+import { isControlTarget } from "./control-target";
 import cn, { joinTokens } from "../../utils/cn";
 import { formatMessage } from "../../i18n/ui/format";
 import FormDescription from "./form-description";
@@ -54,11 +55,6 @@ const strengthColors = [
   "bg-success-600 dark:bg-success-400",
 ];
 
-// What a press inside the border of the field leaves alone: the input, and
-// the controls of an adornment (a currency select, a button)
-const CONTROL_SELECTOR =
-  "a[href], button, input, select, textarea, [contenteditable], [tabindex]";
-
 // All the padding lives here - base padding next to it would win over the
 // smaller sizes, as the CSS order decides between two utilities. With the
 // border the field is 22, 26 (a `sm` Button), 34 and 46 px high - the
@@ -98,22 +94,6 @@ const toggleIconSizes = { xs: 16, sm: 16, md: 20, lg: 20 };
 /** Whether a slot renders anything - the `false` of a condition does not. */
 const hasContent = (node: React.ReactNode) =>
   node !== undefined && node !== null && node !== false && node !== "";
-
-/**
- * Whether a press on `target` belongs to a control inside the frame of a
- * field - the input itself, or a button of an adornment - rather than to
- * the frame around them.
- */
-function isControlTarget(target: EventTarget, frame: Element) {
-  for (
-    let node = target instanceof Element ? target : null;
-    node && node !== frame;
-    node = node.parentElement
-  ) {
-    if (node.matches(CONTROL_SELECTOR)) return true;
-  }
-  return false;
-}
 
 /** A score of a password scorer as one of the five strengths. */
 const toStrength = (score: number) =>
@@ -630,10 +610,11 @@ export function InputBase({
               error &&
               "border-danger-500! focus-within:ring-danger-500! forced-colors:outline-1",
             isFramed && disabled && "cursor-not-allowed opacity-50",
-            // Also for a disabled fieldset around, which no prop tells - an
-            // input without a frame looks so by `form-control`
+            // Also for a disabled fieldset around, which no prop tells - the
+            // input itself, a child of the frame, not a control in an
+            // adornment. An input without a frame looks so by `form-control`.
             isFramed &&
-              "has-[input:disabled]:cursor-not-allowed has-[input:disabled]:opacity-50",
+              "has-[>input:disabled]:cursor-not-allowed has-[>input:disabled]:opacity-50",
           )}
           // The frame acts as the input: a press on an adornment or the
           // padding keeps the focus where it is (and selects no text), a

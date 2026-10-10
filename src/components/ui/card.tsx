@@ -3,7 +3,7 @@ import cn from "../../utils/cn";
 import logger from "../../utils/logger";
 import Panel, { type PanelProps } from "./panel";
 import Skeleton from "./skeleton";
-import { useRouter } from "../../providers/ui-context";
+import { useRouterActions } from "../../providers/ui-context";
 
 export interface CardProps extends Omit<PanelProps, "onClick" | "title"> {
   /**
@@ -50,9 +50,11 @@ export interface CardProps extends Omit<PanelProps, "onClick" | "title"> {
   media?: React.ReactNode;
   /**
    * Makes the whole card a button - the title is the button, stretched
-   * over the card, like the link of `href`. Needs a `title`.
+   * over the card, like the link of `href`. Needs a `title`. With `href`,
+   * it is called before the link is followed, e.g. to close a drawer -
+   * `event.preventDefault()` keeps the page.
    */
-  onClick?: React.MouseEventHandler<HTMLButtonElement>;
+  onClick?: React.MouseEventHandler<HTMLAnchorElement | HTMLButtonElement>;
   /** The heading of the card - see `headingLevel`. */
   title?: React.ReactNode;
 }
@@ -89,7 +91,7 @@ export default function Card({
   title,
   ...props
 }: CardProps) {
-  const { Link } = useRouter();
+  const { Link } = useRouterActions();
   const Heading = `h${headingLevel}` as const;
   const hasTitle = hasContent(title);
   const isClickable = (href !== undefined || onClick !== undefined) && !loading;
@@ -109,7 +111,12 @@ export default function Card({
 
   const titleContent =
     isLink && hasTitle ? (
-      <Link className={stretchedClassName} data-card-link="" href={href}>
+      <Link
+        className={stretchedClassName}
+        data-card-link=""
+        href={href}
+        onClick={onClick}
+      >
         {title}
       </Link>
     ) : isButton ? (

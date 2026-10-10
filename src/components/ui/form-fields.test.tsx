@@ -708,10 +708,10 @@ describe("A disabled fieldset around", () => {
       "form-control",
     );
     const price = screen.getByRole("textbox", { name: /Price/ });
-    expect(price.parentElement).toHaveClass("has-[input:disabled]:opacity-50");
+    expect(price.parentElement).toHaveClass("has-[>input:disabled]:opacity-50");
     expect(
       screen.getByRole("spinbutton", { name: /Quantity/ }).parentElement,
-    ).toHaveClass("has-[input:disabled]:opacity-50");
+    ).toHaveClass("has-[>input:disabled]:opacity-50");
     expect(screen.getByRole("button", { name: "Increase" })).toHaveClass(
       "disabled:cursor-not-allowed",
     );

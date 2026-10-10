@@ -40,6 +40,20 @@ function List({
       <button onClick={() => update({ status: "active" })} type="button">
         Active
       </button>
+      <button
+        onClick={() =>
+          update((current) => ({ page: String(Number(current.page) + 1) }))
+        }
+        type="button"
+      >
+        Next page
+      </button>
+      <button
+        onClick={() => update((current) => ({ ...current, status: "all" }))}
+        type="button"
+      >
+        All of the current
+      </button>
     </>
   );
 }
@@ -133,6 +147,20 @@ describe("useUrlState", () => {
     expect(shown()).toEqual({ page: "1", q: "", status: "all" });
   });
 
+  it("starts at the first page again also for a function passing the page on", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    render(<App initialSearch="?page=4" navigate={navigate} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "All of the current" }),
+    );
+    expect(navigate).toHaveBeenLastCalledWith("/members?status=all", {
+      replace: false,
+    });
+    expect(shown()).toEqual({ page: "1", q: "", status: "all" });
+  });
+
   it("replaces the history entry when the update says so", async () => {
     const user = userEvent.setup();
     const navigate = vi.fn();
@@ -158,6 +186,24 @@ describe("useUrlState", () => {
 
     await user.click(screen.getByRole("button", { name: "Finish" }));
     expect(shown()).toEqual({ page: "3", q: "", status: "all" });
+  });
+
+  it("builds a change of the values on the ones the router does not show yet", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    render(<App initialSearch="?page=2" late navigate={navigate} />);
+
+    // Both clicks before the router shows the first - not page 3 twice
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(navigate).toHaveBeenCalledTimes(2);
+    expect(navigate).toHaveBeenLastCalledWith(
+      "/members?page=4",
+      expect.anything(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Finish" }));
+    expect(shown().page).toBe("4");
   });
 
   it("keeps a prefix of its parameters", async () => {

@@ -26,6 +26,7 @@ import useQueryColumns from "./use-query-columns";
 import useRowSelection from "./use-row-selection";
 import {
   clampWidth,
+  DEFAULT_CELL_LAYOUT,
   DRAG_WIDTH_VARIABLE,
   LEADING_KEYS,
   type CellLayout,
@@ -327,9 +328,9 @@ export interface DataTableProps<T> extends Omit<
   /**
    * The page a row opens - its first column shows its content as a link
    * there (`useRouter().Link`, so middle and Ctrl + click open a new tab),
-   * and a click elsewhere on the row follows it too. `undefined` for a row
-   * without one. Keep controls out of the first column - a link cannot hold
-   * them.
+   * and a click elsewhere on the row follows it too, the middle button in a
+   * new tab. `undefined` for a row without one. Keep controls out of the
+   * first column - a link cannot hold them.
    */
   getRowHref?: (row: T) => string | undefined;
   /** Stable identity of a row - defaults to its `id` field. */
@@ -1635,6 +1636,9 @@ export default function DataTable<T>({
     sortedVisibleColumns.length > 0 &&
     sortedVisibleColumns.every((column) => column.key in sizedWidths);
 
+  const hasCellEditing = !!onCellEdit;
+  const hasRowLinks = getRowHref !== undefined;
+
   // Where the cells of each column go, in the order the columns are shown:
   // the expand, selection and actions columns stick first, then the columns
   // pinned to the left - the start, the right edge of a right-to-left table;
@@ -1730,10 +1734,33 @@ export default function DataTable<T>({
       layouts[firstEndKey] = { ...layouts[firstEndKey], shadow: "end" };
     }
 
+    // Hidden on narrow screens - not a column that must stay: a pinned one,
+    // whose offsets count on its width (pinned, not only while it sticks -
+    // hidden, it measures no width and would stick again, shown, too wide
+    // to stick); one of a group, whose header spans it; an editable one,
+    // whose cell may be the tab stop of the editable cells; the first one of
+    // rows with links, which holds them
+    sortedVisibleColumns.forEach((column, index) => {
+      const columnLayout = layouts[column.key] ?? DEFAULT_CELL_LAYOUT;
+      if (
+        column.hideBelow &&
+        !pinnedColumns.left.includes(column.key) &&
+        !pinnedColumns.right.includes(column.key) &&
+        groupOf[column.key] === undefined &&
+        !(hasCellEditing && column.editable) &&
+        !(hasRowLinks && index === 0)
+      ) {
+        layouts[column.key] = { ...columnLayout, hideBelow: column.hideBelow };
+      }
+    });
+
     return { end: offset, layouts, start };
   }, [
     actions,
     draggedKey,
+    groupOf,
+    hasCellEditing,
+    hasRowLinks,
     hasSelection,
     measuredWidths,
     pinnedColumns.left,
@@ -1999,9 +2026,12 @@ export default function DataTable<T>({
     setEditingCell(null);
   }
 
+  // By whether there is an `onCellEdit`, not by its identity - a new one on
+  // every render of the parent does not render all rows again
   const isEditable = useCallback(
-    (column: Column<T>, row: T) => !!onCellEdit && isEditableCell(column, row),
-    [onCellEdit],
+    (column: Column<T>, row: T) =>
+      hasCellEditing && isEditableCell(column, row),
+    [hasCellEditing],
   );
 
   /** Whether a change of the cell is being saved. */
@@ -2012,14 +2042,18 @@ export default function DataTable<T>({
     setEditingCell({ columnKey, rowId });
 
   // The first value of a column among the rows - an empty cell is edited
-  // in the field its column's values need
-  const getColumnSample = (column: Column<T>) => {
-    for (const row of data) {
-      const value = getColumnValue(row, column);
-      if (!isEmpty(value)) return value;
-    }
-    return undefined;
-  };
+  // in the field its column's values need. The same function for the same
+  // rows, so that the (memoized) rows do not render again.
+  const getColumnSample = useCallback(
+    (column: Column<T>) => {
+      for (const row of data) {
+        const value = getColumnValue(row, column);
+        if (!isEmpty(value)) return value;
+      }
+      return undefined;
+    },
+    [data],
+  );
 
   const saveCellEdit = (
     row: T,

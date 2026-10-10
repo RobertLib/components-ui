@@ -113,8 +113,10 @@ export default function ButtonPage() {
           <p>
             Buttons joined into one piece are a <code>ButtonGroup</code> - it
             can also set the <code>size</code>, <code>variant</code> and{" "}
-            <code>color</code> of the buttons that do not set their own. A main
-            action with a menu of related ones is a <code>SplitButton</code>.
+            <code>color</code> of the buttons that do not set their own. Not{" "}
+            <code>link</code> buttons, which have no border to join - put them
+            side by side with a <code>gap</code>. A main action with a menu of
+            related ones is a <code>SplitButton</code>.
           </p>
         </Prose>
       </Section>

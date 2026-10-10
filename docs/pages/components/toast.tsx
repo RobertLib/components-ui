@@ -102,8 +102,13 @@ export default function ToastPage() {
         description={
           <p>
             The look of the toasts of a design is set on{" "}
-            <code>SnackbarProvider</code>: <code>classNames</code> by variant
-            come after the colors of the variant, <code>icons</code> shows the
+            <code>SnackbarProvider</code>: <code>classNames</code> by variant -
+            a color among them, of the background, the text or the border,
+            replaces the variant&apos;s one, also in the dark mode (add a{" "}
+            <code>dark:</code> class for another one there), while the variant
+            keeps the colors not given - a background or a text color given
+            without a <code>dark:</code> one shows with the light other one in
+            the dark mode too, readable together; <code>icons</code> shows the
             icon of the variant in every toast and <code>durations</code> sets
             how long the toasts of a variant stay when enqueued without a{" "}
             <code>duration</code> - short confirmations, errors to be read. A

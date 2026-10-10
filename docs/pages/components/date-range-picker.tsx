@@ -180,17 +180,18 @@ export default function DateRangePickerPage() {
         description={
           <p>
             <code>isDateDisabled</code> tells the days that cannot be picked -
-            booked nights, weekends. It gets the local midnight of a day. The
-            calendar strikes them through; they can neither start nor end a
-            range, and by default a range cannot reach over one: once the first
-            day is picked, the days past the nearest disabled day on either side
-            cannot end it, as a stay cannot reach over a booked night.{" "}
-            <code>allowDisabledInRange</code> lets a range reach over them -
-            leave from a working day to a working day, over a weekend. A preset
-            loses the disabled days at its ends (“This week” is Monday to Friday
-            with the weekends disabled); one over a disabled day is disabled. A
-            range over a disabled day - typed, a default one or one of the
-            parent - is kept, but makes the field invalid (
+            booked nights, weekends. It gets the start of a day - its local
+            midnight, or 1:00 of a day whose midnight a clock change skips
+            (Santiago, Havana). The calendar strikes them through; they can
+            neither start nor end a range, and by default a range cannot reach
+            over one: once the first day is picked, the days past the nearest
+            disabled day on either side cannot end it, as a stay cannot reach
+            over a booked night. <code>allowDisabledInRange</code> lets a range
+            reach over them - leave from a working day to a working day, over a
+            weekend. A preset loses the disabled days at its ends (“This week”
+            is Monday to Friday with the weekends disabled); one over a disabled
+            day is disabled. A range over a disabled day - typed, a default one
+            or one of the parent - is kept, but makes the field invalid (
             <code>messages.dateRangePicker.unavailableInRange</code>).
           </p>
         }

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -22,6 +24,15 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 test("A source copy works in a standalone Vite app", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "components-ui-source-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
+  // Files of Finder and of Vim in the library - not of it, as its
+  // `.gitignore` says. Those it has already stay
+  const foreign = ["src/hooks/.DS_Store", "src/components/ui/.badge.tsx.swp"]
+    .map((file) => join(root, file))
+    .filter((file) => !existsSync(file));
+  for (const file of foreign) writeFileSync(file, "");
+  t.after(() => {
+    for (const file of foreign) rmSync(file, { force: true });
+  });
   exportSource(directory);
   const source = join(directory, "src");
 
@@ -37,6 +48,12 @@ test("A source copy works in a standalone Vite app", async (t) => {
       assert.ok(!files.includes("styles.css"));
       assert.ok(!files.includes("test"));
       assert.ok(!files.some((file) => /\.test\.tsx?$/.test(file)));
+      // Nor those of the system and editors - the sync would take them for
+      // the library's
+      assert.deepEqual(
+        files.filter((file) => /(^|[\\/])\./.test(file)),
+        [],
+      );
       assert.equal(
         readFileSync(join(directory, "LICENSE"), "utf8"),
         readFileSync(join(root, "LICENSE"), "utf8"),
@@ -120,4 +137,26 @@ createRoot(document.getElementById("root")!).render(
       );
     },
   );
+});
+
+test("The export runs by a link to its folder", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "components-ui-scripts-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  // It writes `dist-source` of the library - removed after, if new
+  const output = join(root, "dist-source");
+  if (!existsSync(output)) {
+    t.after(() => rmSync(output, { recursive: true, force: true }));
+  }
+  // Node runs the file the link leads to
+  const scripts = join(directory, "scripts");
+  symlinkSync(join(root, "scripts"), scripts, "junction");
+
+  const result = spawnSync(
+    process.execPath,
+    [join(scripts, "export-source.mjs")],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^Source copy exported to /);
+  assert.ok(existsSync(join(output, "src/components/ui/index.ts")));
 });

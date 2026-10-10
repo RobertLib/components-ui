@@ -3,10 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { createRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Info, Search } from "lucide-react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyMask, type MaskedValue } from "./input-mask";
 import { cs } from "../../i18n/ui/cs";
+import { hasVariantApplies } from "../../test/has-variant";
 import Input from "./input";
 import UIProvider from "../../providers/ui-provider";
 
@@ -61,6 +63,41 @@ describe("Input adornments", () => {
     await user.click(screen.getByRole("button", { name: "kg" }));
     expect(onUnit).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "kg" })).toHaveFocus();
+  });
+
+  it("leave a press in a portal of theirs to it", () => {
+    function Help() {
+      return createPortal(<p>Weight with the packaging</p>, document.body);
+    }
+    render(<Input label="Weight" suffix={<Help />} />);
+
+    // React passes the events on to the frame - the text can be selected,
+    // and a click moves no focus to the field
+    const help = screen.getByText("Weight with the packaging");
+    expect(fireEvent.mouseDown(help)).toBe(true);
+    fireEvent.click(help);
+    expect(screen.getByRole("textbox")).not.toHaveFocus();
+  });
+
+  it("fade the field for its own disabled input - not for a control in them", () => {
+    render(
+      <>
+        <Input
+          label="Price"
+          suffix={<input aria-label="Locked" disabled type="checkbox" />}
+        />
+        {/* No prop tells the input it is disabled */}
+        <fieldset disabled>
+          <Input label="Weight" suffix="kg" />
+        </fieldset>
+      </>,
+    );
+
+    const frame = (name: RegExp) => textbox(name).parentElement!;
+    expect(hasVariantApplies(frame(/Price/), "opacity-50")).toBe(false);
+    expect(hasVariantApplies(frame(/Price/), "cursor-not-allowed")).toBe(false);
+    expect(hasVariantApplies(frame(/Weight/), "opacity-50")).toBe(true);
+    expect(hasVariantApplies(frame(/Weight/), "cursor-not-allowed")).toBe(true);
   });
 
   it("keep the sizes, the error and the floating label working", () => {

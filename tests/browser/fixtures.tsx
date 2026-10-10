@@ -21,6 +21,7 @@ import {
   Dropdown,
   FileUpload,
   Input,
+  Link,
   NumberInput,
   Pagination,
   PinInput,
@@ -32,6 +33,10 @@ import {
   Slider,
   Splitter,
   Switch,
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
   TagsInput,
   TreeView,
   UIProvider,
@@ -1246,5 +1251,49 @@ export function CursorRouterFixture() {
         ))}
       </ol>
     </UIProvider>
+  );
+}
+
+interface LinkedRow {
+  customer: string;
+  id: number;
+  name: string;
+}
+
+const linkedRows: LinkedRow[] = [
+  { customer: "Petr Svoboda", id: 43, name: "Order 43" },
+];
+const linkedColumns: Column<LinkedRow>[] = [
+  { key: "name", label: "Order" },
+  { key: "customer", label: "Customer" },
+];
+const orderHref = (id: number) =>
+  `/tests/browser/?scenario=row-links&order=${id}`;
+
+/** Rows that open their link - a `TableRow` and a `DataTable` row. */
+export function RowLinksFixture() {
+  return (
+    <>
+      <Table aria-label="Orders">
+        <TableBody>
+          <TableRow href={orderHref(42)}>
+            <TableCell header>
+              <Link data-row-link="" href={orderHref(42)}>
+                Order 42
+              </Link>
+            </TableCell>
+            <TableCell>Jana Nováková</TableCell>
+            <TableCell>
+              <button type="button">Archive</button>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+      <DataTable
+        columns={linkedColumns}
+        data={linkedRows}
+        getRowHref={(row) => orderHref(row.id)}
+      />
+    </>
   );
 }

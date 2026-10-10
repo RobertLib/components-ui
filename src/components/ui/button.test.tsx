@@ -119,7 +119,9 @@ describe("Button link variant", () => {
       "focus-visible:ring-2",
     );
     expect(button.className).not.toMatch(/\b(?:px|py)-/);
-    expect(button).not.toHaveClass("border", "focus:ring-2", "shadow-lg");
+    expect(button).not.toHaveClass("border");
+    expect(button).not.toHaveClass("focus:ring-2");
+    expect(button).not.toHaveClass("shadow-lg");
 
     await user.click(button);
     expect(onClick).toHaveBeenCalledOnce();

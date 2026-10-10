@@ -20,6 +20,7 @@ import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import IconButton from "./icon-button";
+import isPromiseLike from "../../utils/is-promise-like";
 import logger from "../../utils/logger";
 import Progress from "./progress";
 import Tooltip from "./tooltip";
@@ -323,9 +324,6 @@ function isAccepted(file: File, accept: string | undefined) {
             ),
   );
 }
-
-const isPromiseLike = <T,>(value: unknown): value is PromiseLike<T> =>
-  typeof (value as PromiseLike<T> | null)?.then === "function";
 
 /** What `run` returns - or what it threw. */
 function attempt<T>(run: () => T): { value: T } | { thrown: unknown } {
@@ -1065,6 +1063,8 @@ export default function FileUpload<
     // The list and the count as they are when the field goes away
     const listed = filesRef;
     const rounds = generation;
+    const reported = reportedPending;
+    const callbacks = latest;
 
     return () => {
       mounted.current = false;
@@ -1078,6 +1078,11 @@ export default function FileUpload<
       queueMicrotask(() => {
         pending.forEach((controller) => controller.abort());
         remaining.forEach((file) => revokeLocalUrl(file.localUrl));
+        // The uploads it told of end with the field - a submit button
+        // waiting for them comes back
+        if (reported.current === 0) return;
+        reported.current = 0;
+        callbacks.current.onPendingChange?.(0);
       });
     };
   }, []);

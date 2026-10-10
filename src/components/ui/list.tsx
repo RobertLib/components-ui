@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { createContext, use } from "react";
 import cn from "../../utils/cn";
-import { useRouter } from "../../providers/ui-context";
+import { useRouterActions } from "../../providers/ui-context";
 
 export type ListVariant = "divided" | "framed" | "plain" | "separate";
 
@@ -41,7 +41,9 @@ export interface ListItemProps extends Omit<
   chevron?: boolean;
   /**
    * The row is the page shown - `aria-current="page"`, highlighted in a
-   * `plain` list (a menu).
+   * `plain` list (a menu). A button, which switches a view of the page
+   * rather than opening a page, is the current one of its list
+   * (`aria-current="true"`).
    */
   current?: boolean;
   /** A line under the title, e.g. a count or a date. */
@@ -69,8 +71,12 @@ export interface ListItemProps extends Omit<
    * @default "primary"
    */
   iconColor?: ListItemIconColor;
-  /** Makes the whole row a button. */
-  onClick?: React.MouseEventHandler<HTMLButtonElement>;
+  /**
+   * Makes the whole row a button - or, with `href`, is called before its
+   * link is followed, e.g. to close the drawer of a menu;
+   * `event.preventDefault()` keeps the page.
+   */
+  onClick?: React.MouseEventHandler<HTMLAnchorElement | HTMLButtonElement>;
   /**
    * Content at the start in place of an `icon`, as it is - e.g. an
    * `Avatar` or a thumbnail.
@@ -189,7 +195,7 @@ export function ListItem({
   title,
   ...props
 }: ListItemProps) {
-  const { Link } = useRouter();
+  const { Link } = useRouterActions();
   const { size, variant } = use(ListContext);
   const sizes = sizeClasses[size];
   const isLink = href !== undefined;
@@ -257,20 +263,26 @@ export function ListItem({
     </>
   );
 
-  // The link or the button fills the row - with the actions beside it
+  // The focused link or button - a ring around a card or an item of a menu,
+  // an outline inside a row of lines, which stay unbroken
+  const hasRing = variant === "separate" || variant === "plain";
+
+  // The link or the button fills the row - with the actions beside it, the
+  // row around them is padded, highlighted and ringed in its place
   const rowClassName = cn(
     "flex min-w-0 items-center gap-3 text-start",
     hasActions ? "flex-1" : "w-full",
     !hasActions && rowClasses[variant],
     isInteractive && [
       "cursor-pointer transition-colors focus:outline-hidden motion-reduce:transition-none",
-      !disabled && !hasActions && interactiveClasses[variant],
-      // Inside the row - the lines of a divided list stay unbroken
-      variant === "separate" || variant === "plain"
-        ? "focus-visible:ring-2 focus-visible:ring-primary-500"
-        : "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-500",
+      !hasActions && [
+        !disabled && interactiveClasses[variant],
+        hasRing
+          ? "focus-visible:ring-2 focus-visible:ring-primary-500"
+          : "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-500",
+      ],
     ],
-    isPlainCurrent && "bg-primary-50 dark:bg-primary-950",
+    isPlainCurrent && !hasActions && "bg-primary-50 dark:bg-primary-950",
     disabled && "cursor-not-allowed opacity-60",
   );
 
@@ -282,21 +294,28 @@ export function ListItem({
         aria-current={current ? "page" : undefined}
         className={rowClassName}
         href={href}
+        onClick={onClick}
       >
         {content}
       </Link>
     );
   } else if (isLink) {
-    // Without an `href` nothing can open a disabled link
+    // Without an `href` nothing can open a disabled link - still the page
+    // shown, as its highlight says
     main = (
-      <a aria-disabled="true" className={rowClassName} role="link">
+      <a
+        aria-current={current ? "page" : undefined}
+        aria-disabled="true"
+        className={rowClassName}
+        role="link"
+      >
         {content}
       </a>
     );
   } else if (isButton) {
     main = (
       <button
-        aria-current={current ? "page" : undefined}
+        aria-current={current ? "true" : undefined}
         className={rowClassName}
         disabled={disabled}
         onClick={onClick}
@@ -321,6 +340,12 @@ export function ListItem({
           "flex items-center gap-2",
           rowClasses[variant],
           isInteractive && !disabled && interactiveClasses[variant],
+          // The focus of the link or the button - not of the actions
+          isInteractive &&
+            (hasRing
+              ? "has-[>:focus-visible]:ring-2 has-[>:focus-visible]:ring-primary-500"
+              : "has-[>:focus-visible]:outline-2 has-[>:focus-visible]:-outline-offset-2 has-[>:focus-visible]:outline-primary-500"),
+          isPlainCurrent && "bg-primary-50 dark:bg-primary-950",
         ],
         className,
       )}

@@ -1,6 +1,11 @@
-import { isAriaInvalid, useFormControl } from "../../hooks/use-form-control";
-import { useId } from "react";
+import {
+  attachRef,
+  isAriaInvalid,
+  useFormControl,
+} from "../../hooks/use-form-control";
+import { useCallback, useId, useRef } from "react";
 import cn, { joinTokens } from "../../utils/cn";
+import { isControlTarget } from "./control-target";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import RequiredMark from "./required-mark";
@@ -53,9 +58,9 @@ export interface SelectProps extends Omit<
   /**
    * Content before the value, inside the border of the field - an icon, or
    * a short caption of a filter or a sort ("Sort by:") in place of a label
-   * above it. A click on it opens the list, as a click on the field does.
-   * Screen readers do not tie it to the field - name the field with a
-   * `label` or an `aria-label`.
+   * above it. A click on it opens the list, as a click on the field does -
+   * a button in it does what it does. Screen readers do not tie it to the
+   * field - name the field with a `label` or an `aria-label`.
    */
   prefix?: React.ReactNode;
   /**
@@ -69,8 +74,10 @@ export interface SelectProps extends Omit<
   readOnly?: boolean;
   /**
    * Content after the value and its arrow, inside the border of the field -
-   * a unit, an icon. A click on it opens the list. Screen readers do not tie
-   * it to the field - say what matters in the label or the `description`.
+   * a unit, an icon, a spinner while the options load (the field keeps its
+   * focus as it comes and goes). A click on it opens the list - a button in
+   * it does what it does. Screen readers do not tie it to the field - say
+   * what matters in the label or the `description`.
    */
   suffix?: React.ReactNode;
 }
@@ -163,9 +170,27 @@ export default function Select({
   ...props
 }: SelectProps) {
   const messages = useMessages().ui;
+  const selectRef = useRef<HTMLSelectElement | null>(null);
+
+  // The select is needed here too - for a press beside it, which focuses
+  // it. Not looked up in the DOM: an adornment may hold a select of its own
+  // (a unit, a currency) before it.
+  const ownRef = useCallback(
+    (element: HTMLSelectElement | null) => {
+      selectRef.current = element;
+      const detachRef = attachRef(ref, element);
+
+      return () => {
+        selectRef.current = null;
+        detachRef();
+      };
+    },
+    [ref],
+  );
+
   const { fieldRef, handleChange, value } = useFormControl({
     ...props,
-    ref,
+    ref: ownRef,
     // The value of a multiple select is an array - also an empty one
     defaultValue: defaultValue ?? (props.multiple ? [] : undefined),
     // A value a script writes into the select stays - `register()`
@@ -280,7 +305,7 @@ export default function Select({
       onMouseDown={(event) => {
         if (readOnly && event.target === event.currentTarget) {
           event.preventDefault();
-          event.currentTarget.querySelector("select")?.focus();
+          selectRef.current?.focus();
         }
       }}
     >
@@ -296,58 +321,70 @@ export default function Select({
         </label>
       )}
 
-      {isFramed ? (
-        <div
-          className={cn(
-            "relative flex w-full items-center rounded-md border border-neutral-300 bg-surface transition-colors focus-within:ring-2 focus-within:ring-primary-500 dark:border-neutral-700 dark:bg-surface-dark",
+      {/* The same element framed or not: the select keeps its place while an
+          adornment comes and goes (a spinner while the options load) -
+          moved into another element it would be a new select, without the
+          focus. Unframed it has no box: the select lays out as before. */}
+      <div
+        className={cn(
+          isFramed
+            ? "relative flex w-full items-center rounded-md border border-neutral-300 bg-surface transition-colors focus-within:ring-2 focus-within:ring-primary-500 dark:border-neutral-700 dark:bg-surface-dark"
+            : "contents",
+          isFramed &&
             error &&
-              "border-danger-500! focus-within:ring-danger-500! forced-colors:outline-1",
-            // Also for a disabled fieldset around, which no prop tells
-            "has-[select:disabled]:cursor-not-allowed has-[select:disabled]:opacity-50",
-          )}
-          // The frame acts as the select: a press on an adornment keeps the
-          // focus where it is, a click focuses the select and opens its list
-          onClick={(event) => {
-            const select = event.currentTarget.querySelector("select");
-            if (!select || event.target === select) return;
-            select.focus();
-            if (!select.disabled && !readOnly && !isListBox) {
-              showPicker(select);
-            }
-          }}
-          onMouseDown={(event) => {
-            if (!(event.target instanceof HTMLSelectElement)) {
-              event.preventDefault();
-            }
-          }}
-        >
-          {hasPrefix && (
-            <span
-              className={cn(
-                "flex shrink-0 items-center text-neutral-500 select-none dark:text-neutral-400",
-                adornmentStyles[dim],
-                prefixPaddings[dim],
-              )}
-            >
-              {prefix}
-            </span>
-          )}
-          {select}
-          {hasSuffix && (
-            <span
-              className={cn(
-                "flex shrink-0 items-center text-neutral-500 select-none dark:text-neutral-400",
-                adornmentStyles[dim],
-                suffixPaddings[dim],
-              )}
-            >
-              {suffix}
-            </span>
-          )}
-        </div>
-      ) : (
-        select
-      )}
+            "border-danger-500! focus-within:ring-danger-500! forced-colors:outline-1",
+          // Also for a disabled fieldset around, which no prop tells - the
+          // select itself, a child of the frame, not one in an adornment
+          isFramed &&
+            "has-[>select:disabled]:cursor-not-allowed has-[>select:disabled]:opacity-50",
+        )}
+        // The frame acts as the select: a press on an adornment keeps the
+        // focus where it is, a click focuses the select and opens its list -
+        // not one on a control in it (an option, a button of an adornment)
+        onClick={(event) => {
+          const select = selectRef.current;
+          if (
+            !isFramed ||
+            !select ||
+            isControlTarget(event.target, event.currentTarget)
+          ) {
+            return;
+          }
+          select.focus();
+          if (!select.disabled && !readOnly && !isListBox) {
+            showPicker(select);
+          }
+        }}
+        onMouseDown={(event) => {
+          if (isFramed && !isControlTarget(event.target, event.currentTarget)) {
+            event.preventDefault();
+          }
+        }}
+      >
+        {hasPrefix && (
+          <span
+            className={cn(
+              "flex shrink-0 items-center text-neutral-500 select-none dark:text-neutral-400",
+              adornmentStyles[dim],
+              prefixPaddings[dim],
+            )}
+          >
+            {prefix}
+          </span>
+        )}
+        {select}
+        {hasSuffix && (
+          <span
+            className={cn(
+              "flex shrink-0 items-center text-neutral-500 select-none dark:text-neutral-400",
+              adornmentStyles[dim],
+              suffixPaddings[dim],
+            )}
+          >
+            {suffix}
+          </span>
+        )}
+      </div>
 
       <FormDescription id={descriptionId}>{description}</FormDescription>
       <FormError id={errorId}>{error}</FormError>

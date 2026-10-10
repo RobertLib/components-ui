@@ -230,3 +230,94 @@ describe("Calendar where the time zone skips a day (Pacific/Apia)", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
+
+// Kiritimati went from Friday, December 30, 1994 to Sunday, January 1 - the
+// last day of the month skipped
+describe("Calendar where the time zone skipped the last day of a month (Pacific/Kiritimati)", () => {
+  let previousTZ: string | undefined;
+
+  beforeAll(() => {
+    previousTZ = process.env.TZ;
+    process.env.TZ = "Pacific/Kiritimati";
+  });
+
+  afterAll(() => {
+    if (previousTZ === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTZ;
+  });
+
+  it("goes a month on to the same day - or the last one of that month", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(
+      <Calendar initialDate={new Date(1994, 10, 30, 10)} />,
+    );
+
+    const field = screen.getByRole("combobox", { name: "Go to date" });
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(field).toHaveValue("12/30/1994");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(field).toHaveValue("01/30/1995");
+    unmount();
+
+    render(<Calendar initialDate={new Date(1995, 0, 15, 10)} />);
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+    expect(screen.getByRole("combobox", { name: "Go to date" })).toHaveValue(
+      "12/15/1994",
+    );
+  });
+
+  it("repeats an event on the last day the month has", () => {
+    const expand = (recurrence: string) =>
+      expandRecurringEvents(
+        [
+          {
+            end: new Date(1994, 9, 28, 11),
+            id: "series",
+            recurrence,
+            start: new Date(1994, 9, 28, 10),
+            title: "Series",
+          },
+        ],
+        { end: new Date(1995, 2, 1), start: new Date(1994, 9, 1) },
+      ).map(({ start }) => `${start.getMonth() + 1}/${start.getDate()}`);
+
+    // After the event itself
+    expect(expand("FREQ=MONTHLY;BYMONTHDAY=-1")).toEqual([
+      "10/28",
+      "10/31",
+      "11/30",
+      "12/30",
+      "1/31",
+      "2/28",
+    ]);
+    // Counting back from it
+    expect(expand("FREQ=MONTHLY;BYMONTHDAY=-2;COUNT=4")).toEqual([
+      "10/28",
+      "10/30",
+      "11/29",
+      "12/29",
+    ]);
+    expect(expand("FREQ=DAILY;BYMONTHDAY=-1;COUNT=4")).toEqual([
+      "10/28",
+      "10/31",
+      "11/30",
+      "12/30",
+    ]);
+  });
+
+  it("pages from the 31st to the last day of that month", async () => {
+    const user = userEvent.setup();
+    render(
+      <Calendar initialDate={new Date(1995, 0, 31)} onDateClick={() => {}} />,
+    );
+
+    act(() =>
+      screen.getByRole("button", { name: "Tuesday, January 31, 1995" }).focus(),
+    );
+    await user.keyboard("{PageUp}");
+    expect(screen.getByRole("grid", { name: "December 1994" })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Friday, December 30, 1994" }),
+    ).toHaveFocus();
+  });
+});

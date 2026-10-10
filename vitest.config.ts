@@ -6,8 +6,9 @@ import { defineConfig } from "vitest/config";
 // applies those changes in a process's main thread, not in worker threads.
 const timeZoneTests = [
   "src/utils/date.test.ts",
-  "src/components/ui/datetime-picker/grid-keyboard.test.tsx",
-  "src/components/ui/date-range-picker/midnight-dst.test.tsx",
+  "src/hooks/use-format-date.test.tsx",
+  "src/components/ui/datetime-picker/{availability,grid-keyboard,skipped-month-end}.test.{ts,tsx}",
+  "src/components/ui/date-range-picker/{midnight-dst,skipped-month-end}.test.{ts,tsx}",
   "src/components/ui/calendar/{calendar,date-utils,drag,midnight-dst,recurrence,skipped-day,ssr}.test.{ts,tsx}",
 ];
 

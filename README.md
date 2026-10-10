@@ -46,7 +46,7 @@ Requirements: React 19, Tailwind CSS 4.3 or newer and a bundler that sets
    page):
 
    ```sh
-   npm install git+https://github.com/RobertLib/components-ui.git#v0.5.0
+   npm install git+https://github.com/RobertLib/components-ui.git#v0.6.0
    ```
 
    If npm reports that the `prepare` script of `components-ui` is not allowed
@@ -111,8 +111,34 @@ library put there with their hashes and its version. An update replaces and
 removes those alone: the app's own files next to them stay, as do its
 `i18n/en.ts` and `i18n/cs.ts` (written once, as templates). A library file
 changed in the copy stops the update - move the change into the library, or
-replace it with `--force`. The Installation page of the docs lists the lint
-and Prettier settings that keep the copy out of the app's own rules.
+replace it with `--force`. So does a file of the app at a path the library
+takes up (one the manifest does not list) - rename it, or replace it with
+`--adopt`; `--force` does not touch it. Give the options after the `--`, as
+above: npm keeps those before it for itself. Line endings do not count, so a
+checkout with CRLF is no change.
+
+A file or a folder the library renamed only in case (`Badge.tsx` -
+`badge.tsx`, `Data-Table/` - `data-table/`) is renamed in the copy too, a
+folder with all in it. A folder with files of the app in it stops the sync: the
+app imports them by the old name, which a build on Linux does not find - rename
+it yourself, and the imports, or let `--adopt` rename it with all in it. Git
+ignores case on macOS and Windows: it keeps the old names, also for a file
+added in such a folder, and a build on Linux does not find them. The sync
+prints the commands that record the renames, with the whole path of the copy -
+also on a later run, while Git keeps the old names. Run them before you commit:
+
+```sh
+git -C /home/me/my-app/src rm -r --cached -q --ignore-unmatch -- components/ui/Data-Table
+git -C /home/me/my-app/src add -- components/ui/data-table
+```
+
+The first sync of a copy made by hand, which has no manifest yet, takes over
+the files equal to the library's and stops at the others: an older version of
+the library or a change of the app, which the sync cannot tell apart. Check
+them with `--dry-run` (it lists the whole plan, and exits with an error where a
+real run would stop), then `--adopt` replaces them with the library's; nothing
+is removed. The Installation page of the docs lists the lint and Prettier
+settings that keep the copy out of the app's own rules.
 
 To generate a clean copy in this repository instead, run:
 
@@ -121,8 +147,9 @@ npm run export:source
 ```
 
 Merge the generated `dist-source/src/` into your project's `src/` and keep
-`dist-source/LICENSE` with the copied library. The export omits tests and
-the package entry point, and names the stylesheet `ui-styles.css`, so it
+`dist-source/LICENSE` with the copied library. The export omits tests, files
+of the system and editors (`.DS_Store`, swap files) and the package entry
+point, and names the stylesheet `ui-styles.css`, so it
 does not replace your application's entry file. Each export regenerates
 `dist-source/`; when updating an app, keep its own `i18n/en.ts` and
 `i18n/cs.ts` catalogs.

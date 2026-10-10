@@ -30,7 +30,8 @@ export interface UseUrlStateOptions<T extends Record<string, string>> {
   /**
    * Keys set back to their default when another key changes - `["page"]`:
    * a list starts at its first page again once its search or a filter
-   * changes. A change of the key itself keeps it.
+   * changes. A key given to `update` too keeps its value - of a function's
+   * result, one it changes (not one it passes on, `{ ...current, q }`).
    */
   resetOnChange?: readonly (keyof T & string)[];
 }
@@ -40,9 +41,13 @@ export interface UrlStateUpdateOptions {
   replace?: boolean;
 }
 
-/** Changes some of the values of `useUrlState` - the others stay. */
+/**
+ * Changes some of the values of `useUrlState` - the others stay. A function
+ * gets the current values, also the changes the router does not show yet,
+ * for a change relative to them: the next page.
+ */
 export type SetUrlState<T extends Record<string, string>> = (
-  changes: Partial<T>,
+  changes: Partial<T> | ((current: T) => Partial<T>),
   options?: UrlStateUpdateOptions,
 ) => void;
 
@@ -85,8 +90,11 @@ const isSameState = (a: Record<string, string>, b: Record<string, string>) =>
  * <Select onChange={(event) => update({ status: event.target.value })} … />
  * ```
  *
- * For a text field, `useDebouncedField(state.q, (q) => update({ q }, {
- * replace: true }))` writes into the URL once the typing pauses.
+ * A change relative to the values - the next page - is a function of them:
+ * `update((current) => ({ page: String(Number(current.page) + 1) }))`, so
+ * that two clicks before the router shows the first go two pages on. For a
+ * text field, `useDebouncedField(state.q, (q) => update({ q }, { replace:
+ * true }))` writes into the URL once the typing pauses.
  */
 export default function useUrlState<T extends Record<string, string>>(
   defaults: T,
@@ -165,9 +173,12 @@ export default function useUrlState<T extends Record<string, string>>(
       // The latest search - with the changes the router does not show yet
       const currentSearch = entry.pending.at(-1) ?? currentRouter.search;
       const current = readState(currentSearch, stableDefaults, prefix);
+      // A function builds on these values - not on the ones rendered
+      const resolved =
+        typeof changes === "function" ? changes({ ...current }) : changes;
       const next: Record<string, string> = { ...current };
 
-      for (const [key, value] of Object.entries(changes)) {
+      for (const [key, value] of Object.entries(resolved)) {
         if (!(key in stableDefaults)) continue;
         next[key] = value ?? stableDefaults[key];
       }
@@ -178,10 +189,13 @@ export default function useUrlState<T extends Record<string, string>>(
       if (changed.length === 0) return;
 
       // Another value changed - the keys of `resetOnChange` start over,
-      // unless they were changed too
+      // unless they were given too. A function gives only those it changes,
+      // passing the others on (`{ ...current, q }`).
+      const isGiven = (key: string) =>
+        typeof changes === "function" ? changed.includes(key) : key in resolved;
       if (changed.some((key) => !stableResets.includes(key))) {
         for (const key of stableResets) {
-          if (!(key in changes)) next[key] = stableDefaults[key];
+          if (!isGiven(key)) next[key] = stableDefaults[key];
         }
       }
 

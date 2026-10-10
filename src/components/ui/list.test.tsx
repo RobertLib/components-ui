@@ -86,6 +86,70 @@ describe("List", () => {
     expect(onEdit).toHaveBeenCalledOnce();
   });
 
+  it("calls onClick of a link before it is followed - e.g. to close a drawer", async () => {
+    const user = userEvent.setup();
+    const targets: EventTarget[] = [];
+    const onClick = vi.fn((event: React.MouseEvent) => {
+      targets.push(event.currentTarget);
+      event.preventDefault();
+    });
+    render(
+      <List>
+        <ListItem href="/card" onClick={onClick} title="Licence" />
+      </List>,
+    );
+
+    await user.click(screen.getByRole("link", { name: "Licence" }));
+    expect(onClick).toHaveBeenCalledOnce();
+    expect(targets).toEqual([screen.getByRole("link")]);
+  });
+
+  it("marks a button that switches a view as the current one, not as the page", () => {
+    render(
+      <List variant="plain">
+        <ListItem current onClick={() => {}} title="Licence" />
+        <ListItem onClick={() => {}} title="Grades" />
+      </List>,
+    );
+
+    expect(screen.getByRole("button", { name: "Licence" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Grades" })).not.toHaveAttribute(
+      "aria-current",
+    );
+  });
+
+  it("highlights and rings the whole row of a link with actions", () => {
+    render(
+      <List variant="plain">
+        <ListItem
+          actions={<button type="button">Edit</button>}
+          current
+          href="/card"
+          title="Licence"
+        />
+        <ListItem href="/card/notes" title="Notes" />
+      </List>,
+    );
+
+    // The padded row around the link and its actions - not the link alone
+    const link = screen.getByRole("link", { name: "Licence" });
+    const row = link.closest("li")!;
+    expect(row).toHaveClass(
+      "px-3",
+      "bg-primary-50",
+      "has-[>:focus-visible]:ring-2",
+    );
+    expect(link).not.toHaveClass("bg-primary-50");
+    expect(link).not.toHaveClass("focus-visible:ring-2");
+    // A row without actions has them on its link, as before
+    const notes = screen.getByRole("link", { name: "Notes" });
+    expect(notes).toHaveClass("px-3", "focus-visible:ring-2");
+    expect(notes.closest("li")!.className).toBe("");
+  });
+
   it("cannot be used while disabled - a link without an href", () => {
     render(
       <List>
@@ -98,6 +162,18 @@ describe("List", () => {
     expect(link).toHaveAttribute("aria-disabled", "true");
     expect(link).not.toHaveAttribute("href");
     expect(screen.getByRole("button", { name: "Switch" })).toBeDisabled();
+  });
+
+  it("announces a disabled link as the page shown, as it is highlighted", () => {
+    render(
+      <List variant="plain">
+        <ListItem current disabled href="/card" title="Licence" />
+      </List>,
+    );
+
+    const link = screen.getByRole("link", { name: "Licence", current: "page" });
+    expect(link).toHaveAttribute("aria-disabled", "true");
+    expect(link).toHaveClass("bg-primary-50");
   });
 
   it("frames, divides or separates the rows by its variant", () => {

@@ -129,12 +129,14 @@ export interface SnackbarProviderProps {
   /** The app - `useSnackbar()` works anywhere inside. */
   children: React.ReactNode;
   /**
-   * Classes of the toasts of a variant - e.g. `{ success: "bg-neutral-900
-   * text-white border-neutral-900" }` for a dark confirmation. They come
-   * after the colors of the variant, so they replace them. The toast has
-   * `data-variant`, its icon `data-toast-icon` and its close button
-   * `data-toast-close` for the classes of its parts
-   * (`**:data-toast-close:text-neutral-400`).
+   * Classes of the toasts of a variant. A color among them - of the
+   * background, the text or the border - replaces the variant's one, also
+   * in the dark mode (add a `dark:` class for another one there); the
+   * variant keeps the colors not given. E.g. `{ success: "bg-neutral-900
+   * text-white border-neutral-900" }` for a dark confirmation, `{ danger:
+   * "font-semibold" }` for errors in bold. The toast has `data-variant`,
+   * its icon `data-toast-icon` and its close button `data-toast-close` for
+   * the classes of its parts (`**:data-toast-close:text-neutral-400`).
    */
   classNames?: Partial<Record<Exclude<ToastVariant, "error">, string>>;
   /**
@@ -376,7 +378,7 @@ export default function SnackbarProvider({
     <ToastRevisionContext key={toast.id} value={toast.revision}>
       <Toast
         action={toast.action}
-        className={classNames?.[toast.variant]}
+        colorClassName={classNames?.[toast.variant]}
         duration={
           toast.duration ??
           (toast.action ? undefined : durations?.[toast.variant])

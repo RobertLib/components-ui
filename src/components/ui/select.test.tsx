@@ -10,7 +10,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { describe, expect, it, vi } from "vitest";
+import { hasVariantApplies } from "../../test/has-variant";
 import Select from "./select";
 
 const stylesheet = readFileSync(
@@ -113,9 +115,13 @@ describe("Select readOnly", () => {
     render(<Select defaultValue="m" label="Size" options={sizes} readOnly />);
 
     const select = combobox();
-    // The pointer passes through it to the element around, which focuses it
+    // The pointer passes through it - and the element around it, which has
+    // no box without an adornment - to the field, which focuses it
     expect(select).toHaveClass("pointer-events-none");
-    expect(fireEvent.mouseDown(select.parentElement!)).toBe(false);
+    expect(select.parentElement).toHaveClass("contents");
+    expect(fireEvent.mouseDown(select.parentElement!.parentElement!)).toBe(
+      false,
+    );
     expect(select).toHaveFocus();
   });
 
@@ -212,7 +218,8 @@ describe("Select readOnly", () => {
       </>,
     );
 
-    expect(combobox()).not.toHaveClass("cui-select-arrow", "pe-8");
+    expect(combobox()).not.toHaveClass("cui-select-arrow");
+    expect(combobox()).not.toHaveClass("pe-8");
     const listbox = screen.getByRole("listbox", { name: /Many/ });
     expect(listbox).not.toHaveClass("pointer-events-none");
     // A press picks no option
@@ -246,7 +253,8 @@ describe("Select arrow", () => {
     );
 
     for (const listbox of screen.getAllByRole("listbox")) {
-      expect(listbox).not.toHaveClass("cui-select-arrow", "pe-8");
+      expect(listbox).not.toHaveClass("cui-select-arrow");
+      expect(listbox).not.toHaveClass("pe-8");
     }
   });
 });
@@ -314,9 +322,93 @@ describe("Select prefix and suffix", () => {
     expect(combobox()).not.toHaveClass("border-danger-500!");
 
     rerender(<Select disabled label="Size" options={sizes} prefix="⇅" />);
-    expect(combobox().parentElement).toHaveClass(
-      "has-[select:disabled]:opacity-50",
+    expect(hasVariantApplies(combobox().parentElement!, "opacity-50")).toBe(
+      true,
     );
+  });
+
+  it("fades for its own disabled select - not for one in an adornment", () => {
+    render(
+      <>
+        <Select
+          aria-label="Size"
+          options={sizes}
+          prefix={
+            <select aria-label="Unit" disabled>
+              <option>cm</option>
+            </select>
+          }
+        />
+        {/* No prop tells the select it is disabled */}
+        <fieldset disabled>
+          <Select aria-label="Weight" options={sizes} prefix="⇅" />
+        </fieldset>
+      </>,
+    );
+
+    const frame = (name: string) => combobox(name).parentElement!;
+    expect(hasVariantApplies(frame("Size"), "opacity-50")).toBe(false);
+    expect(hasVariantApplies(frame("Size"), "cursor-not-allowed")).toBe(false);
+    expect(hasVariantApplies(frame("Weight"), "opacity-50")).toBe(true);
+    expect(hasVariantApplies(frame("Weight"), "cursor-not-allowed")).toBe(true);
+  });
+
+  it("opens its own list - not that of a select in an adornment", async () => {
+    const user = userEvent.setup();
+    render(
+      <Select
+        aria-label="Size"
+        options={sizes}
+        prefix={
+          <select aria-label="Unit">
+            <option>cm</option>
+            <option>in</option>
+          </select>
+        }
+        suffix="info"
+      />,
+    );
+
+    const select = combobox("Size");
+    const unit = combobox("Unit");
+    const showPicker = vi.fn();
+    const showUnitPicker = vi.fn();
+    Object.defineProperty(select, "showPicker", { value: showPicker });
+    Object.defineProperty(unit, "showPicker", { value: showUnitPicker });
+
+    // A click on the suffix, and on the padding of the frame
+    await user.click(screen.getByText("info"));
+    expect(select).toHaveFocus();
+    select.blur();
+    await user.click(select.parentElement!);
+    expect(select).toHaveFocus();
+    expect(showPicker).toHaveBeenCalledTimes(2);
+    expect(showUnitPicker).not.toHaveBeenCalled();
+
+    // The select of the prefix is still a control of its own
+    await user.selectOptions(unit, "in");
+    expect(unit).toHaveValue("in");
+    expect(unit).toHaveFocus();
+  });
+
+  it("focuses its own read-only select at a press beside it", () => {
+    render(
+      <Select
+        aria-label="Size"
+        options={sizes}
+        prefix={
+          <select aria-label="Unit">
+            <option>cm</option>
+          </select>
+        }
+        readOnly
+      />,
+    );
+
+    // The press lands on the element around the label and the frame
+    const field = combobox("Size").parentElement!.parentElement!;
+    expect(fireEvent.mouseDown(field)).toBe(false);
+    expect(combobox("Size")).toHaveFocus();
   });
 
   it("opens no list of a read-only select by a click on its prefix", async () => {
@@ -329,6 +421,93 @@ describe("Select prefix and suffix", () => {
     Object.defineProperty(combobox(), "showPicker", { value: showPicker });
     await user.click(screen.getByText("⇅"));
     expect(combobox()).toHaveFocus();
+    expect(showPicker).not.toHaveBeenCalled();
+  });
+
+  it("lets the mouse pick an option of a framed list box", () => {
+    render(
+      <Select
+        aria-label="Sizes"
+        multiple
+        options={[{ label: "Sizes", options: sizes }]}
+        prefix="⇅"
+      />,
+    );
+
+    // The press of a list box lands on the option - not on the select
+    const option = screen.getByRole("option", { name: "Medium" });
+    expect(fireEvent.mouseDown(option)).toBe(true);
+    // The frame still keeps the focus where it is at a press on the prefix
+    expect(fireEvent.mouseDown(screen.getByText("⇅"))).toBe(false);
+  });
+
+  it("keeps the select, and its focus, as an adornment comes and goes", () => {
+    const { rerender } = render(
+      <Select label="Size" options={sizes} suffix={false} />,
+    );
+    const select = combobox();
+    select.focus();
+    // Without an adornment there is no frame - the element has no box
+    expect(select.parentElement).toHaveClass("contents");
+    expect(select.parentElement).not.toHaveClass("border");
+    expect(select).toHaveClass("form-control");
+
+    rerender(<Select label="Size" options={sizes} suffix="Loading…" />);
+    expect(combobox()).toBe(select);
+    expect(select).toHaveFocus();
+    expect(select.parentElement).toHaveClass("rounded-md", "border");
+    expect(select.parentElement).not.toHaveClass("contents");
+
+    rerender(<Select label="Size" options={sizes} prefix="⇅" />);
+    expect(combobox()).toBe(select);
+    expect(select).toHaveFocus();
+
+    rerender(<Select label="Size" options={sizes} />);
+    expect(combobox()).toBe(select);
+    expect(select).toHaveFocus();
+    expect(select.parentElement).toHaveClass("contents");
+  });
+
+  it("leaves a press in a portal of an adornment to it", () => {
+    function Help() {
+      return createPortal(<p>Sizes in centimetres</p>, document.body);
+    }
+    render(<Select label="Size" options={sizes} suffix={<Help />} />);
+
+    const showPicker = vi.fn();
+    Object.defineProperty(combobox(), "showPicker", { value: showPicker });
+    // React passes the events on to the frame - its text can be selected,
+    // and a click opens no list
+    const help = screen.getByText("Sizes in centimetres");
+    expect(fireEvent.mouseDown(help)).toBe(true);
+    fireEvent.click(help);
+    expect(combobox()).not.toHaveFocus();
+    expect(showPicker).not.toHaveBeenCalled();
+  });
+
+  it("leaves a button of an adornment to itself", async () => {
+    const user = userEvent.setup();
+    const onReset = vi.fn();
+    render(
+      <Select
+        label="Size"
+        options={sizes}
+        suffix={
+          <button onClick={onReset} type="button">
+            Reset
+          </button>
+        }
+      />,
+    );
+
+    const showPicker = vi.fn();
+    Object.defineProperty(combobox(), "showPicker", { value: showPicker });
+    const reset = screen.getByRole("button", { name: "Reset" });
+    // Its press is not taken for one on the frame - it focuses the button
+    expect(fireEvent.mouseDown(reset)).toBe(true);
+    await user.click(reset);
+    expect(onReset).toHaveBeenCalledOnce();
+    expect(reset).toHaveFocus();
     expect(showPicker).not.toHaveBeenCalled();
   });
 });

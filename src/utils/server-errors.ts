@@ -150,19 +150,37 @@ const getGraphQLErrors = (error: unknown): unknown[] | undefined => {
   return list && !isErrorList(list) ? list : undefined;
 };
 
+/** General messages as Zod's `flatten()` gives them - or one text, or none. */
+const isFormErrors = (value: unknown) =>
+  value === null ||
+  typeof value === "string" ||
+  (Array.isArray(value) && value.every((item) => typeof item === "string"));
+
 /**
  * The details of Zod's `flatten()` - `{ formErrors: [...], fieldErrors: {
  * email: [...] } }` - keep the field messages apart from the general ones.
  * A body of an API with its own members next to them - `{ code, message,
  * fieldErrors: { email: [...] } }` - has its field messages there too.
+ * Either of the two is enough: a serializer leaves out an empty one
+ * (Jackson's `NON_EMPTY`), an error class may set one only when it has
+ * messages. Without `fieldErrors`, the field messages are those next to
+ * `formErrors` (`{ formErrors: [], email: [...] }`) - read as `enveloped`
+ * says, none of an `Error` (`enveloped` left out), whose other members are
+ * its own. `undefined` for other details.
  */
-const unflatten = (details: Details): Details => {
-  const { fieldErrors, formErrors } = details.fields;
+const getFlattened = (
+  source: ErrorDetails,
+  enveloped?: boolean,
+): Details | undefined => {
+  const { fieldErrors, formErrors, ...beside } = source;
+  if (isRecord(fieldErrors)) {
+    return { enveloped: false, fields: fieldErrors, formErrors };
+  }
+  if (!isFormErrors(formErrors)) return undefined;
 
-  return isRecord(fieldErrors) &&
-    (Array.isArray(formErrors) || formErrors === undefined)
-    ? { enveloped: false, fields: fieldErrors, formErrors }
-    : details;
+  return enveloped === undefined
+    ? { enveloped: false, fields: {}, formErrors }
+    : { enveloped, fields: beside, formErrors };
 };
 
 /**
@@ -189,19 +207,20 @@ const getErrorDetails = (error: unknown): Details | undefined => {
   }
 
   if (isRecord(error.errors)) {
-    return unflatten({ enveloped: false, fields: error.errors });
+    return (
+      getFlattened(error.errors, false) ?? {
+        enveloped: false,
+        fields: error.errors,
+      }
+    );
   }
 
-  // The error class of an API client with the field messages of the body -
-  // `class ApiError extends Error { fieldErrors }`
-  if (error instanceof Error && isRecord(error.fieldErrors)) {
-    return { enveloped: false, fields: error.fieldErrors };
-  }
+  // The error class of an API client with the messages of the body -
+  // `class ApiError extends Error { fieldErrors; formErrors }`. Any other
+  // Error (network failure, …) has no validation details.
+  if (error instanceof Error) return getFlattened(error);
 
-  // Any other Error (network failure, …) has no validation details
-  return error instanceof Error
-    ? undefined
-    : unflatten({ enveloped: true, fields: error });
+  return getFlattened(error, true) ?? { enveloped: true, fields: error };
 };
 
 /**
@@ -341,7 +360,8 @@ const getListedErrorMessage = (item: ListedError) =>
  *   `{ errors: [{ field, message }] }`, JSON:API `errors` with a
  *   `source.pointer`, Spring Boot `{ errors: [{ field, defaultMessage }] }`,
  *   express-validator `{ errors: [{ path, msg }] }` and Zod's `flatten()`,
- *   `{ formErrors, fieldErrors: { email: [...] } }`.
+ *   `{ formErrors, fieldErrors: { email: [...] } }` - also with one of the
+ *   two left out, in a body, in its `errors` or in an error class.
  *
  * Field names are matched in camelCase, snake_case and any letter case, and
  * `address.street` (or `address[street]`, `items[0].name`) addresses a
@@ -415,12 +435,13 @@ const firstText = (...values: unknown[]) =>
 /**
  * The general message of a server error that is not tied to a field -
  * `base` (Rails), `non_field_errors` (Django REST framework), `formErrors`
- * (Zod), a plain list of messages (`{ errors: ["…"] }`) or an error list
- * entry without a field (a Spring Boot global error, or a JSON:API one
- * pointing at the whole resource, `"/data"`). An error without field
- * messages gives its own message: that of a GraphQL error (`"Not
- * authorized"`), a `detail` (Django REST framework, problem details), a
- * `message`, or the `title` of problem details (ASP.NET).
+ * (Zod - a list or one text, also without `fieldErrors`), a plain list of
+ * messages (`{ errors: ["…"] }`) or an error list entry without a field (a
+ * Spring Boot global error, or a JSON:API one pointing at the whole
+ * resource, `"/data"`). An error without field messages gives its own
+ * message: that of a GraphQL error (`"Not authorized"`), a `detail` (Django
+ * REST framework, problem details), a `message`, or the `title` of problem
+ * details (ASP.NET).
  */
 export const getBaseError = (error: unknown): string | undefined => {
   const messages = getMessageList(error);

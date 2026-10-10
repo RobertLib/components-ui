@@ -106,8 +106,8 @@
   --color-surface: #ffffff;
   --color-surface-dark: #1e1e1e;
   /* The body of a Dialog or a Sheet, under its header and footer of the
-     surface - the page background by default, `var(--color-surface)` for
-     dialogs white all through */
+     surface - the page background by default, `var(--color-surface)` and
+     `var(--color-surface-dark)` for dialogs of one color all through */
   --color-dialog: var(--color-background);
   --color-dialog-dark: var(--color-background-dark);
 

@@ -1,10 +1,11 @@
-import { useId, useState } from "react";
+import { useState } from "react";
 import cn from "../../utils/cn";
 import { useMessages } from "../../providers/ui-context";
 import Alert from "./alert";
 import Button, { type ButtonProps } from "./button";
 import ConfirmDialog from "./confirm-dialog";
 import Dialog, { DialogFooter, type DialogProps } from "./dialog";
+import { DialogCloseButton } from "./modal-dialog";
 
 export interface FormDialogProps extends Omit<
   DialogProps,
@@ -34,10 +35,7 @@ export interface FormDialogProps extends Omit<
    * Attributes of the `<form>` - e.g. `noValidate` to leave the checks to
    * your code, or a `name`.
    */
-  formProps?: Omit<
-    React.ComponentProps<"form">,
-    "children" | "id" | "onSubmit"
-  >;
+  formProps?: Omit<React.ComponentProps<"form">, "children" | "onSubmit">;
   /**
    * Called when the user closes the dialog - also by Cancel - once a
    * `dirty` form's question was answered "Discard".
@@ -45,14 +43,16 @@ export interface FormDialogProps extends Omit<
   onClose: () => void;
   /**
    * Called when the form is submitted (the submit button, Enter in a field)
-   * - its default prevented. Not while `saving` or `submitDisabled`.
+   * - its default prevented. Not while `saving` or `submitDisabled`. The
+   * event goes no further: neither a `<form>` of the page around the dialog
+   * nor listeners of `document` get it.
    */
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   /** Controls the dialog. */
   open: boolean;
   /**
    * The form is being saved - the submit button shows a spinner, and the
-   * dialog cannot be closed meanwhile.
+   * dialog cannot be closed meanwhile (as with `closeDisabled`).
    */
   saving?: boolean;
   /**
@@ -83,6 +83,7 @@ export interface FormDialogProps extends Omit<
 export default function FormDialog({
   cancelLabel,
   children,
+  closeDisabled = false,
   dirty = false,
   error,
   errorTitle,
@@ -102,7 +103,6 @@ export default function FormDialog({
   ...props
 }: FormDialogProps) {
   const messages = useMessages().ui;
-  const formId = useId();
   // The answer of "Discard changes?" the dialog waits for
   const [question, setQuestion] = useState<{
     answer: (discard: boolean) => void;
@@ -111,19 +111,14 @@ export default function FormDialog({
   const hasError =
     error !== undefined && error !== null && error !== false && error !== "";
 
-  // Whether the dialog may close - asked by the close button, Escape and
-  // the backdrop through the Dialog, and by Cancel
-  const mayClose = (): boolean | void | Promise<boolean | void> => {
+  // Whether the dialog may close - asked by the Dialog for its close button,
+  // Escape, the backdrop and Cancel, one answer at a time
+  const mayClose = (): boolean | void | PromiseLike<boolean | void> => {
     if (onBeforeClose) return onBeforeClose();
     if (!dirty) return true;
     return new Promise<boolean>((resolve) => {
       setQuestion({ answer: resolve });
     });
-  };
-
-  const cancel = async () => {
-    if (saving) return;
-    if ((await mayClose()) !== false) onClose();
   };
 
   const answer = (discard: boolean) => {
@@ -139,7 +134,7 @@ export default function FormDialog({
     <>
       <Dialog
         {...props}
-        closeDisabled={saving}
+        closeDisabled={saving || closeDisabled}
         onBeforeClose={mayClose}
         onClose={onClose}
         open={open}
@@ -149,9 +144,15 @@ export default function FormDialog({
         <form
           {...formProps}
           className={cn("flex flex-col gap-4", formProps?.className)}
-          id={formId}
+          // Not the form of the page the dialog is rendered in - React passes
+          // its events on to it through the portal
+          onReset={(event) => {
+            event.stopPropagation();
+            formProps?.onReset?.(event);
+          }}
           onSubmit={(event) => {
             event.preventDefault();
+            event.stopPropagation();
             if (!saving && !submitDisabled) onSubmit(event);
           }}
         >
@@ -165,14 +166,13 @@ export default function FormDialog({
             <div className="flex flex-wrap items-center justify-end gap-2">
               {footerStart}
               <div className="ms-auto flex flex-wrap justify-end gap-2">
-                <Button
+                <DialogCloseButton
                   color="default"
-                  disabled={saving}
-                  onClick={() => void cancel()}
+                  disabled={saving || closeDisabled}
                   variant="outline"
                 >
                   {cancelLabel ?? messages.common.cancel}
-                </Button>
+                </DialogCloseButton>
                 <Button
                   aria-disabled={submitDisabled || undefined}
                   className={cn(

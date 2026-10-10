@@ -253,7 +253,8 @@ export default function FileUploadPage() {
             <code>onPendingChange</code> reports how many files wait for their
             upload or are uploading - to disable the submit button of a dialog,
             show &quot;3 of 5 uploaded&quot; or ask before closing it while
-            uploads run. The form itself cannot be submitted meanwhile anyway.
+            uploads run - and <code>0</code> when the field goes away with them,
+            cancelled. The form itself cannot be submitted meanwhile anyway.
           </p>
         </Prose>
       </Section>

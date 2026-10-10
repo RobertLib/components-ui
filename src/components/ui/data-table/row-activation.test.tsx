@@ -1,10 +1,14 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { Profiler } from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
 import UIProvider from "../../../providers/ui-provider";
 import type { Column } from "./types";
-import type { LinkComponentProps } from "../../../providers/router";
+import {
+  browserNavigate,
+  type LinkComponentProps,
+} from "../../../providers/router";
 
 interface Row {
   id: number;
@@ -78,6 +82,32 @@ describe("DataTable row activation", () => {
       within(bodyRows()[0]).getByRole("checkbox").closest("td")!,
     );
     expect(onRowClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes no click whose press began on a control of the row", () => {
+    const onRowClick = vi.fn();
+    render(
+      <DataTable
+        actions={(row) => <button type="button">Edit {row.name}</button>}
+        columns={columns}
+        data={rows}
+        onRowClick={onRowClick}
+      />,
+    );
+
+    // Pressed on the button, released on another cell - the browser clicks
+    // what holds both, the row
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Edit Adam" }));
+    fireEvent.click(bodyRows()[0], { detail: 1 });
+    expect(onRowClick).not.toHaveBeenCalled();
+
+    fireEvent.mouseDown(screen.getByText("First"));
+    fireEvent.click(bodyRows()[0], { detail: 1 });
+    expect(onRowClick).toHaveBeenCalledOnce();
+    // Shift + press selects no text up to the row
+    expect(
+      fireEvent.mouseDown(screen.getByText("First"), { shiftKey: true }),
+    ).toBe(false);
   });
 
   it("does not take the end of selecting text for a click", () => {
@@ -221,9 +251,9 @@ describe("DataTable row activation", () => {
     expect(navigate).toHaveBeenLastCalledWith("/people/1", { ctrlKey: false });
     expect(onRowClick).toHaveBeenCalledTimes(1);
 
-    // A click elsewhere on the row follows the link - with the keys held
-    fireEvent.click(screen.getByText("Second"), { ctrlKey: true });
-    expect(navigate).toHaveBeenLastCalledWith("/people/2", { ctrlKey: true });
+    // A click elsewhere on the row follows the link
+    fireEvent.click(screen.getByText("Second"));
+    expect(navigate).toHaveBeenLastCalledWith("/people/2", { ctrlKey: false });
     expect(onRowClick).toHaveBeenCalledTimes(2);
 
     // `preventDefault()` in onRowClick stays on the page
@@ -238,5 +268,181 @@ describe("DataTable row activation", () => {
     screen.getByRole("link", { name: "Běla" }).focus();
     await user.keyboard("{Enter}");
     expect(navigate).toHaveBeenLastCalledWith("/people/2", { ctrlKey: false });
+  });
+
+  it("opens the link of a row in a new tab on a click of the middle button", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    // A router under a base path - its links add it
+    function Link({ href, ...props }: LinkComponentProps) {
+      return <a {...props} href={`/app${href}`} />;
+    }
+    const auxClick = (element: Element, button = 1) =>
+      fireEvent(
+        element,
+        new MouseEvent("auxclick", { bubbles: true, button, cancelable: true }),
+      );
+
+    render(
+      <UIProvider router={{ Link }}>
+        <DataTable
+          columns={columns}
+          data={rows}
+          getRowHref={(row) => (row.id === 3 ? undefined : `/people/${row.id}`)}
+        />
+      </UIProvider>,
+    );
+
+    // The browser does not scroll by the pointer - the press opens the link
+    expect(fireEvent.mouseDown(screen.getByText("Second"), { button: 1 })).toBe(
+      false,
+    );
+    auxClick(screen.getByText("Second"));
+    expect(open).toHaveBeenCalledExactlyOnceWith(
+      new URL("/app/people/2", window.location.href).href,
+      "_blank",
+      "noopener,noreferrer",
+    );
+
+    // The link itself, the right button and a row without a link are left
+    // to the browser
+    expect(
+      fireEvent.mouseDown(screen.getByRole("link", { name: "Adam" }), {
+        button: 1,
+      }),
+    ).toBe(true);
+    auxClick(screen.getByRole("link", { name: "Adam" }));
+    auxClick(screen.getByText("First"), 2);
+    auxClick(screen.getByText("Third"));
+    expect(fireEvent.mouseDown(screen.getByText("Third"), { button: 1 })).toBe(
+      true,
+    );
+    expect(open).toHaveBeenCalledOnce();
+  });
+
+  it("opens the link of a row in a new tab on Ctrl, Cmd or Shift + click", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const navigate = vi.fn();
+    const onRowClick = vi.fn();
+    // A router under a base path - its links add it
+    function Link({ href, onClick, ...props }: LinkComponentProps) {
+      return (
+        <a
+          {...props}
+          href={`/app${href}`}
+          onClick={(event) => {
+            onClick?.(event);
+            if (event.defaultPrevented) return;
+            event.preventDefault();
+            navigate(href);
+          }}
+        />
+      );
+    }
+
+    render(
+      <UIProvider router={{ Link }}>
+        <DataTable
+          columns={columns}
+          data={rows}
+          getRowHref={(row) => `/people/${row.id}`}
+          onRowClick={onRowClick}
+        />
+      </UIProvider>,
+    );
+
+    // Not passed on to the link - WebKit ignores the keys of a click the
+    // page dispatches, the link would leave the page. `onRowClick` comes
+    // first, as for a click on the link.
+    fireEvent.click(screen.getByText("Second"), { ctrlKey: true });
+    fireEvent.click(screen.getByText("Second"), { metaKey: true });
+    fireEvent.click(screen.getByText("Second"), { shiftKey: true });
+    expect(navigate).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledTimes(3);
+    expect(open).toHaveBeenLastCalledWith(
+      new URL("/app/people/2", window.location.href).href,
+      "_blank",
+      "noopener,noreferrer",
+    );
+    expect(onRowClick).toHaveBeenCalledTimes(3);
+    expect(onRowClick).toHaveBeenLastCalledWith(
+      rows[1],
+      expect.objectContaining({ shiftKey: true }),
+    );
+
+    // `preventDefault()` in onRowClick stays on the page
+    onRowClick.mockImplementation((_row, event: Event) =>
+      event.preventDefault(),
+    );
+    fireEvent.click(screen.getByText("Third"), { ctrlKey: true });
+    expect(open).toHaveBeenCalledTimes(3);
+    onRowClick.mockReset();
+
+    // A plain click is passed on
+    fireEvent.click(screen.getByText("Third"));
+    expect(navigate).toHaveBeenCalledExactlyOnceWith("/people/3");
+    expect(onRowClick).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledTimes(3);
+  });
+
+  it("takes a Shift, Ctrl or middle click on selected text for a click", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const onRowClick = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        data={rows}
+        getRowHref={(row) => (row.id === 3 ? undefined : `/people/${row.id}`)}
+        onRowClick={onRowClick}
+      />,
+    );
+
+    // Shift + click extends a selection into the row, Firefox selects the
+    // cell for Ctrl + click - neither ends a drag
+    const selection = window.getSelection()!;
+    selection.selectAllChildren(screen.getByText("Third"));
+    fireEvent.click(screen.getByText("Third"), { shiftKey: true });
+    fireEvent.click(screen.getByText("Third"), { ctrlKey: true });
+    expect(onRowClick).toHaveBeenCalledTimes(2);
+
+    // Nor does the middle button on text selected before
+    selection.selectAllChildren(screen.getByText("Second"));
+    expect(fireEvent.mouseDown(screen.getByText("Second"), { button: 1 })).toBe(
+      false,
+    );
+    fireEvent(
+      screen.getByText("Second"),
+      new MouseEvent("auxclick", {
+        bubbles: true,
+        button: 1,
+        cancelable: true,
+      }),
+    );
+    expect(open).toHaveBeenCalledExactlyOnceWith(
+      new URL("/people/2", window.location.href).href,
+      "_blank",
+      "noopener,noreferrer",
+    );
+
+    // A plain click there ends selecting it
+    fireEvent.click(screen.getByText("Second"));
+    expect(onRowClick).toHaveBeenCalledTimes(2);
+    selection.removeAllRanges();
+  });
+
+  it("renders no row again on a navigation", () => {
+    const onRender = vi.fn();
+    render(
+      <Profiler id="table" onRender={onRender}>
+        <DataTable
+          columns={columns}
+          data={rows}
+          getRowHref={(row) => `/people/${row.id}`}
+        />
+      </Profiler>,
+    );
+    onRender.mockClear();
+
+    act(() => browserNavigate("/people?page=2"));
+    expect(onRender).not.toHaveBeenCalled();
   });
 });

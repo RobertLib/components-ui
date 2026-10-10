@@ -79,11 +79,12 @@ export interface DateTimePickerProps extends Omit<
   error?: string;
   /**
    * Days that cannot be picked, e.g. weekends or booked days - called with
-   * the local midnight of a day. The popup shows them struck through; the
-   * keys move over them, but they cannot be picked. A month or a week
-   * without another day cannot be picked either. A value on such a day -
-   * typed, a default one or one of the parent - makes the field invalid (a
-   * submit is blocked, the browser says `messages.dateTimePicker.unavailable`),
+   * the start of a day: its local midnight, 1:00 of one whose midnight a
+   * clock change skips. The popup shows them struck through; the keys move
+   * over them, but they cannot be picked. A month or a week without another
+   * day cannot be picked either. A value on such a day - typed, a default
+   * one or one of the parent - makes the field invalid (a submit is
+   * blocked, the browser says `messages.dateTimePicker.unavailable`),
    * also in `native` mode, whose popup offers every day. Not for `time`.
    */
   isDateDisabled?: DateDisabledPredicate;

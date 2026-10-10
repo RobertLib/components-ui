@@ -3,8 +3,10 @@ import type { WeekDay } from "../../../i18n/ui/types";
 import { formatMessage } from "../../../i18n/ui/format";
 import {
   dateOf,
+  existingDayOf,
   formatDate,
   isSameDay,
+  lastDayOfMonth,
   parseISODate,
   shiftDay,
   toISODate,
@@ -225,6 +227,12 @@ export function getPresetRange(
   // midnight of its own last day.
   const weekDay = (offset: number) =>
     dateOf(year, month, today.getDate() - intoWeek + offset);
+  // The last day of a week - the day before it where the time zone skipped
+  // it (Samoa, Friday, December 30, 2011), not the 1st of the next week
+  const weekEnd = (offset: number) => {
+    const day = today.getDate() - intoWeek + offset;
+    return existingDayOf(year, month, day) ?? dateOf(year, month, day - 1);
+  };
 
   switch (key) {
     case "today":
@@ -238,16 +246,27 @@ export function getPresetRange(
     case "last30Days":
       return { end: today, start: shiftDay(today, -29) };
     case "thisWeek":
-      return { end: weekDay(6), start: weekDay(0) };
+      return { end: weekEnd(6), start: weekDay(0) };
     case "lastWeek":
-      return { end: weekDay(-1), start: weekDay(-7) };
+      return { end: weekEnd(-1), start: weekDay(-7) };
+    // The last day of a month or a year - not the 1st after it where the
+    // time zone skipped December 31 (Kiritimati, 1994)
     case "thisMonth":
-      return { end: dateOf(year, month + 1, 0), start: dateOf(year, month, 1) };
+      return {
+        end: lastDayOfMonth(year, month),
+        start: dateOf(year, month, 1),
+      };
     case "lastMonth":
-      return { end: dateOf(year, month, 0), start: dateOf(year, month - 1, 1) };
+      return {
+        end: lastDayOfMonth(year, month - 1),
+        start: dateOf(year, month - 1, 1),
+      };
     case "thisYear":
-      return { end: dateOf(year, 11, 31), start: dateOf(year, 0, 1) };
+      return { end: lastDayOfMonth(year, 11), start: dateOf(year, 0, 1) };
     case "lastYear":
-      return { end: dateOf(year - 1, 11, 31), start: dateOf(year - 1, 0, 1) };
+      return {
+        end: lastDayOfMonth(year - 1, 11),
+        start: dateOf(year - 1, 0, 1),
+      };
   }
 }

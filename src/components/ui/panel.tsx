@@ -21,7 +21,6 @@ export interface PanelProps extends React.ComponentProps<"div"> {
   shadow?: "sm" | "md" | "lg" | "xl" | "2xl" | "none";
 }
 
-/** A padded surface card - the base of `Accordion` and page sections. */
 // Set by every panel - one inside another does not take its padding
 const paddingClasses: Record<PanelPadding, string> = {
   none: "[--cui-panel-padding:0px]",
@@ -32,6 +31,7 @@ const paddingClasses: Record<PanelPadding, string> = {
     "[--cui-panel-padding:--spacing(4)] sm:[--cui-panel-padding:--spacing(6)]",
 };
 
+/** A padded surface card - the base of `Accordion` and page sections. */
 export default function Panel({
   border = "default",
   className,

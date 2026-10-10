@@ -1,6 +1,8 @@
 import { act, render, renderHook, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 import { browserNavigate, useBrowserLocation } from "./router";
 import UIProvider from "./ui-provider";
 import { useRouter } from "./ui-context";
@@ -77,6 +79,23 @@ describe("a router given only as navigate", () => {
     ).toBeInTheDocument();
   });
 
+  it("follows the back button", () => {
+    window.history.replaceState(null, "", "/orders");
+    render(
+      <UIProvider router={{ navigate() {} }}>
+        <Location />
+      </UIProvider>,
+    );
+
+    act(() => {
+      window.history.replaceState(null, "", "/archive?page=3");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(
+      screen.getByRole("button", { name: "/archive?page=3" }),
+    ).toBeInTheDocument();
+  });
+
   it("is followed when it changes the URL asynchronously", async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/orders");
@@ -96,5 +115,55 @@ describe("a router given only as navigate", () => {
     expect(
       await screen.findByRole("button", { name: "/orders?page=2" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("a router given with its location", () => {
+  /** Tells each render - a `Profiler` misses one a context change causes. */
+  function Location({ onRender }: { onRender: (location: string) => void }) {
+    const { pathname, search } = useRouter();
+    onRender(pathname + search);
+    return null;
+  }
+
+  it("renders nothing again for a change of the URL it has not given yet", () => {
+    const rendered = vi.fn();
+    window.history.replaceState(null, "", "/a");
+    render(
+      <UIProvider router={{ navigate() {}, pathname: "/a", search: "" }}>
+        <Location onRender={rendered} />
+      </UIProvider>,
+    );
+    rendered.mockClear();
+
+    // The router renders the new location itself - a render before it would
+    // show its old one again
+    act(() => {
+      window.history.pushState(null, "", "/b?page=2");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    act(() => browserNavigate("/c"));
+    expect(rendered).not.toHaveBeenCalled();
+  });
+
+  it("hydrates in one render", async () => {
+    const rendered = vi.fn();
+    window.history.replaceState(null, "", "/orders");
+    const page = (
+      <UIProvider router={{ navigate() {}, pathname: "/orders", search: "" }}>
+        <Location onRender={rendered} />
+      </UIProvider>
+    );
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(page);
+    document.body.append(container);
+    rendered.mockClear();
+
+    const root = await act(async () => hydrateRoot(container, page));
+    expect(rendered).toHaveBeenCalledOnce();
+    expect(rendered).toHaveBeenCalledWith("/orders");
+
+    act(() => root.unmount());
+    container.remove();
   });
 });

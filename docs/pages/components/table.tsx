@@ -54,8 +54,9 @@ export default function TablePage() {
             not at the end of selecting its text. It follows the link of the row
             (<code>data-row-link</code>, or the one to the same{" "}
             <code>href</code>) as a click on it would, so Ctrl + click opens a
-            new tab. That link is what the keyboard and screen readers use - put
-            it in the cell that names the row.
+            new tab, and so does the middle button. That link is what the
+            keyboard and screen readers use - put it in the cell that names the
+            row; a row without one warns in development when clicked.
           </p>
         }
         name="table/row-links"

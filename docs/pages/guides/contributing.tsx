@@ -49,7 +49,7 @@ npm version minor
 # 2. push the commit and the tag
 git push --follow-tags
 # 3. projects update the dependency to the new tag
-npm install git+https://github.com/RobertLib/components-ui.git#v0.5.0`;
+npm install git+https://github.com/RobertLib/components-ui.git#v0.6.0`;
 
 export default function ContributingGuide() {
   return (
@@ -104,8 +104,11 @@ export default function ContributingGuide() {
               <code>src/i18n/</code>.
             </li>
             <li>
-              Render links with <code>useRouter().Link</code> and navigate with{" "}
-              <code>useRouter().navigate</code> - never import a router.
+              Render links with <code>useRouterActions().Link</code> and
+              navigate with <code>useNavigate()</code> - never import a router.
+              Read the location with <code>useRouter()</code> only where it
+              shows (an active tab): what reads it renders again on every
+              navigation.
             </li>
             <li>
               Add examples under <code>docs/examples/name/</code>, a page under{" "}

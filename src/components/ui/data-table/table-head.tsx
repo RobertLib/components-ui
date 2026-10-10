@@ -267,12 +267,14 @@ export function TableHead<T>({
             };
             const key = `${group?.key ?? ""}\u0000${columns[0].key}`;
 
+            // A run of no group is one column - its cell hides with it
             if (!group) {
               return (
                 <td
                   className={cn(
                     isSticky(layout) &&
                       "sticky z-2 bg-surface dark:bg-surface-dark",
+                    hiddenBelowClassName(first),
                   )}
                   key={key}
                   style={getCellStyle(null, layout, false)}
@@ -405,7 +407,7 @@ export function TableHead<T>({
                 isPinned
                   ? "sticky z-2 bg-surface dark:bg-surface-dark"
                   : "relative",
-                hiddenBelowClassName(column, layout),
+                hiddenBelowClassName(layout),
               )}
               data-column-key={column.key}
               key={column.key}
@@ -700,7 +702,7 @@ export function TableHead<T>({
                   "px-2 pb-1 align-top text-sm font-medium",
                   isSticky(layout) &&
                     "sticky z-1 bg-surface dark:bg-surface-dark",
-                  hiddenBelowClassName(column, layout),
+                  hiddenBelowClassName(layout),
                 )}
                 key={column.key}
                 style={getCellStyle(column, layout, false)}

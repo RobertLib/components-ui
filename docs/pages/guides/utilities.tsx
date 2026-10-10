@@ -62,11 +62,13 @@ function Members() {
 const dates = `import { inTimeZone, useFormatDate, useToday } from "components-ui";
 
 const formatDate = useFormatDate();
-formatDate("2026-10-01"); // "1. 10. 2026" - the pattern of the locale's formats.date
+formatDate("2026-10-01"); // "01.10.2026" in cs, "10/01/2026" in en - by formats.date
+formatDate("2026-10"); // "10.2026" in cs, "10/2026" in en - a month by formats.month, a week and a time by theirs
 formatDate(entry.createdAt, "dateTime", { timeZone: "Europe/Prague" });
 
 // Today of the club, wherever the browser is - a new date at its midnight
 const today = useToday("Europe/Prague"); // null until the page hydrates
+formatDate(today); // its day in Prague - a date of useToday or inTimeZone keeps its zone
 // The same instant in a time zone - its getters read the clock there
 inTimeZone(new Date(), "Europe/Prague").getHours();`;
 
@@ -98,11 +100,18 @@ const isApple = useIsApplePlatform();
 </Button>
 <Tooltip title={\`Save (\${formatShortcut("mod+s", isApple)})\`}>…</Tooltip>`;
 
-const hydrated = `import { useIsHydrated } from "components-ui";
+const hydrated = `import { useFormatDate, useIsHydrated } from "components-ui";
 
-// A relative time only in the browser - the server's clock and time zone differ
+// A relative time only in the browser - the server's clock and time zone
+// differ. Until the page hydrates, the date in a time zone given, the same
+// on the server - without a timeZone, formatDate writes "" there as well
 const isHydrated = useIsHydrated();
-<span>{isHydrated ? formatRelative(date) : formatDate(date)}</span>`;
+const formatDate = useFormatDate();
+<span>
+  {isHydrated
+    ? formatRelative(date)
+    : formatDate(date, "date", { timeZone: "Europe/Prague" })}
+</span>`;
 
 const activeLink = `import { findActiveLink, useRouter } from "components-ui";
 
@@ -365,9 +374,12 @@ export default function UtilitiesGuide() {
             first page once another value changes, and <code>prefix</code> keeps
             two lists on one page apart. Changes made one after another before
             the router shows them build on each other - also those of the{" "}
-            <code>DataTable</code>s of the page. The state object stays the same
-            while its values do, so an effect fetching by it does not run again
-            when another parameter changes.
+            <code>DataTable</code>s of the page. A change relative to the values
+            - the next page - is a function of them,{" "}
+            <code>{"update((current) => ({ page: … }))"}</code>, which gets them
+            with those changes: two quick clicks go two pages on. The state
+            object stays the same while its values do, so an effect fetching by
+            it does not run again when another parameter changes.
           </p>
           <p>
             <code>useDebouncedField(value, onCommit, delay)</code> is the text
@@ -390,9 +402,20 @@ export default function UtilitiesGuide() {
             take it - by the patterns of the locale&apos;s <code>formats</code>{" "}
             (<code>date</code>, <code>dateTime</code>, <code>time</code>,{" "}
             <code>month</code>, <code>week</code>), so a list shows a date as
-            its edit form does. A <code>YYYY-MM-DD</code> date stays on its day
-            wherever the browser is; a date with a time is written in the{" "}
-            <code>timeZone</code> given. <code>useToday(timeZone)</code> is the
+            its edit form does. The values of the pickers -{" "}
+            <code>2026-10-01</code>, <code>2026-10-01T14:30</code>,{" "}
+            <code>2026-10</code>, <code>2026-W40</code>, <code>14:30</code> -
+            are times on the clock, written the same wherever the browser is; a
+            month, a week and a time by the pattern of their picker unless{" "}
+            <code>format</code> says otherwise - and also then when its pattern
+            has a part they do not have, such as the day of a month or the time
+            of a date. A moment in time - a <code>Date</code>, an ISO date and
+            time with its zone - is written in the <code>timeZone</code> given,
+            else in the zone of a date of <code>useToday</code> or{" "}
+            <code>inTimeZone</code>, else in the browser&apos;s: then as{" "}
+            <code>&quot;&quot;</code> on the server and while the page hydrates,
+            whose clock may be another. An invalid date or time zone is written
+            as <code>&quot;&quot;</code>. <code>useToday(timeZone)</code> is the
             start of today, a new date at each midnight - e.g. the{" "}
             <code>max</code> of a birth date - and <code>inTimeZone</code> the
             same instant on the clock of a time zone.

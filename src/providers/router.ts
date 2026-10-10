@@ -60,11 +60,19 @@ const getSnapshot = () => window.location.pathname + window.location.search;
 
 const getServerSnapshot = () => "";
 
-/** Location of the page, kept up to date on back/forward and `browserNavigate`. */
-export function useBrowserLocation() {
+// Listens to nothing - for a router that gives the location itself
+const subscribeToNothing = () => () => {};
+
+/**
+ * Location of the page, kept up to date on back/forward and `browserNavigate`.
+ * With `follow` false it reads no URL and renders nothing again - for a
+ * router that gives the location: a render on a change of the URL would
+ * come before the router's own, with the router's old location.
+ */
+export function useBrowserLocation(follow = true) {
   const location = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
+    follow ? subscribe : subscribeToNothing,
+    follow ? getSnapshot : getServerSnapshot,
     getServerSnapshot,
   );
 

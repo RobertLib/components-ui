@@ -1,5 +1,293 @@
 # Changelog
 
+## 0.6.0
+
+Fixes from a review of 0.5.0. Some change what an app sees or needs - see
+**Breaking**.
+
+- **Breaking - Header** - `onBack` runs with `backHref` too, given the click
+  event; `event.preventDefault()` keeps the page. 0.5.0 ignored it next to
+  `backHref` - drop an `onBack` that goes back in the history there, or a
+  click goes back and to the link. Not at a click that opens the link in a
+  new tab (Ctrl, Cmd, Shift, the middle button) - the page stays.
+- **Breaking - ButtonGroup, SplitButton** - `variant="link"` is no longer
+  accepted (a type error) - links have no border to join.
+- **Breaking - useFormatDate** - a moment without a `timeZone` (a `Date`, an
+  ISO date and time with its zone) is `""` on the server and until the page
+  hydrates, so server and browser render the same - give a `timeZone` for a
+  page rendered only on the server. A date and time without a zone
+  (`2026-10-01T14:30`) is written as it is, also with a `timeZone` - 0.5.0
+  read it on the browser's clock and moved it to that zone.
+- **Breaking - SnackbarProvider, Toast** - a background, text or border
+  color in `classNames`, also an important one (`!bg-white`, `bg-white!`) or
+  one of a variable (`bg-(--brand)`), replaces that color of the variant in
+  dark mode too (add a `dark:` class for another one there), through the new
+  Toast prop `colorClassName`; the other colors of the variant stay, also
+  with classes that set none (`font-semibold`). A background or a text color
+  given without a `dark:` one takes the variant's dark one of the other
+  along - the dark mode shows the light colors, readable together (no light
+  text on a white toast). A class that only looks like a color
+  (`bg-linear-50`, `bg-opacity-50`) keeps the colors of the variant.
+  `icon={null}` leaves no empty gap.
+- **Breaking - sync:source** - stops at a file of the app at a library path
+  instead of replacing it; `--adopt` takes such files over (e.g. the first
+  sync of a copy made by hand). `--force` replaces only library files
+  changed in the copy - the app's own files need `--adopt` (both together
+  replace both). On macOS and Windows it also stops at a folder the copy
+  has in other case than the library (`Components/` for `components/`)
+  with files of the app in it - renamed, the app's imports of them would
+  fail on Linux: rename the folder and the imports, or `--adopt` renames it
+  with all in it. A `.components-ui.json` that is no object with a list of
+  files (`[]`, `{}`) stops it instead of counting as no manifest - delete
+  it to start over. For scripts and CI: a dry run exits non-zero where a
+  real run would stop, and unknown options and a missing target folder are
+  errors.
+- **Breaking - useUrlState** - the type `SetUrlState` takes a function of
+  the current values too - an implementation of it of the app's (a mock
+  typed `(changes: Partial<T>) => void`) no longer type-checks and has to
+  accept one.
+- **Breaking - ListItem** - `onClick` also runs for a row with `href` (e.g.
+  to close a menu drawer) - 0.5.0 ignored it there: drop an `onClick` that
+  navigates next to `href`, or a click navigates twice. A current button
+  has `aria-current="true"`, not `"page"` (a `[aria-current=page]` selector
+  misses it).
+- **Breaking - Card** - `onClick` also runs for a card with `href`, before
+  its link is followed (e.g. to close a drawer); `event.preventDefault()`
+  keeps the page. 0.5.0 ignored it there: drop an `onClick` that navigates
+  next to `href`, or a click navigates twice. It gets the click of a link
+  too (`HTMLAnchorElement | HTMLButtonElement`), as on `ListItem`.
+- **Breaking - FormDialog** - listeners of `document` no longer see its
+  submit - track it in `onSubmit`.
+- **Breaking - Select** - the select sits in a wrapper with
+  `display: contents` also without a prefix or suffix, so that one coming
+  and going keeps it - a selector like `.field > select` needs
+  `.field select`.
+- **Breaking - TableRow** - a row without a link loads an absolute URL of
+  the page's own origin instead of passing it to the router (its path has
+  the base path of the router), and Ctrl + click and the middle button open
+  only an absolute URL in a new tab - only the router's `Link` knows a path
+  under a base path. Put a link in the row.
+- **Breaking - DataTable** - a row renders again when its object, the
+  `data` array or the columns change - not when a row object is changed in
+  place and the table renders again with the same `data` (give it a new
+  array, as `setState` and query libraries do).
+- **FormDialog** - submitting or resetting it no longer submits or resets a
+  page `<form>` it is rendered inside. Cancel waits for a pending
+  `onBeforeClose` like Escape does (one question at a time), and a rejected
+  answer keeps the dialog open. `closeDisabled` is honored and disables
+  Cancel too; `formProps` accepts an `id`.
+- **Dialog, Sheet** - a late `onBeforeClose` answer no longer closes a
+  dialog that was opened again or unmounted meanwhile; one only hidden and
+  shown again (`<Activity mode="hidden">`, a Suspense boundary suspending
+  again) still closes on it. Content stays clear of the home indicator
+  with any `bodyClassName` padding, and a margin of `bodyClassName`
+  (`mb-4`) replaces that clearance. A `className` background replaces the
+  panel's `bg-dialog` again (see **cn**). An `onBeforeClose` answering with
+  a promise of another library (Bluebird) or realm (an iframe) is waited
+  for instead of the dialog closing at once - also in `FormDialog`.
+- **Select** - a framed `multiple` or sized list box can be picked with the
+  mouse again. A prefix or suffix that comes and goes (a spinner) keeps the
+  select and its focus. A button in a prefix or suffix no longer opens the
+  list. A press in a portal of a prefix or suffix (a popover with help) is
+  left to it - its text can be selected, and a click neither opens the list
+  nor focuses the field; in `Input` too. A select in a prefix or suffix (a
+  unit, a currency) no longer takes the field's place: a click on the frame
+  or on another adornment focuses and opens the field's own select - a
+  read-only one it only focuses. A disabled control in a prefix or suffix no
+  longer fades the whole field - in `Input` and `NumberInput` too; a
+  disabled `<fieldset>` around still does.
+- **ImageViewer** - a failing `onLoadMore` no longer retries in a loop -
+  also one the parent passes only while not fetching; it asks again after
+  moving away and back. A promise resolved without new images shows the
+  error instead of loading forever, and a reopened viewer asks again. An
+  `onLoadMore` that throws shows the error too instead of crashing the
+  viewer. `total` without `onLoadMore` changes only the position text - the
+  arrows, End and wrapping stay on the loaded images, and with none loaded
+  it reads "0 of 10". Pinch zoom works over the image, and a two-finger
+  gesture is no swipe. No error flashes while the parent still renders the
+  next images (stored in `startTransition`, say). While the parent takes
+  `onLoadMore` away as it loads
+  (`isFetchingNextPage ? undefined : fetchNextPage` - not `isFetching`,
+  which a background refetch sets too), the image past the loaded ones stays
+  shown and Next goes on to it instead of round to the first image; a
+  failure there shows the error instead of asking again in a loop. A gallery
+  that goes back to fewer images (an infinite query trimmed to its first
+  page) loads the next ones again when the viewer gets past them, instead of
+  loading forever. A sideways drag on a page pinch-zoomed in pans it instead
+  of moving to the next image. A failure or a request of a gallery no longer
+  carries over to another of as many images the parent swaps in while the
+  viewer is open.
+- **TableRow** - `onClick` runs once per click (not again for the click
+  passed to the row link). The middle button opens the row link in a new
+  tab - none for a disabled link (no empty tab). The link to `href` is found
+  also as a router renders it - under its base path (`/app/orders/42`) or
+  after the `#` of a hash router - without `data-row-link`; a link to `href`
+  itself comes first (also written otherwise - one to `/orders/42` for
+  `https://app.example/orders/42` on that site), then the shortest path
+  ending alike (the base path before `/customers/9/orders/42`), and neither
+  the same path on another site is taken for it nor the same path after the
+  `#` of another page; it is found also with what the browser encodes in it
+  (`?customer=Nováková`) or spaces around `href`. A row without a link
+  ignores `javascript:` hrefs and warns in development. Rows no longer
+  render again on every navigation, also with a router adapter giving
+  `pathname` and `search`.
+- **TableRow, DataTable** - Ctrl, Cmd or Shift + click on a row with a link
+  opens it in a new tab, as the middle button does - Safari followed it in
+  the same tab, Firefox did nothing for Cmd + click. The link of the row is
+  not clicked for these, so its own `onClick` does not run (`onRowClick` of
+  a DataTable does, first - `event.preventDefault()` there keeps the page).
+  Shift + click and Firefox's Ctrl + click no longer select text up to the
+  row, which took the next plain click for the end of selecting it; they and
+  the middle button open the row also on text selected before - a plain
+  click there still does nothing. A press on a control in a row released on
+  another cell - a click of the row for the browser - no longer activates
+  the row, also with the middle button.
+- **UIProvider** - gives the components a `navigate` and a `back` that stay
+  the same and call the latest ones of the router, so nothing renders again
+  when the router's change (React Router's `navigate` does on every
+  navigation, an inline adapter's functions on every render). Links of the
+  components (`Button`, `IconButton`, `Link`, `ListItem`, `Card`,
+  `Breadcrumbs`, menus, `Drawer`, `DataTable` rows) and `Header` no longer
+  render again on every navigation - nor does any component with a text, a
+  locale or a portal when an adapter gives `pathname` and `search` (React
+  Router's): only what reads the location (`useRouter`, `Tabs`) does - and
+  that renders once per navigation and hydration, no more with the old
+  location while the browser's URL changes ahead of the router. Inline
+  `messages` are compared by value, and a function given as
+  `portalContainer` stays the same and calls the latest one given, so
+  neither renders all with a text again on every render of the provider.
+- **CommandPalette** - an `href` the browser reads as another origin
+  (`/\host`) loads the page instead of going to the router. One with spaces
+  or control characters around it, or tabs and line breaks in it
+  (`" /orders"`), goes to the path a link opens (`/orders`) - the router got
+  `/users/ /orders` or `/orders `; a `TableRow` without a link too.
+- **DataTable** - the middle button on a row with `getRowHref` opens its
+  link in a new tab (none for a disabled link). `hideBelow` is ignored for
+  pinned, grouped and editable columns and for the first column with
+  `getRowHref` (also after reordering); a pinned column too wide to stick on
+  a phone stays shown instead of flickering. The column-group header stays
+  aligned below the breakpoint. Rows render again only when what they show
+  changes - their data, selection, detail, focus or the columns - not on
+  every navigation nor every render of the table or of its parent, also
+  without the React Compiler when `columns`, `getRowId`, `renderSubRow`,
+  `actions`, `getRowClassName` and `getRowBackgroundColor` stay the same
+  (`onRowClick` and the other handlers may be inline).
+- **ListItem** - with `actions`, the current highlight and the focus ring
+  fill the row. A disabled link of the page shown is announced as current
+  (`aria-current="page"`), as it is highlighted.
+- **FileUpload** - `onPendingChange(0)` is reported when the field unmounts
+  with uploads running.
+- **DescriptionList** - `emptyValue` replaces every value React renders as
+  nothing: also `true`, the `false` of `cond && value`, an empty list
+  (`tags.map(...)` with no tags) or a list of only such values. `0` and
+  `NaN` stay values.
+- **Autocomplete** - a list that still shows its end when a page arrives (a
+  scroll while loading) loads the next page instead of staying stuck, and
+  asks for it once - not twice, aborting the first request. A static
+  `loadMore` is called once for two scrolls in one frame too, and again
+  when other options (as many) take the place of those it was called for.
+- **useFormatDate** - month, week, time and zone-less date-time values are
+  written as the pickers show them, with no shift to the day or month
+  before west of UTC, nor where a clock change skips midnight (Samoa,
+  Chile) - and about ten times faster for date-times. Without `format`, a
+  month, week or time uses its own pattern; with a `format` whose pattern
+  has a part it lacks, too (no `10/00/2026`, no midnight for a date alone
+  with `"dateTime"`). A date of `useToday` or `inTimeZone` is written in its
+  zone, not the browser's - also before hydration. An invalid `timeZone`
+  gives `""` instead of throwing, also for the values of the pickers. A
+  date and time with a lowercase `t` (`2026-10-01t14:30`, as RFC 3339
+  allows) is written like one with `T`. A year before the year 1 is written
+  as ISO 8601 does (`W52 -0001`, not `W52 00-1`); typed into a date field,
+  it is refused instead of read as the year 1.
+- **Calendar, date pickers, useFormatDate** - a month whose last day the
+  time zone skipped (Kiritimati, December 1994) keeps its days: the
+  calendar showed one, its dates after the 1st were invalid, and a month
+  on ended on the 1st or in the next month - Previous / Next, Page Up /
+  Down, a monthly recurrence (also `BYMONTHDAY=-1`; negative days count
+  back from that last day) and the DateRangePicker presets "This month",
+  "Last month", "This year" and "Last year" end on its last day (December
+  30), and "This week" and "Last week" on the last day of a week the zone
+  cut short (Samoa, December 2011). Such a month no longer counts as
+  having a day left when `isDateDisabled` disables all of it.
+- **Date pickers** - `isDateDisabled` gets the start of each day of a week
+  (`type="week"`): midnight, not 1:00 for the whole week after a Monday
+  whose midnight a clock change skips (Tehran, March 2021), and never a day
+  the time zone skipped (Samoa, December 2011).
+- **useUrlState** - `update` accepts a function of the current values,
+  including changes the router does not show yet. The keys of
+  `resetOnChange` start over also when such a function passes them on
+  unchanged (`{ ...current, q }`).
+- **getBaseError, getFieldError** - read `formErrors` and `fieldErrors`
+  (Zod's `flatten()`) also from an API error class, and also when one of
+  them is left out (a serializer dropping empty members, as Jackson's
+  `NON_EMPTY`, or an error class setting `fieldErrors` only when it has
+  some). `formErrors` may be one text or `null`. A body with only
+  `formErrors` gave no base error, and `{ fieldErrors, formErrors: "…" }`
+  no field messages.
+- **cn** - knows the dialog colors (`bg-dialog`, `bg-dialog-dark`), the
+  heading font (`font-heading`) and the heading sizes (`text-page-title`,
+  `text-section-title`, `text-stat-value`): such a class replaces another of
+  its kind, as `bg-white` or `text-lg` does. A class with a number like the
+  shade of a color that is no color no longer replaces a color: the angle of
+  a gradient (`bg-linear-50`, `bg-conic-100`), `border-spacing-50` and
+  Tailwind 3's `bg-opacity-50` (`cn("bg-red-500", "bg-linear-50")` kept only
+  the gradient). The block sides of a border (`border-bs-2`,
+  `border-be-red-500`) replace only their own side. A color of a variable
+  without a type (`bg-(--brand)`, `text-[var(--brand)]`, `border-(--brand)`)
+  replaces another color, as Tailwind 4 reads it - in a `className` it lost
+  to the color of the component (a `Button`, a Toast variant); for `shadow-`
+  and `text-shadow-` such a variable is the shadow itself
+  (`shadow-(--elevation)`, also `shadow-(--color-glow)`), not its color.
+- **sync:source** - ignores CRLF/LF differences - also against a manifest of
+  0.5.0 made from a checkout with CRLF, the copy checked out with LF since.
+  It rejects manifest paths outside the copy or not in the form `hooks/x.ts`
+  (`./`, `//`, `\`) - instead of removing the library file they name - and
+  never removes a file of the library the manifest lists by another path
+  (through a link to its folder, by a short or a dotted name on Windows). A
+  link in the copy that leads out of it stops the sync before it writes
+  anything. A file the library renamed only in case (`Badge.tsx` -
+  `badge.tsx`) is no longer deleted on macOS and Windows; it ends up under
+  the new name. The manifest is written atomically. A dry run prints the
+  whole plan - without the Git commands where a real run would stop. A
+  `--dry-run` given before the `--`, which npm keeps for itself, is a dry
+  run too instead of a real sync; a `--force` or `--adopt` npm kept is named
+  when the sync stops. A manifest that is no valid JSON, or lists a folder
+  or a file without a hash, stops it with a message naming
+  `.components-ui.json`. A folder the library renamed only in case
+  (`Data-Table/` - `data-table/`) is renamed in the copy too, with all in it
+  (a `.DS_Store` too; files of the app stop it, see **Breaking**) - and so
+  is a file of a copy made by hand in other case; the plan lists them under
+  "Renamed in case". The manifest is no longer written through a link left
+  at `.components-ui.json.tmp`. A sync that renames in case prints the Git
+  commands that record it (`git -C <src> rm -r --cached …`,
+  `git -C <src> add …`): Git ignores case on macOS and Windows and kept the
+  old names, also for a file added in such a folder, which a build on Linux
+  did not find. They name the whole path of the copy, quoted for the shell
+  of the system (double quotes on Windows), and a later sync prints them
+  again while Git keeps the old names (a second sync before the commit, one
+  after a sync that stopped). Each file is written next to its place and
+  renamed over it - a sync stopped halfway (Ctrl+C, a full disk) no longer
+  leaves half a file that stops the next one; on Windows a rename is tried
+  again for a few seconds while an antivirus holds the file. `export:source`
+  and the sync leave out `.DS_Store` and editor swap files; one an older
+  manifest lists is dropped from it, not removed. A link in the copy is no
+  longer taken for one out of it when the target is typed in other case
+  (`SRC` for `src`), nor a link to a folder of the copy not made yet - the
+  sync makes it; a link to a folder the sync empties stays (the sync stopped
+  with `ENOTDIR`, on Windows it removed the link). A folder at
+  `.components-ui.json.tmp` stops a dry run too. Both scripts run through a
+  link to their folder - they did nothing there. A file of the copy where
+  the library has a folder, or a folder where it has a file, stops the sync
+  with a message naming it - not a bare `ENOTDIR`, nor one blaming the
+  manifest. A target in the library itself (`-- src`, `-- .`) is an error -
+  the sync put the files of a copy there. CI runs the tests of the sync on
+  macOS and Windows too.
+- **Docs** - date examples match the built-in locales; the theming example
+  sets `--color-dialog-dark` too. `isDateDisabled` gets the start of a day -
+  1:00 of one whose midnight a clock change skips. The contributing guide
+  links and navigates without reading the location (`useRouterActions`,
+  `useNavigate`).
+
 ## 0.5.0
 
 Changes from using the library in a real project (a source copy in an app
@@ -69,57 +357,120 @@ fieldErrors }`) and an `Error` of an API client carrying `fieldErrors`.
 
 ## 0.4.7
 
-- **useLocalStorage** - retain cross-tab storage updates after failed writes while hooks are hidden by Activity or unmounted. Newer writes, removals and clears replace unsaved fallback values, including for pending updater functions.
-- **DataTable** - stop completed group actions from resetting shared selections after the table unmounts, including after a hidden Activity unmounts or a replacement table mounts.
-- **useDebouncedCallback** - discard calls queued by child cleanup after the owning component unmounts when `flushOnUnmount` is off.
-- **useDataTableQuery** - use the latest router location and navigation callback while React Activity hides a table. Preserve shared pending navigations across hiding and showing; discard them on a real unmount.
-- **useLocalStorage** - use defaults and serialization options committed while React Activity hides a component for writes and updater functions.
-- **DataTable** - keep pending group actions in sync with selections, rows, queries and callbacks updated while React Activity hides the table. Preserve rows reselected while hidden.
-- **useDebouncedCallback** - retain pending calls and their deadlines across React Activity hiding, use updates committed while hidden and clean up only on a real unmount.
-- **Tests** - split generated rich-text sanitization checks by seed to retain full coverage without a single long-running test timing out under load.
-- **DataTable** - preserve array-shaped rows in selection callbacks, group actions and exclusions. Keep selections when equivalent filters differ only in key order, range-bound order or empty values.
-- **DataTable** - preserve selections and scroll positions when multi-select choices or filter keys are reordered. Completed group actions leave selections made after clearing untouched.
-- **DataTable** - preserve rows reselected during a group action, including after parent-driven selection changes and automatic reconciliation. Reset only acted rows that stayed selected throughout the action.
-- **Tests** - use deterministic hover timers and DOM insertion counts, and avoid unnecessary large tree renders and repeated accessibility queries.
-- **Autocomplete** - keep empty option lists stable so memoization is retained while the list is empty or stale.
+- **useLocalStorage** - retain cross-tab storage updates after failed writes
+  while hooks are hidden by Activity or unmounted. Newer writes, removals and
+  clears replace unsaved fallback values, including for pending updater
+  functions.
+- **DataTable** - stop completed group actions from resetting shared selections
+  after the table unmounts, including after a hidden Activity unmounts or a
+  replacement table mounts.
+- **useDebouncedCallback** - discard calls queued by child cleanup after the
+  owning component unmounts when `flushOnUnmount` is off.
+- **useDataTableQuery** - use the latest router location and navigation callback
+  while React Activity hides a table. Preserve shared pending navigations across
+  hiding and showing; discard them on a real unmount.
+- **useLocalStorage** - use defaults and serialization options committed while
+  React Activity hides a component for writes and updater functions.
+- **DataTable** - keep pending group actions in sync with selections, rows,
+  queries and callbacks updated while React Activity hides the table. Preserve
+  rows reselected while hidden.
+- **useDebouncedCallback** - retain pending calls and their deadlines across
+  React Activity hiding, use updates committed while hidden and clean up only on
+  a real unmount.
+- **Tests** - split generated rich-text sanitization checks by seed to retain
+  full coverage without a single long-running test timing out under load.
+- **DataTable** - preserve array-shaped rows in selection callbacks, group
+  actions and exclusions. Keep selections when equivalent filters differ only in
+  key order, range-bound order or empty values.
+- **DataTable** - preserve selections and scroll positions when multi-select
+  choices or filter keys are reordered. Completed group actions leave selections
+  made after clearing untouched.
+- **DataTable** - preserve rows reselected during a group action, including
+  after parent-driven selection changes and automatic reconciliation. Reset only
+  acted rows that stayed selected throughout the action.
+- **Tests** - use deterministic hover timers and DOM insertion counts, and avoid
+  unnecessary large tree renders and repeated accessibility queries.
+- **Autocomplete** - keep empty option lists stable so memoization is retained
+  while the list is empty or stale.
 
 ## 0.4.6
 
-- **Source copies** - export clean sources and the license with `npm run export:source`, without tests or an application entry file. Document the ES2023 TypeScript definitions and preserving application translations during updates; package installation remains the default guide.
-- **Source portability** - share development-mode detection without requiring Node types. Preserve Autocomplete and TreeView row memoization and expensive derived data without the React Compiler, including stable DataTable pagination.
-- **Validation** - typecheck and build exported sources in a standalone Vite app, and run the component tests both with and without the React Compiler.
+- **Source copies** - export clean sources and the license with
+  `npm run export:source`, without tests or an application entry file. Document
+  the ES2023 TypeScript definitions and preserving application translations
+  during updates; package installation remains the default guide.
+- **Source portability** - share development-mode detection without requiring
+  Node types. Preserve Autocomplete and TreeView row memoization and expensive
+  derived data without the React Compiler, including stable DataTable
+  pagination.
+- **Validation** - typecheck and build exported sources in a standalone Vite
+  app, and run the component tests both with and without the React Compiler.
 
 ## 0.4.5
 
-- **DataTable / TreeView** - share search-match ranges and highlight decomposed accents consistently, including texts where Unicode expansions and removed accents leave the total length unchanged.
-- **Cleanup** - remove six unused internal helpers and redundant search implementations; test the shared search logic and the calendar helpers used by components directly.
+- **DataTable / TreeView** - share search-match ranges and highlight decomposed
+  accents consistently, including texts where Unicode expansions and removed
+  accents leave the total length unchanged.
+- **Cleanup** - remove six unused internal helpers and redundant search
+  implementations; test the shared search logic and the calendar helpers used by
+  components directly.
 
 ## 0.4.4
 
-- **Application localization** - keep application texts at the root of `useMessages()` and library texts under `useMessages().ui`. Application catalogs live directly in `src/i18n/en.ts` and `cs.ts`; UI locales, localization types and formatting helpers live in `src/i18n/ui/`. Both share `UIProvider`, placeholders and plural helpers. Infer application keys from the default catalog and check translations without maintaining another type definition. Provider overrides follow the same root / `ui` shape. Document source-copy setup and fallback translations.
+- **Application localization** - keep application texts at the root of
+  `useMessages()` and library texts under `useMessages().ui`. Application
+  catalogs live directly in `src/i18n/en.ts` and `cs.ts`; UI locales,
+  localization types and formatting helpers live in `src/i18n/ui/`. Both share
+  `UIProvider`, placeholders and plural helpers. Infer application keys from the
+  default catalog and check translations without maintaining another type
+  definition. Provider overrides follow the same root / `ui` shape. Document
+  source-copy setup and fallback translations.
 
 ## 0.4.3
 
-- **Source layout** - move all library components and their supporting files into `src/components/ui/`, preserving their internal folders. Export the full public API from `components/ui/index.ts` so source copies can use `import { Button } from "./components/ui"`. Update imports and the source-copy installation guide; package imports from `components-ui` stay the same.
+- **Source layout** - move all library components and their supporting files
+  into `src/components/ui/`, preserving their internal folders. Export the full
+  public API from `components/ui/index.ts` so source copies can use
+  `import { Button } from "./components/ui"`. Update imports and the source-copy
+  installation guide; package imports from `components-ui` stay the same.
 
 ## 0.4.2
 
-- **PhoneInput** - block digitless drafts in required fields before blur, including with `validate=false`; keep the detected country and validation aligned with accepted controlled values, including incoming international prefixes with spaces or parentheses.
-- **ColorInput** - reject overflowing numeric colors and hue conversions instead of accepting or submitting an invalid color containing `NaN`; validate incoming values and normalize their display and submission to the configured format and alpha setting. Keep HSL conversions finite for colors close to black or white.
-- **getNestedErrors** - collect errors beneath object wrappers and from singular nested records as well as lists; preserve parent names and stop cyclic references.
-- **Tests** - wait for asynchronous loading state to settle before retrying a failed `Autocomplete` load.
+- **PhoneInput** - block digitless drafts in required fields before blur,
+  including with `validate=false`; keep the detected country and validation
+  aligned with accepted controlled values, including incoming international
+  prefixes with spaces or parentheses.
+- **ColorInput** - reject overflowing numeric colors and hue conversions instead
+  of accepting or submitting an invalid color containing `NaN`; validate
+  incoming values and normalize their display and submission to the configured
+  format and alpha setting. Keep HSL conversions finite for colors close to
+  black or white.
+- **getNestedErrors** - collect errors beneath object wrappers and from singular
+  nested records as well as lists; preserve parent names and stop cyclic
+  references.
+- **Tests** - wait for asynchronous loading state to settle before retrying a
+  failed `Autocomplete` load.
 
 ## 0.4.1
 
-- **PhoneInput, Menubar, RepeatableField** - add international telephone fields with configurable country lists, application menus and repeated form groups with add/remove/reorder, form reset and validation.
-- **Chart** - add stacked bars/areas, mixed series, pie and donut charts; fix the scale for flat nonzero data.
-- **DataTable** - combine virtualization with grouped rows, support nested groups, controlled collapse state and server group counts/summaries.
-- **Stepper** - add `keepMounted` to retain fields and component state across step and responsive layout changes; reveal invalid inactive steps.
-- **FileUpload** - recursively read dropped folders, retain relative paths and report failed reads with `onDropError`.
-- **RichTextEditor** - add custom toolbar tools, shortcuts and safe insertion commands with additional built-in formats.
+- **PhoneInput, Menubar, RepeatableField** - add international telephone fields
+  with configurable country lists, application menus and repeated form groups
+  with add/remove/reorder, form reset and validation.
+- **Chart** - add stacked bars/areas, mixed series, pie and donut charts; fix
+  the scale for flat nonzero data.
+- **DataTable** - combine virtualization with grouped rows, support nested
+  groups, controlled collapse state and server group counts/summaries.
+- **Stepper** - add `keepMounted` to retain fields and component state across
+  step and responsive layout changes; reveal invalid inactive steps.
+- **FileUpload** - recursively read dropped folders, retain relative paths and
+  report failed reads with `onDropError`.
+- **RichTextEditor** - add custom toolbar tools, shortcuts and safe insertion
+  commands with additional built-in formats.
 - **TransferList** - add consistent field sizes and invalid-state styling.
-- **ImageViewer** - keep gallery keyboard navigation working when Safari retains focus in the dialog header after a pointer click.
-- **Calendar** - use native `Intl` time-zone rules; remove `@date-fns/tz`. No new runtime dependencies are required.
+- **ImageViewer** - keep gallery keyboard navigation working when Safari retains
+  focus in the dialog header after a pointer click.
+- **Calendar** - use native `Intl` time-zone rules; remove `@date-fns/tz`. No
+  new runtime dependencies are required.
 - Update API documentation and examples for the new behavior.
 
 ## 0.4.0
@@ -2825,10 +3176,11 @@ with live examples.
 - Accessibility: `Stepper` told the state of a step by color only; `Progress`
   without `label` could not be named; `Breadcrumbs` separators were read
   aloud; the info icon of `DescriptionList` could not be reached from the
-  keyboard, and its name repeated the tooltip; a `RadioGroup` with a `label` put `aria-invalid` on a plain
-  `<fieldset>`; `Navbar` named the user twice with an `avatarUrl`; the
-  required `*` was part of the accessible names of the fields; the empty
-  `hasEmpty` option had no name; Space in an open Dropdown scrolled the page.
+  keyboard, and its name repeated the tooltip; a `RadioGroup` with a `label` put
+  `aria-invalid` on a plain `<fieldset>`; `Navbar` named the user twice with an
+  `avatarUrl`; the required `*` was part of the accessible names of the fields;
+  the empty `hasEmpty` option had no name; Space in an open Dropdown scrolled
+  the page.
 - The error state of `Switch` was invisible, and its label and the floating
   labels of `Input` / `Textarea` did not turn red. `Input`, `Textarea` and
   `DateTimePicker` with `dim="sm"` kept the padding of `md`.

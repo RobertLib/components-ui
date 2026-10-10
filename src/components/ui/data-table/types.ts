@@ -193,8 +193,11 @@ export interface Column<T> {
    * Hides the column on screens narrower than a breakpoint - its header,
    * its filter, its cells and its summary - e.g. `md` for a detail a phone
    * has no room for. It stays in the column menu and in the CSV export.
-   * Not for a pinned column, which keeps its place, nor for a column of a
-   * column group or the first one of a table with `getRowHref`.
+   * Ignored while the column must stay: pinned, it keeps its place; in a
+   * column group, the header of the group spans it; `editable` (with
+   * `onCellEdit`), its cells are reached by the keyboard; first in a table
+   * with `getRowHref` - also moved there by the user - it holds the links
+   * of the rows.
    */
   hideBelow?: "sm" | "md" | "lg" | "xl";
   /** Initial visibility - the user can toggle columns in the column menu. */

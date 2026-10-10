@@ -109,14 +109,16 @@ export default function SheetPage() {
             <li>
               <code>onBeforeClose</code> is asked before the user closes it - by
               the close button, Escape, the backdrop or a swipe; return{" "}
-              <code>false</code>, or a promise of it, to keep it open. The body
-              has the <code>--color-dialog</code> of the theme.
+              <code>false</code>, or a promise of it, to keep it open - further
+              attempts to close wait for that answer. The body has the{" "}
+              <code>--color-dialog</code> of the theme.
             </li>
             <li>
-              At an edge of a phone screen its header and footer keep clear of
-              the notch and the home indicator (with{" "}
-              <code>viewport-fit=cover</code>). <code>closeOnEscape</code> - on
-              by default - lets Escape close it.
+              At an edge of a phone screen its header, footer and content keep
+              clear of the notch and the home indicator (with{" "}
+              <code>viewport-fit=cover</code>) - the content whatever the
+              padding of <code>bodyClassName</code>. <code>closeOnEscape</code>{" "}
+              - on by default - lets Escape close it.
             </li>
             <li>
               Controlled by <code>open</code>, it slides in and out; users who

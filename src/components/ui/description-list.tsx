@@ -39,8 +39,11 @@ export interface DescriptionListProps extends React.ComponentProps<"dl"> {
    */
   columns?: 1 | 2 | 3 | 4;
   /**
-   * Shown in place of an empty value - `null`, `undefined` or `""` - e.g.
-   * `"—"`, so that a missing value does not leave a gap.
+   * Shown in place of a value React renders as nothing - `null`,
+   * `undefined`, `""`, `true` or `false` (of a condition, `isAdmin &&
+   * role`), or a list of none (`tags.map(...)` without tags) - e.g. `"—"`,
+   * so that a missing value does not leave a gap. A number is a value, also
+   * 0.
    */
   emptyValue?: React.ReactNode;
   /**
@@ -65,6 +68,17 @@ const placeholderWidths = ["w-34", "w-30", "w-26", "w-38", "w-42", "w-46"];
 
 const getPlaceholderWidth = (index: number): string =>
   placeholderWidths[index % placeholderWidths.length];
+
+/**
+ * Whether React renders a value as nothing - also `true` and `false` (of a
+ * condition), and a list of only such values (`tags.map(...)` without tags).
+ * A number is a value, also 0 and NaN.
+ */
+const isEmptyValue = (desc: React.ReactNode): boolean =>
+  desc == null ||
+  typeof desc === "boolean" ||
+  desc === "" ||
+  (Array.isArray(desc) && desc.every(isEmptyValue));
 
 // Whole class names - two columns from `sm`, all of them from `lg`
 const columnClasses: Record<
@@ -147,7 +161,7 @@ export default function DescriptionList({
         <div
           className={`h-4 ${getPlaceholderWidth(index)} animate-pulse rounded bg-neutral-200 dark:bg-neutral-700`}
         />
-      ) : item.desc === null || item.desc === undefined || item.desc === "" ? (
+      ) : isEmptyValue(item.desc) ? (
         emptyValue
       ) : (
         item.desc

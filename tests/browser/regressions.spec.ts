@@ -1279,3 +1279,61 @@ test("a pending filter cannot page with the previous Relay response's cursor", a
   expect(JSON.parse(params.get("filters") ?? "{}")).toEqual({ name: "Eva" });
   expect(params.get("page")).toBe("2");
 });
+
+// WebKit ignores the keys of a click the page dispatches - a row passing
+// such a click on to its link left the page instead of opening a new tab
+for (const modifier of ["ControlOrMeta", "Shift"] as const) {
+  test(`${modifier} + click on a row opens its link in a new tab`, async ({
+    context,
+    isMobile,
+    page,
+  }) => {
+    test.skip(isMobile, "A phone has no keys to hold");
+    await page.goto("/tests/browser/?scenario=row-links");
+    for (const [name, order] of [
+      ["Jana Nováková", 42],
+      ["Petr Svoboda", 43],
+    ] as const) {
+      const opened = context.waitForEvent("page", { timeout: 5000 });
+      await page
+        .getByRole("cell", { name, exact: true })
+        .click({ modifiers: [modifier] });
+      const tab = await opened;
+      await expect(tab).toHaveURL(new RegExp(`order=${order}$`));
+      await tab.close();
+      await expect(page).toHaveURL(/scenario=row-links$/);
+    }
+
+    // A plain click after them follows the link - Shift + click selected no
+    // text between the rows, which the click would only clear
+    expect(await page.evaluate(() => document.getSelection()?.toString())).toBe(
+      "",
+    );
+    await page.getByRole("cell", { name: "Jana Nováková" }).click();
+    await expect(page).toHaveURL(/order=42$/);
+  });
+}
+
+// The browser clicks what holds both the press and the release - the row
+// for a press on its button released on another cell
+test("a press on a control of a row released on another cell opens nothing", async ({
+  isMobile,
+  page,
+}) => {
+  test.skip(isMobile, "A finger moved off a button scrolls the page");
+  await page.goto("/tests/browser/?scenario=row-links");
+  const clicks = await page.evaluateHandle(() => {
+    const targets: string[] = [];
+    document.addEventListener("click", (event) => {
+      targets.push((event.target as Element).tagName);
+    });
+    return targets;
+  });
+
+  await page.getByRole("button", { name: "Archive" }).hover();
+  await page.mouse.down();
+  await page.getByRole("cell", { name: "Jana Nováková" }).hover();
+  await page.mouse.up();
+  await expect.poll(() => clicks.jsonValue()).toEqual(["TR"]);
+  await expect(page).toHaveURL(/scenario=row-links$/);
+});

@@ -62,6 +62,11 @@ export interface CellLayout {
    */
   end?: number;
   /**
+   * The breakpoint the cells are hidden below - the column's `hideBelow`,
+   * unless the column must stay (see `Column.hideBelow`).
+   */
+  hideBelow?: Column<unknown>["hideBelow"];
+  /**
    * The widest a pinned column may be resized to - the pinned columns must
    * leave half of the view to the others, or they would scroll along.
    */
@@ -98,15 +103,10 @@ const HIDDEN_BELOW_CLASSES = {
 
 /**
  * The classes hiding the cells of a column with `hideBelow` on narrow
- * screens - not of a pinned one, whose offsets count on its width.
+ * screens - by its layout, the same in every row of the table.
  */
-export const hiddenBelowClassName = <T>(
-  column: Column<T>,
-  layout: CellLayout,
-) =>
-  column.hideBelow && !isSticky(layout)
-    ? HIDDEN_BELOW_CLASSES[column.hideBelow]
-    : undefined;
+export const hiddenBelowClassName = (layout: CellLayout) =>
+  layout.hideBelow ? HIDDEN_BELOW_CLASSES[layout.hideBelow] : undefined;
 
 /**
  * The inline style of a cell: its sticky offset - from the start or the end

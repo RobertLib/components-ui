@@ -408,6 +408,227 @@ describe("Toast focus", () => {
   });
 });
 
+describe("Toast icon and colors", () => {
+  it("shows no icon of its own for an icon of null", () => {
+    render(
+      <>
+        <Toast icon={null} message="Saved" variant="success" />
+        <Toast icon={null} message="Note" />
+      </>,
+    );
+
+    // The icon of the variant only in forced colors, as without `icon` -
+    // no empty place for an icon taking a gap
+    const icons = document.querySelectorAll("[data-toast-icon]");
+    expect(icons).toHaveLength(1);
+    expect(icons[0]).toHaveClass("hidden", "forced-colors:block");
+    expect(icons[0].tagName).toBe("svg");
+  });
+
+  it("takes colors in place of those of its variant, also in dark mode", () => {
+    render(
+      <Toast
+        className="shadow-lg"
+        colorClassName="border-neutral-900 bg-neutral-900 text-white"
+        message="Saved"
+        variant="success"
+      />,
+    );
+
+    const toast = screen.getByRole("status");
+    expect(toast).toHaveClass(
+      "border-neutral-900",
+      "bg-neutral-900",
+      "text-white",
+      "shadow-lg",
+    );
+    expect(toast.className).not.toMatch(/success/);
+    expect(toast).toHaveAttribute("data-variant", "success");
+  });
+
+  it("takes colors of variables in place of those of its variant", () => {
+    render(
+      <Toast
+        colorClassName="bg-(--brand) text-[var(--on-brand)]"
+        message="Saved"
+        variant="success"
+      />,
+    );
+
+    const toast = screen.getByRole("status");
+    expect(toast).toHaveClass("bg-(--brand)", "text-[var(--on-brand)]");
+    expect(toast.className).not.toMatch(
+      /(?:^|\s)(?:dark:)?(?:bg|text)-success/,
+    );
+  });
+
+  it("keeps the colors of its variant with classes that set none", () => {
+    render(
+      <Toast
+        colorClassName="font-semibold shadow-lg"
+        message="Saved"
+        variant="success"
+      />,
+    );
+
+    const toast = screen.getByRole("status");
+    expect(toast).toHaveClass(
+      "font-semibold",
+      "shadow-lg",
+      "border-success-200",
+      "bg-success-50",
+      "text-success-800",
+      "dark:bg-success-900",
+      "dark:text-success-200",
+      "dark:border-success-800",
+    );
+  });
+
+  it("replaces only the colors given - in the light and the dark mode", () => {
+    render(
+      <Toast colorClassName="border-info-500" message="Saved" variant="info" />,
+    );
+
+    const toast = screen.getByRole("status");
+    expect(toast).toHaveClass("border-info-500");
+    expect(toast).not.toHaveClass("border-info-200");
+    expect(toast).not.toHaveClass("dark:border-info-800");
+    // The background and the text keep the colors of the variant
+    expect(toast).toHaveClass(
+      "bg-info-50",
+      "text-info-800",
+      "dark:bg-info-900",
+      "dark:text-info-200",
+    );
+  });
+
+  it("shows the light background and text in the dark mode for one given alone", () => {
+    render(<Toast colorClassName="bg-white" message="Saved" variant="info" />);
+
+    // Not the light text of the dark mode on a white toast
+    const toast = screen.getByRole("status");
+    expect(toast).toHaveClass("bg-white", "text-info-800");
+    expect(toast).not.toHaveClass("bg-info-50");
+    expect(toast).not.toHaveClass("dark:bg-info-900");
+    expect(toast).not.toHaveClass("dark:text-info-200");
+    // The border is no part of it
+    expect(toast).toHaveClass("border-info-200", "dark:border-info-800");
+
+    render(
+      <Toast colorClassName="text-danger-700" message="Note" variant="info" />,
+    );
+    const note = screen.getByText("Note").closest<HTMLElement>("[data-toast]")!;
+    expect(note).toHaveClass("bg-info-50", "text-danger-700");
+    expect(note).not.toHaveClass("dark:bg-info-900");
+    expect(note).not.toHaveClass("dark:text-info-200");
+  });
+
+  it("takes a color given for the dark mode there", () => {
+    render(
+      <Toast
+        colorClassName="bg-white dark:bg-neutral-900"
+        message="Saved"
+        variant="info"
+      />,
+    );
+
+    const toast = screen.getByRole("status");
+    expect(toast).toHaveClass("bg-white", "dark:bg-neutral-900");
+    expect(toast).not.toHaveClass("bg-info-50");
+    expect(toast).not.toHaveClass("dark:bg-info-900");
+    // The light text of the variant goes with the dark background given
+    expect(toast).toHaveClass("dark:text-info-200");
+
+    // Given for the dark mode alone, it leaves the light one as it is
+    render(
+      <Toast
+        colorClassName="dark:text-white"
+        message="Note"
+        variant="warning"
+      />,
+    );
+    const note = screen.getByText("Note").closest<HTMLElement>("[data-toast]")!;
+    expect(note).toHaveClass("text-warning-800", "dark:text-white");
+    expect(note).not.toHaveClass("dark:text-warning-200");
+  });
+
+  it("takes an important color in place of the variant's one too", () => {
+    const toastOf = (text: string) =>
+      screen.getByText(text).closest<HTMLElement>("[data-toast]")!;
+    render(
+      <>
+        <Toast colorClassName="!bg-white" message="Saved" variant="success" />
+        <Toast colorClassName="bg-white!" message="Sent" variant="info" />
+        <Toast
+          colorClassName="!text-neutral-900 border-neutral-900!"
+          message="Note"
+          variant="warning"
+        />
+        <Toast
+          colorClassName="bg-white dark:bg-neutral-900!"
+          message="Done"
+          variant="danger"
+        />
+      </>,
+    );
+
+    // The important white wins in the dark mode too - with the light text,
+    // not the dark mode's light one
+    for (const [text, tone] of [
+      ["Saved", "success"],
+      ["Sent", "info"],
+    ]) {
+      const toast = toastOf(text);
+      expect(toast).toHaveClass(`text-${tone}-800`, `border-${tone}-200`);
+      expect(toast).not.toHaveClass(`bg-${tone}-50`);
+      expect(toast).not.toHaveClass(`dark:bg-${tone}-900`);
+      expect(toast).not.toHaveClass(`dark:text-${tone}-200`);
+    }
+    expect(toastOf("Saved")).toHaveClass("!bg-white");
+    expect(toastOf("Sent")).toHaveClass("bg-white!");
+
+    const note = toastOf("Note");
+    expect(note).toHaveClass("!text-neutral-900", "border-neutral-900!");
+    expect(note).toHaveClass("bg-warning-50");
+    expect(note).not.toHaveClass("text-warning-800");
+    expect(note).not.toHaveClass("dark:text-warning-200");
+    expect(note).not.toHaveClass("dark:bg-warning-900");
+    expect(note).not.toHaveClass("border-warning-200");
+    expect(note).not.toHaveClass("dark:border-warning-800");
+
+    // Given for the dark mode, important there
+    const done = toastOf("Done");
+    expect(done).toHaveClass("dark:bg-neutral-900!", "dark:text-danger-200");
+    expect(done).not.toHaveClass("dark:bg-danger-900");
+  });
+
+  it("keeps the colors of its variant with classes that only look like colors", () => {
+    render(
+      <>
+        {/* The angle of a gradient, and an opacity of Tailwind 3 */}
+        <Toast
+          colorClassName="bg-linear-50"
+          message="Saved"
+          variant="success"
+        />
+        <Toast colorClassName="bg-opacity-50" message="Note" variant="info" />
+      </>,
+    );
+
+    expect(
+      screen.getByText("Saved").closest<HTMLElement>("[data-toast]"),
+    ).toHaveClass(
+      "bg-linear-50",
+      "bg-success-50",
+      "dark:bg-success-900",
+      "dark:text-success-200",
+    );
+    expect(
+      screen.getByText("Note").closest<HTMLElement>("[data-toast]"),
+    ).toHaveClass("bg-info-50", "dark:bg-info-900", "dark:text-info-200");
+  });
+});
+
 describe("Toast with an action, a title or a spinner", () => {
   afterEach(() => {
     vi.useRealTimers();

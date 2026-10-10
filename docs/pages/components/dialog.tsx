@@ -44,8 +44,9 @@ export default function DialogPage() {
             window on a phone. The header stays at the top and a{" "}
             <code>DialogFooter</code> at the bottom, clear of the notch and the
             home indicator of the phone (with <code>viewport-fit=cover</code> in
-            the viewport meta tag). From <code>md</code> up it is a window of
-            its <code>size</code>.
+            the viewport meta tag) - the content without a footer too, whatever
+            the padding of <code>bodyClassName</code>. From <code>md</code> up
+            it is a window of its <code>size</code>.
           </p>
         }
         name="dialog/full-screen-mobile"

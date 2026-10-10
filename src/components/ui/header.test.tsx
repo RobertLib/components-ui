@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import Header from "./header";
 import { cs } from "../../i18n/ui/cs";
+import type { LinkComponentProps } from "../../providers/router";
 import UIProvider from "../../providers/ui-provider";
 
 describe("Header", () => {
@@ -83,6 +84,68 @@ describe("Header", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Order 42" }),
     ).toHaveClass("font-heading", "text-page-title");
+  });
+
+  it("calls onBack at the click of the back link - it can keep the page", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    // A router's link - it leaves a prevented click alone
+    function Link({ href, onClick, ...props }: LinkComponentProps) {
+      return (
+        <a
+          {...props}
+          href={href}
+          onClick={(event) => {
+            onClick?.(event);
+            if (event.defaultPrevented) return;
+            event.preventDefault();
+            navigate(href);
+          }}
+        />
+      );
+    }
+    const onBack = vi.fn();
+    const { rerender } = render(
+      <UIProvider router={{ Link }}>
+        <Header backHref="/orders" onBack={onBack} title="Order 42" />
+      </UIProvider>,
+    );
+
+    await user.click(screen.getByRole("link", { name: "Back" }));
+    expect(onBack).toHaveBeenCalledOnce();
+    expect(navigate).toHaveBeenCalledWith("/orders");
+
+    // Unsaved changes - the page stays
+    rerender(
+      <UIProvider router={{ Link }}>
+        <Header
+          backHref="/orders"
+          onBack={(event) => event?.preventDefault()}
+          title="Order 42"
+        />
+      </UIProvider>,
+    );
+    await user.click(screen.getByRole("link", { name: "Back" }));
+    expect(navigate).toHaveBeenCalledOnce();
+  });
+
+  it("calls onBack not at a click opening the back link in a new tab", async () => {
+    const user = userEvent.setup();
+    const onBack = vi.fn();
+    render(<Header backHref="/orders" onBack={onBack} title="Order 42" />);
+    const link = screen.getByRole("link", { name: "Back" });
+    // The browser opens the tab - here it would load the page
+    link.addEventListener("click", (event) => event.preventDefault());
+
+    for (const key of ["Control", "Meta", "Shift"]) {
+      await user.keyboard(`{${key}>}`);
+      await user.click(link);
+      await user.keyboard(`{/${key}}`);
+    }
+    expect(onBack).not.toHaveBeenCalled();
+
+    await user.click(link);
+    expect(onBack).toHaveBeenCalledOnce();
   });
 
   it("titles a section or a dialog with the heading level given", () => {

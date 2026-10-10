@@ -108,6 +108,13 @@ describe("cn", () => {
       "bg-linear-to-r bg-transparent",
     );
     expect(cn("bg-surface", "bg-background")).toBe("bg-background");
+    // The body of a Dialog or a Sheet
+    expect(cn("bg-dialog dark:bg-dialog-dark", "bg-primary-50")).toBe(
+      "dark:bg-dialog-dark bg-primary-50",
+    );
+    expect(cn("dark:bg-dialog-dark", "dark:bg-surface-dark")).toBe(
+      "dark:bg-surface-dark",
+    );
     expect(cn("border border-primary-500/40", "border-[1.5px]")).toBe(
       "border-primary-500/40 border-[1.5px]",
     );
@@ -136,6 +143,14 @@ describe("cn", () => {
       "justify-items-center justify-end",
     );
     expect(cn("font-mono font-bold", "font-sans")).toBe("font-bold font-sans");
+    // The font and the sizes of the library's headings
+    expect(cn("font-heading text-section-title", "font-serif text-lg")).toBe(
+      "font-serif text-lg",
+    );
+    expect(cn("text-page-title text-neutral-900", "text-2xl")).toBe(
+      "text-neutral-900 text-2xl",
+    );
+    expect(cn("text-xl", "text-stat-value")).toBe("text-stat-value");
     // The color of a text shadow is not that of the text
     expect(cn("text-neutral-900", "text-shadow-sky-300")).toBe(
       "text-neutral-900 text-shadow-sky-300",
@@ -149,6 +164,87 @@ describe("cn", () => {
       "text-shadow-sky-300 text-shadow-lg/20",
     );
     expect(cn("text-shadow-lg", "text-shadow-none")).toBe("text-shadow-none");
+  });
+
+  it("reads a variable without a type as Tailwind 4 does", () => {
+    // A color - a size or a width needs `length:`
+    expect(cn("bg-success-50", "bg-(--brand)")).toBe("bg-(--brand)");
+    expect(cn("bg-success-50", "bg-[var(--brand)]")).toBe("bg-[var(--brand)]");
+    expect(cn("bg-(--brand)", "bg-white/50")).toBe("bg-white/50");
+    expect(cn("bg-success-50", "bg-(--brand)/50")).toBe("bg-(--brand)/50");
+    expect(cn("text-(--muted)", "text-danger-600")).toBe("text-danger-600");
+    expect(cn("text-sm text-neutral-900", "text-(--brand)")).toBe(
+      "text-sm text-(--brand)",
+    );
+    expect(cn("text-sm", "text-(length:--size)")).toBe("text-(length:--size)");
+    expect(cn("border border-neutral-200", "border-(--brand)")).toBe(
+      "border border-(--brand)",
+    );
+    expect(cn("border-t-neutral-200", "border-t-[var(--brand)]")).toBe(
+      "border-t-[var(--brand)]",
+    );
+    expect(cn("ring-2 ring-primary-500", "ring-(--brand)")).toBe(
+      "ring-2 ring-(--brand)",
+    );
+    expect(cn("outline-primary-500", "outline-(--brand)")).toBe(
+      "outline-(--brand)",
+    );
+    expect(cn("from-primary-600", "from-(--brand)")).toBe("from-(--brand)");
+    expect(cn("bg-(image:--hero)", "bg-primary-500")).toBe(
+      "bg-(image:--hero) bg-primary-500",
+    );
+    // The shadow itself - also a variable named as a color
+    expect(cn("shadow-lg shadow-primary-500/20", "shadow-(--elevation)")).toBe(
+      "shadow-primary-500/20 shadow-(--elevation)",
+    );
+    expect(cn("shadow-md", "shadow-(--color-glow)")).toBe(
+      "shadow-(--color-glow)",
+    );
+    expect(cn("shadow-primary-500", "shadow-(color:--brand)")).toBe(
+      "shadow-(color:--brand)",
+    );
+    expect(
+      cn("text-shadow-lg text-shadow-sky-300", "text-shadow-(--glow)"),
+    ).toBe("text-shadow-sky-300 text-shadow-(--glow)");
+  });
+
+  it("takes no other utility with a number like a shade for a color", () => {
+    // The angle of a gradient - 50 like 45
+    expect(cn("bg-red-500", "bg-linear-50")).toBe("bg-red-500 bg-linear-50");
+    expect(cn("bg-red-500", "bg-linear-45")).toBe("bg-red-500 bg-linear-45");
+    expect(cn("bg-red-500", "-bg-conic-100")).toBe("bg-red-500 -bg-conic-100");
+    expect(cn("bg-linear-to-r", "bg-linear-50")).toBe("bg-linear-50");
+    // Tailwind 3's opacities - no classes of Tailwind 4
+    expect(cn("bg-red-500", "bg-opacity-50")).toBe("bg-red-500 bg-opacity-50");
+    expect(cn("text-white", "text-opacity-50")).toBe(
+      "text-white text-opacity-50",
+    );
+    expect(cn("border-neutral-200", "border-opacity-50")).toBe(
+      "border-neutral-200 border-opacity-50",
+    );
+    expect(cn("ring-primary-500", "ring-opacity-50")).toBe(
+      "ring-primary-500 ring-opacity-50",
+    );
+    expect(
+      cn("ring-primary-500 ring-offset-white", "ring-offset-opacity-50"),
+    ).toBe("ring-primary-500 ring-offset-white ring-offset-opacity-50");
+    // The spacing of the borders of a table
+    expect(
+      cn("border-neutral-200", "border-spacing-50 border-spacing-x-100"),
+    ).toBe("border-neutral-200 border-spacing-50 border-spacing-x-100");
+    // The widths and colors of the block sides
+    expect(cn("border-neutral-200", "border-bs-100")).toBe(
+      "border-neutral-200 border-bs-100",
+    );
+    expect(cn("border-neutral-200", "border-be-red-500")).toBe(
+      "border-neutral-200 border-be-red-500",
+    );
+    expect(
+      cn("border-be-2 border-bs-red-500", "border-0 border-y-blue-500"),
+    ).toBe("border-0 border-y-blue-500");
+    expect(cn("border-y-blue-500", "border-bs-red-500")).toBe(
+      "border-y-blue-500 border-bs-red-500",
+    );
   });
 
   it("merges a font size's slash line height with earlier leading only", () => {
@@ -236,9 +332,6 @@ describe("cn", () => {
     expect(cn("form-control px-2", "px-4")).toBe("form-control px-4");
     expect(cn("btn", "btn-group", "rich-text")).toBe("btn btn-group rich-text");
     expect(cn("text-brand", "text-sm")).toBe("text-brand text-sm");
-    expect(cn("text-(--muted)", "text-danger-600")).toBe(
-      "text-(--muted) text-danger-600",
-    );
     expect(cn("bg-cover bg-center", "bg-primary-500")).toBe(
       "bg-cover bg-center bg-primary-500",
     );

@@ -22,6 +22,7 @@ import {
   NewComponentsFixture,
   NamedZoneFixture,
   PinCompositionFixture,
+  RowLinksFixture,
   ShadowPopoverFixture,
   ShadowKeyboardFixture,
   SliderDragFixture,
@@ -120,6 +121,8 @@ createRoot(container).render(
         <SliderDragFixture />
       ) : params.get("scenario") === "table" ? (
         <TableFixture />
+      ) : params.get("scenario") === "row-links" ? (
+        <RowLinksFixture />
       ) : params.get("scenario") === "table-resize" ? (
         <TableResizeFixture />
       ) : params.get("scenario") === "cursor-pagination" ? (

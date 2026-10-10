@@ -3,7 +3,7 @@ import CodeBlock from "../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 
 const installGit = `# a tagged version from your git host - npm builds dist/ on install
-npm install git+https://github.com/RobertLib/components-ui.git#v0.5.0
+npm install git+https://github.com/RobertLib/components-ui.git#v0.6.0
 
 # the latest commit of a branch
 npm install git+https://github.com/RobertLib/components-ui.git#main
@@ -30,8 +30,8 @@ resolve: {
 },`;
 
 const installTarball = `# a copy instead of a link - like an install from a registry
-cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.5.0.tgz
-cd ../my-app && npm install ../components-ui/components-ui-0.5.0.tgz`;
+cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.6.0.tgz
+cd ../my-app && npm install ../components-ui/components-ui-0.6.0.tgz`;
 
 const installRegistry = `# in the library: set a scoped name, remove "private": true, then
 npm publish --registry https://npm.your-company.com
@@ -59,6 +59,10 @@ git clone https://github.com/RobertLib/components-ui.git && cd components-ui
 npm ci
 npm run sync:source -- ../my-app/src --dry-run   # what would change
 npm run sync:source -- ../my-app/src`;
+
+const syncRenames = `# printed by the sync, with the whole path of the copy - run them anywhere
+git -C /home/me/my-app/src rm -r --cached -q --ignore-unmatch -- components/ui/Data-Table
+git -C /home/me/my-app/src add -- components/ui/data-table`;
 
 const lintOverrides = `// .oxlintrc.json of the app - the copy keeps the library's own rules
 {
@@ -288,10 +292,11 @@ export default function Installation() {
             Merge the generated <code>dist-source/src/</code> into your
             project's <code>src/</code> and keep{" "}
             <code>dist-source/LICENSE</code> with the library. The export
-            excludes tests and the package entry file, and names the stylesheet{" "}
-            <code>ui-styles.css</code>. It regenerates <code>dist-source/</code>{" "}
-            on every run; when updating your app, keep its own translation
-            catalogs.
+            excludes tests, files of the system and editors (
+            <code>.DS_Store</code>, swap files) and the package entry file, and
+            names the stylesheet <code>ui-styles.css</code>. It regenerates{" "}
+            <code>dist-source/</code> on every run; when updating your app, keep
+            its own translation catalogs.
           </p>
           <p>
             You can also copy the following folders manually, keeping their
@@ -347,13 +352,42 @@ export default function Installation() {
             catalogs of the app (<code>i18n/en.ts</code>,{" "}
             <code>i18n/cs.ts</code>, written once as templates). A library file
             changed in the copy stops the update with a list of them - move the
-            change into the library, or replace it with <code>--force</code>;{" "}
-            <code>--dry-run</code> shows what would change. The first sync of a
-            copy made by hand takes it over: it replaces the library&apos;s
-            files and removes nothing.
+            change into the library, or replace it with <code>--force</code>. So
+            does a file of the app at a path the library takes up, one the
+            manifest does not list - rename it, or replace it with{" "}
+            <code>--adopt</code>; <code>--force</code> does not touch it.{" "}
+            <code>--dry-run</code> shows what would change, and exits with an
+            error where a real run would stop. Give the options after the{" "}
+            <code>--</code>, as below: npm keeps those before it for itself.
+            Line endings do not count, so a checkout with CRLF is no change.
+          </p>
+          <p>
+            The first sync of a copy made by hand, which has no manifest yet,
+            takes over the files equal to the library&apos;s and stops at the
+            others: an older version of the library or a change of the app,
+            which the sync cannot tell apart. Check them with{" "}
+            <code>--dry-run</code>, then <code>--adopt</code> replaces them with
+            the library&apos;s; nothing is removed.
           </p>
         </Prose>
         <CodeBlock code={syncSource} plain />
+        <Prose>
+          <p>
+            A file or a folder the library renamed only in case (
+            <code>Badge.tsx</code> - <code>badge.tsx</code>,{" "}
+            <code>Data-Table/</code> - <code>data-table/</code>) is renamed in
+            the copy too, a folder with all in it. A folder with files of the
+            app in it stops the sync: the app imports them by the old name,
+            which a build on Linux does not find - rename it yourself, and the
+            imports, or let <code>--adopt</code> rename it with all in it. Git
+            ignores case on macOS and Windows: it keeps the old names, also for
+            a file added in such a folder, and a build on Linux does not find
+            them. The sync prints the commands that record the renames - also on
+            a later run, while Git keeps the old names - run them before you
+            commit:
+          </p>
+        </Prose>
+        <CodeBlock code={syncRenames} plain />
         <Prose>
           <p>
             The copy follows the rules of the library, which its own tests check

@@ -1,7 +1,7 @@
 import cn from "../../utils/cn";
 import Tooltip, { type TooltipProps } from "./tooltip";
 import type { LinkComponentProps } from "../../providers/router";
-import { useRouter } from "../../providers/ui-context";
+import { useRouterActions } from "../../providers/ui-context";
 
 type IconButtonColor = "default" | "primary" | "secondary" | "danger";
 
@@ -80,9 +80,10 @@ const sizeStyles = {
 };
 
 /**
- * A borderless button for a single icon. Name it with an `aria-label` - the
- * icon alone does not tell screen readers what it does - or with a text
- * `tooltip`, which also shows the name. With `href` it is a link.
+ * A button for a single icon - borderless, or with a border by `bordered`.
+ * Name it with an `aria-label` - the icon alone does not tell screen readers
+ * what it does - or with a text `tooltip`, which also shows the name. With
+ * `href` it is a link.
  */
 export default function IconButton({
   "aria-label": ariaLabel,
@@ -100,7 +101,7 @@ export default function IconButton({
   variant,
   ...props
 }: IconButtonProps) {
-  const { Link } = useRouter();
+  const { Link } = useRouterActions();
   const color = colorProp ?? variant ?? "default";
   // A bordered button has a size - the negative margin of one without
   // would pull the border into the content around

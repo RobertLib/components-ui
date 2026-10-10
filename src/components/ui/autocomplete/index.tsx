@@ -429,6 +429,14 @@ const valueKey = (value: AutocompleteValue) => String(value);
 const sameValue = (a: AutocompleteValue, b: AutocompleteValue) =>
   valueKey(a) === valueKey(b);
 
+/** Whether two lists have the same options - by their values, in order. */
+const sameOptionValues = (
+  a: readonly AutocompleteOption[],
+  b: readonly AutocompleteOption[],
+) =>
+  a.length === b.length &&
+  a.every((option, index) => sameValue(option.value, b[index].value));
+
 const normalizeText = foldSearchText;
 
 function createOption<TItem extends object>(
@@ -559,6 +567,10 @@ const getErrorMessage = (error: unknown, fallback: string) =>
     : typeof error === "string" && error
       ? error
       : fallback;
+
+/** Whether the list is scrolled to its end - 10px before it count. */
+const showsEnd = ({ clientHeight, scrollHeight, scrollTop }: HTMLElement) =>
+  scrollTop + clientHeight >= scrollHeight - 10;
 
 /**
  * The rows of a virtualized list - the heading of each group and the
@@ -1965,12 +1977,29 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   // Scrolling to the end of the list loads more options
   const canLoadMore = isAsync ? hasMore : !!loadMore && hasMoreOptions;
 
+  // The static options `loadMore` was last called for - while they stay the
+  // same, it brought no new ones, and a list still showing its end does not
+  // call it again, or it would be called in a loop. A scroll does. By their
+  // values: a list given anew with the same ones is the same, other options
+  // in their place (as many) are not.
+  const loadedStaticOptions = useRef<AutocompleteOption[] | null>(null);
+  // `loadMore` runs - also before its loading state is committed
+  const loadingStatic = useRef(false);
+
   const loadNextPage = () => {
     if (loadingMore || isLoadingList || !canLoadMore) return;
 
     if (isAsync) {
+      // Also a request whose loading state is not committed yet - a scroll
+      // and the check of the list's end in one frame would ask for the same
+      // page twice, the second one aborting the first
+      if (pendingRequest.current) return;
       loadPage(requestKey, searchTerm, true, cursor, false);
     } else if (loadMore) {
+      // Two scrolls in one frame would load the same page twice
+      if (loadingStatic.current) return;
+      loadingStatic.current = true;
+      loadedStaticOptions.current = staticOptions ?? EMPTY_OPTIONS;
       setLoadingMore(true);
       // A synchronous throw is a failed load too - the loading flag must
       // clear so that the next scroll can retry it.
@@ -1978,20 +2007,17 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
         .catch((loadError) =>
           logger.error("Failed to load more options", loadError),
         )
-        .finally(() => setLoadingMore(false));
+        .finally(() => {
+          loadingStatic.current = false;
+          setLoadingMore(false);
+        });
     }
   };
 
   const handleScroll = () => {
     const content = popoverContentRef.current;
 
-    if (!content) return;
-
-    const { clientHeight, scrollHeight, scrollTop } = content;
-
-    if (scrollTop + clientHeight < scrollHeight - 10) return;
-
-    loadNextPage();
+    if (content && showsEnd(content)) loadNextPage();
   };
 
   const handleScrollRef = useRef(handleScroll);
@@ -2000,50 +2026,47 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
     handleScrollRef.current = handleScroll;
   });
 
-  // A page too short to fill the list leaves nothing to scroll to its end -
-  // after every page, check whether the list shows its end already. A
-  // static `loadMore` that brought no new options is not called again for
-  // the same options, or it would be called in a loop.
-  const staticCount = staticOptions?.length ?? 0;
-  const filledStaticCount = useRef<number | null>(null);
-
+  // A list that shows its end once a page arrives fires no scroll to load
+  // the next one - a page too short to fill the list, or one that took the
+  // place of the loading row in a list scrolled to its end. After every
+  // page, check whether the list shows its end.
   useEffect(() => {
     if (!open || !canLoadMore || loadingMore) return;
 
     let frame = 0;
 
-    const checkFilled = (framesWaited: number) => {
+    const checkEnd = (framesWaited: number) => {
       const content = popoverContentRef.current;
 
       // The list is rendered into a portal a frame or two after the popover
       // opens
       if (!content) {
         if (framesWaited < 5) {
-          frame = requestAnimationFrame(() => checkFilled(framesWaited + 1));
+          frame = requestAnimationFrame(() => checkEnd(framesWaited + 1));
         }
         return;
       }
 
       // A list that is not laid out (yet) has no height to fill
+      if (!content.clientHeight || !showsEnd(content)) return;
       if (
-        !content.clientHeight ||
-        content.scrollHeight > content.clientHeight
+        !isAsync &&
+        loadedStaticOptions.current &&
+        sameOptionValues(
+          loadedStaticOptions.current,
+          staticOptions ?? EMPTY_OPTIONS,
+        )
       ) {
         return;
-      }
-
-      if (!isAsync) {
-        if (filledStaticCount.current === staticCount) return;
-        filledStaticCount.current = staticCount;
       }
 
       handleScrollRef.current();
     };
 
-    frame = requestAnimationFrame(() => checkFilled(0));
+    frame = requestAnimationFrame(() => checkEnd(0));
 
     return () => cancelAnimationFrame(frame);
-  }, [canLoadMore, filteredOptions, isAsync, loadingMore, open, staticCount]);
+  }, [canLoadMore, filteredOptions, isAsync, loadingMore, open, staticOptions]);
 
   useEffect(() => {
     if (!open) return;

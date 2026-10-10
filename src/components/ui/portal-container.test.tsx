@@ -158,6 +158,24 @@ describe("A portalContainer in the page", () => {
     await waitFor(() => expect(portalRoot).toHaveTextContent("Saved"));
   });
 
+  it("calls the latest function given for a dialog opened later", async () => {
+    const user = userEvent.setup();
+    const other = document.createElement("div");
+    document.body.append(other);
+    // Inline functions - a new one on every render
+    const renderWith = (root: HTMLElement) => (
+      <UIProvider portalContainer={() => root}>
+        <DialogButton />
+      </UIProvider>
+    );
+    const { rerender } = render(renderWith(portalRoot));
+    rerender(renderWith(other));
+
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    expect(other).toContainElement(screen.getByRole("dialog"));
+    other.remove();
+  });
+
   it("gives a popover the direction of its trigger where it differs from the container's", async () => {
     const user = userEvent.setup();
     portalRoot.dir = "rtl";

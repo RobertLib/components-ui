@@ -14,6 +14,7 @@ import Dialog, { DialogFooter } from "../dialog";
 import Kbd from "../kbd";
 import Spinner from "../spinner";
 import logger from "../../../utils/logger";
+import toAppPath from "../../../utils/to-app-path";
 import { isSafeHref } from "../../../utils/sanitize-rich-text";
 import useDebouncedValue from "../../../hooks/use-debounced-value";
 import useHotkeys from "../../../hooks/use-hotkeys";
@@ -27,7 +28,7 @@ import {
 import {
   useLocale,
   useMessages,
-  useRouter,
+  useNavigate,
 } from "../../../providers/ui-context";
 import {
   findMatchRanges,
@@ -187,9 +188,6 @@ function groupOptions(options: Option[]) {
   })).sort((a, b) => a.options[0].rank - b.options[0].rank);
 }
 
-// A URL with a scheme, or a protocol-relative one, is no page of the app
-const isExternalUrl = (href: string) => /^([a-z][a-z\d+.-]*:|\/\/)/i.test(href);
-
 /** Whether a shortcut has a modifier - then it may work in text fields too. */
 function hasModifier(shortcut: string) {
   const { alt, ctrl, meta } = parseShortcut(shortcut);
@@ -339,7 +337,7 @@ function PaletteContent({
 }: PaletteContentProps) {
   const locale = useLocale();
   const messages = useMessages().ui;
-  const { navigate } = useRouter();
+  const navigate = useNavigate();
 
   const [query, setQuery] = useState("");
   const settledQuery = useDebouncedValue(query, SEARCH_DEBOUNCE);
@@ -505,10 +503,13 @@ function PaletteContent({
         "CommandPalette opens no href that is not a link:",
         item.href,
       );
-    } else if (isExternalUrl(item.href)) {
-      window.location.assign(item.href);
     } else {
-      navigate(item.href);
+      const path = toAppPath(item.href);
+      if (path === null) {
+        window.location.assign(item.href);
+      } else {
+        navigate(path);
+      }
     }
   };
 

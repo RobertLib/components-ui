@@ -1,7 +1,7 @@
 import { House } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import cn from "../../utils/cn";
-import { useMessages, useRouter } from "../../providers/ui-context";
+import { useMessages, useRouterActions } from "../../providers/ui-context";
 
 export interface BreadcrumbItem {
   /**
@@ -67,7 +67,7 @@ export default function Breadcrumbs({
   separator = ">",
   ...props
 }: BreadcrumbsProps) {
-  const { Link } = useRouter();
+  const { Link } = useRouterActions();
   const messages = useMessages().ui;
   const [isExpanded, setIsExpanded] = useState(false);
   const listRef = useRef<HTMLOListElement>(null);

@@ -32,7 +32,10 @@ export default function CardPage() {
             stretched over the card - screen readers hear the title alone, not
             all of the card, and the <code>actions</code> and the{" "}
             <code>footer</code> stay controls of their own above it: no control
-            in a control. The focus ring goes around the card.
+            in a control. The focus ring goes around the card. With{" "}
+            <code>href</code>, <code>onClick</code> is called before the link is
+            followed - e.g. to close a drawer;{" "}
+            <code>event.preventDefault()</code> keeps the page.
           </p>
         }
         name="card/clickable"

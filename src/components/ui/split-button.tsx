@@ -2,17 +2,25 @@ import { ChevronDown } from "lucide-react";
 import { use, useId } from "react";
 import Button, { type ButtonProps } from "./button";
 import ButtonGroup from "./button-group";
-import { ButtonGroupContext } from "./button-group-context";
+import {
+  ButtonGroupContext,
+  type ButtonGroupVariant,
+} from "./button-group-context";
 import cn from "../../utils/cn";
 import Dropdown from "./dropdown";
 import type { DropdownEntry } from "./menu/types";
 import { useMessages } from "../../providers/ui-context";
 
-export interface SplitButtonProps extends Omit<ButtonProps, "link" | "size"> {
+export interface SplitButtonProps extends Omit<
+  ButtonProps,
+  "link" | "size" | "variant"
+> {
   /** Entries of the menu - related actions, like the items of `Dropdown`. */
   items: DropdownEntry[];
   /** Size of both buttons. */
   size?: "sm" | "md" | "lg";
+  /** Variant of both buttons - not `link`, which has no border to join. */
+  variant?: ButtonGroupVariant;
   /**
    * Accessible name of the button that opens the menu - the localized "More
    * options" by default.

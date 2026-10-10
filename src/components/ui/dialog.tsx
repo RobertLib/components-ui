@@ -46,7 +46,7 @@ export interface DialogProps extends Omit<
    * is pending, further attempts to close wait for it. Not asked when
    * `open` turns `false`.
    */
-  onBeforeClose?: () => boolean | void | Promise<boolean | void>;
+  onBeforeClose?: () => boolean | void | PromiseLike<boolean | void>;
   /**
    * Called when the user closes the dialog (close button, Escape, the
    * backdrop with `closeOnBackdropClick`). In uncontrolled mode it is called
@@ -107,7 +107,6 @@ const FULL_SCREEN_CLASSES =
  * (also while it animates in and out), like its backdrop.
  */
 export default function Dialog({
-  bodyClassName,
   closeDisabled = false,
   closeOnBackdropClick = false,
   closeOnEscape = true,
@@ -120,11 +119,6 @@ export default function Dialog({
     <ModalDialog
       {...props}
       backdropClassName="duration-200"
-      // The content clear of the home indicator without a footer too
-      bodyClassName={cn(
-        fullScreenOnMobile && "pb-[calc(1.5rem+var(--cui-safe-bottom,0px))]",
-        bodyClassName,
-      )}
       closeDisabled={closeDisabled}
       closeOnBackdropClick={closeOnBackdropClick}
       closeOnEscape={closeOnEscape}

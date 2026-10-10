@@ -219,8 +219,9 @@ export default function DataTablePage() {
             <code>getRowHref(row)</code> makes each row open a page: its first
             column shows its content as a link (<code>useRouter().Link</code>,
             so Tab, Enter, middle and Ctrl + click work as on any link), and a
-            click anywhere else on the row follows it too, with the keys held.
-            Keep controls out of the first column - a link cannot hold them.
+            click anywhere else on the row follows it too - Ctrl, Cmd or Shift +
+            click and the middle button open it in a new tab. Keep controls out
+            of the first column - a link cannot hold them.
           </p>
         }
         name="data-table/row-links"
@@ -629,10 +630,13 @@ export default function DataTablePage() {
             screens narrower than that breakpoint: its header, its filter, its
             cells and its summary. A phone shows the name and the status of a
             member, a computer their birth date and their last exam too. The
-            column stays in the column settings and in the CSV export. A pinned
-            column keeps its place - its neighbors are placed by its width - and
-            so should a column of a column group and the first column of a table
-            with <code>getRowHref</code>, which holds the link of the row.
+            column stays in the column settings and in the CSV export. Some
+            columns keep their place anyway: a pinned one - its neighbors are
+            placed by its width - a column of a column group, whose header spans
+            it, an <code>editable</code> one (with <code>onCellEdit</code>),
+            whose cells the keyboard moves between, and the first column of a
+            table with <code>getRowHref</code>, which holds the links of the
+            rows - also when the user moves a column there.
           </p>
         </Prose>
       </Section>
@@ -744,7 +748,15 @@ export default function DataTablePage() {
             client sorting; the table applies ascending/descending direction.
             This example sorts names by priority. <code>expandedIds</code> and{" "}
             <code>onExpandedIdsChange</code> control details;{" "}
-            <code>defaultExpandedIds</code> initializes an uncontrolled set.
+            <code>defaultExpandedIds</code> initializes an uncontrolled set. A
+            row renders again only when what it shows changes - without the
+            React Compiler, keep <code>columns</code>, <code>getRowId</code>,{" "}
+            <code>renderSubRow</code>, <code>actions</code>,{" "}
+            <code>getRowClassName</code> and <code>getRowBackgroundColor</code>{" "}
+            the same between renders (outside the component,{" "}
+            <code>useMemo</code>, <code>useCallback</code>), or every row
+            renders again with the table. <code>onRowClick</code> and the other
+            handlers may be inline.
           </p>
         }
       />

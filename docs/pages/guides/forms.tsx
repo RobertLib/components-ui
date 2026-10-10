@@ -11,7 +11,7 @@ const errorShapes = `// REST (Rails, Laravel, Django REST framework, ASP.NET, �
 { "errors": [{ "path": "email", "msg": "Invalid value" }] } // express-validator
 { "formErrors": ["…"], "fieldErrors": { "email": ["…"] } } // Zod flatten()
 { "code": "VALIDATION_FAILED", "message": "…", "fieldErrors": { "email": ["…"] } }
-class ApiError extends Error { fieldErrors = { email: ["…"] } } // an error class of your client
+class ApiError extends Error { fieldErrors = { email: ["…"] }; formErrors = ["…"] } // an error class of your client
 
 // GraphQL - errors with the field messages in the extensions
 { "errors": [{ "message": "Validation failed", "extensions": { "email": ["…"] } }] }
@@ -354,13 +354,14 @@ export default function FormsGuide() {
             <code>getFieldError(error, field)</code> returns the message for one
             field and <code>getBaseError(error)</code> the general one, whatever
             shape the server sent - pass the parsed REST error body, the error
-            your API client throws (with the <code>fieldErrors</code> or{" "}
-            <code>errors</code> of the body) or the GraphQL error / response as
-            it is. An API that answers with codes (<code>REQUIRED</code>) has
-            them translated by the app: <code>messages.errors[code]</code>.
-            Field names match in camelCase and snake_case,{" "}
-            <code>address.street</code> addresses nested fields, and{" "}
-            <code>getNestedErrors()</code> lists the errors of nested records.
+            your API client throws (with the <code>fieldErrors</code>,{" "}
+            <code>formErrors</code> or <code>errors</code> of the body) or the
+            GraphQL error / response as it is. An API that answers with codes (
+            <code>REQUIRED</code>) has them translated by the app:{" "}
+            <code>messages.errors[code]</code>. Field names match in camelCase
+            and snake_case, <code>address.street</code> addresses nested fields,
+            and <code>getNestedErrors()</code> lists the errors of nested
+            records.
           </p>
         </Prose>
         <Example

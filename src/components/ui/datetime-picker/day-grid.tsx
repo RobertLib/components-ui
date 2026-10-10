@@ -10,6 +10,7 @@ import {
   getMonthNames,
   getWeekdayNames,
   isSameDay,
+  lastDayOfMonth,
   shiftDay,
   startOfDay,
   toISODate,
@@ -87,8 +88,9 @@ interface DayGridProps {
 const firstOfMonth = (date: Date) =>
   dateOf(date.getFullYear(), date.getMonth(), 1);
 
+// Its last day the time zone has - Kiritimati skipped December 31, 1994
 const lastOfMonth = (date: Date) =>
-  dateOf(date.getFullYear(), date.getMonth() + 1, 0);
+  lastDayOfMonth(date.getFullYear(), date.getMonth());
 
 /** The first day of the month `offset` months from the month of `date`. */
 const shiftMonth = (date: Date, offset: number) =>

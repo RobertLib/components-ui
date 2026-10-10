@@ -1,7 +1,10 @@
 import { Children, isValidElement, use } from "react";
 import cn from "../../utils/cn";
 import type { ButtonProps } from "./button";
-import { ButtonGroupContext } from "./button-group-context";
+import {
+  ButtonGroupContext,
+  type ButtonGroupVariant,
+} from "./button-group-context";
 
 export interface ButtonGroupProps extends React.ComponentProps<"div"> {
   /** Color of the buttons that do not set their own. */
@@ -10,8 +13,8 @@ export interface ButtonGroupProps extends React.ComponentProps<"div"> {
   orientation?: "horizontal" | "vertical";
   /** Size of the buttons that do not set their own. */
   size?: ButtonProps["size"];
-  /** Variant of the buttons that do not set their own. */
-  variant?: ButtonProps["variant"];
+  /** Variant of the buttons that do not set their own - not `link`. */
+  variant?: ButtonGroupVariant;
 }
 
 /**

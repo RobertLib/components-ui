@@ -345,6 +345,7 @@ describe("DateTimePicker right to left", () => {
     // Aligned to the start edge of the field - its right one here
     const panel = screen.getByRole("dialog").closest(".inset-s-0");
     expect(panel).not.toBeNull();
-    expect(panel).not.toHaveClass("left-0", "right-0");
+    expect(panel).not.toHaveClass("left-0");
+    expect(panel).not.toHaveClass("right-0");
   });
 });

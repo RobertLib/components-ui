@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import DescriptionList from "./description-list";
 import UIProvider from "../../providers/ui-provider";
 
@@ -137,5 +137,60 @@ describe("DescriptionList in columns", () => {
     expect(screen.getByText("Jana")).toHaveClass("text-neutral-900");
     // An empty value shows the placeholder, with the classes of its item
     expect(screen.getByText("—")).toHaveClass("italic");
+  });
+
+  it("fills the false of a condition with the empty value, as null", () => {
+    const isAdmin = false;
+    render(
+      <DescriptionList
+        emptyValue="—"
+        items={[
+          { desc: isAdmin && "Administrator", term: "Role" },
+          { desc: undefined, term: "Phone" },
+          { desc: 0, term: "Orders" },
+        ]}
+      />,
+    );
+
+    const descriptions = screen.getAllByRole("definition");
+    expect(descriptions.map((desc) => desc.textContent)).toEqual([
+      "—",
+      "—",
+      // A zero is a value
+      "0",
+    ]);
+  });
+
+  it("fills every value React renders as nothing with the empty value", () => {
+    // React warns of the NaN it renders
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const tags: string[] = [];
+    render(
+      <DescriptionList
+        emptyValue="—"
+        items={[
+          // No tags to list
+          {
+            desc: tags.map((tag) => <span key={tag}>{tag}</span>),
+            term: "Tags",
+          },
+          { desc: true, term: "Verified" },
+          { desc: [null, false, "", [undefined]], term: "Notes" },
+          { desc: ["", "Prague"], term: "City" },
+          { desc: NaN, term: "Rating" },
+        ]}
+      />,
+    );
+
+    const descriptions = screen.getAllByRole("definition");
+    expect(descriptions.map((desc) => desc.textContent)).toEqual([
+      "—",
+      "—",
+      "—",
+      "Prague",
+      // Rendered as a value, as 0 is
+      "NaN",
+    ]);
+    error.mockRestore();
   });
 });

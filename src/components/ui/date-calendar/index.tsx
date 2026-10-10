@@ -52,9 +52,10 @@ interface DateCalendarBaseProps extends Omit<
   id?: string;
   /**
    * Days that cannot be picked, e.g. weekends or booked days - called with
-   * the local midnight of a day. They are struck through; the arrow keys
-   * move over them, but they cannot be picked. A value on such a day (a
-   * default one or one of the parent) keeps the form from being submitted.
+   * the start of a day: its local midnight, 1:00 of one whose midnight a
+   * clock change skips. They are struck through; the arrow keys move over
+   * them, but they cannot be picked. A value on such a day (a default one
+   * or one of the parent) keeps the form from being submitted.
    */
   isDateDisabled?: DateDisabledPredicate;
   /** The label above the calendar - also its accessible name. */

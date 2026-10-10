@@ -95,7 +95,7 @@ export function SummaryCells<T>({
               densityClass,
               isSticky(layout) &&
                 "sticky z-1 bg-neutral-50 dark:bg-neutral-900",
-              hiddenBelowClassName(column, layout),
+              hiddenBelowClassName(layout),
             )}
             key={column.key}
             style={getCellStyle(column, layout, false)}

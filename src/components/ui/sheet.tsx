@@ -42,10 +42,11 @@ export interface SheetProps extends Omit<
   /**
    * Asked before the user closes the sheet - by the close button, Escape,
    * the backdrop or a swipe. Return `false`, or a promise of it, to keep it
-   * open - e.g. the answer of a "Discard changes?" `useConfirm()`. Not asked
+   * open - e.g. the answer of a "Discard changes?" `useConfirm()`. While a
+   * promise is pending, further attempts to close wait for it. Not asked
    * when `open` turns `false`.
    */
-  onBeforeClose?: () => boolean | void | Promise<boolean | void>;
+  onBeforeClose?: () => boolean | void | PromiseLike<boolean | void>;
   /**
    * Called when the user closes the sheet (close button, Escape, the
    * backdrop with `closeOnBackdropClick`, a swipe down on a `bottom` one).
@@ -175,11 +176,7 @@ export default function Sheet({
       {...props}
       animateControlled
       backdropClassName="duration-300"
-      // The content clear of the home indicator without a footer too
-      bodyClassName={cn(
-        "overscroll-contain pb-[calc(1.5rem+var(--cui-safe-bottom,0px))]",
-        bodyClassName,
-      )}
+      bodyClassName={cn("overscroll-contain", bodyClassName)}
       closeDisabled={closeDisabled}
       closedClassName={sideClasses[side].closed}
       closeOnBackdropClick={closeOnBackdropClick}

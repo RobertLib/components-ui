@@ -1,4 +1,4 @@
-import { isValidElement, useRef } from "react";
+import { isValidElement, memo, useRef } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import CellEditor from "./cell-editor";
 import cn, { joinTokens } from "../../../utils/cn";
@@ -8,7 +8,14 @@ import IconButton from "../icon-button";
 import Popover from "../popover";
 import Spinner from "../spinner";
 import { formatCellValue } from "./format-value";
-import { isRowActivation } from "../row-activation";
+import {
+  followRowLink,
+  handleRowPress,
+  isNewTabClick,
+  isPassedClick,
+  isRowActivation,
+  middleButtonHandlers,
+} from "../row-activation";
 import {
   DEFAULT_CELL_LAYOUT,
   DENSITY_CLASSES,
@@ -29,7 +36,7 @@ import {
 import { getCellMove, type CellMove } from "./cell-navigation";
 import { getColumnValue } from "./query";
 import { getMeasureKey } from "./use-virtual-rows";
-import { useRouter } from "../../../providers/ui-context";
+import { useRouterActions } from "../../../providers/ui-context";
 import type { Column, DataTableDensity, RowId } from "./types";
 import type { Locale } from "../../../i18n/ui/types";
 
@@ -158,7 +165,10 @@ interface TableRowProps<T> {
   /** The focus came into the row itself - it is the tab stop now. */
   onRowFocus?: (rowId: RowId) => void;
   /** A key pressed on the row itself - the arrow keys move between rows. */
-  onRowKeyDown?: (event: React.KeyboardEvent<HTMLTableRowElement>) => void;
+  onRowKeyDown?: (
+    row: T,
+    event: React.KeyboardEvent<HTMLTableRowElement>,
+  ) => void;
   /** Ends the editing - saves a changed value, see `CellEditor`. */
   onCommitEdit: (
     row: T,
@@ -196,7 +206,7 @@ interface TableRowProps<T> {
 }
 
 /** A row of the table body, with its detail row when expanded. */
-export function TableRow<T>({
+function TableRowView<T>({
   actions,
   ariaRowIndex,
   cellLayouts,
@@ -239,35 +249,40 @@ export function TableRow<T>({
   toggleRowSelection,
 }: TableRowProps<T>) {
   const messages = locale.messages.ui;
-  const { Link } = useRouter();
+  const { Link } = useRouterActions();
   // A tap on an editable cell that has the focus already starts editing -
   // touch screens have no double-click to speak of
   const tapRef = useRef<string | null>(null);
   const isActivatable = href !== undefined || !!onRowClick;
 
-  // A click on the row - its link follows it, as a click on the link would,
-  // with the keys held (Ctrl + click opens a new tab)
+  // A click on the row - its link follows it, as a click on the link would
+  // (in a new tab for Ctrl + click)
   const handleRowClick = (event: React.MouseEvent<HTMLTableRowElement>) => {
-    const rowElement = event.currentTarget;
-    if (!isRowActivation(rowElement, event.target as Element)) return;
+    if (isPassedClick(event.nativeEvent) || !isRowActivation(event)) return;
 
     if (href === undefined) {
       onRowClick?.(row, event);
       return;
     }
 
-    rowElement.querySelector("[data-row-link]")?.dispatchEvent(
-      new MouseEvent("click", {
-        altKey: event.altKey,
-        bubbles: true,
-        button: event.button,
-        cancelable: true,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        shiftKey: event.shiftKey,
-      }),
-    );
+    const link = event.currentTarget.querySelector("[data-row-link]");
+    if (!link) return;
+    // The link calls `onRowClick` for the click passed on to it - a new tab
+    // opens without one
+    if (isNewTabClick(event)) {
+      onRowClick?.(row, event);
+      if (event.defaultPrevented) return;
+    }
+    followRowLink(link, href, event);
   };
+
+  // The middle button opens the link in a new tab
+  const middleButton =
+    href === undefined
+      ? undefined
+      : middleButtonHandlers(href, (rowElement) =>
+          rowElement.querySelector("[data-row-link]"),
+        );
 
   // "Select row" alone does not tell the rows apart - the controls of a row
   // add its first cell to their names
@@ -315,6 +330,7 @@ export function TableRow<T>({
         data-row-index={rowIndex}
         data-selected={isSelected ? "" : undefined}
         data-state={renderSubRow ? (isExpanded ? "open" : "closed") : undefined}
+        onAuxClick={middleButton?.onAuxClick}
         onClick={isActivatable ? handleRowClick : undefined}
         onFocus={
           rowTabIndex === undefined
@@ -335,9 +351,11 @@ export function TableRow<T>({
                   onRowClick(row, event);
                   return;
                 }
-                onRowKeyDown?.(event);
+                onRowKeyDown?.(row, event);
               }
         }
+        onMouseDown={middleButton?.onMouseDown}
+        onMouseDownCapture={isActivatable ? handleRowPress : undefined}
         ref={measureRef}
         style={rowStyle}
         tabIndex={rowTabIndex}
@@ -579,7 +597,7 @@ export function TableRow<T>({
                 densityClass,
                 sticky && stickyBackground,
                 sticky && "sticky z-1 transition-colors duration-150",
-                hiddenBelowClassName(column, layout),
+                hiddenBelowClassName(layout),
                 isEditableCell &&
                   "cursor-default focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-400",
               )}
@@ -697,3 +715,8 @@ export function TableRow<T>({
     </>
   );
 }
+
+// The body renders again on every render of the table - a row only when
+// its props change, also in source copies built without the React
+// Compiler. The generic type of the row is kept across `memo`.
+export const TableRow = memo(TableRowView) as typeof TableRowView;

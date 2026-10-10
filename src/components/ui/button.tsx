@@ -2,7 +2,7 @@ import { use } from "react";
 import cn from "../../utils/cn";
 import { ButtonGroupContext } from "./button-group-context";
 import type { LinkComponentProps } from "../../providers/router";
-import { useRouter } from "../../providers/ui-context";
+import { useRouterActions } from "../../providers/ui-context";
 
 export interface ButtonProps extends React.ComponentProps<"button"> {
   /**
@@ -79,7 +79,7 @@ export default function Button({
   variant: variantProp,
   ...props
 }: ButtonProps) {
-  const { Link } = useRouter();
+  const { Link } = useRouterActions();
   // Joined with the other buttons of a group, which may set these for all
   const group = use(ButtonGroupContext);
   const color = colorProp ?? group?.color ?? "primary";

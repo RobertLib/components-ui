@@ -247,6 +247,14 @@ for (const [all, prefix] of [
   OVERRIDES[side("y")] = ["t", "b"].map(side);
 }
 
+// Borders also have the block sides - `border-bs-2`, `border-be-red-500`
+for (const prefix of ["border-w-", "border-color-"]) {
+  const blockSides = [`${prefix}bs`, `${prefix}be`];
+  OVERRIDES[prefix.slice(0, -1)].push(...blockSides);
+  OVERRIDES[`${prefix}y`].push(...blockSides);
+}
+
+// Tailwind's sizes and those of the library's headings
 const FONT_SIZES = new Set([
   "xs",
   "sm",
@@ -261,6 +269,9 @@ const FONT_SIZES = new Set([
   "7xl",
   "8xl",
   "9xl",
+  "page-title",
+  "section-title",
+  "stat-value",
 ]);
 
 const FONT_WEIGHTS = new Set([
@@ -302,21 +313,47 @@ const LINE_STYLES = new Set([
   "none",
 ]);
 
-/** `primary-500`, `white`, `black/5`, `[#0af]`, `(color:--brand)`, … */
+/**
+ * Values of other utilities with a number like a shade - the angle of a
+ * gradient (`bg-linear-50`, `bg-conic-100`), the spacing of the borders of
+ * a table (`border-spacing-50`), the rest of a `ring-offset-…` tried as a
+ * `ring-` color - and Tailwind 3's opacities (`bg-opacity-50`), no classes
+ * of Tailwind 4.
+ */
+const NOT_A_PALETTE = /^(?:linear|conic|radial|opacity|spacing|offset)-/;
+
+/** Without the opacity: `primary-500/40`, `black/[.3]`, `(--brand)/50` */
+const withoutOpacity = (value: string) =>
+  value.replace(/\/(?:\d+|\[[^\]]*\]|\([^)]*\))$/, "");
+
+/**
+ * A variable without a type - `(--brand)`, `[var(--brand)]`. Tailwind 4
+ * reads it as a color for `bg-`, `text-`, `border-`, `ring-`, `outline-`
+ * and the stops of a gradient (a size or a width needs `length:`), as the
+ * shadow itself for `shadow-` and `text-shadow-`.
+ */
+const isVariable = (value: string) =>
+  /^(?:\(--[^)]+\)|\[var\(--[^\]]+\)\])$/.test(withoutOpacity(value));
+
+/**
+ * `primary-500`, `white`, `black/5`, `[#0af]`, `(color:--brand)`,
+ * `(--brand)`, …
+ */
 function isColor(value: string) {
-  // Without the opacity: `primary-500/40`, `black/[.3]`
-  const color = value.replace(/\/(?:\d+|\[[^\]]*\]|\([^)]*\))$/, "");
+  const color = withoutOpacity(value);
 
   return (
     /^(?:inherit|current|transparent|black|white)$/.test(color) ||
     // A palette color with its shade - the library's and Tailwind's own
-    /^[a-z]+(?:-[a-z]+)*-(?:50|[1-9]00|950)$/.test(color) ||
+    (/^[a-z]+(?:-[a-z]+)*-(?:50|[1-9]00|950)$/.test(color) &&
+      !NOT_A_PALETTE.test(color)) ||
     // The library's single colors
-    /^(?:background|surface)(?:-dark)?$/.test(color) ||
-    /^\[(?:color:|#|(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color|color-mix|light-dark)\(|var\(--color-)/.test(
+    /^(?:background|surface|dialog)(?:-dark)?$/.test(color) ||
+    /^\[(?:color:|#|(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color|color-mix|light-dark)\()/.test(
       color,
     ) ||
-    /^\((?:color:|--color-)/.test(color)
+    /^\(color:/.test(color) ||
+    isVariable(color)
   );
 }
 
@@ -354,7 +391,7 @@ const TEXT_SHADOW =
 
 /** The group of `text-shadow-{value}` - the shadow or its color. */
 function textShadowGroup(value: string): string | undefined {
-  if (TEXT_SHADOW.test(value)) return "text-shadow";
+  if (TEXT_SHADOW.test(value) || isVariable(value)) return "text-shadow";
   return isColor(value) ? "text-shadow-color" : undefined;
 }
 
@@ -416,7 +453,9 @@ function prefixedGroup(prefix: string, value: string): string | undefined {
       if (FONT_WEIGHTS.has(value) || /^\[\d+\]$/.test(value)) {
         return "font-weight";
       }
-      return /^(?:sans|serif|mono)$/.test(value) ? "font-family" : undefined;
+      return /^(?:sans|serif|mono|heading)$/.test(value)
+        ? "font-family"
+        : undefined;
     case "text": {
       // A slash outside brackets adds a line height, which also replaces
       // earlier `leading-*`. Slashes inside calc() are part of the size.
@@ -447,8 +486,8 @@ function prefixedGroup(prefix: string, value: string): string | undefined {
     case "to":
       return isColor(value) ? `${prefix}-color` : undefined;
     case "border": {
-      // `border-t`, `border-x-2`, `border-b-primary-500`
-      const side = /^([xysetrbl])(?:-(.+))?$/.exec(value);
+      // `border-t`, `border-x-2`, `border-b-primary-500`, `border-bs-2`
+      const side = /^(bs|be|[xysetrbl])(?:-(.+))?$/.exec(value);
       if (side) {
         if (side[2] === undefined || isLength(side[2])) {
           return `border-w-${side[1]}`;
@@ -475,7 +514,7 @@ function prefixedGroup(prefix: string, value: string): string | undefined {
       if (isLength(value)) return "ring-offset-w";
       return isColor(value) ? "ring-offset-color" : undefined;
     case "shadow":
-      if (SHADOW_SIZES.has(value)) return "shadow";
+      if (SHADOW_SIZES.has(value) || isVariable(value)) return "shadow";
       return isColor(value) ? "shadow-color" : undefined;
     case "outline":
       if (LINE_STYLES.has(value)) return "outline-style";

@@ -14,6 +14,7 @@ import {
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import cn from "../../utils/cn";
+import Button, { type ButtonProps } from "./button";
 import IconButton from "./icon-button";
 import {
   getActiveElement,
@@ -28,6 +29,7 @@ import {
   useOverlayLayer,
 } from "./overlay-stack";
 import { attachRef } from "../../hooks/use-form-control";
+import isPromiseLike from "../../utils/is-promise-like";
 import { composedContains, getTabbableElements } from "../../utils/tabbable";
 import { useMessages, usePortalContainer } from "../../providers/ui-context";
 import { ButtonGroupContext } from "./button-group-context";
@@ -47,6 +49,9 @@ interface FooterSlot {
 // (a ConfirmDialog) belongs to that Dialog, not to the sheet around.
 const FooterSlotContext = createContext<FooterSlot | null>(null);
 
+// Closes the dialog around as its close button does - see DialogCloseButton
+const DialogCloseContext = createContext<(() => void) | null>(null);
+
 const subscribeToNothing = () => () => {};
 
 // A swipe down on the header this long - or a quick flick of a few pixels -
@@ -60,10 +65,10 @@ const SWIPE_EXEMPT = "a[href], button, input, select, textarea, [role=button]";
 
 /**
  * The implementation `Dialog` and `Sheet` share - they differ in the classes
- * they give it. Its header and a `DialogFooter` keep off the notch and the
- * home indicator of a phone by the insets the panel classes put into
- * `--cui-safe-top` / `--cui-safe-bottom` - an edge of the panel at an edge
- * of the screen sets them to `env(safe-area-inset-*)`.
+ * they give it. Its header, its body and a `DialogFooter` keep off the
+ * notch and the home indicator of a phone by the insets the panel classes
+ * put into `--cui-safe-top` / `--cui-safe-bottom` - an edge of the panel at
+ * an edge of the screen sets them to `env(safe-area-inset-*)`.
  */
 export interface ModalDialogProps extends Omit<
   React.ComponentProps<"div">,
@@ -96,8 +101,8 @@ export interface ModalDialogProps extends Omit<
   duration: number;
   /** Classes of a `DialogFooter` in it, e.g. its rounded corners. */
   footerClassName?: string;
-  /** See `DialogProps.onBeforeClose`. */
-  onBeforeClose?: () => boolean | void | Promise<boolean | void>;
+  /** See `DialogProps.onBeforeClose` - also a thenable of another library. */
+  onBeforeClose?: () => boolean | void | PromiseLike<boolean | void>;
   /** See `DialogProps.onClose`. */
   onClose?: () => void;
   /** See `DialogProps.open`. */
@@ -188,9 +193,14 @@ export default function ModalDialog({
   const [entered, setEntered] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [wasRequestedOpen, setWasRequestedOpen] = useState(isRequestedOpen);
+  // The times it was opened, which tell the answers of `onBeforeClose` of
+  // each apart - counted in the render, so also while it is hidden
+  // (`<Activity>`) and runs no effects
+  const [openings, setOpenings] = useState(0);
 
   if (isRequestedOpen !== wasRequestedOpen) {
     setWasRequestedOpen(isRequestedOpen);
+    if (isRequestedOpen) setOpenings(openings + 1);
     setEntered(false);
     setExiting(isAnimated && !isRequestedOpen);
   }
@@ -229,8 +239,17 @@ export default function ModalDialog({
   // `onBeforeClose` answers with a promise: the dialog closes once it
   // resolves - if it may still close then, as the latest render has it -
   // and further requests to close wait for that answer
-  const isAskingRef = useRef(false);
   const closeAfterAnswerRef = useRef(close);
+  // The time the dialog is open on the page, `null` while it is closed,
+  // hidden or unmounted. An answer closes it only at the time it was asked
+  // in - not once its owner closed it or it was unmounted, nor once it was
+  // opened again. Hidden and shown again (`<Activity>`, a Suspense boundary
+  // above) it is the same time; an answer that came while it was hidden
+  // closes nothing.
+  const openingRef = useRef<number | null>(null);
+  // The time of the question that waits for its answer - opened again, the
+  // dialog does not wait for an answer that may never come
+  const askedInRef = useRef<number | null>(null);
 
   useLayoutEffect(() => {
     closeAfterAnswerRef.current = () => {
@@ -238,29 +257,44 @@ export default function ModalDialog({
     };
   });
 
-  // Closed by its owner while `onBeforeClose` asks - opened again, it does
-  // not wait for an answer that may never come
-  useEffect(() => {
-    if (!isRequestedOpen) isAskingRef.current = false;
-  }, [isRequestedOpen]);
+  useLayoutEffect(() => {
+    if (!isRequestedOpen) return;
+    openingRef.current = openings;
+    return () => {
+      openingRef.current = null;
+    };
+  }, [isRequestedOpen, openings]);
 
   const handleClose = useCallback(() => {
-    // Closed already, animating out
-    if (closeDisabled || !isRequestedOpen || isAskingRef.current) return;
+    // Closed already, animating out - or waiting for an answer
+    if (
+      closeDisabled ||
+      !isRequestedOpen ||
+      askedInRef.current === openingRef.current
+    ) {
+      return;
+    }
 
     const answer = onBeforeClose?.();
     if (answer === false) return;
 
-    if (answer instanceof Promise) {
-      isAskingRef.current = true;
-      answer.then(
+    // Also a thenable of another promise library or realm
+    if (isPromiseLike(answer)) {
+      const opening = openingRef.current;
+      askedInRef.current = opening;
+      // A question of a later time still waits for its own answer
+      const answered = () => {
+        if (askedInRef.current === opening) askedInRef.current = null;
+      };
+      Promise.resolve(answer).then(
         (allowed) => {
-          isAskingRef.current = false;
-          if (allowed !== false) closeAfterAnswerRef.current();
+          answered();
+          if (allowed !== false && opening === openingRef.current) {
+            closeAfterAnswerRef.current();
+          }
         },
-        () => {
-          isAskingRef.current = false;
-        },
+        // Rejected - it stays open
+        answered,
       );
       return;
     }
@@ -639,6 +673,10 @@ export default function ModalDialog({
               // With content after the footer, that content is the last one
               // and the margin stays between the two
               "[&_:has(+[data-dialog-footer]:last-child)]:mb-0",
+              // Clear of the home indicator without a footer too - a margin,
+              // which another padding of `bodyClassName` keeps and a margin
+              // of it replaces
+              footerHeight === 0 && "mb-(--cui-safe-bottom,0px)",
               bodyClassName,
             )}
             style={
@@ -647,7 +685,11 @@ export default function ModalDialog({
                 : undefined
             }
           >
-            <FooterSlotContext value={footerSlot}>{children}</FooterSlotContext>
+            <DialogCloseContext value={handleClose}>
+              <FooterSlotContext value={footerSlot}>
+                {children}
+              </FooterSlotContext>
+            </DialogCloseContext>
           </div>
         </div>
       </OverlayContext>
@@ -694,4 +736,15 @@ export function DialogFooter({
       {children}
     </div>
   );
+}
+
+/**
+ * A `Button` that closes the `Dialog` or `Sheet` it is in as the close
+ * button of its header does - it asks `onBeforeClose`, and waits for its
+ * answer with the other requests to close. Cancel of a `FormDialog`.
+ */
+export function DialogCloseButton(props: Omit<ButtonProps, "onClick">) {
+  const requestClose = use(DialogCloseContext);
+
+  return <Button {...props} onClick={() => requestClose?.()} />;
 }

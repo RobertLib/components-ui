@@ -97,6 +97,21 @@ describe("Sheet", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("keeps the content of a bottom sheet clear of the home indicator with another padding", () => {
+    render(
+      <Sheet bodyClassName="p-4" open side="bottom" title="Filters">
+        <p>Fields</p>
+      </Sheet>,
+    );
+
+    expect(screen.getByRole("dialog")).toHaveClass(
+      "[--cui-safe-bottom:env(safe-area-inset-bottom)]",
+    );
+    // Not a padding the one of bodyClassName replaces
+    const body = screen.getByText("Fields").parentElement!;
+    expect(body).toHaveClass("p-4", "mb-(--cui-safe-bottom,0px)");
+  });
+
   it("is named by aria-label without a title", () => {
     render(<Sheet aria-label="Filters" open />);
 

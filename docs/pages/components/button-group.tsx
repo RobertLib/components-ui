@@ -10,9 +10,10 @@ export default function ButtonGroupPage() {
           <p>
             The buttons are joined into one piece: only the outer corners are
             round and the borders overlap. <code>color</code>, <code>size</code>{" "}
-            and <code>variant</code> go to the buttons that do not set their
-            own. A <code>Dropdown</code> with a <code>Button</code> trigger (or
-            a <code>Tooltip</code> around one) joins the group like a button.
+            and <code>variant</code> go to the buttons that do not set their own
+            - any variant but <code>link</code>, which has no border to join. A{" "}
+            <code>Dropdown</code> with a <code>Button</code> trigger (or a{" "}
+            <code>Tooltip</code> around one) joins the group like a button.
           </p>
         }
         name="button-group/basic"

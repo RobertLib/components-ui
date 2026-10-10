@@ -30,3 +30,20 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 14
+
+  # The sync renames in case where the file system ignores case - macOS and
+  # Windows. Its tests skip that on Linux, and Windows has junctions of its own
+  sync-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # No install - the tests of the sync need Node and Git alone. Those of
+      # the export build an app with Vite, which the job on Linux runs
+      - run: node --test scripts/test-sync-source.mjs

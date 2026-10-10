@@ -31,8 +31,14 @@ export default function ImageViewerPage() {
             &quot;3 of 24&quot;. <code>onLoadMore</code> loads the next images
             as the last loaded one shows (e.g. <code>fetchNextPage</code> of an
             infinite query); moving past it waits for them with a loading state,
-            and a rejected promise shows an error there. Wrapping around starts
-            once all are loaded.
+            and a rejected promise - or one resolved without new images - shows
+            an error there, until moving away and back asks again. Wrapping
+            around starts once all are loaded. Without <code>onLoadMore</code>{" "}
+            the arrows stay on the loaded images - to take it away while the
+            next page loads, use{" "}
+            <code>isFetchingNextPage ? undefined : fetchNextPage</code>, not{" "}
+            <code>isFetching</code>: that is true during a background refetch
+            too, and Next would go round to the first image.
           </p>
         }
       />
@@ -44,9 +50,10 @@ export default function ImageViewerPage() {
             Navigation wraps unless <code>loop={false}</code>. Arrows follow
             reading direction; Home and End jump to the first and last image. On
             a touch screen a swipe sideways moves to the next or the previous
-            image - not while zoomed in, when it pans the image. Zoom runs from
-            100% to 300%; scroll the image viewport to inspect it. Changing the
-            image or reopening resets zoom.
+            image - not while zoomed in, when it pans the image; a pinch with
+            two fingers zooms the page as usual. Zoom runs from 100% to 300%;
+            scroll the image viewport to inspect it. Changing the image or
+            reopening resets zoom.
           </p>
           <p>
             The viewer uses Dialog's focus trap, Escape and backdrop closing,

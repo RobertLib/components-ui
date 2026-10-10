@@ -1,5 +1,12 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useId,
+  useInsertionEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import cn from "../../../utils/cn";
 import EdgeShadow from "./edge-shadow";
 import Spinner from "../spinner";
@@ -505,6 +512,54 @@ export function TableBody<T>({
     }
   };
 
+  // The rows (a memoized `TableRow`) get handlers that stay the same and
+  // call the latest ones - a row renders again only when what it shows
+  // changes, not on every render of the table. They close over the rows,
+  // the selection and the focus, which change all the time; also without
+  // the React Compiler, which memoizes none of them. Insertion effects
+  // update them before the effects of the rows, also while Activity hides
+  // the table.
+  const rowCallbacks = {
+    onCancelEdit,
+    onCellFocus: handleCellFocus,
+    onCellMove: moveCellFocus,
+    onCommitEdit,
+    onRowClick,
+    onRowKeyDown: handleRowKeyDown,
+    onStartEdit,
+    toggleRowExpansion,
+    toggleRowSelection,
+  };
+  const rowCallbacksRef = useRef(rowCallbacks);
+  useInsertionEffect(() => {
+    rowCallbacksRef.current = rowCallbacks;
+  });
+  const [rowHandlers] = useState(() => ({
+    onCancelEdit: () => rowCallbacksRef.current.onCancelEdit(),
+    onCellFocus: (rowId: RowId, columnKey: string) =>
+      rowCallbacksRef.current.onCellFocus(rowId, columnKey),
+    onCellMove: (row: T, column: Column<T>, move: CellMove) =>
+      rowCallbacksRef.current.onCellMove(row, column, move),
+    onCommitEdit: (
+      row: T,
+      column: Column<T>,
+      change: CellChange,
+      move: -1 | 0 | 1,
+    ) => rowCallbacksRef.current.onCommitEdit(row, column, change, move),
+    onRowClick: (
+      row: T,
+      event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>,
+    ) => rowCallbacksRef.current.onRowClick?.(row, event),
+    onRowKeyDown: (row: T, event: React.KeyboardEvent<HTMLTableRowElement>) =>
+      rowCallbacksRef.current.onRowKeyDown(row, event),
+    onStartEdit: (rowId: RowId, columnKey: string) =>
+      rowCallbacksRef.current.onStartEdit(rowId, columnKey),
+    toggleRowExpansion: (rowId: RowId) =>
+      rowCallbacksRef.current.toggleRowExpansion(rowId),
+    toggleRowSelection: (row: T, extend: boolean) =>
+      rowCallbacksRef.current.toggleRowSelection(row, extend),
+  }));
+
   const leadingLayout = (key: string) =>
     cellLayouts[key] ?? DEFAULT_CELL_LAYOUT;
 
@@ -576,7 +631,7 @@ export function TableBody<T>({
                   "px-2",
                   densityClass,
                   isSticky(layout) && "sticky bg-surface dark:bg-surface-dark",
-                  hiddenBelowClassName(column, layout),
+                  hiddenBelowClassName(layout),
                 )}
                 key={`skeleton-${index}-${colIndex}`}
                 style={getCellStyle(column, layout, false)}
@@ -631,14 +686,14 @@ export function TableBody<T>({
         locale={locale}
         measureRef={measureRef}
         measureId={bodyItems[virtualIndex].id}
-        onCancelEdit={onCancelEdit}
-        onCellFocus={handleCellFocus}
-        onCellMove={moveCellFocus}
-        onCommitEdit={onCommitEdit}
-        onRowClick={onRowClick}
+        onCancelEdit={rowHandlers.onCancelEdit}
+        onCellFocus={rowHandlers.onCellFocus}
+        onCellMove={rowHandlers.onCellMove}
+        onCommitEdit={rowHandlers.onCommitEdit}
+        onRowClick={onRowClick && rowHandlers.onRowClick}
         onRowFocus={setActiveRowId}
-        onRowKeyDown={(event) => handleRowKeyDown(row, event)}
-        onStartEdit={onStartEdit}
+        onRowKeyDown={rowHandlers.onRowKeyDown}
+        onStartEdit={rowHandlers.onStartEdit}
         renderSubRow={renderSubRow}
         row={row}
         getRowId={getRowId}
@@ -654,8 +709,8 @@ export function TableBody<T>({
         tabStopColumnKey={
           tabStop?.rowId === getRowId(row) ? tabStop.columnKey : null
         }
-        toggleRowExpansion={toggleRowExpansion}
-        toggleRowSelection={toggleRowSelection}
+        toggleRowExpansion={rowHandlers.toggleRowExpansion}
+        toggleRowSelection={rowHandlers.toggleRowSelection}
       />
     );
   };

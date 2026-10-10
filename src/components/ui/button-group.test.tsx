@@ -24,8 +24,11 @@ describe("ButtonGroup", () => {
     const [edit, duplicate, remove] = screen.getAllByRole("button");
     // Only the outer corners are round
     expect(edit).toHaveClass("rounded-s-md");
-    expect(edit).not.toHaveClass("rounded-md", "rounded-e-md", "-ms-px");
-    expect(duplicate).not.toHaveClass("rounded-md", "rounded-s-md");
+    expect(edit).not.toHaveClass("rounded-md");
+    expect(edit).not.toHaveClass("rounded-e-md");
+    expect(edit).not.toHaveClass("-ms-px");
+    expect(duplicate).not.toHaveClass("rounded-md");
+    expect(duplicate).not.toHaveClass("rounded-s-md");
     expect(duplicate).toHaveClass("-ms-px");
     expect(remove).toHaveClass("rounded-e-md", "-ms-px");
   });
@@ -50,6 +53,17 @@ describe("ButtonGroup", () => {
     // The outline border overlaps the one before
     const overdue = screen.getByRole("button", { name: "Overdue" });
     expect(overdue).toHaveClass("px-4", "from-danger-600", "-ms-px");
+  });
+
+  it("takes no link variant - links have no border to join", () => {
+    render(
+      // @ts-expect-error - a group of links is not joined
+      <ButtonGroup aria-label="Links" variant="link">
+        <Button>One</Button>
+      </ButtonGroup>,
+    );
+
+    expect(screen.getByRole("group", { name: "Links" })).toBeInTheDocument();
   });
 
   it("joins the buttons in a column", () => {

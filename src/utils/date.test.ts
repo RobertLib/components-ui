@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   addMonths,
   capitalize,
+  dateOf,
+  daysInMonth,
   existingDayOf,
   expandTwoDigitYear,
   formatDate,
@@ -15,6 +17,8 @@ import {
   getMonthNames,
   getWeekdayNames,
   isDayBeforeMonth,
+  isValidDay,
+  lastDayOfMonth,
   parseISODate,
   parsePattern,
   shiftDay,
@@ -23,6 +27,7 @@ import {
   withoutMonth,
   withoutYear,
 } from "./date";
+import { inTimeZone } from "./time-zone";
 
 describe("formatPattern", () => {
   it("fills the tokens and keeps bracketed text", () => {
@@ -192,6 +197,23 @@ describe("parsePattern", () => {
     expect(parsePattern("tomorrow", "DD.MM.YYYY")).toBeNull();
     expect(parsePattern("4.3.2026 x", "DD.MM.YYYY")).toBeNull();
     expect(parsePattern("4.3.202", "DD.MM.YYYY")).toBeNull();
+  });
+
+  it("refuses a year before the year 0 - no year 1 after a separator", () => {
+    // As formatPattern writes it - no picker takes it
+    expect(parsePattern("W52 -0001", "[W]WW YYYY")).toBeNull();
+    expect(parsePattern("12/31/-0001", "MM/DD/YYYY")).toBeNull();
+    expect(parsePattern("31.12.-01", "DD.MM.YYYY")).toBeNull();
+    // Dashes between the numbers are separators
+    expect(parsePattern("31-12-0001", "DD.MM.YYYY")).toEqual({
+      day: 31,
+      month: 12,
+      year: 1,
+    });
+    expect(parsePattern("W52-2026", "[W]WW YYYY")).toEqual({
+      week: 52,
+      year: 2026,
+    });
   });
 
   it("reads a year of two digits, or none, after the day and month", () => {
@@ -394,6 +416,20 @@ describe("years 0 - 99", () => {
     expect(getISOWeeksInYear(1904)).toBe(52);
     expect(getISOWeeksInYear(5)).toBe(52);
   });
+
+  it("writes a year before the year 0 with its sign, as ISO 8601 does", () => {
+    // Saturday, January 1 of the year 0 is in the last week of the year -1
+    expect(formatDate(parseISODate("0000-01-01")!, "[W]WW YYYY")).toBe(
+      "W52 -0001",
+    );
+    expect(toISODate(addMonths(parseISODate("0000-01-31")!, -1))).toBe(
+      "-0001-12-31",
+    );
+    expect(formatPattern("DD.MM.YYYY", { day: 1, month: 2, year: -12 })).toBe(
+      "01.02.-0012",
+    );
+    expect(toISODate(parseISODate("0000-01-01")!)).toBe("0000-01-01");
+  });
 });
 
 // Samoa went from Thursday, December 29, 2011 to Saturday, December 31
@@ -430,6 +466,13 @@ describe("a day the time zone skips (Pacific/Apia)", () => {
     expect(existingDayOf(2011, 10, 61)).toEqual(new Date(2011, 11, 31));
   });
 
+  it("is the day after it a month on - in the same month", () => {
+    expect(addMonths(new Date(2011, 10, 30), 1)).toEqual(
+      new Date(2011, 11, 31),
+    );
+    expect(lastDayOfMonth(2011, 11)).toEqual(new Date(2011, 11, 31));
+  });
+
   it("is stepped over in the direction of the step", () => {
     expect(shiftDay(new Date(2011, 11, 29), 1)).toEqual(new Date(2011, 11, 31));
     expect(shiftDay(new Date(2011, 11, 31), -1)).toEqual(
@@ -440,6 +483,58 @@ describe("a day the time zone skips (Pacific/Apia)", () => {
     expect(shiftDay(new Date(2011, 11, 29), 1, -1)).toEqual(
       new Date(2011, 11, 29),
     );
+  });
+});
+
+// Kiritimati went from Friday, December 30, 1994 to Sunday, January 1 - the
+// last day of the month skipped
+describe("the last day of a month the time zone skips (Pacific/Kiritimati)", () => {
+  let previousTZ: string | undefined;
+
+  beforeAll(() => {
+    previousTZ = process.env.TZ;
+    process.env.TZ = "Pacific/Kiritimati";
+  });
+
+  afterAll(() => {
+    if (previousTZ === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTZ;
+  });
+
+  it("leaves the days of the month as the calendar has them", () => {
+    expect(daysInMonth(1994, 11)).toBe(31);
+    expect(isValidDay(1994, 12, 15)).toBe(true);
+    expect(isValidDay(1994, 12, 31)).toBe(true);
+    expect(parseISODate("1994-12-15")).toEqual(new Date(1994, 11, 15));
+    expect(addMonths(new Date(1994, 10, 30), 1)).toEqual(
+      new Date(1994, 11, 30),
+    );
+  });
+
+  it("shows the month in the grid with the skipped day empty", () => {
+    const days = getMonthDays(new Date(1994, 11, 1), 0);
+    expect(days.filter(Boolean)).toHaveLength(30);
+    expect(days.at(-1)).toBeNull();
+    expect(days.at(-2)).toEqual(new Date(1994, 11, 30));
+  });
+
+  it("ends the month on its last day the time zone has", () => {
+    expect(lastDayOfMonth(1994, 11)).toEqual(new Date(1994, 11, 30));
+    expect(lastDayOfMonth(1995, 0)).toEqual(new Date(1995, 0, 31));
+    // Out of the year, like dateOf
+    expect(lastDayOfMonth(1995, -1)).toEqual(new Date(1994, 11, 30));
+  });
+
+  it("goes a month on to its last day - not on to the next month", () => {
+    // `dateOf` takes December 31 for January 1
+    expect(addMonths(new Date(1995, 0, 31), -1)).toEqual(
+      new Date(1994, 11, 30),
+    );
+    expect(addMonths(new Date(1994, 9, 31), 2)).toEqual(new Date(1994, 11, 30));
+    expect(addMonths(new Date(1993, 11, 31), 12)).toEqual(
+      new Date(1994, 11, 30),
+    );
+    expect(addMonths(new Date(1994, 11, 30), 1)).toEqual(new Date(1995, 0, 30));
   });
 });
 
@@ -484,5 +579,13 @@ describe("addMonths", () => {
       new Date(2025, 8, 24),
     );
     expect(addMonths(new Date(2026, 11, 31), 2)).toEqual(new Date(2027, 1, 28));
+  });
+
+  it("stays in the month in the time zone of the date", () => {
+    // Kiritimati skipped December 31, 1994 - whatever the zone of the test
+    const kiritimati = inTimeZone(new Date(0), "Pacific/Kiritimati");
+    const date = addMonths(dateOf(1995, 0, 31, kiritimati), -1);
+    expect(toISODate(date)).toBe("1994-12-30");
+    expect(date.getHours()).toBe(0);
   });
 });

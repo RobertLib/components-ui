@@ -40,6 +40,17 @@ export interface ToastProps extends Omit<React.ComponentProps<"div">, "title"> {
    */
   action?: ToastAction;
   /**
+   * Classes of the look of the `variant`. A color among them - of the
+   * background, the text or the border, also an important one
+   * (`bg-white!`) - replaces the variant's one, also in the dark mode (add
+   * a `dark:` class for another one there); the variant keeps the colors
+   * not given. A background or a text color given without a `dark:` one
+   * takes the dark mode's other one of the variant along - the dark mode
+   * shows the light colors, readable together. The `classNames` of
+   * `SnackbarProvider` come here.
+   */
+  colorClassName?: string;
+  /**
    * Time on screen in milliseconds before it hides itself - not counting
    * the time it is hovered, has the focus, is being swiped or its page is
    * hidden (another tab is shown). 3000, or 6000 with an `action`.
@@ -138,6 +149,48 @@ const variantIcons = {
 const toastTone = (variant: ToastVariant) =>
   variant === "error" ? "danger" : variant;
 
+/** `!bg-white` (Tailwind 3) and `bg-white!` (Tailwind 4) as `bg-white`. */
+const withoutImportant = (className: string) =>
+  className.replace(/(^|:)!/, "$1").replace(/!$/, "");
+
+/**
+ * The colors of a variant with those given in their place - a color given
+ * for its background, text or border replaces the variant's one in the dark
+ * mode too, unless it is given with `dark:` as well. Its other colors stay,
+ * and so do they with a class that sets no color (`font-semibold`).
+ */
+function toastColors(variantColors: string, colorClassName?: string) {
+  if (!colorClassName) return variantColors;
+
+  // An important color replaces the variant's one as well - `cn` keeps
+  // important classes apart from the others
+  const givenColors = colorClassName.split(/\s+/).map(withoutImportant);
+  const given = cn(givenColors);
+  const colors = variantColors.split(" ");
+  // Whether the given classes replace `color` - `cn` leaves out the earlier
+  // of two classes that set the same property
+  const replaces = (color: string) => cn(color, givenColors) === given;
+  // Whether the background or the text is given for the light mode alone
+  const givenLight = (property: "bg" | "text") =>
+    colors.some(
+      (color) => color.startsWith(`${property}-`) && replaces(color),
+    ) &&
+    !colors.some(
+      (color) => color.startsWith(`dark:${property}-`) && replaces(color),
+    );
+  const kept = colors.filter((color) => {
+    // A color replaced in the light mode goes with its `dark:` one
+    if (replaces(color.replace(/^dark:/, ""))) return false;
+    // The background and the text go together - next to one given for the
+    // light mode alone, the dark one of the variant would be unreadable
+    // (light text on a white toast): the dark mode shows the light ones
+    if (color.startsWith("dark:bg-")) return !givenLight("text");
+    if (color.startsWith("dark:text-")) return !givenLight("bg");
+    return true;
+  });
+  return cn(kept, colorClassName);
+}
+
 /**
  * A single notification. Usually not rendered directly - queue toasts with
  * `useSnackbar().enqueueSnackbar()` inside a `SnackbarProvider` instead.
@@ -147,6 +200,7 @@ const toastTone = (variant: ToastVariant) =>
 export default function Toast({
   action,
   className,
+  colorClassName,
   duration,
   icon = false,
   id,
@@ -471,7 +525,8 @@ export default function Toast({
         swipe &&
           !swipe.dragging &&
           "transition-[translate,opacity] duration-200 ease-out motion-reduce:transition-none",
-        variantStyles[tone],
+        // The colors of the variant, with those given in their place
+        toastColors(variantStyles[tone], colorClassName),
         className,
       )}
       data-state={isShown && !isSwipedOut ? "open" : "closed"}
@@ -557,7 +612,7 @@ export default function Toast({
           </svg>
         )}
         {!loading &&
-          (typeof icon === "boolean" ? (
+          (icon == null || typeof icon === "boolean" ? (
             VariantIcon && (
               // Without `icon` only in forced colors - elsewhere the color
               // tells the variant

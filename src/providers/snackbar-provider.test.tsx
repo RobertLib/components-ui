@@ -177,20 +177,37 @@ describe("A toast with an action", () => {
 
   it("styles the toasts of a variant and shows its icon", () => {
     const { api } = renderWithApi(undefined, {
-      classNames: { success: "bg-neutral-900 text-white" },
+      classNames: {
+        danger: "font-semibold",
+        success: "bg-neutral-900 text-white",
+      },
       icons: true,
     });
 
     act(() => {
       api().enqueueSnackbar("Saved", "success");
       api().enqueueSnackbar("Note", "info");
+      api().enqueueSnackbar("Offline", "error");
     });
 
     const saved = toastOf("Saved");
     expect(saved).toHaveClass("bg-neutral-900", "text-white");
+    // In place of those colors of the variant - also of its dark ones
     expect(saved).not.toHaveClass("bg-success-50");
+    expect(saved).not.toHaveClass("text-success-800");
+    expect(saved).not.toHaveClass("dark:bg-success-900");
+    expect(saved).not.toHaveClass("dark:text-success-200");
+    // Its border not given, it keeps the variant's
+    expect(saved).toHaveClass("border-success-200", "dark:border-success-800");
     expect(saved.querySelector("[data-toast-icon]")).not.toHaveClass("hidden");
     expect(toastOf("Note")).not.toHaveClass("bg-neutral-900");
+    // No color given - the error keeps all of its own
+    expect(toastOf("Offline")).toHaveClass(
+      "font-semibold",
+      "bg-danger-50",
+      "text-danger-800",
+      "dark:bg-danger-900",
+    );
   });
 
   it("is shown for every call - each action is its own", () => {

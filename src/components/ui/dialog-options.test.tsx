@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Activity } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Dialog, { DialogFooter } from "./dialog";
 
@@ -72,6 +73,12 @@ describe("Dialog closeOnEscape", () => {
 
 describe("Dialog fullScreenOnMobile", () => {
   it("fills the screen below md and is a window of its size from md up", () => {
+    // jsdom lays out nothing - the footer as tall as in a browser
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.dataset.dialogFooter === undefined ? 0 : 65;
+      },
+    );
     render(
       <Dialog fullScreenOnMobile onClose={() => {}} open size="lg" title="New">
         <DialogFooter>Buttons</DialogFooter>
@@ -87,7 +94,8 @@ describe("Dialog fullScreenOnMobile", () => {
       "md:rounded-lg",
       "md:max-w-lg",
     );
-    expect(dialog).not.toHaveClass("rounded-lg", "sm:max-w-lg");
+    expect(dialog).not.toHaveClass("rounded-lg");
+    expect(dialog).not.toHaveClass("sm:max-w-lg");
     // The notch and the home indicator of a phone - none from md up
     expect(dialog).toHaveClass(
       "[--cui-safe-top:env(safe-area-inset-top)]",
@@ -104,9 +112,22 @@ describe("Dialog fullScreenOnMobile", () => {
     // Square like the dialog below md - the corners of the window from md up
     expect(screen.getByText("Buttons")).toHaveClass("md:rounded-b-lg");
     expect(screen.getByText("Buttons")).not.toHaveClass("rounded-b-lg");
-    expect(screen.getByText("Buttons").parentElement).toHaveClass(
-      "pb-[calc(1.5rem+var(--cui-safe-bottom,0px))]",
+    // The content leaves the footer free - the footer keeps clear of the
+    // home indicator itself, the content then needs no margin for it
+    const body = screen.getByText("Buttons").parentElement!;
+    expect(body.style.paddingBottom).toBe("calc(65px + 1.5rem)");
+    expect(body).not.toHaveClass("mb-(--cui-safe-bottom,0px)");
+  });
+
+  it("keeps the content clear of the home indicator without a footer", () => {
+    render(
+      <Dialog fullScreenOnMobile onClose={() => {}} open title="New">
+        <p>Text</p>
+      </Dialog>,
     );
+
+    const body = screen.getByText("Text").parentElement!;
+    expect(body).toHaveClass("mb-(--cui-safe-bottom,0px)");
   });
 
   it("is a window on every screen by default", () => {
@@ -146,6 +167,8 @@ describe("Dialog with a DialogFooter", () => {
     const body = footer.closest<HTMLElement>(".overflow-y-auto")!;
     expect(body).toHaveClass("p-6");
     expect(body.style.paddingBottom).toBe("calc(65px + 1.5rem)");
+    // The footer keeps clear of the home indicator itself
+    expect(body).not.toHaveClass("mb-(--cui-safe-bottom,0px)");
     expect(footer).toHaveClass("rounded-b-lg");
   });
 
@@ -245,6 +268,32 @@ describe("Dialog onBeforeClose", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("waits for a thenable of another promise library or realm", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    let answer: (close: boolean) => void = () => {};
+    // A Bluebird promise, or one of an iframe - no `instanceof Promise`
+    const thenable = {
+      then: (resolve: (close: boolean) => void) => {
+        answer = resolve;
+      },
+    };
+    render(
+      <Dialog
+        onBeforeClose={() => thenable as unknown as Promise<boolean>}
+        onClose={onClose}
+        open
+        title="Edit"
+      />,
+    );
+
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => answer(true));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("closes once the answer comes only if it still may", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
@@ -269,6 +318,133 @@ describe("Dialog onBeforeClose", () => {
       />,
     );
     await act(async () => answer(true));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("lets no late answer close the dialog opened again", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const answers: ((close: boolean) => void)[] = [];
+    const onBeforeClose = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          answers.push(resolve);
+        }),
+    );
+    const dialog = (open: boolean) => (
+      <Dialog
+        onBeforeClose={onBeforeClose}
+        onClose={onClose}
+        open={open}
+        title="Edit"
+      />
+    );
+    const { rerender } = render(dialog(true));
+
+    await user.keyboard("{Escape}");
+    // Closed and opened again by its owner, asking anew
+    rerender(dialog(false));
+    rerender(dialog(true));
+    await user.keyboard("{Escape}");
+    expect(onBeforeClose).toHaveBeenCalledTimes(2);
+
+    // The answer of the first question is for nobody
+    await act(async () => answers[0](true));
+    expect(onClose).not.toHaveBeenCalled();
+    // The second one is still waited for
+    await user.keyboard("{Escape}");
+    expect(onBeforeClose).toHaveBeenCalledTimes(2);
+
+    await act(async () => answers[1](true));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("does not close once it was unmounted while it asked", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    let answer: (close: boolean) => void = () => {};
+    const { unmount } = render(
+      <Dialog
+        onBeforeClose={() =>
+          new Promise<boolean>((resolve) => {
+            answer = resolve;
+          })
+        }
+        onClose={onClose}
+        open
+        title="Edit"
+      />,
+    );
+
+    await user.keyboard("{Escape}");
+    unmount();
+    await act(async () => answer(true));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("closes on an answer given after it was hidden and shown again", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    let answer: (close: boolean) => void = () => {};
+    const onBeforeClose = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const page = (mode: "hidden" | "visible") => (
+      <Activity mode={mode}>
+        <Dialog
+          onBeforeClose={onBeforeClose}
+          onClose={onClose}
+          open
+          title="Edit"
+        />
+      </Activity>
+    );
+    const { rerender } = render(page("visible"));
+
+    await user.keyboard("{Escape}");
+    // Another tab of the page shown meanwhile, then this one again - open
+    // all the time, the dialog still waits for the answer
+    await act(async () => rerender(page("hidden")));
+    await act(async () => rerender(page("visible")));
+    await user.keyboard("{Escape}");
+    expect(onBeforeClose).toHaveBeenCalledOnce();
+
+    await act(async () => answer(true));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("lets no late answer close the dialog closed and opened again while hidden", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    let answer: (close: boolean) => void = () => {};
+    const page = (mode: "hidden" | "visible", open: boolean) => (
+      <Activity mode={mode}>
+        <Dialog
+          onBeforeClose={() =>
+            new Promise<boolean>((resolve) => {
+              answer = resolve;
+            })
+          }
+          onClose={onClose}
+          open={open}
+          title="Edit"
+        />
+      </Activity>
+    );
+    const { rerender } = render(page("visible", true));
+
+    await user.keyboard("{Escape}");
+    const firstAnswer = answer;
+    await act(async () => rerender(page("hidden", true)));
+    // Closed and opened again by its owner while no effect runs
+    await act(async () => rerender(page("hidden", false)));
+    await act(async () => rerender(page("hidden", true)));
+    await act(async () => rerender(page("visible", true)));
+
+    await act(async () => firstAnswer(true));
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -301,6 +477,32 @@ describe("Dialog bodyClassName", () => {
     const body = screen.getByText("Text").parentElement!;
     expect(body).toHaveClass("flex", "flex-col", "p-4");
     expect(body).not.toHaveClass("p-6");
+  });
+
+  it("keeps the content clear of the home indicator with another padding", () => {
+    render(
+      <Dialog bodyClassName="p-4" fullScreenOnMobile onClose={() => {}} open>
+        <p>Text</p>
+      </Dialog>,
+    );
+
+    // Not a padding the one of bodyClassName replaces
+    const body = screen.getByText("Text").parentElement!;
+    expect(body).toHaveClass("p-4", "mb-(--cui-safe-bottom,0px)");
+  });
+
+  it("takes a margin at the bottom from bodyClassName", () => {
+    render(
+      <Dialog bodyClassName="mb-4" fullScreenOnMobile onClose={() => {}} open>
+        <p>Text</p>
+      </Dialog>,
+    );
+
+    // Not one of an inline style, which a class cannot replace
+    const body = screen.getByText("Text").parentElement!;
+    expect(body).toHaveClass("mb-4");
+    expect(body).not.toHaveClass("mb-(--cui-safe-bottom,0px)");
+    expect(body.style.marginBottom).toBe("");
   });
 
   it("paints its body with the dialog token, its header with the surface", () => {

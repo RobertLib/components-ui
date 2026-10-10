@@ -26,7 +26,10 @@ import { getTabbableElements } from "../../../utils/tabbable";
 import { toAriaKeyShortcuts } from "../../../utils/shortcut";
 import useIsApplePlatform from "../../../hooks/use-is-apple-platform";
 import { foldSearchText } from "../../../utils/remove-diacritics";
-import { usePortalContainer, useRouter } from "../../../providers/ui-context";
+import {
+  usePortalContainer,
+  useRouterActions,
+} from "../../../providers/ui-context";
 import {
   buildMenuModel,
   isRowDisabled,
@@ -120,7 +123,7 @@ export default function MenuList({
     index: number;
     label: string;
   } | null>(null);
-  const { Link } = useRouter();
+  const { Link } = useRouterActions();
   // Shortcuts are announced as the platform names its keys - the Windows
   // way on the server and in the first render, like `Kbd`
   const isApple = useIsApplePlatform();

@@ -1,7 +1,13 @@
 import { copyDate, dateTimeZone, inTimeZone } from "../../../utils/time-zone";
 import type { CalendarEvent, CalendarRecurrence } from "./types";
 import type { WeekDay } from "../../../i18n/ui/types";
-import { dateOf, existingDayOf, startOfDay } from "../../../utils/date";
+import {
+  dateOf,
+  daysInMonth,
+  existingDayOf,
+  lastDayOfMonth,
+  startOfDay,
+} from "../../../utils/date";
 import {
   addCalendarDays,
   daysBetween,
@@ -281,9 +287,6 @@ function readRule(recurrence: unknown, reference?: Date): Rule | null {
   return null;
 }
 
-const daysInMonth = (year: number, month: number) =>
-  dateOf(year, month + 1, 0).getDate();
-
 const byTime = (a: Date, b: Date) => a.getTime() - b.getTime();
 
 /** The dates sorted, each once. */
@@ -354,6 +357,15 @@ function weekdayDates(
 }
 
 /**
+ * The day of a month a `BYMONTHDAY` names - a negative one counts back from
+ * the last day the month has: `-1` is December 30 where the time zone
+ * skipped the 31st (Kiritimati, 1994).
+ */
+function monthDayOf(day: number, year: number, month: number, at: Date) {
+  return day > 0 ? day : lastDayOfMonth(year, month, at).getDate() + 1 + day;
+}
+
+/**
  * The days a month gives by `BYMONTHDAY` (limited by `BYDAY`), by `BYDAY`,
  * or the day of the month of the event - not in a month without it, nor
  * when the time zone skips it.
@@ -363,7 +375,7 @@ function monthDates(rule: Rule, year: number, month: number, event: Date) {
 
   if (rule.monthDays) {
     const dates = rule.monthDays
-      .map((day) => (day > 0 ? day : length + 1 + day))
+      .map((day) => monthDayOf(day, year, month, event))
       .filter((day) => day >= 1 && day <= length)
       .map((day) => existingDayOf(year, month, day, event))
       .filter((date) => date !== null);
@@ -477,14 +489,17 @@ function periodDates(rule: Rule, index: number, period: Date, event: Date) {
       const { monthDays, weekdays } = rule;
       // The day-of-month and weekday parts only limit a daily rule
       if (monthDays) {
-        dates = dates.filter((date) => {
-          const length = daysInMonth(date.getFullYear(), date.getMonth());
-          return monthDays.some(
+        dates = dates.filter((date) =>
+          monthDays.some(
             (monthDay) =>
-              (monthDay > 0 ? monthDay : length + 1 + monthDay) ===
-              date.getDate(),
-          );
-        });
+              monthDayOf(
+                monthDay,
+                date.getFullYear(),
+                date.getMonth(),
+                date,
+              ) === date.getDate(),
+          ),
+        );
       }
       if (weekdays) {
         dates = dates.filter((date) =>

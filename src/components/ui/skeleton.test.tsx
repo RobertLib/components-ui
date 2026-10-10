@@ -23,7 +23,8 @@ describe("Skeleton", () => {
     const { container } = render(<Skeleton height="h-8" width="w-32" />);
 
     expect(container.firstElementChild).toHaveClass("h-8", "w-32");
-    expect(container.firstElementChild).not.toHaveClass("h-4", "w-full");
+    expect(container.firstElementChild).not.toHaveClass("h-4");
+    expect(container.firstElementChild).not.toHaveClass("w-full");
   });
 
   it("is a circle of its own size", () => {

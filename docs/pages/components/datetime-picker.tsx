@@ -186,17 +186,19 @@ export default function DateTimePickerPage() {
             <code>isDateDisabled</code> tells the days that cannot be picked -
             weekends, public holidays, booked days - for the <code>date</code>,{" "}
             <code>datetime-local</code>, <code>month</code> and{" "}
-            <code>week</code> types. It gets the local midnight of a day. The
-            popup strikes those days through; the keys move over them and they
-            are announced as unavailable, but they cannot be picked. A month or
-            a week without another day cannot be picked either. A value on such
-            a day - typed, a default one or one of the parent - is kept, but
-            makes the field invalid: the form cannot be submitted and the
-            browser says <code>messages.dateTimePicker.unavailable</code>{" "}
-            (“09/26/2026 cannot be selected.”). A date-time field without a day
-            sets the time of the nearest day that can be picked. In{" "}
-            <code>native</code> mode the browser's popup offers every day, but a
-            disabled one still makes the field invalid.
+            <code>week</code> types. It gets the start of a day - its local
+            midnight, or 1:00 of a day whose midnight a clock change skips
+            (Santiago, Havana). The popup strikes those days through; the keys
+            move over them and they are announced as unavailable, but they
+            cannot be picked. A month or a week without another day cannot be
+            picked either. A value on such a day - typed, a default one or one
+            of the parent - is kept, but makes the field invalid: the form
+            cannot be submitted and the browser says{" "}
+            <code>messages.dateTimePicker.unavailable</code> (“09/26/2026 cannot
+            be selected.”). A date-time field without a day sets the time of the
+            nearest day that can be picked. In <code>native</code> mode the
+            browser's popup offers every day, but a disabled one still makes the
+            field invalid.
           </p>
         }
         name="datetime-picker/disabled-dates"

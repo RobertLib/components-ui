@@ -23,9 +23,12 @@ export default function ListPage() {
           <p>
             <code>plain</code> rows have no lines and round under the pointer -
             a menu, in a <code>&lt;nav&gt;</code>. <code>current</code> marks
-            the page shown (<code>aria-current=&quot;page&quot;</code>);{" "}
+            the page shown (<code>aria-current=&quot;page&quot;</code>), or the
+            view shown by rows that are buttons (
+            <code>aria-current=&quot;true&quot;</code>);{" "}
             <code>size=&quot;md&quot;</code> suits a list tapped through on a
-            phone.
+            phone. With <code>href</code>, <code>onClick</code> is called before
+            the link is followed - e.g. to close the drawer of a mobile menu.
           </p>
         }
         name="list/menu"

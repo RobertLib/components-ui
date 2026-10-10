@@ -149,6 +149,51 @@ describe("getFieldError", () => {
     expect(getFieldError(new Error("Offline"), "email")).toBeUndefined();
   });
 
+  it("reads the formErrors of an error class like those of its body", () => {
+    const body = {
+      fieldErrors: { email: ["Invalid email"] },
+      formErrors: ["Passwords do not match"],
+    };
+    class ApiError extends Error {
+      fieldErrors = body.fieldErrors;
+      formErrors = body.formErrors;
+    }
+    const error = new ApiError("Validation failed");
+
+    expect(getBaseError(body)).toBe("Passwords do not match");
+    expect(getBaseError(error)).toBe("Passwords do not match");
+    expect(getFieldError(error, "email")).toBe("Invalid email");
+  });
+
+  it("reads fieldErrors next to formErrors of null", () => {
+    const body = {
+      fieldErrors: { email: ["Invalid email"] },
+      formErrors: null,
+    };
+
+    expect(getFieldError(body, "email")).toBe("Invalid email");
+    expect(getBaseError(body)).toBeUndefined();
+  });
+
+  it("reads fieldErrors next to formErrors given as one text", () => {
+    const body = {
+      fieldErrors: { email: ["Invalid email"] },
+      formErrors: "Bad",
+    };
+    class ApiError extends Error {
+      fieldErrors = body.fieldErrors;
+      formErrors = body.formErrors;
+    }
+    const error = new ApiError("Validation failed");
+
+    expect(getFieldError(body, "email")).toBe("Invalid email");
+    expect(getFieldError({ errors: body }, "email")).toBe("Invalid email");
+    expect(getFieldError(error, "email")).toBe("Invalid email");
+    expect(getBaseError(body)).toBe("Bad");
+    expect(getBaseError({ errors: body })).toBe("Bad");
+    expect(getBaseError(error)).toBe("Bad");
+  });
+
   it("returns undefined for other errors", () => {
     expect(getFieldError(new Error("Network error"), "email")).toBeUndefined();
     expect(getFieldError(null, "email")).toBeUndefined();
@@ -376,6 +421,61 @@ describe("getBaseError", () => {
         message: "Validation failed",
       }),
     ).toBeUndefined();
+  });
+
+  it("takes formErrors without fieldErrors - left out when empty", () => {
+    // A serializer that drops empty members (Jackson's `NON_EMPTY`), an
+    // error class that sets `fieldErrors` only when there are any
+    const body = { formErrors: ["Passwords do not match"] };
+    class ApiError extends Error {
+      fieldErrors: Record<string, string[]> | undefined = undefined;
+      formErrors = body.formErrors;
+    }
+    const error = new ApiError("Validation failed");
+
+    expect(getBaseError(body)).toBe("Passwords do not match");
+    expect(getBaseError({ errors: body })).toBe("Passwords do not match");
+    expect(getBaseError(error)).toBe("Passwords do not match");
+    expect(getBaseError({ formErrors: "Passwords do not match" })).toBe(
+      "Passwords do not match",
+    );
+    // No field of that name
+    expect(getFieldError(body, "formErrors")).toBeUndefined();
+    expect(getFieldError(error, "formErrors")).toBeUndefined();
+    expect(getNestedErrors(body)).toEqual([]);
+    // Without messages, the error's own one
+    expect(getBaseError({ formErrors: [], message: "Invalid input" })).toBe(
+      "Invalid input",
+    );
+  });
+
+  it("reads the field messages next to formErrors without fieldErrors", () => {
+    const fields = {
+      email: ["is taken"],
+      items: [{ errors: { price: ["must be positive"] }, name: "Item 1" }],
+    };
+
+    for (const formErrors of [[], null, "Check the form"]) {
+      expect(getFieldError({ formErrors, ...fields }, "email")).toBe(
+        "is taken",
+      );
+      expect(
+        getFieldError({ errors: { formErrors, ...fields } }, "email"),
+      ).toBe("is taken");
+      expect(getNestedErrors({ formErrors, ...fields })).toEqual([
+        "Item 1: must be positive",
+      ]);
+    }
+    // The members of the error are no fields there
+    const body = { formErrors: "Check", message: "Invalid", ...fields };
+    expect(getBaseError(body)).toBe("Check");
+    expect(getFieldError(body, "message")).toBeUndefined();
+    // Nor are the members of an Error
+    class ApiError extends Error {
+      formErrors = ["Passwords do not match"];
+      status = ["422"];
+    }
+    expect(getFieldError(new ApiError("Invalid"), "status")).toBeUndefined();
   });
 
   it("reads a plain list of messages", () => {

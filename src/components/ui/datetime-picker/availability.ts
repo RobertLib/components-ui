@@ -1,9 +1,16 @@
-import { addDays, dateOf, parseISODate, shiftDay } from "../../../utils/date";
+import {
+  dateOf,
+  daysInMonth,
+  existingDayOf,
+  parseISODate,
+  shiftDay,
+} from "../../../utils/date";
 import type { DateTimePickerType } from ".";
 
 /**
  * Tells the days that cannot be picked - `isDateDisabled` of the pickers
- * and calendars. Called with the local midnight of a day.
+ * and calendars. Called with the local midnight of a day - 1:00 of a day
+ * whose midnight a clock change skips.
  */
 export type DateDisabledPredicate = (date: Date) => boolean;
 
@@ -17,19 +24,21 @@ export function isMonthUnavailable(
   month: number,
   isDateDisabled: DateDisabledPredicate,
 ) {
-  const days = dateOf(year, month, 0).getDate();
+  const days = daysInMonth(year, month - 1);
   for (let day = 1; day <= days; day++) {
-    if (!isDateDisabled(dateOf(year, month - 1, day))) return false;
+    // Not a day the time zone skipped - `dateOf` takes it for the next one,
+    // of the next month at its end (Kiritimati, December 31, 1994)
+    const date = existingDayOf(year, month - 1, day);
+    if (date && !isDateDisabled(date)) return false;
   }
   return true;
 }
 
-/** Monday of the ISO week `week` of `year`. */
+/** The start of Monday of the ISO week `week` of `year`. */
 export function isoWeekStart(year: number, week: number) {
   // January 4th always lies in the first week
-  const monday = dateOf(year, 0, 4);
-  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
-  return addDays(monday, (week - 1) * 7);
+  const january4 = dateOf(year, 0, 4);
+  return dateOf(year, 0, 4 - ((january4.getDay() + 6) % 7) + (week - 1) * 7);
 }
 
 /** Whether every day of the week starting on `monday` is disabled. */
@@ -38,7 +47,15 @@ export function isWeekUnavailable(
   isDateDisabled: DateDisabledPredicate,
 ) {
   for (let day = 0; day < 7; day++) {
-    if (!isDateDisabled(addDays(monday, day))) return false;
+    // Each day from its own start - a clock change may skip the midnight
+    // of one, not of the days after it - and none the time zone skipped
+    const date = existingDayOf(
+      monday.getFullYear(),
+      monday.getMonth(),
+      monday.getDate() + day,
+      monday,
+    );
+    if (date && !isDateDisabled(date)) return false;
   }
   return true;
 }

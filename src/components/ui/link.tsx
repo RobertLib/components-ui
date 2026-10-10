@@ -1,6 +1,6 @@
 import { ExternalLink } from "lucide-react";
 import cn, { joinTokens } from "../../utils/cn";
-import { useMessages, useRouter } from "../../providers/ui-context";
+import { useMessages, useRouterActions } from "../../providers/ui-context";
 
 type LinkColor =
   | "primary"
@@ -85,7 +85,7 @@ export default function Link({
   underline = "always",
   ...props
 }: LinkProps) {
-  const { Link: RouterLink } = useRouter();
+  const { Link: RouterLink } = useRouterActions();
   const messages = useMessages().ui;
 
   const classes = cn(

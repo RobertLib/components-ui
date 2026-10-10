@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode, useState } from "react";
@@ -36,23 +37,29 @@ const pagePeople = async ({ offset, pageSize, search }: LoadOptionsParams) => {
   };
 };
 
-/** Pretends the open list was scrolled to its end. */
-function scrollListToEnd() {
+/**
+ * The rows of the open list - its options and the loading row under them -
+ * are 40px high and fill more than the 240px it shows, so rows added after a
+ * scroll move the end out of view again, as in a browser.
+ */
+function mockListScroll(scrollTop: (rows: number) => number) {
   const scroller = screen.getByRole("listbox").parentElement!;
-  Object.defineProperty(scroller, "scrollHeight", {
-    configurable: true,
-    value: 500,
-  });
-  Object.defineProperty(scroller, "clientHeight", {
-    configurable: true,
-    value: 240,
-  });
-  Object.defineProperty(scroller, "scrollTop", {
-    configurable: true,
-    value: 260,
+  const rows = () =>
+    within(scroller).queryAllByRole("option").length +
+    (within(scroller).queryAllByText("Loading…").length > 0 ? 1 : 0);
+  Object.defineProperties(scroller, {
+    clientHeight: { configurable: true, value: 240 },
+    scrollHeight: { configurable: true, get: () => 240 + 40 * rows() },
+    scrollTop: { configurable: true, value: scrollTop(rows()) },
   });
   fireEvent.scroll(scroller);
 }
+
+/** Pretends the open list was scrolled to its end. */
+const scrollListToEnd = () => mockListScroll((rows) => 40 * rows);
+
+/** Pretends the open list was scrolled back to its start. */
+const scrollListToStart = () => mockListScroll(() => 0);
 
 describe("Autocomplete with static options", () => {
   it("filters ignoring diacritics and reports the pick", async () => {
@@ -398,6 +405,20 @@ describe("Autocomplete with static options", () => {
     expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
   });
 
+  it("calls loadMore once for two scrolls before its loading shows", async () => {
+    const user = userEvent.setup();
+    const loadMore = vi.fn(() => new Promise<void>(() => {}));
+    render(<Autocomplete label="City" loadMore={loadMore} options={cities} />);
+
+    await user.click(screen.getByRole("combobox", { name: /City/ }));
+    // Two scrolls in one frame - the loading state is not committed yet
+    act(() => {
+      scrollListToEnd();
+      scrollListToEnd();
+    });
+    expect(loadMore).toHaveBeenCalledOnce();
+  });
+
   it("clears loading after loadMore throws synchronously and lets a later scroll retry", async () => {
     const consoleError = vi
       .spyOn(console, "error")
@@ -726,6 +747,9 @@ describe("Autocomplete with loadOptions", () => {
       expect.objectContaining({ offset: 10, page: 2 }),
     );
 
+    // Away from the end - a list that shows its end once the search arrives
+    // loads its next page too
+    scrollListToStart();
     const callsBeforeTyping = loadOptions.mock.calls.length;
     await user.type(input, "Person 2");
     await waitFor(() =>
@@ -855,6 +879,8 @@ describe("Autocomplete with loadOptions", () => {
     const pendingRequest = loadOptions.mock.calls[1][0];
     expect(pendingRequest.cursor).toBe("2");
 
+    // Away from the end - the shorter list would load its next page itself
+    scrollListToStart();
     rerender(field(1));
     await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
     expect(pendingRequest.signal.aborted).toBe(true);
@@ -1114,6 +1140,119 @@ describe("Autocomplete with loadOptions", () => {
     await user.click(screen.getByRole("combobox", { name: /Person/ }));
     await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(9));
     expect(loadOptions).toHaveBeenCalledTimes(3);
+  });
+
+  it("loads on when the page it waited for leaves the end of the list in view", async () => {
+    const user = userEvent.setup();
+    type Page = { items: typeof people; total: number };
+    const pages: ((page: Page) => void)[] = [];
+    const loadOptions = vi.fn<(params: LoadOptionsParams) => Promise<Page>>(
+      () =>
+        new Promise((resolve) => {
+          pages.push(resolve);
+        }),
+    );
+    const resolvePage = (page: number) =>
+      act(async () =>
+        pages[page - 1]({ items: people.slice(page - 1, page), total: 4 }),
+      );
+
+    render(
+      <Autocomplete label="Person" loadOptions={loadOptions} pageSize={1} />,
+    );
+    await user.click(screen.getByRole("combobox", { name: /Person/ }));
+    await waitFor(() => expect(loadOptions).toHaveBeenCalledTimes(1));
+    await resolvePage(1);
+
+    scrollListToEnd();
+    expect(loadOptions).toHaveBeenCalledTimes(2);
+    // On to the loading row - no page to load until this one is there
+    scrollListToEnd();
+    expect(loadOptions).toHaveBeenCalledTimes(2);
+
+    // Its option takes the place of the loading row - the end stays in view
+    await resolvePage(2);
+    await waitFor(() => expect(loadOptions).toHaveBeenCalledTimes(3));
+    expect(loadOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ offset: 2, page: 3 }),
+    );
+
+    // One that moves the end out of view waits for the next scroll
+    await resolvePage(3);
+    await act(() => sleep(50));
+    expect(screen.getAllByRole("option")).toHaveLength(3);
+    expect(loadOptions).toHaveBeenCalledTimes(3);
+  });
+
+  it("pages on when the list is scrolled to its end right as a page shows", async () => {
+    const user = userEvent.setup();
+    const loadOptions = vi.fn(pagePeople);
+    render(
+      <Autocomplete label="Person" loadOptions={loadOptions} pageSize={10} />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: /Person/ }));
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(10));
+
+    // A busy CPU - React yields after every task, so the effects of a commit
+    // run only after the page shows. The scroll comes before them.
+    let now = performance.now();
+    vi.spyOn(performance, "now").mockImplementation(() => (now += 10));
+    const listbox = screen.getByRole("listbox");
+    const observer = new MutationObserver(() => {
+      if (within(listbox).queryAllByRole("option").length !== 20) return;
+      observer.disconnect();
+      scrollListToEnd();
+    });
+    observer.observe(listbox, { childList: true, subtree: true });
+
+    scrollListToEnd();
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(30));
+    expect(loadOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ offset: 20, page: 3 }),
+    );
+  });
+
+  it("asks once for a page when a scroll and the check of the list's end come in one frame", async () => {
+    const user = userEvent.setup();
+    const loadOptions = vi.fn(pagePeople);
+    render(
+      <Autocomplete label="Person" loadOptions={loadOptions} pageSize={10} />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: /Person/ }));
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(10));
+
+    // The animation frames run when the test says
+    const frames = new Map<number, FrameRequestCallback>();
+    let lastFrame = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.set(++lastFrame, callback);
+      return lastFrame;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((frame) => {
+      frames.delete(frame);
+    });
+    const runFrame = () => {
+      const callbacks = [...frames.values()];
+      frames.clear();
+      for (const callback of callbacks) callback(performance.now());
+    };
+
+    scrollListToEnd();
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(20));
+
+    // Scrolled on to the end as the page shows - a browser runs the scroll
+    // and then the check of the list's end in one frame, before the loading
+    // state of the next page commits
+    await act(async () => {
+      scrollListToEnd();
+      runFrame();
+    });
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(30));
+    expect(loadOptions).toHaveBeenCalledTimes(3);
+    expect(loadOptions.mock.calls[2][0]).toMatchObject({ offset: 20, page: 3 });
+    expect(loadOptions.mock.calls[2][0].signal.aborted).toBe(false);
   });
 
   it("drops a debounced search when the term goes back or the list closes", async () => {
@@ -1758,6 +1897,37 @@ describe("Autocomplete loading more static options", () => {
     await waitFor(() => expect(loadMore).toHaveBeenCalledTimes(1));
     await act(() => sleep(100));
     expect(loadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls loadMore again for other options as many as those it had", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(240);
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(100);
+    const loadMore = vi.fn(async () => {});
+    const towns = [
+      { label: "Brno", value: "brno" },
+      { label: "Ostrava", value: "ostrava" },
+      { label: "Olomouc", value: "olomouc" },
+    ];
+
+    const { rerender } = render(
+      <Autocomplete label="City" loadMore={loadMore} options={cities} />,
+    );
+    await user.click(screen.getByRole("combobox", { name: "City:" }));
+    await waitFor(() => expect(loadMore).toHaveBeenCalledTimes(1));
+
+    // The same options given anew - no new call
+    rerender(
+      <Autocomplete label="City" loadMore={loadMore} options={[...cities]} />,
+    );
+    await act(() => sleep(100));
+    expect(loadMore).toHaveBeenCalledTimes(1);
+
+    // Others in their place - the list still shows its end
+    rerender(<Autocomplete label="City" loadMore={loadMore} options={towns} />);
+    await waitFor(() => expect(loadMore).toHaveBeenCalledTimes(2));
+    await act(() => sleep(100));
+    expect(loadMore).toHaveBeenCalledTimes(2);
   });
 });
 

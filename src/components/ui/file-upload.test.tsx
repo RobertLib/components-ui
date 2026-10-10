@@ -562,6 +562,25 @@ describe("FileUpload", () => {
     expect(onPendingChange).toHaveBeenLastCalledWith(0);
   });
 
+  it("reports no pending uploads once the field goes away with them", async () => {
+    const onPendingChange = vi.fn();
+    const { upload } = controllableUpload();
+    const { unmount } = render(
+      // StrictMode mounts the field twice - which ends no upload
+      <StrictMode>
+        <FileUpload onPendingChange={onPendingChange} upload={upload} />
+      </StrictMode>,
+    );
+
+    drop(screen.getByRole("group"), [file("a.pdf")]);
+    await act(async () => {});
+    expect(onPendingChange.mock.calls).toEqual([[1]]);
+
+    // A submit button waiting for the upload comes back
+    await act(async () => unmount());
+    expect(onPendingChange.mock.calls).toEqual([[1], [0]]);
+  });
+
   it("cancels the upload - and aborts it when it goes away", async () => {
     const user = userEvent.setup();
     const { pending, upload } = controllableUpload();

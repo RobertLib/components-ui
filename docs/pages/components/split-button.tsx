@@ -21,7 +21,8 @@ export default function SplitButtonPage() {
         description={
           <p>
             <code>color</code>, <code>variant</code>, <code>size</code> and{" "}
-            <code>disabled</code> apply to both buttons.
+            <code>disabled</code> apply to both buttons - any variant but{" "}
+            <code>link</code>, which has no border to join.
           </p>
         }
         name="split-button/variants"

@@ -343,6 +343,61 @@ describe("CommandPalette", () => {
     expect(navigate).toHaveBeenCalledWith("/invoices");
   });
 
+  it("gives the router the path as a link would open it - without spaces around it", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    render(
+      <UIProvider router={{ navigate, pathname: "/users", search: "" }}>
+        <CommandPalette
+          defaultOpen
+          items={[
+            { href: " /orders", id: "orders", label: "Orders" },
+            { href: "/invoices\n", id: "invoices", label: "Invoices" },
+          ]}
+        />
+      </UIProvider>,
+    );
+
+    // Not `/users/ /orders`, a path relative to the page for a router
+    await user.click(screen.getByRole("option", { name: /Orders/ }));
+    expect(navigate).toHaveBeenLastCalledWith("/orders");
+
+    await user.keyboard("{Control>}k{/Control}");
+    await user.click(await screen.findByRole("option", { name: /Invoices/ }));
+    expect(navigate).toHaveBeenLastCalledWith("/invoices");
+  });
+
+  it("loads an absolute URL - also of the page's own origin, whose path has the base path of the router", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    const { href, origin } = window.location;
+    const assign = vi.fn();
+    vi.spyOn(window, "location", "get").mockReturnValue({
+      assign,
+      href,
+      origin,
+    } as unknown as Location);
+    render(
+      <UIProvider router={{ navigate, pathname: "/", search: "" }}>
+        <CommandPalette
+          defaultOpen
+          items={[
+            { href: `${origin}/app/orders`, id: "own", label: "Orders" },
+            { href: "/\\example.com/x", id: "other", label: "Other" },
+          ]}
+        />
+      </UIProvider>,
+    );
+
+    await user.click(screen.getByRole("option", { name: /Orders/ }));
+    expect(assign).toHaveBeenCalledExactlyOnceWith(`${origin}/app/orders`);
+
+    await user.keyboard("{Control>}k{/Control}");
+    await user.click(await screen.findByRole("option", { name: /Other/ }));
+    expect(assign).toHaveBeenLastCalledWith("/\\example.com/x");
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it("opens no javascript: link - also one loaded for the search", async () => {
     const user = userEvent.setup();
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});

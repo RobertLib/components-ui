@@ -77,6 +77,50 @@ describe("Card", () => {
     ).toHaveClass("relative", "z-10");
   });
 
+  it("calls onClick of its link before it is followed - preventDefault() keeps the page", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    // A router's Link - it follows a click its `onClick` has not prevented
+    function RouterLink({ href, onClick, ...props }: LinkComponentProps) {
+      return (
+        <a
+          {...props}
+          href={href}
+          onClick={(event) => {
+            onClick?.(event);
+            if (event.defaultPrevented) return;
+            event.preventDefault();
+            navigate(href);
+          }}
+        />
+      );
+    }
+    const targets: EventTarget[] = [];
+    const onOpen = vi.fn((event: React.MouseEvent) => {
+      targets.push(event.currentTarget);
+    });
+    const onStay = vi.fn((event: React.MouseEvent) => event.preventDefault());
+
+    render(
+      <UIProvider router={{ Link: RouterLink }}>
+        <Card href="/projects/42" onClick={onOpen} title="Website" />
+        <Card href="/projects/7" onClick={onStay} title="Billing" />
+      </UIProvider>,
+    );
+
+    // Still a link, not a button
+    const link = screen.getByRole("link", { name: "Website" });
+    expect(screen.queryByRole("button")).toBeNull();
+    await user.click(link);
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(targets).toEqual([link]);
+    expect(navigate).toHaveBeenCalledExactlyOnceWith("/projects/42");
+
+    await user.click(screen.getByRole("link", { name: "Billing" }));
+    expect(onStay).toHaveBeenCalledOnce();
+    expect(navigate).toHaveBeenCalledOnce();
+  });
+
   it("is a button through its title with onClick", async () => {
     const user = userEvent.setup();
     const onClick = vi.fn();

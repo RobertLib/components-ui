@@ -4,8 +4,13 @@ import type { DatePatternToken, WeekDay } from "../i18n/ui/types";
 
 export const pad2 = (value: number) => String(value).padStart(2, "0");
 
-/** A year with four digits, as the values of native inputs have it - `0999`. */
-export const padYear = (year: number) => String(year).padStart(4, "0");
+/**
+ * A year with four digits, as the values of native inputs have it - `0999`.
+ * A year before the year 0 with its sign, as ISO 8601 writes it - `-0001`
+ * (the ISO week of January 1 of the year 0 is in it).
+ */
+export const padYear = (year: number) =>
+  (year < 0 ? "-" : "") + String(Math.abs(year)).padStart(4, "0");
 
 /** `YYYY-MM-DD` in local time - the value format of `<input type="date">`. */
 export const toISODate = (date: Date) =>
@@ -74,12 +79,39 @@ export function shiftDay(
   return dateOf(year, monthIndex, day, date);
 }
 
+/**
+ * The number of days of a month (`monthIndex` 0 - 11) - by the calendar, in
+ * UTC: a time zone may skip the last one (Kiritimati skipped December 31,
+ * 1994), and local midnight of the day after would be in the next month.
+ */
+export function daysInMonth(year: number, monthIndex: number) {
+  const lastDay = new Date(0);
+  lastDay.setUTCFullYear(year, monthIndex + 1, 0);
+  return lastDay.getUTCDate();
+}
+
+/**
+ * Local midnight of the last day of a month (`monthIndex` may lie outside
+ * 0 - 11, as for `dateOf`) - the day before it when the time zone skipped
+ * it (Kiritimati skipped December 31, 1994), which `dateOf` would take for
+ * the 1st of the next month.
+ */
+export function lastDayOfMonth(
+  year: number,
+  monthIndex: number,
+  reference?: Date,
+) {
+  const lastDay = daysInMonth(year, monthIndex);
+  // A time zone skips a single day - the one before it is there
+  return (
+    existingDayOf(year, monthIndex, lastDay, reference) ??
+    dateOf(year, monthIndex, lastDay - 1, reference)
+  );
+}
+
 /** Whether `year`-`month`-`day` (month 1 - 12) is a real day of the calendar. */
 export const isValidDay = (year: number, month: number, day: number) =>
-  month >= 1 &&
-  month <= 12 &&
-  day >= 1 &&
-  day <= dateOf(year, month, 0).getDate();
+  month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month - 1);
 
 /**
  * Parses a `YYYY-MM-DD` date (or the date part of `YYYY-MM-DDTHH:mm`) as
@@ -109,13 +141,18 @@ export const addDays = (date: Date, days: number) => {
 
 /**
  * The start of the day `offset` months from the day of `date` - the last day
- * of a shorter month: January 31 + 1 is February 28 (29).
+ * of a shorter month: January 31 + 1 is February 28 (29). Never in another
+ * month, also where the time zone skipped the last day (see
+ * `lastDayOfMonth`).
  */
 export function addMonths(date: Date, offset: number) {
   const year = date.getFullYear();
   const monthIndex = date.getMonth() + offset;
-  const lastDay = dateOf(year, monthIndex + 1, 0, date).getDate();
-  return dateOf(year, monthIndex, Math.min(date.getDate(), lastDay), date);
+  const lastDay = lastDayOfMonth(year, monthIndex, date);
+  // A day the time zone skipped before the last one is the day after it
+  return date.getDate() < lastDay.getDate()
+    ? dateOf(year, monthIndex, date.getDate(), date)
+    : lastDay;
 }
 
 export const isSameDay = (a: Date, b: Date) =>
@@ -131,13 +168,13 @@ export const isSameDay = (a: Date, b: Date) =>
 export function getMonthDays(month: Date, weekStartsOn: WeekDay) {
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
-  const daysInMonth = dateOf(year, monthIndex + 1, 0, month).getDate();
+  const dayCount = daysInMonth(year, monthIndex);
   const leading =
     (dateOf(year, monthIndex, 1, month).getDay() - weekStartsOn + 7) % 7;
 
   const days: (Date | null)[] = Array.from({ length: leading }, () => null);
 
-  for (let day = 1; day <= daysInMonth; day++) {
+  for (let day = 1; day <= dayCount; day++) {
     days.push(existingDayOf(year, monthIndex, day, month));
   }
 
@@ -159,6 +196,29 @@ export function getISOWeek(date: Date) {
     1 + Math.round((target.getTime() - firstThursday.getTime()) / 604_800_000);
 
   return { week, year: target.getFullYear() };
+}
+
+/**
+ * ISO 8601 week of a day of the calendar (month 1 - 12) and the year it
+ * belongs to - by the calendar alone, unlike `getISOWeek` of local midnight,
+ * which a clock change may skip.
+ */
+export function getISOWeekOfDay(year: number, month: number, day: number) {
+  const target = new Date(0);
+  target.setUTCFullYear(year, month - 1, day);
+  // Thursday of the same week decides the year
+  target.setUTCDate(target.getUTCDate() + 3 - ((target.getUTCDay() + 6) % 7));
+
+  const firstThursday = new Date(0);
+  firstThursday.setUTCFullYear(target.getUTCFullYear(), 0, 4);
+  firstThursday.setUTCDate(
+    firstThursday.getUTCDate() + 3 - ((firstThursday.getUTCDay() + 6) % 7),
+  );
+
+  const week =
+    1 + Math.round((target.getTime() - firstThursday.getTime()) / 604_800_000);
+
+  return { week, year: target.getUTCFullYear() };
 }
 
 /** 52 or 53 - the number of ISO weeks in `year`. */
@@ -282,6 +342,12 @@ const TOKEN_PARTS: Record<string, keyof DateParts | "hours12" | "meridiem"> = {
 
 const SEPARATOR = "[\\s./\\-:,]";
 
+// No year after a minus sign at the start or after a separator - a year
+// before the year 0, as `padYear` writes it (`-0001`), which no picker
+// takes: "W52 -0001" is no week of the year 1. A dash between the numbers
+// stays a separator ("1-2-2026").
+const NOT_NEGATIVE = `(?<!(?:^|${SEPARATOR})-)`;
+
 // The numbers a token takes - the two-digit ones tried first, so that digits
 // typed without separators split into numbers that fit: "24092026" is
 // 24.09.2026, "9242026" 9/24/2026
@@ -294,12 +360,12 @@ const NUMBER_SOURCES: Record<keyof DateParts, string> = {
   minutes: `[0-5]\\d|(?<=${SEPARATOR})\\d(?!\\d)`,
   month: "1[0-2]|0?[1-9]",
   week: "5[0-3]|[1-4]\\d|0?[1-9]",
-  year: "\\d{4}",
+  year: `${NOT_NEGATIVE}\\d{4}`,
 };
 
 // A year of two digits - not followed by a digit, nor by the `:` or `.` of
 // a time: in "24.9 12:05" the year is left out, "12" are the hours
-const SHORT_YEAR = "\\d{2}(?![\\d:.])";
+const SHORT_YEAR = `${NOT_NEGATIVE}\\d{2}(?![\\d:.])`;
 
 // A year left out - the date ends there, or a space parts it from the time:
 // "24.9.2026" is no 20:26 on 24.9.
@@ -516,6 +582,12 @@ export function isDayBeforeMonth(pattern: string) {
   );
 }
 
+/** Whether a pattern writes the week (`W`, `WW`). */
+export const writesWeek = (pattern: string) =>
+  Array.from(pattern.matchAll(PATTERN_TOKEN)).some(
+    ([token]) => token === "W" || token === "WW",
+  );
+
 /**
  * `formatPattern` for a `Date`. A pattern with the week (`W`, `WW`) shows
  * the year the ISO week belongs to - 2024-12-30 is `W01.2025`.
@@ -526,9 +598,7 @@ export function formatDate(
   dayPeriods?: DayPeriods,
 ) {
   const isoWeek = getISOWeek(date);
-  const showsWeek = Array.from(pattern.matchAll(PATTERN_TOKEN)).some(
-    ([token]) => token === "W" || token === "WW",
-  );
+  const showsWeek = writesWeek(pattern);
 
   return formatPattern(
     pattern,

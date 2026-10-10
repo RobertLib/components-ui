@@ -24,7 +24,11 @@ import useIsMobile from "../../hooks/use-is-mobile";
 import { attachRef } from "../../hooks/use-form-control";
 import { findActiveLink } from "../../providers/active-path";
 import { useDrawer } from "../../providers/drawer-context";
-import { useMessages, useRouter } from "../../providers/ui-context";
+import {
+  useMessages,
+  useRouter,
+  useRouterActions,
+} from "../../providers/ui-context";
 
 /** A menu entry - `false`, `null` and `undefined` are skipped. */
 export type DrawerEntry = DrawerItem | false | null | undefined;
@@ -645,7 +649,7 @@ function DrawerMenuItem({
   item,
   level = 0,
 }: DrawerMenuItemProps) {
-  const { Link } = useRouter();
+  const { Link } = useRouterActions();
   const isMobile = useIsMobile();
   const { toggleOpen } = useDrawer();
   const submenuId = useId();

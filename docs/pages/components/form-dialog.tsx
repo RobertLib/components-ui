@@ -24,10 +24,14 @@ export default function FormDialogPage() {
             with the submit button in a <code>DialogFooter</code> -{" "}
             <code>footerStart</code> takes e.g. a Delete button at the other
             end. <code>onSubmit</code> gets the event of the form with its
-            default prevented, also for Enter in a field. While{" "}
+            default prevented, also for Enter in a field - it goes no further,
+            so a form of the page the dialog is opened from is not submitted too
+            (nor do listeners of <code>document</code> or <code>window</code>{" "}
+            see it - track it in <code>onSubmit</code>). While{" "}
             <code>saving</code> the submit button spins and the dialog cannot be
-            closed. With <code>dirty</code>, Cancel, the close button, Escape
-            and the backdrop ask &quot;Discard changes?&quot; first.
+            closed, nor with <code>closeDisabled</code>. With <code>dirty</code>
+            , Cancel, the close button, Escape and the backdrop ask
+            &quot;Discard changes?&quot; first.
           </p>
         }
         name="form-dialog/basic"
@@ -39,8 +43,9 @@ export default function FormDialogPage() {
           <p>
             <code>onBeforeClose</code> asks instead of the question of{" "}
             <code>dirty</code> - return <code>false</code>, or a promise of it,
-            to keep the dialog open. Every <code>Dialog</code> and{" "}
-            <code>Sheet</code> takes it too.
+            to keep the dialog open. Cancel asks it as the close button does:
+            while a promise is pending, further attempts to close wait for it.
+            Every <code>Dialog</code> and <code>Sheet</code> takes it too.
           </p>
         </Prose>
         <CodeBlock code={beforeClose} />

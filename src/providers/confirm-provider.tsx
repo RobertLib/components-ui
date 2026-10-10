@@ -1,5 +1,6 @@
 import { useCallback, useInsertionEffect, useRef, useState } from "react";
 import ConfirmDialog from "../components/ui/confirm-dialog";
+import isPromiseLike from "../utils/is-promise-like";
 import logger from "../utils/logger";
 import {
   ConfirmContext,
@@ -31,9 +32,6 @@ const logFailure = (error: unknown) =>
     "The onConfirm of confirm() failed - the dialog stays open.",
     error,
   );
-
-const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
-  typeof (value as PromiseLike<unknown> | null)?.then === "function";
 
 /**
  * Runs the `onConfirm` of a question: whether the dialog may close - not

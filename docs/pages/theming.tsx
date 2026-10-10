@@ -33,9 +33,11 @@ const overrideCss = `@import "tailwindcss";
 }`;
 
 const dialogAndTypography = `@theme {
-  /* Dialogs and sheets white all through - their body has the page
-     background under a header and a footer of the surface by default */
+  /* Dialogs and sheets of the surface all through - their body has the
+     page background under a header and a footer of the surface by
+     default, in dark mode too */
   --color-dialog: var(--color-surface);
+  --color-dialog-dark: var(--color-surface-dark);
 
   /* The font of the headings of the components */
   --font-heading: "Roboto Condensed Variable", ui-sans-serif, sans-serif;
@@ -204,8 +206,10 @@ export default function Theming() {
           <p>
             <code>--color-dialog</code> paints the body of a <code>Dialog</code>{" "}
             and a <code>Sheet</code> - the page background by default, under a
-            header and a <code>DialogFooter</code> of the surface. Set it to the
-            surface for dialogs white all through.
+            header and a <code>DialogFooter</code> of the surface - and{" "}
+            <code>--color-dialog-dark</code> that of the dark mode. Set them to
+            the surface and <code>--color-surface-dark</code> for dialogs of one
+            color all through.
           </p>
           <p>
             The headings of the components take the font of{" "}

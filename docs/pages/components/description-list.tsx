@@ -45,9 +45,12 @@ export default function DescriptionListPage() {
           <p>
             <code>emphasis=&quot;desc&quot;</code> puts small muted terms over
             values in the color of the text - the details of a record in many
-            designs. <code>emptyValue</code> shows in place of a missing value (
-            <code>null</code>, <code>undefined</code>, <code>&quot;&quot;</code>
-            ), and <code>descClassName</code> of an item styles its value.
+            designs. <code>emptyValue</code> shows in place of a value React
+            renders as nothing (<code>null</code>, <code>undefined</code>,{" "}
+            <code>&quot;&quot;</code>, <code>true</code>, the <code>false</code>{" "}
+            of <code>cond &amp;&amp; value</code>, an empty list of{" "}
+            <code>tags.map(…)</code>) - not in place of <code>0</code> - and{" "}
+            <code>descClassName</code> of an item styles its value.
           </p>
         }
         name="description-list/emphasis"

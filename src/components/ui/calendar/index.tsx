@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import AgendaView from "./agenda-view";
 import CalendarHeader from "./calendar-header";
 import cn from "../../../utils/cn";
-import { dateOf, shiftDay, startOfDay } from "../../../utils/date";
+import { addMonths, shiftDay, startOfDay } from "../../../utils/date";
 import DayView from "./day-view";
 import { expandRecurringEvents } from "./recurrence";
 import {
@@ -267,17 +267,11 @@ const shiftDate = (
   const newDate = copyDate(date);
 
   if (period === "month") {
-    // Stay within the target month - Jan 31 + 1 month must not skip February
-    const day = newDate.getDate();
-    newDate.setDate(1);
-    newDate.setMonth(newDate.getMonth() + direction);
-    const daysInMonth = dateOf(
-      newDate.getFullYear(),
-      newDate.getMonth() + 1,
-      0,
-      newDate,
-    ).getDate();
-    newDate.setDate(Math.min(day, daysInMonth));
+    // Stay within the target month - Jan 31 + 1 month must not skip
+    // February, nor end on January 1 where the time zone skipped
+    // December 31 (Kiritimati, 1994)
+    const day = addMonths(newDate, direction);
+    newDate.setFullYear(day.getFullYear(), day.getMonth(), day.getDate());
   } else {
     // Whole days - over a day the time zone skips on to the next one in
     // the direction (`setDate` takes it for the day after it, also back)

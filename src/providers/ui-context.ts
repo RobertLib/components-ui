@@ -5,7 +5,6 @@ import type { Locale, Messages } from "../i18n/ui/types";
 import {
   browserBack,
   browserNavigate,
-  notifyLocationChange,
   useBrowserLocation,
   type RouterAdapter,
 } from "./router";
@@ -20,12 +19,32 @@ export type PortalContainer =
 export interface UIContextValue {
   locale: Locale;
   portalContainer?: PortalContainer;
-  router?: Partial<RouterAdapter>;
+  /** The router given - its location is in `RouterLocationContext`. */
+  router?: Partial<Pick<RouterAdapter, "back" | "Link" | "navigate">>;
   /** Stable identity of the provider that configures navigation or location. */
   routerScope?: object;
 }
 
 export const UIContext = createContext<UIContextValue | null>(null);
+
+/**
+ * What of the router of the nearest `UIProvider` stays the same on a
+ * navigation, with the defaults filled in - so that a component rendering a
+ * link or navigating does not render again on every change of the URL.
+ */
+export const RouterActionsContext = createContext<Pick<
+  RouterAdapter,
+  "back" | "Link" | "navigate"
+> | null>(null);
+
+/**
+ * The location the router of the nearest `UIProvider` gives - apart from
+ * `UIContext`, so that a navigation renders again only what reads it
+ * (`useRouter`), not every component with a text, a locale or a portal.
+ */
+export const RouterLocationContext = createContext<Partial<
+  Pick<RouterAdapter, "pathname" | "search">
+> | null>(null);
 
 // Without a custom router, every hook uses the same browser history.
 const browserRouterScope = {};
@@ -59,34 +78,40 @@ export function useMessages(): Messages {
   return useLocale().messages;
 }
 
+const browserActions: Pick<RouterAdapter, "back" | "Link" | "navigate"> = {
+  back: browserBack,
+  Link: DefaultLink,
+  navigate: browserNavigate,
+};
+
+/**
+ * `back`, `Link` and `navigate` of the router adapter, without reading the
+ * location - unlike `useRouter`, the component does not render again on
+ * every change of the URL.
+ */
+export function useRouterActions(): Pick<
+  RouterAdapter,
+  "back" | "Link" | "navigate"
+> {
+  return use(RouterActionsContext) ?? browserActions;
+}
+
+/** `navigate` of the router adapter - see `useRouterActions`. */
+export function useNavigate(): RouterAdapter["navigate"] {
+  return useRouterActions().navigate;
+}
+
 /** The router adapter with the defaults filled in. */
 export function useRouter(): RouterAdapter {
-  const router = use(UIContext)?.router;
-  const browserLocation = useBrowserLocation();
+  const location = use(RouterLocationContext);
+  // The URL of the page only for what the router does not give
+  const browserLocation = useBrowserLocation(
+    location?.pathname === undefined || location.search === undefined,
+  );
+  const { back, Link, navigate } = useRouterActions();
 
-  const Link = router?.Link ?? DefaultLink;
-  const pathname = router?.pathname ?? browserLocation.pathname;
-  const search = router?.search ?? browserLocation.search;
-  const back = router?.back ?? browserBack;
-
-  // A router given without its `pathname` / `search` changes the URL behind
-  // the back of `useBrowserLocation` - only the Navigation API would tell
-  // it, which not every browser has. Read the URL again after it navigates,
-  // also once more later for a router that changes it asynchronously.
-  const routerNavigate = router?.navigate;
-  const tracksLocation =
-    router?.pathname === undefined || router?.search === undefined;
-
-  const navigate = useMemo<RouterAdapter["navigate"]>(() => {
-    if (!routerNavigate) return browserNavigate;
-    if (!tracksLocation) return routerNavigate;
-
-    return (href, options) => {
-      routerNavigate(href, options);
-      notifyLocationChange();
-      setTimeout(notifyLocationChange);
-    };
-  }, [routerNavigate, tracksLocation]);
+  const pathname = location?.pathname ?? browserLocation.pathname;
+  const search = location?.search ?? browserLocation.search;
 
   return useMemo(
     () => ({ back, Link, navigate, pathname, search }),

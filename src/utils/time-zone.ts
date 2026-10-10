@@ -176,6 +176,16 @@ class CalendarDate extends Date {
   }
 }
 
+/** Whether `timeZone` is an IANA time zone `Intl` knows. */
+export function isTimeZone(timeZone: string) {
+  try {
+    zoneFormat(timeZone);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Time zone carried by a calendar date; ordinary Dates use the host zone. */
 export const dateTimeZone = (date?: Date) =>
   date instanceof CalendarDate ? date.timeZone : undefined;

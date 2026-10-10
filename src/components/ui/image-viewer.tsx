@@ -5,8 +5,16 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import cn from "../../utils/cn";
+import isPromiseLike from "../../utils/is-promise-like";
 import { formatMessage } from "../../i18n/ui/format";
 import { useMessages } from "../../providers/ui-context";
 import Dialog from "./dialog";
@@ -52,8 +60,14 @@ export interface ImageViewerProps extends Omit<
    * Loads further images of a gallery that `images` holds a page of - e.g.
    * `fetchNextPage` of an infinite query. Called as the last loaded image
    * shows, while `total` says there are more; moving past it waits for
-   * them with a loading state. A rejected promise shows the error of the
-   * image there. Wrapping around (`loop`) starts once all are loaded.
+   * them with a loading state. A throw, a rejected promise - or one
+   * resolved without new images, as with a `total` too high - shows the
+   * error of the image there; moving away and back asks again, and so does
+   * another gallery of as many images. Wrapping around (`loop`) starts
+   * once all are loaded. It may be taken away while the images it
+   * asked for load (`isFetchingNextPage ? undefined : fetchNextPage`) - not
+   * while any fetch runs (`isFetching`, also of a refetch): taken away
+   * otherwise, the arrows stay on the loaded images.
    */
   onLoadMore?: () => unknown;
   /** Show thumbnail navigation when there are several images. Defaults to true. */
@@ -74,6 +88,16 @@ const clampIndex = (index: number, length: number) =>
 
 // A swipe this long sideways - more sideways than down - moves on
 const SWIPE_DISTANCE = 50;
+
+/** Whether the page is pinch-zoomed in - a drag then pans it. */
+const isPageZoomed = () => (window.visualViewport?.scale ?? 1) > 1;
+
+// The visual viewport resizes as the page zooms
+const subscribeToPageZoom = (onChange: () => void) => {
+  const viewport = window.visualViewport;
+  viewport?.addEventListener("resize", onChange);
+  return () => viewport?.removeEventListener("resize", onChange);
+};
 
 /** A modal image gallery with keyboard navigation, zoom and loading/error states. */
 export default function ImageViewer({
@@ -98,48 +122,118 @@ export default function ImageViewer({
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const [internalIndex, setInternalIndex] = useState(defaultIndex);
   const open = controlledOpen ?? internalOpen;
+  // The loaded images, by their number and the last of them - another
+  // gallery of as many (an album the parent swaps while the viewer is open)
+  // is not the one `onLoadMore` was called or failed for
+  const loadedKey = `${images.length}:${images[images.length - 1]?.src ?? ""}`;
+  // `onLoadMore` was called for these loaded images - more can come also
+  // while the parent takes it away as it loads, so the image shown and the
+  // arrows stay where they are
+  const [requestedFor, setRequestedFor] = useState<string | null>(null);
   // The whole gallery - the loaded images and those still to load
   const count = Math.max(total ?? 0, images.length);
-  const canLoadMore = !!onLoadMore && images.length < count;
-  // Past the loaded images only while more can load - they show loading
-  const index = clampIndex(
-    controlledIndex ?? internalIndex,
-    canLoadMore ? count : images.length,
-  );
+  const canLoadMore =
+    images.length < count && (!!onLoadMore || requestedFor === loadedKey);
+  // The images the arrows reach - past the loaded ones only while more can
+  // load (they show loading); a `total` alone changes just the position
+  const reachable = canLoadMore ? count : images.length;
+  const index = clampIndex(controlledIndex ?? internalIndex, reachable);
+
+  useLayoutEffect(() => {
+    latest.current = { index, loadedKey, onLoadMore };
+  });
   const image = images[index];
   const isWaiting = index >= images.length && canLoadMore;
-  // `onLoadMore` failed for this many loaded images - the next one cannot
-  // show
-  const [failedLoad, setFailedLoad] = useState<number | null>(null);
-  const hasFailedLoad = isWaiting && failedLoad === images.length;
-  // The number of loaded images `onLoadMore` was called for - once each
-  const requestedFor = useRef<number | null>(null);
+  // `onLoadMore` failed for these loaded images - it rejected, or resolved
+  // without more: the next one cannot show
+  const [failedLoad, setFailedLoad] = useState<string | null>(null);
+  // The request and its failure are done with once these images are no
+  // longer loaded - more came, or the parent replaced them. Back to as many,
+  // more can load again.
+  if (requestedFor !== null && requestedFor !== loadedKey) {
+    setRequestedFor(null);
+  }
+  if (failedLoad !== null && failedLoad !== loadedKey) setFailedLoad(null);
+  const hasFailedLoad = isWaiting && failedLoad === loadedKey;
+  // The error shows a render later, after the transitions still pending -
+  // images the parent stores in one come first, and it does not show with
+  // them. It hides at once.
+  const showsFailedLoad = useDeferredValue(hasFailedLoad) && hasFailedLoad;
+  // The call of `onLoadMore` for the loaded images - once while they stay
+  // loaded; after a failure, again once the image shown changed
+  const request = useRef<{ key: string; failedAt?: number } | null>(null);
+  // What the last render got - a new `onLoadMore` of each render of the
+  // parent (an inline function) is no reason to call it again
+  const latest = useRef({ index: 0, loadedKey, onLoadMore });
   const swipeStart = useRef<{ id: number; x: number; y: number } | null>(null);
 
   // The next images load as the last loaded one shows, so that moving on
   // does not wait for them
   useEffect(() => {
+    if (!open) {
+      // Another gallery may open next - with as many images
+      request.current = null;
+      return;
+    }
+    // Done with once these images are no longer loaded - back to as many
+    // (the parent trimmed them to the first page), it asks again
+    if (request.current && request.current.key !== loadedKey) {
+      request.current = null;
+    }
+    // Moving away and back after a failure asks again - not a render of the
+    // parent, also one taking `onLoadMore` away while it loads and giving it
+    // back after the failure (`isFetchingNextPage ? undefined : fetchNextPage`)
+    const failedAt = request.current?.failedAt;
+    if (failedAt !== undefined && failedAt !== index) request.current = null;
     if (
-      !open ||
       !canLoadMore ||
       index < images.length - 1 ||
-      requestedFor.current === images.length
+      request.current?.key === loadedKey
     ) {
       return;
     }
-    const requested = images.length;
-    requestedFor.current = requested;
-    Promise.resolve(onLoadMore?.()).then(
+    // None to ask while the parent takes it away - the failure stays, and
+    // moving again asks
+    if (!latest.current.onLoadMore) return;
+    const current: { key: string; failedAt?: number } = { key: loadedKey };
+    request.current = current;
+    setRequestedFor(current.key);
+    // Loading again, after moving away and back
+    setFailedLoad((failed) => (failed === current.key ? null : failed));
+
+    // Unless the viewer closed or asked for the next ones meanwhile
+    const fail = () => {
+      if (request.current !== current) return;
+      current.failedAt = latest.current.index;
+      setFailedLoad(current.key);
+    };
+    let result: unknown;
+    try {
+      result = latest.current.onLoadMore();
+    } catch {
+      // A failed load like a rejected promise - not a crash of the viewer
+      fail();
+      return;
+    }
+    // Without a promise the images may come at any time - they are awaited
+    if (!isPromiseLike(result)) return;
+    Promise.resolve(result).then(
+      // The images come with a render of the parent - also one a turn
+      // later (TanStack Query tells its observers in a timeout). None by
+      // then is a failure: a `total` too high would wait for ever.
       () =>
-        setFailedLoad((current) => (current === requested ? null : current)),
-      () => {
-        setFailedLoad(requested);
-        // Moving away and back asks again
-        requestedFor.current = null;
-      },
+        setTimeout(() => {
+          if (latest.current.loadedKey === current.key) fail();
+        }),
+      fail,
     );
-  }, [canLoadMore, images.length, index, onLoadMore, open]);
+  }, [canLoadMore, images.length, index, loadedKey, open]);
   const [zoom, setZoom] = useState(1);
+  const pageZoomed = useSyncExternalStore(
+    subscribeToPageZoom,
+    isPageZoomed,
+    () => false,
+  );
   const [loaded, setLoaded] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const imageKey = image?.src;
@@ -151,6 +245,12 @@ export default function ImageViewer({
     setZoom(1);
     setFailed(null);
     setLoaded(null);
+    // Another gallery may open next - the request and the failure were of
+    // this one
+    if (previousOpen !== open) {
+      setRequestedFor(null);
+      setFailedLoad(null);
+    }
   }
   const close = () => {
     if (controlledOpen === undefined) setInternalOpen(false);
@@ -160,29 +260,32 @@ export default function ImageViewer({
   // Around from the end to the start only once all images are loaded
   const wraps = loop && !canLoadMore;
   const select = (next: number) => {
-    if (count === 0) return;
+    if (reachable === 0) return;
     const target = wraps
-      ? (next + count) % count
-      : clampIndex(next, canLoadMore ? count : images.length);
+      ? (next + reachable) % reachable
+      : clampIndex(next, reachable);
     if (target === index) return;
     if (controlledIndex === undefined) setInternalIndex(target);
     onIndexChange?.(target);
   };
-  const previousDisabled = count < 2 || (!wraps && index === 0);
-  const nextDisabled = count < 2 || (!wraps && index === count - 1);
+  const previousDisabled = reachable < 2 || (!wraps && index === 0);
+  const nextDisabled = reachable < 2 || (!wraps && index === reachable - 1);
   const isRtl = (element: Element) =>
     getComputedStyle(element).direction === "rtl";
 
   // A swipe sideways on a touch screen moves to the next or the previous
-  // image - not while zoomed in, when it pans the image
+  // image - not while the image or the page is zoomed in, when it pans
+  // them, nor a gesture of two fingers (a pinch zoom of the page)
   const swipeHandlers = {
     onPointerCancel: () => {
       swipeStart.current = null;
     },
     onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
-      if (event.pointerType === "mouse" || !event.isPrimary || zoom !== 1) {
+      if (!event.isPrimary) {
+        swipeStart.current = null;
         return;
       }
+      if (event.pointerType === "mouse" || zoom !== 1) return;
       swipeStart.current = {
         id: event.pointerId,
         x: event.clientX,
@@ -192,7 +295,9 @@ export default function ImageViewer({
     onPointerUp: (event: React.PointerEvent<HTMLElement>) => {
       const start = swipeStart.current;
       swipeStart.current = null;
-      if (!start || start.id !== event.pointerId) return;
+      // Also a page zoomed in meanwhile - the browser may not have
+      // cancelled the swipe
+      if (!start || start.id !== event.pointerId || isPageZoomed()) return;
 
       const dx = event.clientX - start.x;
       const dy = event.clientY - start.y;
@@ -232,7 +337,7 @@ export default function ImageViewer({
           select(0);
         } else if (event.key === "End") {
           event.preventDefault();
-          select(count - 1);
+          select(reachable - 1);
         }
       }}
     >
@@ -248,7 +353,8 @@ export default function ImageViewer({
             </IconButton>
             <span aria-live="polite" className="text-sm tabular-nums">
               {formatMessage(messages.position, {
-                index: count ? index + 1 : 0,
+                // None shown - also of a `total` none of which can load
+                index: reachable ? index + 1 : 0,
                 total: count,
               })}
             </span>
@@ -295,10 +401,13 @@ export default function ImageViewer({
           // An image of the gallery not loaded yet - `onLoadMore` brings it
           <div
             {...swipeHandlers}
-            aria-busy={!hasFailedLoad}
-            className="flex h-[55dvh] min-h-32 touch-pan-y items-center justify-center rounded bg-neutral-100 p-8 text-center text-sm dark:bg-neutral-900"
+            aria-busy={!showsFailedLoad}
+            className={cn(
+              "flex h-[55dvh] min-h-32 items-center justify-center rounded bg-neutral-100 p-8 text-center text-sm dark:bg-neutral-900",
+              !pageZoomed && "touch-pan-y touch-pinch-zoom",
+            )}
           >
-            {hasFailedLoad ? (
+            {showsFailedLoad ? (
               <div role="alert">{messages.loadError}</div>
             ) : (
               <div role="status">{messages.loading}</div>
@@ -313,8 +422,9 @@ export default function ImageViewer({
               aria-busy={loaded !== image.src && failed !== image.src}
               className={cn(
                 "relative max-h-[60dvh] min-h-32 overflow-auto rounded bg-neutral-100 dark:bg-neutral-900",
-                // Sideways moves are swipes, not panning, unless zoomed in
-                zoom === 1 && "touch-pan-y",
+                // Sideways moves are swipes, not panning, unless the image
+                // or the page is zoomed in - a pinch still zooms the page
+                zoom === 1 && !pageZoomed && "touch-pan-y touch-pinch-zoom",
               )}
               tabIndex={0}
             >

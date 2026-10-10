@@ -105,12 +105,13 @@ export interface DateRangePickerProps extends Omit<
   /** Validation message - also marks the field as invalid. */
   error?: string;
   /**
-   * Days that cannot be picked, e.g. booked days - called with the local
-   * midnight of a day. The calendar shows them struck through; the keys
-   * move over them, but they cannot start or end a range, nor lie in one
-   * (see `allowDisabledInRange`). A range over such a day - typed, a
-   * default one or one of the parent - makes the field invalid (a submit
-   * is blocked, the browser says `messages.dateRangePicker.unavailableInRange`).
+   * Days that cannot be picked, e.g. booked days - called with the start
+   * of a day: its local midnight, 1:00 of one whose midnight a clock change
+   * skips. The calendar shows them struck through; the keys move over
+   * them, but they cannot start or end a range, nor lie in one (see
+   * `allowDisabledInRange`). A range over such a day - typed, a default one
+   * or one of the parent - makes the field invalid (a submit is blocked,
+   * the browser says `messages.dateRangePicker.unavailableInRange`).
    */
   isDateDisabled?: DateDisabledPredicate;
   /** The label above the field - also its accessible name. */
