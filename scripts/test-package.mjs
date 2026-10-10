@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { builtinModules } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
@@ -54,7 +54,7 @@ function packedFiles(t) {
     filter: (path) =>
       !/^(?:\.git|node_modules|dist-docs|playwright-report|test-results)$/.test(
         relative(root, path).split(/[\\/]/)[0],
-      ),
+      ) && !/^(?:\.DS_Store|.*\.sw.)$/.test(basename(path)),
   });
   const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   delete manifest.scripts;
@@ -355,6 +355,144 @@ componentsUi({});
             [],
             resolution,
           );
+        }
+      },
+    );
+
+    await t.test(
+      "follows transitive package imports and ignores unrelated dependency cycles",
+      async () => {
+        const modules = join(directory, "node_modules");
+        for (const [name, dependencies, exports, files] of [
+          [
+            "wrapper-a",
+            { "wrapper-b": "*" },
+            "./index.js",
+            { "index.js": 'export { Button } from "wrapper-b/button";' },
+          ],
+          [
+            "wrapper-b",
+            { "components-ui": "*", "wrapper-a": "*" },
+            { "./button": "./button.js" },
+            { "button.js": 'export { Button } from "components-ui";' },
+          ],
+          [
+            "unrelated-a",
+            { "unrelated-b": "*" },
+            "./index.js",
+            { "index.js": "export const value = 1;" },
+          ],
+          [
+            "unrelated-b",
+            { "unrelated-a": "*" },
+            "./index.js",
+            { "index.js": "export const value = 2;" },
+          ],
+        ]) {
+          const folder = join(modules, name);
+          mkdirSync(folder);
+          writeFileSync(
+            join(folder, "package.json"),
+            JSON.stringify({
+              name,
+              version: "1.0.0",
+              type: "module",
+              dependencies,
+              exports,
+            }),
+          );
+          for (const [file, code] of Object.entries(files)) {
+            writeFileSync(join(folder, file), code);
+          }
+        }
+        writeFileSync(
+          join(directory, "src/index.css"),
+          '@import "tailwindcss";\n@import "components-ui/styles.css";\n',
+        );
+        writeFileSync(
+          join(directory, "src/main.tsx"),
+          `${entryOf(["Button"], "wrapper-a")}\nimport { value } from "unrelated-a";\nglobalThis.unrelated = value;\n`,
+        );
+        const isLibrary = (id) => id.startsWith(normalizePath(`${dist}/`));
+        const { default: componentsUi } = await import(
+          pathToFileURL(join(target, "src/components/ui/vite.js")).href
+        );
+        const full = await buildApp(directory, { isLibrary });
+        const used = await buildApp(directory, {
+          isLibrary,
+          plugins: [componentsUi()],
+        });
+        assert.equal(used.js, full.js);
+        assert.deepEqual(missingClasses(used, full), []);
+        assert.ok(
+          used.css.length < full.css.length / 2,
+          JSON.stringify({
+            used: used.css.length,
+            full: full.css.length,
+            warnings: used.warnings,
+          }),
+        );
+        assert.deepEqual(used.warnings, []);
+      },
+    );
+
+    await t.test(
+      "follows npm aliases of the library from wrapper packages",
+      async () => {
+        const modules = join(directory, "node_modules");
+        symlinkSync(target, join(modules, "ui-alias"), "junction");
+        const wrapper = join(modules, "alias-wrapper");
+        mkdirSync(wrapper);
+        writeFileSync(
+          join(wrapper, "package.json"),
+          JSON.stringify({
+            name: "alias-wrapper",
+            version: "1.0.0",
+            type: "module",
+            dependencies: {
+              "ui-alias": `npm:components-ui@${manifest.version}`,
+            },
+            exports: "./index.js",
+          }),
+        );
+        writeFileSync(
+          join(wrapper, "index.js"),
+          'export { Button } from "ui-alias";',
+        );
+        writeFileSync(
+          join(directory, "src/index.css"),
+          '@import "tailwindcss";\n@import "components-ui/styles.css";\n',
+        );
+        writeFileSync(
+          join(directory, "src/main.tsx"),
+          entryOf(["Button"], "alias-wrapper"),
+        );
+        const isLibrary = (id) => id.startsWith(normalizePath(`${dist}/`));
+        const { default: componentsUi } = await import(
+          pathToFileURL(join(target, "src/components/ui/vite.js")).href
+        );
+
+        // Vite is already available to the build. Keep only runtime peers in
+        // this fixture: a missing optional dependency of Vite must not make
+        // the conservative fallback hide a failure to recognize the alias.
+        const manifestPath = join(target, "package.json");
+        const originalManifest = readFileSync(manifestPath);
+        const runtimeManifest = structuredClone(manifest);
+        delete runtimeManifest.peerDependencies.vite;
+        delete runtimeManifest.peerDependenciesMeta.vite;
+        writeFileSync(manifestPath, JSON.stringify(runtimeManifest));
+        try {
+          const full = await buildApp(directory, { isLibrary });
+          const used = await buildApp(directory, {
+            isLibrary,
+            plugins: [componentsUi()],
+          });
+          assert.equal(used.js, full.js);
+          assert.deepEqual(missingClasses(used, full), []);
+          assert.ok(used.css.length < full.css.length / 2);
+          assert.deepEqual(used.warnings, []);
+        } finally {
+          writeFileSync(manifestPath, originalManifest);
         }
       },
     );

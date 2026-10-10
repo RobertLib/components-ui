@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.1
+
+- **Vite plugin** - follows transitive dependencies on the library, so
+  components re-exported through several packages keep their CSS and no
+  longer fail the build.
+- **FileUpload** - a failed cleanup of a file replaced without `upload`
+  no longer stops `onAttachmentsChange` or `onFilesChange`. Both thrown
+  errors and rejected promises are reported without losing the new value.
+- **Chart** - pie and donut categories with the same label can be hidden
+  and shown independently.
+- **RangeCalendar** - choosing a preset returns to the range's first month
+  even when that range is already selected, keeping the focus on the preset.
+- **Routing docs** - the React Router and TanStack Router adapters resolve
+  relative paths, queries and anchors against the current page, matching
+  the library's active-link rules.
+- **API docs** - shared props of union types show every variant, including
+  the array callback of `AccordionGroup` in multiple mode.
+- **Tests** - the `Timeline` hydration check tests the time elements' content
+  separately from their ISO attributes, so it also passes in UTC on CI.
+
 ## 0.7.0
 
 Fixes from a review of the whole library at 0.6.1. Some change what an app

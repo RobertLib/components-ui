@@ -167,11 +167,15 @@ describe("Timeline", () => {
 
     // The server's clock may be another than the browser's
     const html = renderToString(timeline);
-    expect(html).toContain(`dateTime="${at(9, 5).toISOString()}"`);
-    expect(html).not.toContain("9:05");
 
     const container = document.createElement("div");
     container.innerHTML = html;
+    const times = container.querySelectorAll("time");
+    expect(times).toHaveLength(2);
+    expect(times[0]).toHaveAttribute("dateTime", at(9, 5).toISOString());
+    // The ISO attribute may itself contain "9:05" in UTC. Only the
+    // visible text waits for hydration, not the machine-readable date.
+    for (const time of times) expect(time).toBeEmptyDOMElement();
     document.body.append(container);
     onTestFinished(() => container.remove());
     const onRecoverableError = vi.fn();

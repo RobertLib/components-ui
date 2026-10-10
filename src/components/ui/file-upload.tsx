@@ -337,6 +337,22 @@ function attempt<T>(run: () => T): { value: T } | { thrown: unknown } {
   }
 }
 
+/** A replacement has completed; a failed cleanup must not undo its report. */
+function notifyReplacedFile(
+  file: ListedFile,
+  onRemove: ((file: UploadedFile) => unknown) | undefined,
+) {
+  if (!onRemove) return;
+  const outcome = attempt(() => onRemove(toUploadedFile(file)));
+  if ("thrown" in outcome) {
+    logger.error("Replaced file cleanup failed", outcome.thrown);
+  } else if (isPromiseLike(outcome.value)) {
+    void Promise.resolve(outcome.value).catch((error) => {
+      logger.error("Replaced file cleanup failed", error);
+    });
+  }
+}
+
 // The browser the field last checked, and whether it can write a FileList
 let checkedTransfer: unknown;
 let fileListsWritable = false;
@@ -1306,15 +1322,7 @@ export default function FileUpload<
         onAttachmentsChange?.(list);
         onUpload?.(result);
         replaced.forEach((listed) => {
-          if (listed.status !== "done" || !onRemove) return;
-          const outcome = attempt(() => onRemove(toUploadedFile(listed)));
-          if ("thrown" in outcome) {
-            logger.error("Replaced file cleanup failed", outcome.thrown);
-          } else if (isPromiseLike(outcome.value)) {
-            void Promise.resolve(outcome.value).catch((error) => {
-              logger.error("Replaced file cleanup failed", error);
-            });
-          }
+          if (listed.status === "done") notifyReplacedFile(listed, onRemove);
         });
       });
     }
@@ -1509,7 +1517,7 @@ export default function FileUpload<
 
     report(({ onAttachmentsChange, onFilesChange, onRemove }) => {
       setInteracted(true);
-      leaving.forEach((file) => onRemove?.(toUploadedFile(file)));
+      leaving.forEach((file) => notifyReplacedFile(file, onRemove));
       if (replacesStored) onAttachmentsChange?.([]);
       onFilesChange?.(pickedFiles(filesRef.current));
     });

@@ -409,6 +409,46 @@ describe("RangeCalendar", () => {
   });
 
   it.each([false, true])(
+    "shows the first month when a preset selects the current range (controlled=%s)",
+    async (controlled) => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <form aria-label="Booking">
+          <RangeCalendar
+            {...(controlled
+              ? { value: september }
+              : { defaultValue: september })}
+            name="stay"
+            onChange={onChange}
+            presets={[{ label: "Original range", range: september }]}
+          />
+        </form>,
+      );
+      const preset = screen.getByRole("button", { name: "Original range" });
+
+      // Each use brings the range back into view, including after browsing
+      // away again. The preset keeps the focus and the value stays unchanged.
+      for (let repeat = 0; repeat < 2; repeat++) {
+        await user.click(screen.getByRole("button", { name: "Next month" }));
+        expect(
+          screen.getByRole("grid", { name: "October 2026" }),
+        ).toBeVisible();
+        await user.click(preset);
+        expect(
+          screen.getByRole("grid", { name: "September 2026" }),
+        ).toBeVisible();
+        expect(isInRange("September 8, 2026")).toBe(true);
+        expect(isInRange("September 12, 2026")).toBe(true);
+        expect(preset).toHaveFocus();
+      }
+
+      expect(onChange).not.toHaveBeenCalled();
+      expect(new FormData(getForm()).get("stay")).toBe("2026-09-08/2026-09-12");
+    },
+  );
+
+  it.each([false, true])(
     "drops a draft when a preset selects the current range (controlled=%s)",
     async (controlled) => {
       const user = userEvent.setup();
@@ -442,6 +482,32 @@ describe("RangeCalendar", () => {
       });
     },
   );
+
+  it("reveals the first day of a grid-picked range when its preset is chosen", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const range = { end: "2026-10-05", start: "2026-09-28" };
+    render(
+      <RangeCalendar
+        defaultValue={september}
+        onChange={onChange}
+        presets={[{ label: "Cross-month range", range }]}
+      />,
+    );
+
+    await user.click(day("September 28, 2026"));
+    await user.click(screen.getByRole("button", { name: "Next month" }));
+    await user.click(day("October 5, 2026"));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(range);
+    expect(screen.getByRole("grid", { name: "October 2026" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Next month" }));
+    await user.click(screen.getByRole("button", { name: "Cross-month range" }));
+    expect(screen.getByRole("grid", { name: "September 2026" })).toBeVisible();
+    expect(day("September 28, 2026")).toHaveAttribute("tabindex", "0");
+    expect(isInRange("September 28, 2026")).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
 
   it.each([{ maxDays: 4 }, { minDays: 6 }])(
     "makes a default range outside its day limits invalid: %j",

@@ -1872,6 +1872,64 @@ describe("FileUpload without upload", () => {
     );
   });
 
+  it.each(["throw", "reject"])(
+    "reports a native replacement when cleanup of the old attachment fails by %s",
+    async (failure) => {
+      const cleanupError = new Error("Cleanup failed");
+      const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+      const onFilesChange = vi.fn();
+      const onAttachmentsChange = vi.fn();
+      const onRemove = vi.fn(() => {
+        if (failure === "throw") throw cleanupError;
+        return Promise.reject(cleanupError);
+      });
+      const oldAttachment = {
+        id: "old",
+        filename: "old.pdf",
+        value: "blob-old",
+      };
+      function Field() {
+        const [attachments, setAttachments] = useState<UploadedFile[]>([
+          oldAttachment,
+        ]);
+        return (
+          <form aria-label="Order">
+            <FileUpload
+              attachments={attachments}
+              name="document"
+              onAttachmentsChange={(next) => {
+                onAttachmentsChange(next);
+                setAttachments(next);
+              }}
+              onFilesChange={onFilesChange}
+              onRemove={onRemove}
+            />
+          </form>
+        );
+      }
+      render(<Field />);
+      const form = screen.getByRole<HTMLFormElement>("form", { name: "Order" });
+      const replacement = file("new.pdf");
+
+      pick([replacement]);
+
+      expect(onRemove).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining(oldAttachment),
+      );
+      expect(onAttachmentsChange).toHaveBeenCalledExactlyOnceWith([]);
+      expect(onFilesChange).toHaveBeenCalledExactlyOnceWith([replacement]);
+      expect(screen.queryByText("old.pdf")).toBeNull();
+      expect(screen.getByText("new.pdf")).toBeInTheDocument();
+      expect(submitted(form, "document")).toEqual(["new.pdf"]);
+      await waitFor(() =>
+        expect(logger).toHaveBeenCalledExactlyOnceWith(
+          "Replaced file cleanup failed",
+          cleanupError,
+        ),
+      );
+    },
+  );
+
   it("requires a picked file", async () => {
     const user = userEvent.setup();
     render(

@@ -94,6 +94,8 @@ export default function RangePanel({
   // The range the last pick in the grid reported - taken once, so it
   // cannot keep a later range of the parent from showing its month
   const [pickedKey, setPickedKey] = useState<string | null>(null);
+  // A preset reveals its first day even when it selects the current range.
+  const [revealSelectedKey, setRevealSelectedKey] = useState(0);
 
   if (
     valueKey !== shownValue.valueKey ||
@@ -209,6 +211,8 @@ export default function RangePanel({
             setAnchor(null);
             setHighlighted(null);
             setPickedKey(null);
+            setShownValue((previous) => ({ ...previous, start: range.start }));
+            setRevealSelectedKey((key) => key + 1);
             onPick(range);
           }}
         />
@@ -237,6 +241,7 @@ export default function RangePanel({
           onSelect={pick}
           range={shownRange}
           readOnly={readOnly}
+          revealSelectedKey={revealSelectedKey}
           selected={shownValue.start}
         />
 

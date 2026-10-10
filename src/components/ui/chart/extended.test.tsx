@@ -157,4 +157,72 @@ describe("extended charts", () => {
     fireEvent.mouseEnter(left);
     expect(tooltip().style.left).toBe("39.5%");
   });
+  it.each(["pie", "donut"] as const)(
+    "toggles repeated category labels independently in a %s",
+    (type) => {
+      render(
+        <Chart
+          data={[
+            { label: "Other", a: 10 },
+            { label: "Other", a: 20 },
+          ]}
+          series={series.slice(0, 1)}
+          title="Share"
+          type={type}
+        />,
+      );
+      const [first, second] = screen.getAllByRole("button", { name: "Other" });
+
+      fireEvent.click(first);
+      expect(screen.queryByRole("img", { name: "Other: A 10" })).toBeNull();
+      expect(
+        screen.getByRole("img", { name: "Other: A 20" }),
+      ).toBeInTheDocument();
+      expect(first).toHaveAttribute("aria-pressed", "false");
+      expect(second).toHaveAttribute("aria-pressed", "true");
+
+      fireEvent.click(second);
+      expect(screen.getByText("No chart data")).toBeInTheDocument();
+      fireEvent.click(first);
+      expect(
+        screen.getByRole("img", { name: "Other: A 10" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("img", { name: "Other: A 20" })).toBeNull();
+    },
+  );
+  it.each(["pie", "donut"] as const)(
+    "keeps a category hidden when data is reordered in a %s",
+    (type) => {
+      const data = [
+        { label: "Alpha", a: 10 },
+        { label: "Beta", a: 20 },
+      ];
+      const props = { series: series.slice(0, 1), title: "Share", type };
+      const { rerender } = render(<Chart {...props} data={data} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Alpha" }));
+      rerender(<Chart {...props} data={[data[1], data[0]]} />);
+
+      expect(screen.queryByRole("img", { name: "Alpha: A 10" })).toBeNull();
+      expect(
+        screen.getByRole("img", { name: "Beta: A 20" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Alpha" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      expect(screen.getByRole("button", { name: "Beta" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Alpha" }));
+      expect(
+        screen.getByRole("img", { name: "Alpha: A 10" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("img", { name: "Beta: A 20" }),
+      ).toBeInTheDocument();
+    },
+  );
 });

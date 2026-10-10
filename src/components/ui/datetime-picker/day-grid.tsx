@@ -77,6 +77,8 @@ interface DayGridProps {
    * grids are `aria-readonly`.
    */
   readOnly?: boolean;
+  /** Change this to show `selected` again even when its day stays the same. */
+  revealSelectedKey?: number;
   /** The selected day - the grid starts at it (or today). */
   selected: Date | null;
   /**
@@ -161,6 +163,7 @@ function DayGridContent({
   onSelect,
   range,
   readOnly = false,
+  revealSelectedKey = 0,
   selected,
   selection,
   timeZone,
@@ -212,13 +215,19 @@ function DayGridContent({
   // the day it focuses says its month.
   const [announcement, setAnnouncement] = useState("");
 
-  // A day selected while the grid is open - picked, or typed into the
-  // field - becomes the focused one, in its month
+  // A day selected while the grid is open - picked, typed or revealed
+  // again by a preset - becomes the focused one, in its month.
   const selectedDay = selected ? toISODate(selected) : null;
-  const [shownSelectedDay, setShownSelectedDay] = useState(selectedDay);
+  const [shownSelection, setShownSelection] = useState({
+    day: selectedDay,
+    revealSelectedKey,
+  });
 
-  if (selectedDay !== shownSelectedDay) {
-    setShownSelectedDay(selectedDay);
+  if (
+    selectedDay !== shownSelection.day ||
+    revealSelectedKey !== shownSelection.revealSelectedKey
+  ) {
+    setShownSelection({ day: selectedDay, revealSelectedKey });
 
     if (selected) {
       const target = clampToRange(startOfDay(selected));

@@ -64,7 +64,7 @@ const ASSET =
 const TAILWIND_ROOT =
   /@import\s+(?:url\(\s*)?["']tailwindcss(?:\/[\w./-]*)?["']|@tailwind\s+utilities/;
 
-/** The package manifest of `file` with a name - not a stub of a folder. */
+/** The location and named manifest of `file`'s package, not a folder stub. */
 function packageOf(file) {
   for (
     let directory = dirname(file);
@@ -75,7 +75,7 @@ function packageOf(file) {
       const manifest = JSON.parse(
         readFileSync(join(directory, "package.json"), "utf8"),
       );
-      if (manifest.name) return manifest;
+      if (manifest.name) return { directory, manifest };
     } catch {
       // None here, or not JSON
     }
@@ -393,6 +393,76 @@ async function findUnusedModules(context, config, input) {
   };
   const shortPath = (file) => normalizePath(relative(root, file));
 
+  // A wrapper can depend on another wrapper that imports the library. Keep
+  // following those packages too, without parsing unrelated packages such
+  // as React. Walk the whole dependency graph: a cycle alone uses no UI.
+  const packageUsesLibrary = new Map();
+  const usesLibrary = async (file) => {
+    if (packageName === undefined) return false;
+    const initial = packageOf(file);
+    if (!initial) return true;
+    if (packageUsesLibrary.has(initial.directory)) {
+      return packageUsesLibrary.get(initial.directory);
+    }
+    const visited = new Set();
+    const pending = [initial];
+    while (pending.length > 0) {
+      const { directory, manifest } = pending.pop();
+      if (visited.has(directory)) continue;
+      visited.add(directory);
+      if (packageUsesLibrary.get(directory) === false) continue;
+      const dependencies = new Set([
+        ...Object.keys(manifest.dependencies ?? {}),
+        ...Object.keys(manifest.peerDependencies ?? {}),
+        ...Object.keys(manifest.optionalDependencies ?? {}),
+      ]);
+      if (
+        manifest.name === packageName ||
+        packageUsesLibrary.get(directory) === true ||
+        dependencies.has(packageName)
+      ) {
+        packageUsesLibrary.set(initial.directory, true);
+        return true;
+      }
+      for (const dependency of dependencies) {
+        let target;
+        try {
+          target = await resolveFile(
+            dependency,
+            pathOf(directory, "package.json"),
+          );
+        } catch {
+          // No root export - the app may import an exported subpath alone.
+        }
+        let info = target?.file ? packageOf(target.file) : undefined;
+        // A package can export only subpaths, so resolving its bare name
+        // fails. Its manifest is still available in a node_modules tree.
+        for (
+          let parent = directory;
+          !info && parent !== dirname(parent);
+          parent = dirname(parent)
+        ) {
+          const path = pathOf(
+            parent,
+            "node_modules",
+            dependency,
+            "package.json",
+          );
+          if (existsSync(path)) info = packageOf(path);
+        }
+        if (!info) {
+          // Unavailable to this resolver (or supplied by another plugin):
+          // read the importing package rather than exclude its components.
+          packageUsesLibrary.set(initial.directory, true);
+          return true;
+        }
+        pending.push(info);
+      }
+    }
+    for (const directory of visited) packageUsesLibrary.set(directory, false);
+    return false;
+  };
+
   const enqueue = (file) => {
     if (library.has(file)) request(file, ALL);
     else if (!visited.has(file) && !PLUGIN_FILES.includes(file)) {
@@ -417,12 +487,7 @@ async function findUnusedModules(context, config, input) {
       // No code of the page - or a worker, which renders nothing
     } else if (!SCRIPT.test(file)) {
       cannotRead(resolved.id);
-    } else if (
-      !file.includes("/node_modules/") ||
-      (packageName !== undefined &&
-        (packageOf(file)?.dependencies?.[packageName] ||
-          packageOf(file)?.peerDependencies?.[packageName]))
-    ) {
+    } else if (!file.includes("/node_modules/") || (await usesLibrary(file))) {
       enqueue(file);
     }
   };

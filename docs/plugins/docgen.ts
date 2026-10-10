@@ -291,7 +291,10 @@ function documentType(symbol: ts.Symbol, context: Context): TypeDoc | null {
   const type = checker.getDeclaredTypeOfSymbol(symbol);
   const constituents = type.isUnion() ? type.types : [type];
 
-  const props = new Map<string, PropDoc & { count: number }>();
+  const props = new Map<
+    string,
+    Omit<PropDoc, "type"> & { count: number; types: Set<string> }
+  >();
   let objectConstituents = 0;
 
   for (const constituent of constituents) {
@@ -344,6 +347,7 @@ function documentType(symbol: ts.Symbol, context: Context): TypeDoc | null {
       if (existing) {
         existing.count++;
         existing.required &&= required;
+        existing.types.add(typeText);
         continue;
       }
 
@@ -359,7 +363,7 @@ function documentType(symbol: ts.Symbol, context: Context): TypeDoc | null {
         description: docText(ownSymbol, checker),
         name: prop.name,
         required,
-        type: typeText,
+        types: new Set([typeText]),
       });
     }
   }
@@ -370,8 +374,19 @@ function documentType(symbol: ts.Symbol, context: Context): TypeDoc | null {
     description: docText(symbol, checker),
     extends: collectReactBases(declaration, checker),
     props: [...props.values()]
-      .map(({ count, ...prop }) => ({
+      .map(({ count, types, ...prop }) => ({
         ...prop,
+        // Shared props can have different types in the variants of a union.
+        // Parenthesize callbacks and conditional types so the union applies
+        // to the whole type, not just a callback's return value.
+        type:
+          types.size === 1
+            ? [...types][0]
+            : [...types]
+                .map((type) =>
+                  /=>|\bextends\b/.test(type) ? `(${type})` : type,
+                )
+                .join(" | "),
         // Present in only some members of a union - never required overall
         required: prop.required && count === objectConstituents,
       }))

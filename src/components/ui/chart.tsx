@@ -147,12 +147,18 @@ export default function Chart({
     [...point.values()].flatMap((value) => (value ? [value.end] : [])),
   );
   // The categories a pie can draw - the legend lists these, hidden or not
+  const categoryCounts = new Map<string, number>();
   const radialCategories = data.flatMap((point, index) => {
+    // Labels retain visibility through reorders; repeated labels each
+    // get their own key, including categories not currently drawn.
+    const occurrence = categoryCounts.get(point.label) ?? 0;
+    categoryCounts.set(point.label, occurrence + 1);
+    const key = JSON.stringify([point.label, occurrence]);
     const value = point[series[0]?.key];
-    return numeric(value) && value > 0 ? [{ index, value }] : [];
+    return numeric(value) && value > 0 ? [{ index, key, value }] : [];
   });
   const radialPoints = radialCategories.filter(
-    ({ index }) => !hiddenPoints.has(data[index].label),
+    ({ key }) => !hiddenPoints.has(key),
   );
   const radialMax = radialPoints.reduce(
     (max, point) => Math.max(max, point.value),
@@ -340,11 +346,9 @@ export default function Chart({
           role="group"
         >
           {(radial
-            ? // The categories it can draw - an index apart, as labels
-              // may repeat
-              radialCategories.map(({ index }) => ({
-                id: `${index}`,
-                key: data[index].label,
+            ? radialCategories.map(({ index, key }) => ({
+                id: key,
+                key,
                 label: data[index].label,
                 color: palette[index % palette.length],
               }))

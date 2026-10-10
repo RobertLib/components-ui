@@ -94,8 +94,20 @@ import { UIProvider, type LinkComponentProps } from "components-ui";
 
 function Link({ href, ...props }: LinkComponentProps) {
   const router = useRouter();
-  // The components pass whole URLs - TanStack's Link takes them apart
-  const url = new URL(href, "http://localhost");
+  const { pathname, searchStr, hash } = useLocation();
+  if (/^\\s*(?:[a-z][a-z\\d+.-]*:|\\/\\/)/i.test(href)) {
+    return <a href={href} {...props} />;
+  }
+  // Resolve relative URLs like an <a>, matching the library's active links.
+  const current = new URL("http://router");
+  current.pathname = pathname;
+  current.search = searchStr;
+  current.hash = hash;
+  const url = new URL(href, current);
+
+  if (url.origin !== current.origin) {
+    return <a href={href} {...props} />;
+  }
 
   return (
     <RouterLink
