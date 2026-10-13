@@ -84,6 +84,34 @@ describe("PinInput", () => {
     expect(cell(4, 4)).toHaveFocus();
   });
 
+  it.each(["9", "Backspace", "Delete", "ArrowLeft", "Home", "End"])(
+    "leaves a canceled %s key without changing the code or focus",
+    (key) => {
+      const onChange = vi.fn();
+      const onComplete = vi.fn();
+      render(
+        <PinInput
+          defaultValue="1234"
+          length={4}
+          onChange={onChange}
+          onComplete={onComplete}
+          onKeyDownCapture={(event) => event.preventDefault()}
+        />,
+      );
+      act(() => cell(3, 4).focus());
+
+      fireEvent.keyDown(cell(3, 4), {
+        code: key === "9" ? "Digit9" : key,
+        key,
+      });
+
+      expect(cellValues()).toBe("1234");
+      expect(cell(3, 4)).toHaveFocus();
+      expect(onChange).not.toHaveBeenCalled();
+      expect(onComplete).not.toHaveBeenCalled();
+    },
+  );
+
   it("ignores characters the code does not take", async () => {
     const user = userEvent.setup();
     render(<PinInput aria-label="Code" length={4} />);
@@ -857,6 +885,39 @@ describe("PinInput with a code that gets shorter under the focus", () => {
     await user.keyboard("{Backspace}");
     expect(cellValues()).toBe("1");
   });
+
+  it.each(["", "12"])(
+    "moves focus to the first empty shadow cell after the controlled code becomes %j",
+    (code) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const shadow = host.attachShadow({ mode: "open" });
+      const container = document.createElement("div");
+      shadow.append(container);
+      const onChange = vi.fn();
+      const { rerender, unmount } = render(
+        <PinInput length={4} onChange={onChange} value="1234" />,
+        { container },
+      );
+
+      try {
+        const cells =
+          container.querySelectorAll<HTMLInputElement>("input[inputmode]");
+        act(() => cells[3].focus());
+        expect(shadow.activeElement).toBe(cells[3]);
+
+        rerender(<PinInput length={4} onChange={onChange} value={code} />);
+
+        expect(shadow.activeElement).toBe(cells[code.length]);
+        expect(Array.from(cells, (input) => input.value).join("")).toBe(code);
+        fireEvent.keyDown(cells[code.length], { code: "Digit9", key: "9" });
+        expect(onChange).toHaveBeenLastCalledWith(`${code}9`);
+      } finally {
+        unmount();
+        host.remove();
+      }
+    },
+  );
 
   it("types into the first empty cell from a cell past it", async () => {
     const user = userEvent.setup();

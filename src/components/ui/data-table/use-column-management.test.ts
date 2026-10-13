@@ -31,6 +31,56 @@ function controlledColumns(
 }
 
 describe("useColumnManagement with a delayed controlled owner", () => {
+  it.each([false, true])(
+    "confirms a coalesced return after normalizing the submitted column state, normalized=%s",
+    (normalized) => {
+      const initial = normalized
+        ? { order: [], pinning: {}, visibility: {}, widths: {} }
+        : {};
+      const { lastChange, rerender, result } = controlledColumns(
+        columns,
+        initial,
+      );
+      act(() => result.current.handlePinColumn("name", "left"));
+      const first = lastChange();
+      act(() => result.current.handlePinColumn("name", "left"));
+      const cleared = lastChange();
+
+      // Returning that exact callback object confirms the final clear,
+      // even though internal normalization produces another TableState.
+      rerender({ state: cleared });
+      // The owner has caught up: the old pin is now an external choice.
+      rerender({ state: first });
+      expect(result.current.pinnedColumns).toEqual({
+        left: ["name"],
+        right: [],
+      });
+      act(() => result.current.handlePinColumn("name", "left"));
+      expect(lastChange().pinning).toEqual({});
+    },
+  );
+
+  it.each([false, true])(
+    "keeps a pending clear through an unrelated render before a delayed pin, cloned=%s",
+    (cloned) => {
+      const initial = {};
+      const { lastChange, rerender, result } = controlledColumns(
+        columns,
+        initial,
+      );
+      act(() => result.current.handlePinColumn("name", "left"));
+      const first = lastChange();
+      act(() => result.current.handlePinColumn("name", "left"));
+      const cleared = lastChange();
+
+      // An equal copy is no acknowledgement of the clear operation.
+      rerender({ state: cloned ? { ...cleared } : initial });
+      rerender({ state: first });
+      act(() => result.current.handlePinColumn("team", "right"));
+      expect(lastChange().pinning).toEqual({ team: "right" });
+    },
+  );
+
   it.each(["name", "constructor", "toString", "__proto__"])(
     "preserves other pins and toggles %s from its pending position",
     (key) => {
@@ -72,6 +122,52 @@ describe("useColumnManagement with a delayed controlled owner", () => {
     expect(lastChange().widths).toEqual({ team: 200 });
     rerender({ state: lastChange() });
     expect(result.current.columnWidths).toEqual({ team: 200 });
+  });
+
+  it("preserves pending columns when the locally owned density changes", () => {
+    const { lastChange, rerender, result } = controlledColumns();
+    act(() => result.current.handlePinColumn("name", "left"));
+    act(() => result.current.setDensity("compact"));
+    expect(result.current.density).toBe("compact");
+
+    act(() => result.current.setColumnWidth("team", 120));
+    expect(lastChange().pinning).toEqual({ name: "left" });
+    expect(lastChange().widths).toEqual({ team: 120 });
+    rerender({ state: lastChange() });
+    expect(result.current.pinnedColumns).toEqual({ left: ["name"], right: [] });
+    expect(result.current.density).toBe("compact");
+  });
+
+  it("confirms a coalesced column return after a local density change", () => {
+    const { lastChange, rerender, result } = controlledColumns();
+    act(() => result.current.handlePinColumn("name", "left"));
+    const first = lastChange();
+    act(() => result.current.handlePinColumn("name", "left"));
+    const cleared = lastChange();
+    act(() => result.current.setDensity("comfortable"));
+
+    // The density change cannot replace the token of the submitted clear.
+    rerender({ state: cleared });
+    rerender({ state: first });
+    act(() => result.current.setColumnWidth("team", 120));
+    expect(lastChange().pinning).toEqual({ name: "left" });
+    expect(result.current.density).toBe("comfortable");
+  });
+
+  it("retains uncontrolled density and restores only the column layout", () => {
+    const { result } = renderHook(() => useColumnManagement(columns));
+    act(() => result.current.setDensity("compact"));
+    act(() => result.current.handlePinColumn("name", "left"));
+    act(() => result.current.setColumnWidth("team", 120));
+    expect(result.current.pinnedColumns).toEqual({ left: ["name"], right: [] });
+    expect(result.current.columnWidths).toEqual({ team: 120 });
+
+    act(() => result.current.resetColumnLayout());
+    expect(result.current.pinnedColumns).toEqual({ left: [], right: [] });
+    expect(result.current.columnWidths).toEqual({});
+    expect(result.current.density).toBe("compact");
+    act(() => result.current.setDensity(null));
+    expect(result.current.density).toBeNull();
   });
 
   it("resolves functional visibility updates against pending choices and defaults", () => {

@@ -8,6 +8,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
+import { dateTimeZone, inTimeZone } from "../../../utils/time-zone";
 
 const row = { id: 1, joined: new Date(2026, 8, 24), name: "Adam" };
 const columns = [
@@ -16,6 +17,52 @@ const columns = [
 ];
 
 describe("DataTable date editing validation", () => {
+  it.each([
+    {
+      initial: "2026-09-25T03:00:00Z",
+      shown: "09/24/2026",
+      picked: "09/26/2026",
+      saved: "2026-09-27T03:00:00.000Z",
+    },
+    {
+      initial: "2026-10-25T03:00:00Z",
+      shown: "10/24/2026",
+      picked: "11/05/2026",
+      saved: "2026-11-06T04:00:00.000Z",
+    },
+  ])(
+    "keeps the cell's time zone and clock time when picking $picked",
+    async ({ initial, picked, saved, shown }) => {
+      const user = userEvent.setup();
+      const onCellEdit = vi.fn();
+      const zonedRow = {
+        ...row,
+        joined: inTimeZone(new Date(initial), "America/New_York"),
+      };
+      render(
+        <DataTable
+          columns={columns}
+          data={[zonedRow]}
+          onCellEdit={onCellEdit}
+        />,
+      );
+
+      await user.dblClick(screen.getAllByRole("cell")[0]);
+      const input = screen.getByRole("combobox", { name: "Joined" });
+      expect(input).toHaveValue(shown);
+      await user.keyboard(`{Control>}a{/Control}${picked}{Enter}`);
+
+      expect(onCellEdit).toHaveBeenCalledTimes(1);
+      const value = onCellEdit.mock.calls[0][2] as Date;
+      expect(value.toISOString()).toBe(saved);
+      expect(dateTimeZone(value)).toBe("America/New_York");
+      expect(value.getHours()).toBe(23);
+      expect(zonedRow.joined.toISOString()).toBe(
+        new Date(initial).toISOString(),
+      );
+    },
+  );
+
   it.each(["{Enter}", "{Tab}", "{Shift>}{Tab}{/Shift}"])(
     "keeps an invalid date editable on %s, then saves a corrected value",
     async (key) => {

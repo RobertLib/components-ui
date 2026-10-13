@@ -95,6 +95,28 @@ for (const key of ["Escape", "F2"]) {
   });
 }
 
+for (const key of ["Enter", "Escape"]) {
+  test(`closing a shadow date picker with ${key} returns focus to its field`, async ({
+    page,
+  }) => {
+    await page.goto("/tests/browser/?scenario=shadow-keyboard");
+    const field = page.getByRole("combobox", { name: /Shadow date/ });
+    await field.focus();
+    await field.press("ArrowDown");
+    const selected = page.getByRole("button", { name: "September 24, 2026" });
+    await expect(selected).toBeFocused();
+    await selected.press("ArrowRight");
+    const next = page.getByRole("button", { name: "September 25, 2026" });
+    await expect(next).toBeFocused();
+    await next.press(key);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(field).toHaveValue(
+      key === "Enter" ? "09/25/2026" : "09/24/2026",
+    );
+    await expect(field).toBeFocused();
+  });
+}
+
 test("tree and editor toolbar navigation follow focus inside a shadow root", async ({
   page,
 }) => {

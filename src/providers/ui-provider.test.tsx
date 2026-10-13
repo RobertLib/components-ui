@@ -40,6 +40,21 @@ function ContextReader({ onRender }: { onRender: () => void }) {
   return null;
 }
 
+function QueryPager({ prefix }: { prefix: string }) {
+  const [, setQuery] = useDataTableQuery({
+    syncWithUrl: true,
+    urlPrefix: prefix,
+  });
+  return (
+    <button
+      onClick={() => setQuery((query) => ({ ...query, page: query.page + 1 }))}
+      type="button"
+    >
+      Next {prefix}
+    </button>
+  );
+}
+
 describe("UIProvider", () => {
   it("renders links with the router's Link and marks the active tab", () => {
     render(
@@ -223,6 +238,59 @@ describe("UIProvider", () => {
     expect(navigateWith).toBe(first);
     act(() => navigateWith?.("/orders"));
     expect(calls).toEqual(["/orders second"]);
+  });
+
+  it.each([
+    { search: "" },
+    { pathname: "/users" },
+    { pathname: "/users", search: "" },
+  ])("shares pending navigation through a location override %j", (router) => {
+    const navigate = vi.fn();
+    render(
+      <UIProvider router={{ navigate, pathname: "/users", search: "" }}>
+        <QueryPager prefix="a_" />
+        <UIProvider router={router}>
+          <QueryPager prefix="b_" />
+        </UIProvider>
+      </UIProvider>,
+    );
+
+    // Neither location has caught up yet. Both fields still navigate the
+    // same router, so every change must include the other field's changes.
+    act(() => screen.getByRole("button", { name: "Next a_" }).click());
+    act(() => screen.getByRole("button", { name: "Next b_" }).click());
+    act(() => screen.getByRole("button", { name: "Next a_" }).click());
+    expect(navigate).toHaveBeenLastCalledWith("/users?a_page=3&b_page=2", {
+      replace: false,
+    });
+  });
+
+  it("isolates a nested router with its own navigation at the same location", () => {
+    const outerNavigate = vi.fn();
+    const innerNavigate = vi.fn();
+    render(
+      <UIProvider
+        router={{ navigate: outerNavigate, pathname: "/users", search: "" }}
+      >
+        <QueryPager prefix="a_" />
+        <UIProvider router={{ navigate: innerNavigate }}>
+          <QueryPager prefix="b_" />
+        </UIProvider>
+      </UIProvider>,
+    );
+
+    act(() => screen.getByRole("button", { name: "Next a_" }).click());
+    act(() => screen.getByRole("button", { name: "Next b_" }).click());
+    expect(outerNavigate).toHaveBeenLastCalledWith("/users?a_page=2", {
+      replace: false,
+    });
+    expect(innerNavigate).toHaveBeenLastCalledWith("/users?b_page=2", {
+      replace: false,
+    });
+    act(() => screen.getByRole("button", { name: "Next a_" }).click());
+    expect(outerNavigate).toHaveBeenLastCalledWith("/users?a_page=3", {
+      replace: false,
+    });
   });
 
   it("uses the locale and message overrides", () => {

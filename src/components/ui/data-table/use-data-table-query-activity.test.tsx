@@ -138,6 +138,34 @@ describe("useDataTableQuery with Activity", () => {
     );
   });
 
+  it.each(["hidden", "visible"] as const)(
+    "keeps a cleared search after an unchanged %s commit and an earlier navigation",
+    async (mode) => {
+      const ref = createRef<QueryState>();
+      const navigate = vi.fn();
+      const router = { navigate, pathname: "/orders", search: "?account=old" };
+      const child = <Harness ref={ref} />;
+      const { rerender } = render(content("visible", router, child));
+      const setQuery = ref.current![1];
+
+      act(() => setQuery((query) => ({ ...query, search: "Adam" })));
+      act(() => setQuery((query) => ({ ...query, search: "" })));
+      expect(navigate.mock.calls.map(([href]) => href)).toEqual([
+        "/orders?account=old&search=Adam",
+        "/orders?account=old",
+      ]);
+
+      await act(async () => rerender(content(mode, router, child)));
+      const earlier = { ...router, search: "?account=old&search=Adam" };
+      await act(async () => rerender(content(mode, earlier, child)));
+      act(() => setQuery((query) => ({ ...query, page: query.page + 1 })));
+
+      expect(navigate).toHaveBeenLastCalledWith("/orders?account=old&page=2", {
+        replace: false,
+      });
+    },
+  );
+
   it("discards pending changes when the last hidden table really unmounts", async () => {
     const ref = createRef<QueryState>();
     const navigate = vi.fn();

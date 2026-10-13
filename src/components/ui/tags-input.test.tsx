@@ -1032,6 +1032,55 @@ describe("TagsInput", () => {
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     });
 
+    it.each([false, true])(
+      "scrolls keyboard-highlighted suggestions into view, shadow root=%s",
+      (inShadowRoot) => {
+        const host = document.createElement("div");
+        document.body.append(host);
+        const root = inShadowRoot ? host.attachShadow({ mode: "open" }) : host;
+        const container = root.appendChild(document.createElement("div"));
+        const overlays = root.appendChild(document.createElement("div"));
+        const { unmount } = render(
+          <UIProvider portalContainer={overlays}>
+            <TagsInput
+              aria-label="Skills"
+              suggestions={["alpha", "alpine", "amethyst"]}
+            />
+          </UIProvider>,
+          { container },
+        );
+        const combobox = within(container).getByRole("combobox");
+
+        try {
+          act(() => combobox.focus());
+          fireEvent.change(combobox, { target: { value: "a" } });
+          const options = within(overlays).getAllByRole("option");
+          const firstScroll = vi.spyOn(options[0], "scrollIntoView");
+          const secondScroll = vi.spyOn(options[1], "scrollIntoView");
+
+          fireEvent.keyDown(combobox, { key: "ArrowDown" });
+          expect(combobox).toHaveAttribute(
+            "aria-activedescendant",
+            options[0].id,
+          );
+          expect(firstScroll).toHaveBeenCalledExactlyOnceWith({
+            block: "nearest",
+          });
+          fireEvent.keyDown(combobox, { key: "ArrowDown" });
+          expect(combobox).toHaveAttribute(
+            "aria-activedescendant",
+            options[1].id,
+          );
+          expect(secondScroll).toHaveBeenCalledExactlyOnceWith({
+            block: "nearest",
+          });
+        } finally {
+          unmount();
+          host.remove();
+        }
+      },
+    );
+
     it("keeps the highlight of the arrow keys under a pointer that does not move", async () => {
       const user = userEvent.setup();
       render(<TagsInput label="Skills" suggestions={skills} />);

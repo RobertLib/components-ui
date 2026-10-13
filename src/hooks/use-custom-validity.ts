@@ -1,4 +1,5 @@
-import { useInsertionEffect, useLayoutEffect, useRef } from "react";
+import { useId, useInsertionEffect, useLayoutEffect, useRef } from "react";
+import { usePortalContainer } from "../providers/ui-context";
 
 /**
  * Tracks which custom error belongs to the component. `validationMessage`
@@ -82,6 +83,10 @@ export default function useCustomValidity(
   // custom error, so a constraint changing while hidden follows it too.
   const retainedInput = useRef<HTMLInputElement | null>(null);
   const tracked = useRef<ReturnType<typeof trackValidity> | null>(null);
+  const getPortalContainer = usePortalContainer();
+  // A distinct attribute per hook also survives nested Input wrappers.
+  // Public ids may repeat in separate shadow roots; they are not ownership.
+  const marker = `data-ui-validity-${Array.from(useId(), (character) => character.codePointAt(0)!.toString(16)).join("-")}`;
 
   const update = (input: HTMLInputElement | null) => {
     if (tracked.current?.input !== input) {
@@ -98,9 +103,44 @@ export default function useCustomValidity(
   // Hidden commits still run insertion effects. A removed input no longer
   // needs watching; a hidden one keeps its error and accepts new constraints.
   useInsertionEffect(() => {
-    const input = retainedInput.current;
-    if (input && !input.isConnected) retainedInput.current = null;
-    update(retainedInput.current);
+    let canceled = false;
+    const sync = () => {
+      const retained = retainedInput.current;
+      let input = ref.current ?? (retained?.isConnected ? retained : null);
+      if (!input && message) {
+        const roots = [getPortalContainer().getRootNode(), document];
+        const visited = new Set<Node>();
+        for (const root of roots) {
+          if (visited.has(root)) continue;
+          visited.add(root);
+          if (!(root instanceof Document || root instanceof ShadowRoot))
+            continue;
+          const element = root.querySelector<HTMLInputElement>(
+            `input[${marker}]`,
+          );
+          if (element) {
+            input = element;
+            break;
+          }
+          // Inline fields can live outside the overlay's target root.
+          // Search open roots only when a hidden field has no attached ref.
+          for (const host of root.querySelectorAll("*")) {
+            if (host.shadowRoot) roots.push(host.shadowRoot);
+          }
+        }
+      }
+      retainedInput.current = input;
+      update(input);
+    };
+    sync();
+    // A hidden subtree's insertion effect can run before its DOM is placed.
+    // Finish the lookup after the commit, using only this live revision.
+    queueMicrotask(() => {
+      if (!canceled) sync();
+    });
+    return () => {
+      canceled = true;
+    };
   });
 
   // Refs attach after insertion effects. Every visible commit also notices
@@ -119,4 +159,7 @@ export default function useCustomValidity(
     },
     [],
   );
+
+  // Spread on the actual input, including when rendered through InputBase.
+  return { [marker]: "" };
 }

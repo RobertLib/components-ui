@@ -51,16 +51,11 @@ export const getPendingSearches = (
 
 /** Takes note of the search the router shows. */
 export function observeSearch(entry: PendingSearches, search: string) {
-  // Only a change counts - not every render with the same search. Unless
-  // the changes end where the router is (a change, then back): a router
-  // that shows only the last of several navigations - one that loads data
-  // first - never shows the ones before it, which must not wait for good,
-  // or the Back button onto one of them would be taken for the router
-  // catching up, and the next change built on the end
-  if (search === entry.seen) {
-    if (entry.pending.at(-1) === search) entry.pending = [];
-    return;
-  }
+  // An unchanged search cannot acknowledge a return to the shown URL:
+  // an unrelated render, or another setter, may observe it while earlier
+  // navigations still wait. Without a navigation token a router coalescing
+  // changes back to this URL is indistinguishable from one still behind.
+  if (search === entry.seen) return;
   entry.seen = search;
 
   // A router may show only the latest navigation. When a query repeats

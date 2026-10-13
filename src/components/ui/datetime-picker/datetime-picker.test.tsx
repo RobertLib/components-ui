@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
@@ -7,6 +7,7 @@ import { cs } from "../../../i18n/ui/cs";
 import { en } from "../../../i18n/ui/en";
 import { createLocale } from "../../../i18n/ui/format";
 import UIProvider from "../../../providers/ui-provider";
+import { getActiveElement } from "../overlay-stack";
 
 /** Lets the frames the popup schedules (focus, scrolling) run. */
 const settle = () =>
@@ -613,6 +614,70 @@ describe("DateTimePicker with a 12-hour clock", () => {
 });
 
 describe("DateTimePicker focus", () => {
+  const renderInShadow = () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    const appRoot = document.createElement("div");
+    const portalRoot = document.createElement("div");
+    shadow.append(appRoot, portalRoot);
+    const { unmount } = render(
+      <UIProvider portalContainer={portalRoot}>
+        <DateTimePicker defaultValue="2026-09-24" label="Day" type="date" />
+        <input aria-label="Next field" />
+      </UIProvider>,
+      { container: appRoot },
+    );
+    onTestFinished(() => {
+      unmount();
+      host.remove();
+    });
+    return {
+      input: within(appRoot).getByRole("combobox", { name: /Day/ }),
+      next: within(appRoot).getByRole("textbox", { name: "Next field" }),
+      popup: within(portalRoot),
+    };
+  };
+
+  it.each(["pick", "escape"] as const)(
+    "returns the focus to a shadow-root field after %s in its popup",
+    async (action) => {
+      const { input, popup } = renderInShadow();
+      act(() => input.focus());
+      fireEvent.keyDown(input, { composed: true, key: "ArrowDown" });
+      await settle();
+      expect(getActiveElement()).toBe(
+        popup.getByRole("button", { name: "September 24, 2026" }),
+      );
+
+      const day = popup.getByRole("button", { name: "September 25, 2026" });
+      act(() => day.focus());
+      if (action === "pick") fireEvent.click(day, { composed: true });
+      else fireEvent.keyDown(day, { composed: true, key: "Escape" });
+
+      expect(popup.queryByRole("dialog")).toBeNull();
+      expect(input).toHaveValue(
+        action === "pick" ? "09/25/2026" : "09/24/2026",
+      );
+      expect(getActiveElement()).toBe(input);
+    },
+  );
+
+  it("keeps focus that has left a shadow-root popup on the next field", async () => {
+    const { input, next, popup } = renderInShadow();
+    act(() => input.focus());
+    fireEvent.keyDown(input, { composed: true, key: "ArrowDown" });
+    await settle();
+    expect(getActiveElement()).toBe(
+      popup.getByRole("button", { name: "September 24, 2026" }),
+    );
+
+    act(() => next.focus());
+
+    expect(popup.queryByRole("dialog")).toBeNull();
+    expect(getActiveElement()).toBe(next);
+  });
+
   const renderBetweenFields = (
     props: React.ComponentProps<typeof DateTimePicker> = {},
   ) => {

@@ -50,6 +50,52 @@ const bodyNames = () =>
     .map((row) => within(row).getAllByRole("cell")[0].textContent);
 
 describe("DataTable in client-side mode", () => {
+  it.each([
+    { initialQuery: createDataTableQuery(), presses: 4 },
+    {
+      initialQuery: createDataTableQuery({ sortBy: "name" }),
+      presses: 3,
+    },
+  ])(
+    "uses external sorting after the controlled owner coalesces repeated changes ($presses clicks)",
+    ({ initialQuery, presses }) => {
+      const onQueryChange = vi.fn();
+      const renderQuery = (query: DataTableQuery) => (
+        <DataTable
+          clientSide
+          columns={columns}
+          data={rows}
+          onQueryChange={onQueryChange}
+          query={query}
+        />
+      );
+      const { rerender } = render(renderQuery(initialQuery));
+
+      // A delayed controlled owner applies only the final ascending sort.
+      // That value appeared earlier in the sequence (or was shown first).
+      for (let press = 0; press < presses; press++) {
+        fireEvent.click(screen.getByRole("button", { name: "Name" }));
+      }
+      expect(onQueryChange).toHaveBeenCalledTimes(presses);
+      const confirmed = onQueryChange.mock.lastCall?.[0] as DataTableQuery;
+      expect(confirmed).toMatchObject({ order: "asc", sortBy: "name" });
+      rerender(renderQuery(confirmed));
+
+      // Back, or another external update, brings back the skipped descending
+      // sort. The next click must cycle from what the owner now shows.
+      rerender(
+        renderQuery(createDataTableQuery({ order: "desc", sortBy: "name" })),
+      );
+      expect(
+        screen.getByRole("columnheader", { name: "Name" }),
+      ).toHaveAttribute("aria-sort", "descending");
+      fireEvent.click(screen.getByRole("button", { name: "Name" }));
+      expect(onQueryChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sort: [], sortBy: null }),
+      );
+    },
+  );
+
   it("sorts, pages and reports the query", async () => {
     const user = userEvent.setup();
     const onQueryChange = vi.fn();

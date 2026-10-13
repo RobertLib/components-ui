@@ -15,6 +15,7 @@ import { flushSync } from "react-dom";
 import { formatMessage } from "../../../i18n/ui/format";
 import { getStepNumberFormat, stepValue, toCanonical } from "./number-format";
 import { InputBase } from "../input";
+import { getActiveElement } from "../overlay-stack";
 import { useLocale, useMessages } from "../../../providers/ui-context";
 
 // Page Up / Page Down step this many times
@@ -307,10 +308,9 @@ export default function NumberInput({
     value === null && text !== null && text !== ""
       ? messages.numberInput.invalidNumber
       : rangeMessage;
-  useCustomValidity(inputRef, validityMessage);
-
   const generatedId = useId();
   const inputId = id ?? generatedId;
+  const validityProps = useCustomValidity(inputRef, validityMessage);
 
   const commitValue = (next: number | null) => {
     const rounded = next === null ? null : numberFormat.round(next);
@@ -409,7 +409,7 @@ export default function NumberInput({
         if (
           !wheelEnabledRef.current ||
           input?.matches(":disabled") ||
-          input?.ownerDocument.activeElement !== input ||
+          getActiveElement(input?.ownerDocument) !== input ||
           // Pinch zoom, or a horizontal scroll
           event.ctrlKey ||
           Math.abs(event.deltaY) <= Math.abs(event.deltaX)
@@ -602,6 +602,7 @@ export default function NumberInput({
         floating={floating}
         form={form}
         id={inputId}
+        {...validityProps}
         inputMode={
           inputMode ??
           inputModeFor(platform, numberFormat.allowsFraction, allowsNegative)
@@ -699,7 +700,8 @@ export default function NumberInput({
         }}
         onPointerDown={(event) => {
           const input = event.currentTarget;
-          pointerFocus.current = input !== input.ownerDocument.activeElement;
+          pointerFocus.current =
+            input !== getActiveElement(input.ownerDocument);
           onPointerDown?.(event);
         }}
         prefix={prefix}

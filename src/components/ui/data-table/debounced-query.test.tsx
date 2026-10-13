@@ -1,4 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { Activity, StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
 import { createDataTableQuery, type DataTableQuery } from "./query";
@@ -25,6 +32,123 @@ const columns: Column<Row>[] = [
 const data: Row[] = [{ id: 1, name: "Adam", team: "A" }];
 
 describe("DataTable debounced queries", () => {
+  it("acknowledges an accepted clear before a later external search", async () => {
+    const onQueryChange = vi.fn();
+    const initialQuery = createDataTableQuery();
+    const content = (query: DataTableQuery) => (
+      <DataTable
+        columns={columns}
+        data={data}
+        defaultSearchOpen
+        enableGlobalSearch
+        onQueryChange={onQueryChange}
+        query={query}
+      />
+    );
+    const { rerender } = render(content(initialQuery));
+    const field = screen.getByRole("textbox", { name: "Search" });
+    fireEvent.change(field, { target: { value: "Adam" } });
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledTimes(1));
+    const firstQuery = onQueryChange.mock.calls[0][0] as DataTableQuery;
+    fireEvent.keyDown(field, { key: "Escape" });
+    const clearedQuery = onQueryChange.mock.lastCall![0] as DataTableQuery;
+
+    rerender(content(clearedQuery));
+    // Once the submitted clear is confirmed, an external search wins.
+    rerender(content(firstQuery));
+    fireEvent.click(screen.getByRole("button", { name: "Name" }));
+    expect(onQueryChange).toHaveBeenLastCalledWith(
+      createDataTableQuery({ search: "Adam", sortBy: "name" }),
+    );
+  });
+
+  it.each([false, true])(
+    "keeps a cleared search when an earlier query arrives after a loading render, inline=%s",
+    async (inline) => {
+      const onQueryChange = vi.fn();
+      const initialQuery = createDataTableQuery();
+      const content = (query = initialQuery, loading = false) => (
+        <DataTable
+          columns={columns}
+          data={data}
+          defaultSearchOpen
+          enableGlobalSearch
+          loading={loading}
+          onQueryChange={onQueryChange}
+          query={inline ? { ...query } : query}
+        />
+      );
+      const { rerender } = render(content());
+      const field = screen.getByRole("textbox", { name: "Search" });
+
+      fireEvent.change(field, { target: { value: "Adam" } });
+      await waitFor(() => expect(onQueryChange).toHaveBeenCalledTimes(1));
+      const firstQuery = onQueryChange.mock.calls[0][0] as DataTableQuery;
+      fireEvent.keyDown(field, { key: "Escape" });
+      expect(onQueryChange).toHaveBeenLastCalledWith(initialQuery);
+
+      // Starting a fetch does not confirm the pending clear operation.
+      rerender(content(initialQuery, true));
+      rerender(content(firstQuery));
+      fireEvent.click(screen.getByRole("button", { name: "Name" }));
+      expect(onQueryChange).toHaveBeenLastCalledWith(
+        createDataTableQuery({ sortBy: "name" }),
+      );
+    },
+  );
+
+  it.each(["filter", "search"] as const)(
+    "discards a pending %s after external query changes while hidden",
+    async (change) => {
+      const onQueryChange = vi.fn();
+      const initialQuery = createDataTableQuery();
+      const externalQuery = createDataTableQuery({
+        filters: { name: "external" },
+        search: "external",
+      });
+      const content = (mode: "hidden" | "visible", query = initialQuery) => (
+        <StrictMode>
+          <Activity mode={mode}>
+            <DataTable
+              columns={columns}
+              data={data}
+              defaultSearchOpen
+              enableGlobalSearch
+              onQueryChange={onQueryChange}
+              query={query}
+            />
+          </Activity>
+        </StrictMode>
+      );
+      const field = () =>
+        change === "filter"
+          ? screen.getByRole("searchbox", { name: "Filter Name" })
+          : screen.getByRole("textbox", { name: "Search" });
+      const { rerender } = render(content("visible"));
+
+      fireEvent.change(field(), { target: { value: "pending" } });
+      await waitFor(() => expect(onQueryChange).toHaveBeenCalledTimes(1));
+      expect(onQueryChange).toHaveBeenLastCalledWith(
+        expect.objectContaining(
+          change === "filter"
+            ? { filters: { name: "pending" } }
+            : { search: "pending" },
+        ),
+      );
+
+      await act(async () => rerender(content("hidden")));
+      await act(async () => rerender(content("hidden", externalQuery)));
+      await act(async () => rerender(content("hidden")));
+      rerender(content("visible"));
+      expect(field()).toHaveValue("");
+
+      fireEvent.click(screen.getByRole("button", { name: "Name" }));
+      expect(onQueryChange).toHaveBeenLastCalledWith(
+        createDataTableQuery({ sortBy: "name" }),
+      );
+    },
+  );
+
   it.each(["filter", "search"] as const)(
     "commits a pending %s through the current handler and query",
     async (change) => {

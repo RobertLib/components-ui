@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { Activity, StrictMode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import DataTable from ".";
 import type { Column } from "./types";
@@ -176,6 +176,39 @@ describe("DataTable inline editing", () => {
 
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveFocus();
   });
+
+  it.each(["light", "open", "closed"] as const)(
+    "starts editing on the second touch tap in a %s root",
+    (mode) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = mode === "light" ? document : host.attachShadow({ mode });
+      const container = document.createElement("div");
+      (mode === "light" ? host : root).appendChild(container);
+      const { unmount } = render(<EditableTable onCellEdit={vi.fn()} />, {
+        container,
+      });
+
+      try {
+        const nameCell = within(container).getAllByRole("cell")[0];
+        // A first touch focuses the cell before its click is delivered.
+        fireEvent.pointerDown(nameCell, { pointerType: "touch" });
+        act(() => nameCell.focus());
+        fireEvent.click(nameCell);
+        expect(within(container).queryByRole("textbox")).toBeNull();
+        expect(root.activeElement).toBe(nameCell);
+
+        fireEvent.pointerDown(nameCell, { pointerType: "touch" });
+        fireEvent.click(nameCell);
+        const field = within(container).getByRole("textbox", { name: "Name" });
+        expect(field).toHaveValue("Adam");
+        expect(root.activeElement).toBe(field);
+      } finally {
+        unmount();
+        host.remove();
+      }
+    },
+  );
 
   it("cancels with Escape - which leaves a full screen table alone", async () => {
     const user = userEvent.setup();
@@ -469,6 +502,38 @@ describe("DataTable inline editing", () => {
       <DataTable columns={columns} data={updated} onCellEdit={onCellEdit} />,
     );
     expect(cell(0, 0)).toHaveTextContent("Eva");
+  });
+
+  it("keeps a saved draft over a refetch received while hidden", async () => {
+    const user = userEvent.setup();
+    let finish!: () => void;
+    const onCellEdit = vi.fn(
+      () => new Promise<void>((resolve) => (finish = resolve)),
+    );
+    const content = (mode: "hidden" | "visible", data = rows) => (
+      <StrictMode>
+        <Activity mode={mode}>
+          <DataTable columns={columns} data={data} onCellEdit={onCellEdit} />
+        </Activity>
+      </StrictMode>
+    );
+    const { rerender } = render(content("visible"));
+
+    await user.dblClick(cell(0, 0));
+    await user.keyboard("{Control>}a{/Control}Eva{Enter}");
+    expect(cell(0, 0)).toHaveTextContent("Eva");
+    expect(cell(0, 0)).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => rerender(content("hidden")));
+    const polled = rows.map((row) => ({ ...row }));
+    await act(async () => rerender(content("hidden", polled)));
+    await act(async () => finish());
+    rerender(content("visible", polled));
+
+    expect(cell(0, 0)).not.toHaveAttribute("aria-busy");
+    expect(cell(0, 0)).toHaveTextContent(/^Eva$/);
+    await user.dblClick(cell(0, 0));
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Eva");
   });
 
   it.each(["before", "after"] as const)(

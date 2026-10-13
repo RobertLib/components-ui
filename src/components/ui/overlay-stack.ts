@@ -16,6 +16,7 @@ import {
   getTabbableElements,
   getTabStopsBeside,
 } from "../../utils/tabbable";
+import { usePortalContainer } from "../../providers/ui-context";
 
 /**
  * One open overlay - a Dialog, the slid-in Drawer, a Popover panel, a
@@ -45,6 +46,8 @@ interface OverlayEntry {
   getReturnTargets?: () => HTMLElement[];
   /** The `useId` of the overlay. */
   id: string;
+  /** Its layout effect is mounted - not inside a hidden Activity. */
+  isMounted: () => boolean;
   /** Traps the focus (Dialog, slid-in Drawer). */
   modal: boolean;
   /**
@@ -140,11 +143,18 @@ const stackListeners = new Set<() => void>();
 let isNotifyScheduled = false;
 
 const notifyStackChange = () => {
-  if (isNotifyScheduled || stackListeners.size === 0) return;
+  if (isNotifyScheduled) return;
   isNotifyScheduled = true;
   // After the commit: the stack changes in insertion effects, which must
   // not update any component
   queueMicrotask(() => {
+    // Insertion effects run for overlays opened inside hidden Activity too.
+    // Prune all of those before a subscriber sees the stack: another layer
+    // may have scheduled this notification earlier in the same commit.
+    // This also runs without subscribers, for Escape and shortcut queries.
+    for (const entry of [...stack]) {
+      if (!entry.isMounted()) unregister(entry.id);
+    }
     isNotifyScheduled = false;
     for (const listener of stackListeners) listener();
   });
@@ -255,6 +265,23 @@ export const hasModalOverlay = () => stack.some((entry) => entry.modal);
  */
 export const hasModalOverlayFrom = (id: string) =>
   stack.some((entry) => entry.modal && entry.ancestors.includes(id));
+
+/** The return targets of a focused modal opened from the overlay `id`. */
+export const getModalFocusReturnTargetsFrom = (
+  id: string,
+  active: Node | null,
+) =>
+  active
+    ? stack
+        .findLast(
+          (entry) =>
+            entry.modal &&
+            entry.id !== id &&
+            belongsTo(entry, id) &&
+            containsNode(entry, active),
+        )
+        ?.getReturnTargets?.()
+    : undefined;
 
 /**
  * Whether something in the overlays `ancestors` (outermost first) is out of
@@ -426,6 +453,9 @@ export const getFocusReturnTargetsWithNeighbors = (element: Element | null) =>
 // in, which is cheap; the Tab stops next to them are read as a dialog opens.
 // Kept until the focus moves or a dialog uses it.
 let clickedTargets: HTMLElement[] | null = null;
+// A retained dialog reconnects after child autoFocus. Its capture listener
+// still needs the click's origin after the document's focusin cleared it.
+const clickBeforeFocus = new WeakMap<Event, HTMLElement[]>();
 
 // What a click may focus, and so what the focus may go back to
 const CLICKABLE =
@@ -440,7 +470,8 @@ const rememberClick = (event: MouseEvent) => {
       : null;
 };
 
-const forgetClick = () => {
+const forgetClick = (event: FocusEvent) => {
+  if (clickedTargets) clickBeforeFocus.set(event, clickedTargets);
   clickedTargets = null;
 };
 
@@ -450,13 +481,13 @@ const CLICK_LISTENERS = Symbol.for("components-ui.overlay-stack.clicks");
 
 interface ClickListeners {
   click: (event: MouseEvent) => void;
-  focusin: () => void;
+  focusin: (event: FocusEvent) => void;
 }
 
 // Once for the page, in a browser - before any handler of the click opens a
 // dialog, also one mounted only while open. Marked pure although it adds the
-// listeners: only `getActiveFocusReturnTargets` reads what they remember, and
-// reads this too - so a bundler keeps the listeners in an app with overlays,
+// listeners: the focus-return helpers read what they remember, and read
+// this too - so a bundler keeps the listeners in an app with overlays,
 // added as the module loads, and leaves them out of one without.
 const isTrackingClicks = /* @__PURE__ */ (() => {
   if (typeof document === "undefined") return false;
@@ -486,6 +517,23 @@ function isLeftByClick(active: Element | null, control: HTMLElement) {
       active !== control &&
       active.contains(control))
   );
+}
+
+/**
+ * Where the focus entering a retained dialog came from, before its child's
+ * autoFocus. In Safari a click may have left focus on the body instead of
+ * its button; use the click remembered before this focus event too.
+ */
+export function getFocusReturnTargetsBeforeFocus(event: FocusEvent) {
+  const previous =
+    event.relatedTarget instanceof Element ? event.relatedTarget : null;
+  const clicked = isTrackingClicks
+    ? (clickBeforeFocus.get(event) ?? clickedTargets)
+    : null;
+  if (clicked && isLeftByClick(previous, clicked[0])) {
+    return withNeighborStops(clicked);
+  }
+  return getFocusReturnTargetsWithNeighbors(previous);
 }
 
 /**
@@ -776,6 +824,9 @@ export function useOverlayLayer(
 ) {
   const id = useId();
   const ancestors = use(OverlayContext);
+  // Layout effects run only while the layer is visible. Insertion effects
+  // also run for new overlays inside a hidden Activity.
+  const isMountedRef = useRef(false);
   const optionsRef = useRef({
     escape,
     getElements,
@@ -797,8 +848,16 @@ export function useOverlayLayer(
   useInsertionEffect(() => {
     if (!open) return;
 
+    // Keep registration before autoFocus. The queued stack notification
+    // discards provisional layers whose layout effect never mounts.
     register(
-      createEntry(id, ancestors, { modal, portaled, tooltip }, optionsRef),
+      createEntry(
+        id,
+        ancestors,
+        { modal, portaled, tooltip },
+        optionsRef,
+        isMountedRef,
+      ),
     );
     return () => unregister(id);
   }, [ancestors, id, modal, open, portaled, tooltip]);
@@ -807,14 +866,25 @@ export function useOverlayLayer(
   // overlay, but runs the cleanup of layout effects - a hidden overlay
   // leaves the stack here, and comes back when it is shown again
   useLayoutEffect(() => {
-    if (!open) return;
+    isMountedRef.current = true;
 
-    if (!stack.some((entry) => entry.id === id)) {
+    if (open && !stack.some((entry) => entry.id === id)) {
       register(
-        createEntry(id, ancestors, { modal, portaled, tooltip }, optionsRef),
+        createEntry(
+          id,
+          ancestors,
+          { modal, portaled, tooltip },
+          optionsRef,
+          isMountedRef,
+        ),
       );
     }
-    return () => unregister(id);
+    return () => {
+      isMountedRef.current = false;
+      // A closed layer's cleanup may follow the new opening's insertion
+      // registration, before its children focus. Leave that new entry intact.
+      if (open) unregister(id);
+    };
   }, [ancestors, id, modal, open, portaled, tooltip]);
 
   const childContext = useMemo(() => [...ancestors, id], [ancestors, id]);
@@ -836,12 +906,14 @@ const createEntry = (
       "escape" | "getElements" | "getFocusFallback" | "getReturnTargets"
     >
   >,
+  isMountedRef: React.RefObject<boolean>,
 ): OverlayEntry => ({
   ancestors,
   getElements: () => optionsRef.current.getElements(),
   getFocusFallback: () => optionsRef.current.getFocusFallback?.(),
   getReturnTargets: () => optionsRef.current.getReturnTargets?.() ?? [],
   id,
+  isMounted: () => isMountedRef.current,
   modal,
   portaled,
   takesEscape: () => optionsRef.current.escape !== false,
@@ -1107,11 +1179,14 @@ export function useFocusTrap(
 
       if (isAllowedOutside(id, target)) return;
 
-      const back =
+      const preferred =
         lastFocused && composedContains(container, lastFocused)
-          ? lastFocused
-          : (getTabbableElements(container)[0] ?? container);
-      back.focus();
+          ? [lastFocused]
+          : [];
+      // A retained control may have become disabled or hidden, and a browser
+      // may refuse another focusable candidate too. Keep trying until focus
+      // actually returns; the previous target can also have tabindex="-1".
+      focusFirst([...preferred, ...getTabbableElements(container), container]);
     };
 
     // The focused element was removed with a change of the content - the
@@ -1232,6 +1307,13 @@ export function useOverlay({
 }: UseOverlayOptions): UseOverlayResult {
   const onEscapeRef = useRef(onEscape);
   const returnFocusRef = useRef<HTMLElement[]>([]);
+  const retainedContainerRef = useRef<HTMLElement | null>(null);
+  const isLayoutMountedRef = useRef(false);
+  const captureOnReconnectRef = useRef(false);
+  const pendingFocusRef = useRef<
+    { previous: Node | null; target: Node | null; targets: HTMLElement[] }[]
+  >([]);
+  const getPortalContainer = usePortalContainer();
 
   useLayoutEffect(() => {
     onEscapeRef.current = onEscape;
@@ -1241,6 +1323,7 @@ export function useOverlay({
     // Without `onEscape`, an Escape under it is for the page (`useHotkeys`)
     escape: onEscape !== undefined,
     getElements: () => [ref.current],
+    getReturnTargets: () => returnFocusRef.current,
     modal,
   });
 
@@ -1273,9 +1356,83 @@ export function useOverlay({
   // closes gives the focus back there too.
   useInsertionEffect(() => {
     if (!isModalOpen) return;
+    captureOnReconnectRef.current = false;
     returnFocusRef.current = getActiveFocusReturnTargets();
     return () => noteModalFocusLoss(returnFocusRef.current, ref.current);
   }, [isModalOpen, ref]);
+
+  // Activity reconnects effects after child autofocus, while its insertion
+  // effects stay mounted. Before the first reveal the caller's ref has never
+  // attached, so remember focus transitions and match them to the panel once
+  // refs reconnect. Transitions while it stays hidden expire after the commit.
+  useInsertionEffect(() => {
+    if (!isModalOpen) return;
+    const roots = new Set<Document | ShadowRoot>([document]);
+    for (const element of [
+      getPortalContainer(),
+      retainedContainerRef.current,
+    ]) {
+      const root = element?.getRootNode();
+      if (root instanceof ShadowRoot) roots.add(root);
+    }
+    const handled = new WeakSet<Event>();
+    const captureFocusOrigin = (event: Event) => {
+      if (!captureOnReconnectRef.current || handled.has(event)) return;
+      handled.add(event);
+      const focus = event as FocusEvent;
+      pendingFocusRef.current.push({
+        previous: focus.relatedTarget as Node | null,
+        target: getEventTarget(focus),
+        targets: getFocusReturnTargetsBeforeFocus(focus),
+      });
+      queueMicrotask(() => {
+        if (!isLayoutMountedRef.current) pendingFocusRef.current = [];
+      });
+    };
+    for (const root of roots) {
+      root.addEventListener("focusin", captureFocusOrigin, true);
+    }
+    queueMicrotask(() => {
+      if (!isLayoutMountedRef.current) captureOnReconnectRef.current = true;
+    });
+    return () => {
+      for (const root of roots) {
+        root.removeEventListener("focusin", captureFocusOrigin, true);
+      }
+    };
+  });
+
+  useLayoutEffect(() => {
+    retainedContainerRef.current = ref.current;
+  });
+
+  useLayoutEffect(() => {
+    if (!isModalOpen) return;
+    isLayoutMountedRef.current = true;
+    if (captureOnReconnectRef.current) {
+      const container = ref.current;
+      const isWithin = (node: Node | null) =>
+        !!node &&
+        ((!!container && composedContains(container, node)) ||
+          isInOverlayTree(id, node));
+      const entering = pendingFocusRef.current.find(
+        ({ previous, target }) => isWithin(target) && !isWithin(previous),
+      );
+      const active = getActiveElement(container?.ownerDocument);
+      const nestedTargets = getModalFocusReturnTargetsFrom(id, active);
+      if (entering) returnFocusRef.current = entering.targets;
+      else if (nestedTargets) returnFocusRef.current = nestedTargets;
+      else if (!isWithin(active)) {
+        returnFocusRef.current = getActiveFocusReturnTargets();
+      }
+      captureOnReconnectRef.current = false;
+    }
+    pendingFocusRef.current = [];
+    return () => {
+      isLayoutMountedRef.current = false;
+      captureOnReconnectRef.current = true;
+    };
+  }, [id, isModalOpen, ref]);
 
   useEffect(() => {
     if (!isModalOpen) return;
@@ -1290,15 +1447,17 @@ export function useOverlay({
     const container = ref.current;
     if (!isModalOpen || !container) return;
 
-    if (!composedContains(container, getActiveElement())) {
+    if (!isInOverlayTree(id, getActiveElement())) {
       (getTabbableElements(container)[0] ?? container).focus();
     }
 
     const targets = returnFocusRef.current;
     return () => {
-      if (hasFocusLeftWith(container)) returnFocus(targets, container);
+      if (!hasModalOverlayFrom(id) && hasFocusLeftWith(container)) {
+        returnFocus(targets, container);
+      }
     };
-  }, [isModalOpen, ref]);
+  }, [id, isModalOpen, ref]);
 
   // Tooltips aside, as in a Dialog: one stays while its trigger has the
   // focus, which a press on the backdrop leaves there

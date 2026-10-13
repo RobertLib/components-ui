@@ -3,12 +3,7 @@ import { deepMerge, toIntlLocale } from "../i18n/ui/format";
 import { en } from "../i18n/ui/en";
 import type { DeepPartial, Locale, Messages } from "../i18n/ui/types";
 import DefaultLink from "./default-link";
-import {
-  browserBack,
-  browserNavigate,
-  notifyLocationChange,
-  type RouterAdapter,
-} from "./router";
+import { browserBack, browserNavigate, type RouterAdapter } from "./router";
 import {
   RouterActionsContext,
   RouterLocationContext,
@@ -92,15 +87,12 @@ export default function UIProvider({
   const navigate = router?.navigate ?? parent?.router?.navigate;
   const back = router?.back ?? parent?.router?.back;
 
-  // Inline adapters change identity on every render. Their shared state
-  // belongs to this provider; locale, link and back overrides inherit it.
+  // Pending URL changes belong to the navigation destination, even when a
+  // nested provider overrides its location. Only a new navigate adapter
+  // starts another router; pathname separates pages within its scope.
   const [ownRouterScope] = useState(() => ({}));
   const routerScope =
-    router?.navigate !== undefined ||
-    router?.pathname !== undefined ||
-    router?.search !== undefined
-      ? ownRouterScope
-      : parent?.routerScope;
+    router?.navigate !== undefined ? ownRouterScope : parent?.routerScope;
 
   // Portals call the current getter during their render, before insertion
   // effects run. A separate context keeps locale-only consumers stable.
@@ -118,11 +110,6 @@ export default function UIProvider({
   });
   const hasNavigate = navigate !== undefined;
   const hasBack = back !== undefined;
-  // A router given without its `pathname` / `search` changes the URL behind
-  // the back of `useBrowserLocation` - only the Navigation API would tell
-  // it, which not every browser has. Read the URL again after it navigates,
-  // also once more later for a router that changes it asynchronously.
-  const tracksLocation = pathname === undefined || search === undefined;
   const stableNavigate = useMemo<RouterAdapter["navigate"]>(() => {
     if (!hasNavigate) return browserNavigate;
 
@@ -130,12 +117,8 @@ export default function UIProvider({
     // `undefined`
     return (...args) => {
       latest.current.navigate?.(...args);
-      if (tracksLocation) {
-        notifyLocationChange();
-        setTimeout(notifyLocationChange);
-      }
     };
-  }, [hasNavigate, tracksLocation]);
+  }, [hasNavigate]);
   const stableBack = useMemo<RouterAdapter["back"]>(
     () => (hasBack ? () => latest.current.back?.() : browserBack),
     [hasBack],

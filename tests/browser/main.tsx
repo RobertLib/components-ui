@@ -40,6 +40,10 @@ import FeatureExpansion, {
 } from "./feature-expansion";
 import { RequiredFieldsFixture, RequiredSelectsFixture } from "./selection";
 import FormEditRegressions from "./form-edit-regressions";
+import FocusRegressions from "./focus-regressions";
+import AuditFixes from "./audit-fixes";
+import OverlayAuditFixes from "./overlay-audit-fixes";
+import HiddenValidity from "./hidden-validity";
 
 const params = new URLSearchParams(window.location.search);
 const container = document.getElementById("root");
@@ -48,7 +52,18 @@ if (!container) throw new Error("The browser fixture root is missing.");
 createRoot(container).render(
   <UIProvider locale={en}>
     <main>
-      {params.get("scenario") === "form-edit-regressions" ? (
+      {params.get("scenario") === "hidden-validity" ? (
+        <HiddenValidity
+          kind={params.get("kind")}
+          shadow={params.get("shadow") === "true"}
+        />
+      ) : params.get("scenario") === "overlay-audit-fixes" ? (
+        <OverlayAuditFixes kind={params.get("kind")} />
+      ) : params.get("scenario") === "audit-fixes" ? (
+        <AuditFixes kind={params.get("kind")} />
+      ) : params.get("scenario") === "focus-regressions" ? (
+        <FocusRegressions kind={params.get("kind")} />
+      ) : params.get("scenario") === "form-edit-regressions" ? (
         <FormEditRegressions
           initiallyHidden={params.get("initiallyHidden") === "true"}
           shadow={params.get("shadow") === "true"}

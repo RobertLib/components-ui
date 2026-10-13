@@ -10,10 +10,11 @@ import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import Tabs from "./tabs";
 import type { LinkComponentProps } from "../../providers/router";
 import UIProvider from "../../providers/ui-provider";
+import { getActiveElement } from "./overlay-stack";
 
 /** Lays the page out right to left - jsdom knows no `dir`. */
 function mockRightToLeft() {
@@ -1025,6 +1026,36 @@ describe("Closable tabs", () => {
       </>
     );
   }
+
+  it.each(["focused", "preceding"] as const)(
+    "preserves shadow-root tab focus when the %s tab closes",
+    (which) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const shadow = host.attachShadow({ mode: "open" });
+      const app = document.createElement("div");
+      shadow.append(app);
+      const { unmount } = render(<Editor />, { container: app });
+      onTestFinished(() => {
+        unmount();
+        host.remove();
+      });
+      const query = within(app);
+      const focused = query.getByRole("tab", {
+        name: which === "focused" ? "c.ts" : "b.ts",
+      });
+      act(() => focused.focus());
+
+      if (which === "focused") {
+        fireEvent.keyDown(focused, { composed: true, key: "Delete" });
+      } else {
+        fireEvent.click(app.querySelector("[data-tab-close]")!, {
+          composed: true,
+        });
+      }
+      expect(getActiveElement()).toBe(query.getByRole("tab", { name: "b.ts" }));
+    },
+  );
 
   it("close with Delete - the next tab takes the focus and the selection", async () => {
     const user = userEvent.setup();

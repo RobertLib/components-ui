@@ -10,7 +10,7 @@ import { Activity, createRef, StrictMode, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import Slider from "./slider";
+import Slider, { type SliderValue } from "./slider";
 import { cs } from "../../i18n/ui/cs";
 import UIProvider from "../../providers/ui-provider";
 
@@ -75,6 +75,31 @@ describe("Slider", () => {
       "15 %",
     );
   });
+
+  it.each([50, [20, 80] as [number, number]])(
+    "leaves canceled keyboard events unchanged (value: %s)",
+    (defaultValue) => {
+      const onChange = vi.fn();
+      const onChangeEnd = vi.fn();
+      render(
+        <Slider
+          aria-label="Volume"
+          defaultValue={defaultValue}
+          onChange={onChange}
+          onChangeEnd={onChangeEnd}
+          onKeyDownCapture={(event) => event.preventDefault()}
+        />,
+      );
+      const thumb = screen.getAllByRole("slider")[0];
+      const initial = Array.isArray(defaultValue)
+        ? defaultValue[0]
+        : defaultValue;
+      fireEvent.keyDown(thumb, { key: "ArrowRight" });
+      expect(thumb).toHaveAttribute("aria-valuenow", String(initial));
+      expect(onChange).not.toHaveBeenCalled();
+      expect(onChangeEnd).not.toHaveBeenCalled();
+    },
+  );
 
   it("moves with the keyboard", async () => {
     const user = userEvent.setup();
@@ -1009,6 +1034,246 @@ describe("Slider", () => {
       screen.getByRole("slider", { name: "Price maximum" }),
     ).toHaveAttribute("aria-valuenow", "90");
   });
+
+  it.each([
+    [30, [20, 80], [21, 80]],
+    [[20, 80], 40, 41],
+  ] satisfies [SliderValue, SliderValue, SliderValue][])(
+    "uses the new thumb count after editing and changing defaultValue from %s to %s",
+    async (initial, nextDefault, nextChange) => {
+      const onChange = vi.fn();
+      const onChangeEnd = vi.fn();
+      const view = (defaultValue: SliderValue) => (
+        <form aria-label="Settings">
+          <Slider
+            aria-label="Price"
+            defaultValue={defaultValue}
+            name="price"
+            onChange={onChange}
+            onChangeEnd={onChangeEnd}
+            showValue
+          />
+        </form>
+      );
+      const { rerender } = render(view(initial));
+      fireEvent.keyDown(screen.getAllByRole("slider")[0], {
+        key: "ArrowRight",
+      });
+      onChange.mockClear();
+      onChangeEnd.mockClear();
+
+      rerender(view(nextDefault));
+      const expected = Array.isArray(nextDefault) ? nextDefault : [nextDefault];
+      const thumbs = screen.getAllByRole("slider");
+      expect(thumbs).toHaveLength(expected.length);
+      expect(new FormData(getForm()).getAll("price")).toEqual(
+        expected.map(String),
+      );
+      for (const [index, thumb] of thumbs.entries()) {
+        expect(thumb).toHaveAttribute("aria-valuenow", String(expected[index]));
+        expect(
+          Number.isFinite(Number(thumb.getAttribute("aria-valuemin"))),
+        ).toBe(true);
+        expect(
+          Number.isFinite(Number(thumb.getAttribute("aria-valuemax"))),
+        ).toBe(true);
+      }
+      expect(getForm()).not.toHaveTextContent("NaN");
+      expect(onChange).not.toHaveBeenCalled();
+      expect(onChangeEnd).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(thumbs[0], { key: "ArrowRight" });
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(nextChange);
+      expect(onChangeEnd).toHaveBeenCalledExactlyOnceWith(nextChange);
+      expect(new FormData(getForm()).getAll("price")).toEqual(
+        (Array.isArray(nextChange) ? nextChange : [nextChange]).map(String),
+      );
+
+      act(() => getForm().reset());
+      await waitFor(() =>
+        expect(new FormData(getForm()).getAll("price")).toEqual(
+          expected.map(String),
+        ),
+      );
+
+      // Switching back starts from that mode's default too.
+      rerender(view(initial));
+      expect(new FormData(getForm()).getAll("price")).toEqual(
+        (Array.isArray(initial) ? initial : [initial]).map(String),
+      );
+    },
+  );
+
+  it.each([
+    [30, 70],
+    [30, [10, 90]],
+    [[20, 80], 70],
+    [
+      [20, 80],
+      [10, 90],
+    ],
+  ] satisfies [SliderValue, SliderValue][])(
+    "discards the earlier draft when a controlled value takes over (%s to %s)",
+    (defaultValue, controlledValue) => {
+      const onChange = vi.fn();
+      const onChangeEnd = vi.fn();
+      const view = (value?: SliderValue) => (
+        <form aria-label="Settings">
+          <Slider
+            aria-label="Price"
+            defaultValue={defaultValue}
+            name="price"
+            onChange={onChange}
+            onChangeEnd={onChangeEnd}
+            value={value}
+          />
+        </form>
+      );
+      const { rerender } = render(view());
+      fireEvent.keyDown(screen.getAllByRole("slider")[0], {
+        key: "ArrowRight",
+      });
+      rerender(view(controlledValue));
+      expect(new FormData(getForm()).getAll("price")).toEqual(
+        (Array.isArray(controlledValue)
+          ? controlledValue
+          : [controlledValue]
+        ).map(String),
+      );
+
+      onChange.mockClear();
+      onChangeEnd.mockClear();
+      rerender(view());
+      const expected = Array.isArray(defaultValue)
+        ? defaultValue
+        : [defaultValue];
+      const thumbs = screen.getAllByRole("slider");
+      expect(thumbs).toHaveLength(expected.length);
+      expect(new FormData(getForm()).getAll("price")).toEqual(
+        expected.map(String),
+      );
+      expect(onChange).not.toHaveBeenCalled();
+      expect(onChangeEnd).not.toHaveBeenCalled();
+      fireEvent.keyDown(thumbs[0], { key: "ArrowRight" });
+      const changed = Array.isArray(defaultValue)
+        ? [defaultValue[0] + 1, defaultValue[1]]
+        : defaultValue + 1;
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(changed);
+      expect(onChangeEnd).toHaveBeenCalledExactlyOnceWith(changed);
+    },
+  );
+
+  it.each([
+    [30, [20, 80], [30, 80]],
+    [[20, 80], 40, 50],
+  ] satisfies [SliderValue, SliderValue, SliderValue][])(
+    "cancels an active drag when changing from %s to %s",
+    (initial, nextDefault, nextChange) => {
+      const onChange = vi.fn();
+      const onChangeEnd = vi.fn();
+      const view = (defaultValue: SliderValue) => (
+        <form aria-label="Settings">
+          <Slider
+            aria-label="Price"
+            defaultValue={defaultValue}
+            name="price"
+            onChange={onChange}
+            onChangeEnd={onChangeEnd}
+          />
+        </form>
+      );
+      const { rerender } = render(view(initial));
+      const thumb = screen.getAllByRole("slider")[0];
+      layOutTrack(thumb);
+      const start = Array.isArray(initial) ? initial[0] : initial;
+      fireEvent.pointerDown(thumb, { ...press, clientX: start * 2 });
+      fireEvent.pointerMove(document, {
+        ...press,
+        buttons: 1,
+        clientX: (start + 10) * 2,
+      });
+      expect(onChange).toHaveBeenCalledTimes(1);
+
+      rerender(view(nextDefault));
+      fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 100 });
+      fireEvent.pointerUp(document, { ...press, clientX: 100 });
+      expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(true);
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChangeEnd).not.toHaveBeenCalled();
+      expect(new FormData(getForm()).getAll("price")).toEqual(
+        (Array.isArray(nextDefault) ? nextDefault : [nextDefault]).map(String),
+      );
+
+      const nextThumb = screen.getAllByRole("slider")[0];
+      expect(nextThumb.querySelector("span")).toHaveClass("opacity-0");
+      const nextStart = Array.isArray(nextDefault)
+        ? nextDefault[0]
+        : nextDefault;
+      fireEvent.pointerDown(nextThumb, { ...press, clientX: nextStart * 2 });
+      fireEvent.pointerMove(document, {
+        ...press,
+        buttons: 1,
+        clientX: (nextStart + 10) * 2,
+      });
+      fireEvent.pointerUp(document, {
+        ...press,
+        clientX: (nextStart + 10) * 2,
+      });
+      expect(onChange).toHaveBeenLastCalledWith(nextChange);
+      expect(onChangeEnd).toHaveBeenCalledExactlyOnceWith(nextChange);
+      expect(new FormData(getForm()).getAll("price")).toEqual(
+        (Array.isArray(nextChange) ? nextChange : [nextChange]).map(String),
+      );
+    },
+  );
+
+  it.each([
+    [30, [20, 80], "mouse"],
+    [30, [20, 80], "touch"],
+    [[20, 80], 40, "mouse"],
+    [[20, 80], 40, "touch"],
+  ] satisfies [SliderValue, SliderValue, string][])(
+    "does not finish a %s to %s mode change triggered by its own %s track press",
+    (initial, nextDefault, pointerType) => {
+      const onChange = vi.fn();
+      const onChangeEnd = vi.fn();
+      function Settings() {
+        const [defaultValue, setDefaultValue] = useState(initial);
+        return (
+          <form aria-label="Settings">
+            <Slider
+              aria-label="Price"
+              defaultValue={defaultValue}
+              name="price"
+              onChange={(next) => {
+                onChange(next);
+                setDefaultValue(nextDefault);
+              }}
+              onChangeEnd={onChangeEnd}
+            />
+          </form>
+        );
+      }
+      render(<Settings />);
+      const rail = layOutTrack(screen.getAllByRole("slider")[0]);
+      fireEvent.pointerDown(rail, { ...press, pointerType, clientX: 10 });
+      fireEvent.pointerUp(document, { ...press, pointerType, clientX: 10 });
+
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(
+        Array.isArray(initial) ? [5, initial[1]] : 5,
+      );
+      expect(onChangeEnd).not.toHaveBeenCalled();
+      expect(new FormData(getForm()).getAll("price")).toEqual(
+        (Array.isArray(nextDefault) ? nextDefault : [nextDefault]).map(String),
+      );
+      expect(
+        screen.getAllByRole("slider")[0].querySelector("span"),
+      ).toHaveClass("opacity-0");
+      expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(true);
+      fireEvent.pointerMove(document, { ...press, buttons: 1, clientX: 100 });
+      expect(onChange).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("submits its value and brings back the default on a form reset", async () => {
     const user = userEvent.setup();

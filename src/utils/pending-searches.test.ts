@@ -23,21 +23,25 @@ describe("observeSearch", () => {
     expect(entry.pending).toEqual([]);
   });
 
-  it("drops the changes a router showing only the last one ends where it is", () => {
+  it("keeps a return to the shown URL until the router changes its search", () => {
     const entry = getPendingSearches({}, "/people", "");
     // A filter, and off again before the router loaded the first
     navigate(entry, "?status=all");
     navigate(entry, "");
 
-    // The router shows the last - where it was
+    // A render or setter still sees the original URL. It cannot tell us
+    // whether the router has finished either navigation.
+    observeSearch(entry, "");
+    expect(entry.pending).toEqual(["?status=all", ""]);
+    observeSearch(entry, "");
+    expect(entry.pending).toEqual(["?status=all", ""]);
+
+    // The earlier navigation arrives while the return still waits.
+    observeSearch(entry, "?status=all");
+    expect(entry.pending).toEqual([""]);
     observeSearch(entry, "");
     expect(entry.pending).toEqual([]);
-
-    // Back onto the filter is a navigation from elsewhere - the next change
-    // builds on it, not on the end of the changes
-    observeSearch(entry, "?status=all");
-    expect(entry.pending).toEqual([]);
-    expect(entry.seen).toBe("?status=all");
+    expect(entry.seen).toBe("");
   });
 
   it("drops the changes of a navigation from elsewhere", () => {

@@ -19,9 +19,13 @@ import IconButton from "./icon-button";
 import {
   getActiveElement,
   getActiveFocusReturnTargets,
+  getElementByIdAt,
+  getFocusReturnTargetsBeforeFocus,
+  getModalFocusReturnTargetsFrom,
   hasFocusLeftWith,
   hasModalOverlayFrom,
   isEscapeKey,
+  isInOverlayTree,
   isTopmostOverlay,
   lockPageScroll,
   noteModalFocusLoss,
@@ -233,6 +237,9 @@ export default function ModalDialog({
     modal: true,
     portaled: true,
   });
+  const panelId = props.id ?? dialogId;
+  const isLayoutMountedRef = useRef(false);
+  const captureOnReconnectRef = useRef(false);
 
   const close = useCallback(() => {
     if (isControlled) {
@@ -374,9 +381,58 @@ export default function ModalDialog({
   // focus on the page body, or still in this one as it animates out.
   useInsertionEffect(() => {
     if (!isRequestedOpen) return;
+    captureOnReconnectRef.current = false;
     returnFocusRef.current = getActiveFocusReturnTargets();
     return () => noteModalFocusLoss(returnFocusRef.current, panelRef.current);
   }, [isRequestedOpen]);
+
+  // Activity reconnects refs and layout effects after a child's autoFocus,
+  // without rerunning the insertion effect that captured an ordinary opening.
+  // Listen on the retained DOM panel before that focus can happen, including
+  // events entirely inside a shadow root that never reach the document.
+  useInsertionEffect(() => {
+    if (!isRequestedOpen) return;
+    const panel = getElementByIdAt(getPortalContainer(), panelId);
+    if (!panel) return;
+    const captureFocusOrigin = (event: FocusEvent) => {
+      if (!captureOnReconnectRef.current) return;
+      const previous = event.relatedTarget as Node | null;
+      if (
+        previous &&
+        (composedContains(panel, previous) ||
+          isInOverlayTree(dialogId, previous))
+      ) {
+        return;
+      }
+      returnFocusRef.current = getFocusReturnTargetsBeforeFocus(event);
+      captureOnReconnectRef.current = false;
+    };
+    panel.addEventListener("focusin", captureFocusOrigin, true);
+    queueMicrotask(() => {
+      if (!isLayoutMountedRef.current) captureOnReconnectRef.current = true;
+    });
+    return () => panel.removeEventListener("focusin", captureFocusOrigin, true);
+  }, [dialogId, getPortalContainer, isRequestedOpen, panelId]);
+
+  useLayoutEffect(() => {
+    if (!isRequestedOpen) return;
+    isLayoutMountedRef.current = true;
+    if (captureOnReconnectRef.current) {
+      const active = getActiveElement(dialogRef.current?.ownerDocument);
+      // A portaled child modal may already have autofocus. Reuse where it
+      // will return, rather than treating its field as this dialog's opener.
+      const nestedTargets = getModalFocusReturnTargetsFrom(dialogId, active);
+      if (nestedTargets) returnFocusRef.current = nestedTargets;
+      else if (!isInOverlayTree(dialogId, active)) {
+        returnFocusRef.current = getActiveFocusReturnTargets();
+      }
+      captureOnReconnectRef.current = false;
+    }
+    return () => {
+      isLayoutMountedRef.current = false;
+      captureOnReconnectRef.current = true;
+    };
+  }, [dialogId, isRequestedOpen]);
 
   // While open: lock the page scroll
   useEffect(() => {
@@ -640,6 +696,7 @@ export default function ModalDialog({
             className,
           )}
           data-state={state}
+          id={panelId}
           // The dialog's own ref, and the one given to it
           ref={(element) => {
             dialogRef.current = element;

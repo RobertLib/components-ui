@@ -259,7 +259,11 @@ export default function ColorInput({
     },
     [ref],
   );
-  useCustomValidity(inputRef, validityMessage, text !== null);
+  const validityProps = useCustomValidity(
+    inputRef,
+    validityMessage,
+    text !== null,
+  );
 
   // `form.reset()` - also the one after a React form action - brings back
   // the `defaultValue`
@@ -446,6 +450,7 @@ export default function ColorInput({
           disabled={disabled}
           form={form}
           id={inputId}
+          {...validityProps}
           onBlur={(event) => {
             commitText();
             onBlur?.(event);

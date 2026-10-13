@@ -323,6 +323,49 @@ describe("CheckboxGroup", () => {
     expect(validation).not.toBeInTheDocument();
   });
 
+  it.each(["light", "open", "closed"] as const)(
+    "moves invalid empty-group focus to its group in a %s root",
+    async (mode) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = mode === "light" ? document : host.attachShadow({ mode });
+      const container = document.createElement("div");
+      (mode === "light" ? host : root).appendChild(container);
+      const { unmount } = render(
+        <form aria-label="Settings">
+          <CheckboxGroup label="Channels" options={[]} required />
+          <button type="button">Next field</button>
+        </form>,
+        { container },
+      );
+
+      try {
+        const form = container.querySelector("form")!;
+        const group = within(container).getByRole("group", {
+          name: "Channels:",
+        });
+        const validation = form.querySelector("input")!;
+        const next = within(container).getByRole("button", {
+          name: "Next field",
+        });
+        expect(form.checkValidity()).toBe(false);
+
+        await act(async () => validation.focus());
+        expect(root.activeElement).toBe(group);
+
+        // Validation finishing must respect focus moved by another handler.
+        await act(async () => {
+          validation.focus();
+          next.focus();
+        });
+        expect(root.activeElement).toBe(next);
+      } finally {
+        unmount();
+        host.remove();
+      }
+    },
+  );
+
   it("moves validation between the empty group and its returned options", () => {
     const field = (options: typeof channels) => (
       <form aria-label="Settings">

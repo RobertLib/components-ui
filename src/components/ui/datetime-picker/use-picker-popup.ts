@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { getActiveElement } from "../overlay-stack";
 
 /**
  * The open state of a picker's popup, with the refs `PickerField` needs.
@@ -23,7 +24,8 @@ export default function usePickerPopup(canOpen: boolean) {
     setIsOpen(false);
     // Back to the field from the popup - but not when the focus has moved
     // on already, e.g. Tab to the next field closed the popup
-    if (contentRef.current?.contains(document.activeElement)) {
+    const content = contentRef.current;
+    if (content?.contains(getActiveElement(content.ownerDocument))) {
       inputRef.current?.focus();
     }
   };

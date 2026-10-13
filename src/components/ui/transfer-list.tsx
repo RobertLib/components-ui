@@ -163,7 +163,7 @@ export default function TransferList({
           : "";
   const shownError = error || (validationShown ? validationMessage : "");
   const validationRef = useRef<HTMLInputElement | null>(null);
-  useCustomValidity(validationRef, validationMessage);
+  const validityProps = useCustomValidity(validationRef, validationMessage);
   const resetRef = useFormReset(() => {
     setPicked(undefined);
     setValidationShown(false);
@@ -452,6 +452,7 @@ export default function TransferList({
       <input
         disabled={disabled || readOnly}
         form={form}
+        {...validityProps}
         // Neither focusable nor seen by assistive technology - until the
         // browser reports it invalid (a submit, `reportValidity()`), then
         // it can take the focus the browser gives it

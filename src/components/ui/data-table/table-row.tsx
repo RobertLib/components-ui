@@ -39,6 +39,7 @@ import { getMeasureKey } from "./use-virtual-rows";
 import { useRouterActions } from "../../../providers/ui-context";
 import type { Column, DataTableDensity, RowId } from "./types";
 import type { Locale } from "../../../i18n/ui/types";
+import { getActiveElement } from "../overlay-stack";
 
 const MAX_CELL_TEXT_LENGTH = 80;
 
@@ -661,7 +662,10 @@ function TableRowView<T>({
                   ? (event) => {
                       tapRef.current =
                         event.pointerType === "touch" &&
-                        document.activeElement === event.currentTarget
+                        getActiveElement(
+                          event.currentTarget.getRootNode() as
+                            Document | ShadowRoot,
+                        ) === event.currentTarget
                           ? column.key
                           : null;
                     }

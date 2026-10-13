@@ -275,18 +275,109 @@ function visit(node, callback) {
   }
 }
 
+// Common references in URLs. Other named references keep all classes: the
+// plugin must read the same path as Vite's HTML parser, without making a
+// source copy depend on a separate HTML parser or its entity table.
+const HTML_REFERENCES = new Map([
+  ["amp", "&"],
+  ["AMP", "&"],
+  ["quot", '"'],
+  ["QUOT", '"'],
+  ["apos", "'"],
+  ["lt", "<"],
+  ["LT", "<"],
+  ["gt", ">"],
+  ["GT", ">"],
+  ["sol", "/"],
+  ["bsol", "\\"],
+  ["colon", ":"],
+  ["period", "."],
+  ["quest", "?"],
+  ["equals", "="],
+  ["percnt", "%"],
+  ["num", "#"],
+  ["Tab", "\t"],
+  ["NewLine", "\n"],
+]);
+const LEGACY_HTML_REFERENCES = new Set([
+  "amp",
+  "AMP",
+  "quot",
+  "QUOT",
+  "lt",
+  "LT",
+  "gt",
+  "GT",
+]);
+
+/** HTML character references of a script attribute, decoded only once. */
+function decodeScriptAttribute(value) {
+  return value?.replace(
+    /&(?:#(?:[xX][\da-fA-F]+|\d+);?|[a-zA-Z][a-zA-Z\d]*;?)/g,
+    (reference, index) => {
+      const unsupported = () => {
+        throw new Error(
+          `it cannot decode the HTML character reference "${reference}" in a script attribute`,
+        );
+      };
+      if (reference.startsWith("&#")) {
+        const hexadecimal = /^&#[xX]/.test(reference);
+        const code = Number.parseInt(
+          reference.slice(hexadecimal ? 3 : 2),
+          hexadecimal ? 16 : 10,
+        );
+        // HTML replaces invalid Unicode and some legacy control codes.
+        // Leave those conversions to Vite instead of guessing their path.
+        if (
+          code === 0 ||
+          code > 0x10ffff ||
+          (code >= 0xd800 && code <= 0xdfff) ||
+          (code >= 0x80 && code <= 0x9f)
+        ) {
+          return unsupported();
+        }
+        return String.fromCodePoint(code);
+      }
+
+      const terminated = reference.endsWith(";");
+      const name = reference.slice(1, terminated ? -1 : undefined);
+      // In attributes, a reference without its semicolon stays literal
+      // before a letter, digit or '=' - especially '&page=2' in a query.
+      if (
+        !terminated &&
+        /[a-zA-Z\d=]/.test(value[index + reference.length] ?? "")
+      ) {
+        return reference;
+      }
+      if (!HTML_REFERENCES.has(name)) return unsupported();
+      return terminated || LEGACY_HTML_REFERENCES.has(name)
+        ? HTML_REFERENCES.get(name)
+        : reference;
+    },
+  );
+}
+
 /** The module scripts of a page - the paths of `src`, or the code inline. */
 function readPage(file) {
   const scripts = [];
   const html = readFileSync(file, "utf8").replace(/<!--[\s\S]*?-->/g, "");
   for (const [, attributes, code] of html.matchAll(
-    /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi,
+    /<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/script\s*>/gi,
   )) {
-    if (!/\btype\s*=\s*["']?module\b/i.test(attributes)) continue;
-    const src = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(
-      attributes,
-    );
-    scripts.push(src ? { src: src[1] ?? src[2] ?? src[3] } : { code });
+    // Read whole attributes, including their quoted values: `data-src` is
+    // not `src`, nor is `src="..."` inside the value of another attribute.
+    const values = new Map();
+    for (const [, name, double, single, plain] of attributes.matchAll(
+      /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g,
+    )) {
+      const key = name.toLowerCase();
+      // HTML keeps the first attribute when the name appears twice.
+      if (!values.has(key)) values.set(key, double ?? single ?? plain ?? "");
+    }
+    // Vite recognizes the exact value `module`, unlike the attribute name.
+    if (decodeScriptAttribute(values.get("type")) !== "module") continue;
+    const src = decodeScriptAttribute(values.get("src"));
+    scripts.push(src ? { src } : { code });
   }
   return scripts;
 }

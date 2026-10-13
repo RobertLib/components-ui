@@ -25,6 +25,7 @@ import { formatPlural } from "../../i18n/ui/format";
 import { ignoreChange, keepCheckboxState } from "./read-only-choice";
 import { useLocale } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
+import { getActiveElement } from "./overlay-stack";
 
 export interface CheckboxOption<T extends string | number = string | number> {
   /** Content next to the checkbox - its accessible name. */
@@ -253,7 +254,7 @@ function CheckboxRow({
 
   // The browser shows the message when the form is submitted, at this
   // checkbox, and does not submit it
-  useCustomValidity(inputRef, validationMessage);
+  const validityProps = useCustomValidity(inputRef, validationMessage);
 
   const card = variant === "card";
   // Only a description that renders describes the checkbox - not the
@@ -282,6 +283,7 @@ function CheckboxRow({
       data-state={checkedState(checked, indeterminate)}
       disabled={disabled}
       form={form}
+      {...validityProps}
       name={name}
       onBlur={onBlur}
       onChange={
@@ -478,7 +480,7 @@ export default function CheckboxGroup<
   const needsValidationInput =
     !disabled && validationIndex === -1 && validationMessage !== "";
   const validationRef = useRef<HTMLInputElement | null>(null);
-  useCustomValidity(
+  const fallbackValidityProps = useCustomValidity(
     validationRef,
     needsValidationInput ? validationMessage : "",
   );
@@ -556,7 +558,9 @@ export default function CheckboxGroup<
               if (
                 validationRef.current === input &&
                 input.isConnected &&
-                input.ownerDocument.activeElement === input &&
+                getActiveElement(
+                  input.getRootNode() as Document | ShadowRoot,
+                ) === input &&
                 group?.isConnected
               ) {
                 group.focus();
@@ -565,6 +569,7 @@ export default function CheckboxGroup<
           }}
           readOnly={readOnly}
           ref={validationRef}
+          {...fallbackValidityProps}
           // Native required also works if Activity mounts the input while
           // hidden, before its ref and custom validity can attach.
           required

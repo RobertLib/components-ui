@@ -153,7 +153,7 @@ export default function PhoneInput({
     ((validate && !valid) || (required && !normalized))
       ? messages.invalid
       : "";
-  useCustomValidity(inputRef, message);
+  const validityProps = useCustomValidity(inputRef, message);
   const resetRef = useFormReset(() => {
     setEdited(undefined);
     setPickedCountry(undefined);
@@ -264,6 +264,7 @@ export default function PhoneInput({
           error={error || (validationShown ? message : undefined)}
           form={form}
           id={id}
+          {...validityProps}
           inputMode="tel"
           label={label}
           onBlur={(event) => {

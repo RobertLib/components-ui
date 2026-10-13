@@ -194,10 +194,10 @@ export default function Routing() {
           <p>
             Give <code>pathname</code> and <code>search</code> of your router
             together with <code>navigate</code>. Without them the components
-            read the browser URL: they re-read it after each{" "}
-            <code>navigate()</code> call and on back / forward, but a URL your
-            router changes on its own is noticed only in browsers with the
-            Navigation API.
+            read the browser URL and follow History API changes, including
+            delayed navigation, and back / forward. Passing the router's
+            location keeps the components in step with its rendered page, also
+            with an in-memory or hash router.
           </p>
         </Callout>
       </Section>

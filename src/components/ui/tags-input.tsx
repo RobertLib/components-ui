@@ -12,11 +12,11 @@ import FormDescription from "./form-description";
 import FormError from "./form-error";
 import Popover from "./popover";
 import { foldSearchText } from "../../utils/remove-diacritics";
-import { getActiveElement } from "./overlay-stack";
+import { getActiveElement, getElementByIdAt } from "./overlay-stack";
 import useCustomValidity from "../../hooks/use-custom-validity";
 import usePointerMoved from "../../hooks/use-pointer-moved";
 import { formatMessage, formatPlural } from "../../i18n/ui/format";
-import { useLocale } from "../../providers/ui-context";
+import { useLocale, usePortalContainer } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
 
 export interface TagsInputProps extends Omit<
@@ -186,6 +186,7 @@ export default function TagsInput({
   ...props
 }: TagsInputProps) {
   const locale = useLocale();
+  const getPortalContainer = usePortalContainer();
   const messages = locale.messages.ui;
   // The portaled suggestions are outside the fieldset of the input.
   const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();
@@ -275,7 +276,7 @@ export default function TagsInput({
     inputError ??
     (required && tags.length === 0 ? messages.tagsInput.required : "");
 
-  useCustomValidity(inputRef, validationMessage, true);
+  const validityProps = useCustomValidity(inputRef, validationMessage, true);
 
   // Set when the × button with the focus goes away with its value - should
   // the focus get lost after all (with the button of a duplicate), it goes
@@ -396,9 +397,9 @@ export default function TagsInput({
 
   const moveActive = (index: number) => {
     setActiveIndex(index);
-    document
-      .getElementById(optionId(index))
-      ?.scrollIntoView({ block: "nearest" });
+    getElementByIdAt(getPortalContainer(), optionId(index))?.scrollIntoView({
+      block: "nearest",
+    });
   };
 
   const pointerMoved = usePointerMoved();
@@ -645,6 +646,7 @@ export default function TagsInput({
         disabled={disabled}
         form={form}
         id={inputId}
+        {...validityProps}
         onBlur={onBlur}
         onChange={(event) => {
           const nextText = event.target.value;

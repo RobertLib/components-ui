@@ -137,8 +137,17 @@ export default function useColumnManagement<T>(
 
   // Several changes may come in a row (a reset changes the layout and the
   // visibility) - each builds on the one before, also before the owner of a
-  // controlled state shows it
-  const latestState = usePendingValue(state, isSameState);
+  // controlled state shows it. Its locally owned density cannot acknowledge
+  // or replace a pending column change.
+  const trackedState = useMemo<TableState>(
+    () => (isControlled ? { ...state, density: null } : state),
+    [isControlled, state],
+  );
+  const latestState = usePendingValue(
+    trackedState,
+    isSameState,
+    columnState ?? trackedState,
+  );
 
   const updateState = useCallback(
     (
@@ -148,7 +157,13 @@ export default function useColumnManagement<T>(
       const previous = latestState.get();
       const changes = typeof update === "function" ? update(previous) : update;
       const next = { ...previous, ...changes };
-      latestState.set(next);
+      const columnChanges = COLUMN_FIELDS.some((field) => field in changes);
+      const exported = columnChanges ? toColumnState(next) : undefined;
+      // Normalization replaces the internal TableState's identity. The exact
+      // object sent to the owner still proves which column change it applied.
+      if (!isControlled || columnChanges) {
+        latestState.set(next, isControlled ? exported : next);
+      }
 
       if (!isControlled) {
         updateStoredState(changes);
@@ -156,8 +171,8 @@ export default function useColumnManagement<T>(
         updateStoredState({ density: changes.density });
       }
 
-      if (COLUMN_FIELDS.some((field) => field in changes)) {
-        onColumnStateChange?.(toColumnState(next));
+      if (exported) {
+        onColumnStateChange?.(exported);
       }
     },
     [isControlled, latestState, onColumnStateChange, updateStoredState],

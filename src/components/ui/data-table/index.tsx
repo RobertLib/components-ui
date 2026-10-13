@@ -1824,7 +1824,9 @@ export default function DataTable<T>({
   // The rows as they are when a save ends - the current object of its row
   const latestData = useRef(data);
 
-  useLayoutEffect(() => {
+  // A save can finish while Activity hides the table. Hidden commits must
+  // update its rows too, so a poll does not discard the saved draft.
+  useInsertionEffect(() => {
     latestData.current = data;
   });
 

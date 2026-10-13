@@ -219,7 +219,11 @@ export default function PickerField({
       ? (parsedText.validityMessage ?? "")
       : "";
   // Clear only the component's own custom errors, leaving app errors alone.
-  useCustomValidity(inputRef, formValidityMessage, text !== null);
+  const validityProps = useCustomValidity(
+    inputRef,
+    formValidityMessage,
+    text !== null,
+  );
 
   // A reset can restore the same value, so watching value changes alone
   // cannot discard a draft (or the last rejected text).
@@ -423,6 +427,7 @@ export default function PickerField({
               data-state={isOpen && canOpen ? "open" : "closed"}
               disabled={disabled}
               id={inputId}
+              {...validityProps}
               // Phones pick from the popup, without a keyboard over it
               inputMode={isMobile ? "none" : inputProps.inputMode}
               // The typed text is taken also when the focus moves on into

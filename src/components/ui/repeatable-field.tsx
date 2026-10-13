@@ -161,7 +161,7 @@ export default function RepeatableField<T>({
           ? formatPlural(locale.code, messages.maximum, maximum)
           : "";
   const validationRef = useRef<HTMLInputElement | null>(null);
-  useCustomValidity(validationRef, invalid);
+  const validityProps = useCustomValidity(validationRef, invalid);
   const resetRef = useFormReset(() => {
     setDraft(undefined);
     setValidationShown(false);
@@ -375,6 +375,7 @@ export default function RepeatableField<T>({
       <input
         disabled={disabled || readOnly}
         form={form}
+        {...validityProps}
         // Neither focusable nor seen by assistive technology - until the
         // browser reports it invalid (a submit, `reportValidity()`), then it
         // can take the focus the browser gives it, with the message

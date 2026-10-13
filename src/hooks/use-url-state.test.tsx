@@ -239,6 +239,62 @@ describe("useUrlState", () => {
     expect(shown().q).toBe("jana");
   });
 
+  it.each(["render", "setter"] as const)(
+    "keeps a cleared search through an unchanged URL observed by a %s",
+    async (observeThrough) => {
+      const user = userEvent.setup();
+      const navigate = vi.fn();
+      function Search() {
+        const [, update] = useUrlState({ q: "" });
+        return (
+          <>
+            <button onClick={() => update({ q: "a" })} type="button">
+              Search
+            </button>
+            <button onClick={() => update({ q: "" })} type="button">
+              Clear
+            </button>
+            <button
+              onClick={() => update((current) => ({ q: `${current.q}x` }))}
+              type="button"
+            >
+              Append
+            </button>
+          </>
+        );
+      }
+      const view = (search: string) => (
+        <UIProvider router={{ pathname: "/members", search, navigate }}>
+          <Search />
+        </UIProvider>
+      );
+      const { rerender } = render(view(""));
+
+      await user.click(screen.getByRole("button", { name: "Search" }));
+      await user.click(screen.getByRole("button", { name: "Clear" }));
+      expect(navigate.mock.calls.map(([href]) => href)).toEqual([
+        "/members?q=a",
+        "/members",
+      ]);
+
+      // Both an unrelated render and a setter observe the still-original
+      // URL. Neither confirms that the clear navigation has finished.
+      if (observeThrough === "render") rerender(view(""));
+      else {
+        await user.click(screen.getByRole("button", { name: "Clear" }));
+        expect(navigate).toHaveBeenCalledTimes(2);
+      }
+
+      // The search navigation finishes before the newer clear. A relative
+      // change must still build on the user's cleared search.
+      rerender(view("?q=a"));
+      await user.click(screen.getByRole("button", { name: "Append" }));
+      expect(navigate).toHaveBeenLastCalledWith("/members?q=x", {
+        replace: false,
+      });
+    },
+  );
+
   it("builds on Back after a delayed router acknowledges the last of repeated queries", async () => {
     const user = userEvent.setup();
     const navigate = vi.fn();

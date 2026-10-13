@@ -5,6 +5,7 @@ import FormDescription from "./form-description";
 import FormError from "./form-error";
 import RequiredMark from "./required-mark";
 import { useMessages } from "../../providers/ui-context";
+import { getElementByIdAt } from "./overlay-stack";
 
 /** Whether a slot renders anything - the `false` of a condition does not. */
 const hasContent = (node: React.ReactNode) =>
@@ -120,7 +121,7 @@ export default function Field({
               !labelElement.control &&
               !isControlTarget(event.target, labelElement)
             ) {
-              labelElement.ownerDocument.getElementById(controlId)?.focus();
+              getElementByIdAt(labelElement, controlId)?.focus();
             }
           }}
         >

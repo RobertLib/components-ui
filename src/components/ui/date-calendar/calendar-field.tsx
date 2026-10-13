@@ -128,7 +128,7 @@ export default function CalendarField({
 
   // Its connected input still belongs to the form while Activity hides
   // the calendar. Constraint changes follow it without clearing app errors.
-  useCustomValidity(validationRef, validityMessage, true);
+  const validityProps = useCustomValidity(validationRef, validityMessage, true);
 
   const isOwnElement = (node: EventTarget | null) =>
     node instanceof Node && !!groupRef.current?.contains(node);
@@ -204,6 +204,7 @@ export default function CalendarField({
       <input
         disabled={disabled}
         form={form}
+        {...validityProps}
         // Neither focusable nor seen by assistive technology - until the
         // browser reports it invalid (a submit, `reportValidity()`), then
         // it can take the focus the browser gives it, with the message

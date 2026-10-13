@@ -328,10 +328,9 @@ export default function DateTimePicker({
           value: formatValue(String(value), type, locale),
         })
       : "";
-  useCustomValidity(nativeRef, nativeMessage);
-
   const generatedId = useId();
   const inputId = id ?? generatedId;
+  const nativeValidityProps = useCustomValidity(nativeRef, nativeMessage);
   const errorId = error ? `${inputId}-error` : undefined;
   const descriptionId = description ? `${inputId}-description` : undefined;
   const pickerMinuteStep = toMinuteStep(
@@ -396,6 +395,7 @@ export default function DateTimePicker({
           data-readonly={readOnly ? "" : undefined}
           disabled={disabled}
           id={inputId}
+          {...nativeValidityProps}
           max={max}
           min={min}
           name={name}

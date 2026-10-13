@@ -22,6 +22,7 @@ import { getPasswordStrength } from "./password-strength";
 import RequiredMark from "./required-mark";
 import { useMessages } from "../../providers/ui-context";
 import useCustomValidity from "../../hooks/use-custom-validity";
+import { getActiveElement } from "./overlay-stack";
 
 // Types the browser draws a format hint in (dd.mm.yyyy, --:--) while empty -
 // a floating label must not cover it
@@ -373,7 +374,7 @@ export function InputBase({
     masked && masked.formatted !== "" && !masked.complete
       ? messages.input.maskIncomplete
       : "";
-  useCustomValidity(inputRef, maskMessage);
+  const validityProps = useCustomValidity(inputRef, maskMessage);
 
   /**
    * Makes what the browser did to a masked field - `input.value` with the
@@ -397,7 +398,7 @@ export function InputBase({
     // Through the `value` property - React keeps track of it, and so sees
     // the next edit as a change
     if (input.value !== edit.value) input.value = edit.value;
-    if (input.ownerDocument.activeElement === input) {
+    if (getActiveElement(input.ownerDocument) === input) {
       input.setSelectionRange(edit.selectionStart, edit.selectionEnd);
     }
     if (!edit.changed) return;
@@ -523,6 +524,7 @@ export function InputBase({
       data-readonly={props.readOnly ? "" : undefined}
       disabled={disabled}
       id={inputId}
+      {...validityProps}
       // The numeric keyboard of phones for a mask of digits
       inputMode={
         props.inputMode ?? (parsedMask?.numeric ? "numeric" : undefined)

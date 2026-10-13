@@ -7,7 +7,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import Dialog from "./dialog";
 import Overlay from "./overlay";
-import { OverlayScope, useOverlay } from "./overlay-stack";
+import { OverlayScope, useOverlay, useOverlayLayer } from "./overlay-stack";
 import Popover from "./popover";
 import Tooltip from "./tooltip";
 
@@ -183,6 +183,35 @@ describe("useOverlay", () => {
     await user.click(screen.getByRole("button", { name: "Filters" }));
     await user.click(screen.getByRole("button", { name: "Save as" }));
     expect(screen.getByRole("textbox", { name: "Filter name" })).toHaveFocus();
+  });
+
+  it("keeps a newly opened nonmodal layer registered before child autofocus", async () => {
+    const user = userEvent.setup();
+    function Panel({ open }: { open: boolean }) {
+      useOverlayLayer(open, {
+        getElements: () => [document.getElementById("nested-panel")],
+      });
+      return open
+        ? createPortal(
+            <div id="nested-panel">
+              <input aria-label="Nested field" autoFocus />
+            </div>,
+            document.body,
+          )
+        : null;
+    }
+    function Page() {
+      const [open, setOpen] = useState(false);
+      return (
+        <Dialog open title="Details">
+          <button onClick={() => setOpen(true)}>Open panel</button>
+          <Panel open={open} />
+        </Dialog>
+      );
+    }
+    render(<Page />);
+    await user.click(screen.getByRole("button", { name: "Open panel" }));
+    expect(screen.getByRole("textbox", { name: "Nested field" })).toHaveFocus();
   });
 
   it("gets Escape only while it is the topmost overlay", async () => {

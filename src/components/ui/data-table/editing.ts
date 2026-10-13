@@ -1,4 +1,5 @@
 import { parseISODate, toISODate } from "../../../utils/date";
+import { copyDate } from "../../../utils/time-zone";
 import { toNumber } from "./query";
 import { getRowKey } from "./row-key";
 import type { CellEditResult, Column, ColumnEditor, RowId } from "./types";
@@ -175,7 +176,7 @@ function toDateValue(draft: string, initialValue: unknown): unknown {
     const day = parseISODate(draft);
     if (!day) return initialValue;
 
-    const value = new Date(initialValue);
+    const value = copyDate(initialValue);
     value.setFullYear(day.getFullYear(), day.getMonth(), day.getDate());
     return value;
   }

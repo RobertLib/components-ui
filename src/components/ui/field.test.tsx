@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
@@ -81,6 +81,35 @@ describe("Field", () => {
 
     await user.click(screen.getByText("Color:"));
     expect(screen.getByLabelText("Color:")).toHaveFocus();
+  });
+
+  it("focuses a custom control in its shadow root from the label", async () => {
+    const user = userEvent.setup();
+    const host = document.createElement("div");
+    const outside = document.createElement("input");
+    outside.id = "rating";
+    document.body.append(host, outside);
+    const shadow = host.attachShadow({ mode: "open" });
+    const container = shadow.appendChild(document.createElement("div"));
+    const { unmount } = render(
+      <Field id="rating" label="Rating">
+        {(controlProps) => <div {...controlProps} role="slider" tabIndex={0} />}
+      </Field>,
+      { container },
+    );
+    const field = within(container);
+    const slider = field.getByRole("slider");
+
+    try {
+      // An identical id in the document belongs to another control.
+      await user.click(field.getByText("Rating:"));
+      expect(shadow.activeElement).toBe(slider);
+      expect(outside).not.toHaveFocus();
+    } finally {
+      unmount();
+      host.remove();
+      outside.remove();
+    }
   });
 
   it("renders an element as it is, and leaves out what it is not given", () => {

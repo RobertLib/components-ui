@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useInsertionEffect, useRef, useState } from "react";
 
 const MAX_PENDING = 50;
 
@@ -12,26 +12,54 @@ const MAX_PENDING = 50;
  *
  * An owner that rejects a change looks the same as one that is late - the
  * rejected value stays pending until the owner shows another value.
+ * Returning the exact submitted object confirms a coalesced change back
+ * to the shown value. An unchanged primitive or an equal copy alone cannot
+ * distinguish that confirmation from an unrelated render.
+ * Callers that normalize values can pass the original incoming and submitted
+ * objects as tokens, so normalization does not lose that confirmation.
  *
  * The returned object is the same in every render; `isEqual` must be too.
  */
 export default function usePendingValue<V>(
   incoming: V,
   isEqual: (a: V, b: V) => boolean,
+  incomingToken: unknown = incoming,
 ) {
   const state = useRef({
     latest: incoming,
     pending: [] as V[],
     seen: incoming,
+    seenToken: incomingToken,
+    submittedToken: incomingToken,
   });
 
-  useEffect(() => {
+  // Activity keeps receiving owner updates while hidden. Track every
+  // committed value there too, before layout effects can read `get()`.
+  useInsertionEffect(() => {
     const current = state.current;
-    // Only a change of `incoming` counts - not every re-render with it
-    if (isEqual(current.seen, incoming)) return;
+    const changedToken = !Object.is(current.seenToken, incomingToken);
+    current.seenToken = incomingToken;
+    if (isEqual(current.seen, incoming)) {
+      // A loading render or an inline copy of the old query confirms
+      // nothing. Only the exact submitted object proves a coalesced return
+      // to the shown value; otherwise earlier confirmations may still come.
+      current.seen = incoming;
+      if (
+        changedToken &&
+        current.pending.length > 0 &&
+        Object.is(current.submittedToken, incomingToken) &&
+        isEqual(current.pending[current.pending.length - 1], incoming)
+      ) {
+        current.pending = [];
+        current.latest = incoming;
+      }
+      return;
+    }
     current.seen = incoming;
 
-    const index = current.pending.findIndex((value) =>
+    // An owner may skip intermediate values. A repeated value confirms its
+    // last occurrence, including the changes before it that were skipped.
+    const index = current.pending.findLastIndex((value) =>
       isEqual(value, incoming),
     );
 
@@ -49,9 +77,10 @@ export default function usePendingValue<V>(
 
   const [access] = useState(() => ({
     get: () => state.current.latest,
-    set: (value: V) => {
+    set: (value: V, submittedToken: unknown = value) => {
       const current = state.current;
       current.latest = value;
+      current.submittedToken = submittedToken;
 
       // Back at what the owner shows with nothing on the way - nothing to
       // wait for. With changes on the way the owner still shows them first,

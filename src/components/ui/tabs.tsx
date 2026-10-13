@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { attachRef } from "../../hooks/use-form-control";
+import { getActiveElement } from "./overlay-stack";
 import cn from "../../utils/cn";
 import Skeleton from "./skeleton";
 import { createLinkMatcher } from "../../providers/active-path";
@@ -579,9 +580,8 @@ export default function Tabs({
     const tabs = Array.from(
       tabsRef.current?.querySelectorAll<HTMLElement>("[role='tab']") ?? [],
     );
-    const focusedIndex = tabs.findIndex(
-      (tab) => tab === document.activeElement,
-    );
+    const focused = getActiveElement(tabsRef.current?.ownerDocument);
+    const focusedIndex = tabs.findIndex((tab) => tab === focused);
 
     if (focusedIndex === index) {
       focusAfterCloseRef.current = neighbor;

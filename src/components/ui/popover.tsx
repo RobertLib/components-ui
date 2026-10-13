@@ -31,7 +31,7 @@ import {
   getTabbableElements,
 } from "../../utils/tabbable";
 import useIsMobile from "../../hooks/use-is-mobile";
-import { attachRef } from "../../hooks/use-form-control";
+import { attachRef, useFieldsetDisabled } from "../../hooks/use-form-control";
 import { usePortalContainer } from "../../providers/ui-context";
 import { ButtonGroupContext } from "./button-group-context";
 import {
@@ -437,6 +437,7 @@ export default function Popover({
   const getPortalContainer = usePortalContainer();
 
   const popoverRef = useRef<HTMLDivElement>(null);
+  const [triggerFieldsetDisabled, triggerFieldsetRef] = useFieldsetDisabled();
   const internalContentRef = useRef<HTMLDivElement>(null);
   const bridgeRef = useRef<HTMLDivElement>(null);
   // A press in the trigger or the panel - also in an overlay opened from
@@ -979,7 +980,9 @@ export default function Popover({
 
   // A button trigger disabled while the panel is open - the menu of a
   // SplitButton whose action starts - closes it: nothing in it is for now
-  const isTriggerDisabled = !!buttonElement?.props.disabled;
+  const isTriggerDisabled =
+    !!buttonElement?.props.disabled ||
+    (isButtonTrigger && triggerFieldsetDisabled);
   // The effect below calls the latest - it reacts to the trigger only
   const closeRef = useRef(() => handleOpenChange(false));
 
@@ -1369,9 +1372,13 @@ export default function Popover({
       ref={(element) => {
         popoverRef.current = element;
         const detachRef = attachRef(ref, element);
+        const detachFieldset = isButtonTrigger
+          ? triggerFieldsetRef(element)
+          : undefined;
         return () => {
           popoverRef.current = null;
           detachRef();
+          detachFieldset?.();
         };
       }}
     >

@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.7.3
+
+- **DataTable and URL state** - unrelated renders and setters retain a
+  pending return to the original query, so delayed confirmations cannot
+  restore cleared searches. Returning a submitted query or column-state
+  object acknowledges a coalesced update without mistaking an inline copy
+  of the old value for confirmation. Changing the row density preserves
+  pending controlled column settings and their acknowledgements.
+- **Focus** - dialogs recover focus through another control or their panel
+  when the previous control becomes disabled, hidden or cannot receive focus.
+  Empty required checkbox groups focus their group after native validation,
+  and a second touch tap opens a focused table cell's editor, including
+  open and closed shadow roots.
+- **Forms** - native validation applies to fields first mounted in a hidden
+  React Activity, including configured shadow roots, and follows corrected
+  values before the fields are revealed.
+- **URL state** - nested providers that override only the location share
+  pending URL changes with their inherited navigation adapter, so separate
+  filters compose while the router catches up.
+- **DataTable** - coalesced confirmations of repeated query and column-state
+  values discard obsolete pending changes, keeping later external updates.
+- **Overlays** - disabling a button trigger's fieldset closes its open menu,
+  respecting the first legend. Custom modal overlays return focus after their
+  parent closes before a child dialog, and capture their opener when revealed
+  from React Activity, including autofocus and shadow roots.
+- **Vite plugin** - decodes HTML character references in module script
+  attributes and keeps all classes for unsupported references, allowing valid
+  HTML entries to build without missing component styles.
+- **DataTable** - query changes committed while hidden by React Activity
+  discard stale pending filters, so later sorting uses the current query.
+  Successful inline saves keep their displayed value when a poll replaces
+  row objects while the table is hidden.
+  Date editors preserve the original time zone and clock time when saving
+  another day, including across daylight saving changes.
+- **DateTimePicker** - selecting a day or closing the popup with Escape
+  returns focus to the field inside a shadow root too.
+- **Overlays** - dialogs initially mounted in a hidden React Activity and
+  popovers opened while hidden leave visible dialogs' Escape handlers and
+  page shortcuts available. Revealed dialogs return focus to the control
+  that showed them when hidden again, including with autofocus fields.
+- **Shadow DOM** - masked inputs keep the caret while editing; closing a
+  tab and advancing a stepper retain focus. Field labels focus custom
+  controls, and TagsInput scrolls keyboard-highlighted suggestions into view.
+  NumberInput responds to wheel stepping while focused, and PinInput returns
+  focus to the first empty cell when a controlled code is cleared.
+- **Slider** - canceled keyboard events leave the value unchanged, also
+  when canceled by a capture handler.
+  Changing between a single value and a range resets incompatible edited
+  values, keeping the thumbs, keyboard controls and submitted values consistent.
+- **PinInput** - canceled keyboard events leave the code and focus unchanged.
+- **Router** - adapters without location props follow delayed History API
+  navigation even in browsers without the Navigation API.
+- **Vite plugin** - reads complete HTML attribute names, so `data-src` and
+  `data-type` do not replace a module script's `src` or `type`.
+  An empty `src` retains inline module code and CSS optimization.
+
 ## 0.7.2
 
 - **Autocomplete** - with `allowCustomValue` and `syncWithDefaultValue`, a

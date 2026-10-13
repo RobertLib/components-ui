@@ -44,15 +44,60 @@ const listeners = new Set<() => void>();
 // as a router given only as `navigate` - where the browser supports it
 const getNavigation = () => (window as { navigation?: EventTarget }).navigation;
 
+/** Observe History writes while location readers need the browser fallback. */
+function watchHistory() {
+  const history = window.history;
+  const stops = (["pushState", "replaceState"] as const).map((name) => {
+    const own = Object.getOwnPropertyDescriptor(history, name);
+    const original = history[name];
+    let active = true;
+    const observed = function (
+      this: History,
+      ...args: Parameters<History[typeof name]>
+    ) {
+      // A failed write must keep its original error and notify nobody.
+      const result = original.apply(this, args);
+      if (active) notifyLocationChange();
+      return result;
+    };
+    Object.defineProperty(history, name, {
+      configurable: true,
+      enumerable: own?.enumerable ?? false,
+      value: observed,
+      writable: true,
+    });
+
+    return () => {
+      active = false;
+      // A router may have wrapped ours since. Leave its method in place;
+      // the retained wrapper just passes calls through after unsubscribing.
+      if (history[name] !== observed) return;
+      if (own) Object.defineProperty(history, name, own);
+      else Reflect.deleteProperty(history, name);
+    };
+  });
+  return () => stops.forEach((stop) => stop());
+}
+
+let stopWatchingHistory: (() => void) | undefined;
+
 const subscribe = (listener: () => void) => {
+  const navigation = getNavigation();
+  if (listeners.size === 0 && !navigation) {
+    stopWatchingHistory = watchHistory();
+  }
   listeners.add(listener);
   window.addEventListener("popstate", listener);
-  getNavigation()?.addEventListener("currententrychange", listener);
+  navigation?.addEventListener("currententrychange", listener);
 
   return () => {
     listeners.delete(listener);
     window.removeEventListener("popstate", listener);
-    getNavigation()?.removeEventListener("currententrychange", listener);
+    navigation?.removeEventListener("currententrychange", listener);
+    if (listeners.size === 0) {
+      stopWatchingHistory?.();
+      stopWatchingHistory = undefined;
+    }
   };
 };
 
@@ -64,7 +109,7 @@ const getServerSnapshot = () => "";
 const subscribeToNothing = () => () => {};
 
 /**
- * Location of the page, kept up to date on back/forward and `browserNavigate`.
+ * Location of the page, kept up to date on back/forward and History writes.
  * With `follow` false it reads no URL and renders nothing again - for a
  * router that gives the location: a render on a change of the URL would
  * come before the router's own, with the router's old location.
@@ -85,9 +130,7 @@ export function useBrowserLocation(follow = true) {
 }
 
 /**
- * Makes `useBrowserLocation` read the URL again - after it was changed by
- * code it does not see, e.g. a router given to `UIProvider` only as
- * `navigate` in a browser without the Navigation API.
+ * Makes `useBrowserLocation` read the URL again after a browser navigation.
  */
 export function notifyLocationChange() {
   listeners.forEach((listener) => listener());

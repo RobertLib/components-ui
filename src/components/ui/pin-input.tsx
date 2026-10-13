@@ -15,6 +15,7 @@ import { toLatinDigit } from "./input-mask";
 import { formatMessage } from "../../i18n/ui/format";
 import { useMessages } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
+import { getActiveElement } from "./overlay-stack";
 
 type PinType = "numeric" | "alphanumeric";
 
@@ -403,7 +404,7 @@ export default function PinInput({
 
     const cells = Array.from(group.querySelectorAll("input"));
     const focused = cells.findIndex(
-      (cell) => cell === group.ownerDocument.activeElement,
+      (cell) => cell === getActiveElement(group.ownerDocument),
     );
     if (focused > activeIndex) focusCell(activeIndex);
   });
@@ -419,6 +420,7 @@ export default function PinInput({
     // Candidate editing belongs to the IME. Safari can send its confirming
     // key after compositionend with key code 229 instead of isComposing.
     if (
+      event.defaultPrevented ||
       composition.current ||
       event.nativeEvent.isComposing ||
       event.keyCode === 229

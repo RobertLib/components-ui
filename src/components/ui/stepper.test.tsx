@@ -1,12 +1,20 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { cs } from "../../i18n/ui/cs";
 import Stepper from "./stepper";
 import UIProvider from "../../providers/ui-provider";
+import { getActiveElement } from "./overlay-stack";
 
 const steps = [
   { id: 1, title: "Details" },
@@ -142,6 +150,34 @@ function Wizard({
     />
   );
 }
+
+describe("Stepper in a shadow root", () => {
+  it.each(["horizontal", "vertical"] as const)(
+    "moves focus to the next %s step when its focused content goes away",
+    (orientation) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const shadow = host.attachShadow({ mode: "open" });
+      const app = document.createElement("div");
+      shadow.append(app);
+      const { unmount } = render(<Wizard orientation={orientation} />, {
+        container: app,
+      });
+      onTestFinished(() => {
+        unmount();
+        host.remove();
+      });
+      const query = within(app);
+      const next = query.getByRole("button", { name: "Next" });
+      act(() => next.focus());
+      fireEvent.click(next, { composed: true });
+
+      expect(getActiveElement()).toBe(
+        query.getByRole("group", { name: "2. Shipping" }),
+      );
+    },
+  );
+});
 
 describe("Vertical Stepper", () => {
   afterEach(() => {

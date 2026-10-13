@@ -57,7 +57,8 @@ export interface SliderProps<T extends SliderValue = number> extends Omit<
   className?: string;
   /**
    * Initial value of an uncontrolled slider - `[start, end]` makes it a
-   * range. Defaults to `min`.
+   * range. Defaults to `min`. Switching between one value and a range
+   * resets an edited value to the new default.
    */
   defaultValue?: T;
   /** Help text under the slider - it describes it. */
@@ -430,9 +431,21 @@ export default function Slider<T extends SliderValue = number>({
   const [enteredValues, setEnteredValues] = useState<number[]>();
   const isControlled = value !== undefined;
   const isRange = Array.isArray(value ?? defaultValue);
+  const [previousMode, setPreviousMode] = useState({ isControlled, isRange });
+  const modeChanged =
+    previousMode.isControlled !== isControlled ||
+    previousMode.isRange !== isRange;
+
+  // A draft belongs to its thumb count and owner. A different mode starts
+  // from its current props, without reviving a draft from an earlier mode.
+  if (modeChanged) {
+    setPreviousMode({ isControlled, isRange });
+    setEnteredValues(undefined);
+  }
+
   const shown: SliderValue = value ?? defaultValue ?? min;
   const values = (
-    enteredValues && !isControlled
+    enteredValues && !isControlled && !modeChanged
       ? enteredValues
       : Array.isArray(shown)
         ? [shown[0], shown[1]]
@@ -579,17 +592,19 @@ export default function Slider<T extends SliderValue = number>({
   });
 
   const stopDrag = useRef<(() => void) | null>(null);
+  const dragVersion = useRef(0);
 
   // Changed limits or settings invalidate the geometry and rollback values
   // of the gesture. Cancel it without another change. Activity hiding also
   // runs layout cleanups: clear its retained visual state before showing it.
   useLayoutEffect(
     () => () => {
+      dragVersion.current += 1;
       stopDrag.current?.();
       stopDrag.current = null;
       setDraggedIndex(null);
     },
-    [isRange, locked, max, min, minDistance, orientation, step],
+    [isControlled, isRange, locked, max, min, minDistance, orientation, step],
   );
 
   const getThumb = (index: number) =>
@@ -647,10 +662,14 @@ export default function Slider<T extends SliderValue = number>({
 
     const startValues = values;
     let lastValues = values;
+    const version = dragVersion.current;
 
     if (pressedIndex === null && !waitForTap) {
       lastValues = moveThumb(index, target) ?? lastValues;
     }
+    // `onChange` may switch the mode or limits in the first synchronous
+    // commit, before this gesture has installed its pointer listeners.
+    if (version !== dragVersion.current) return;
     if (!waitForTap) setDraggedIndex(index);
 
     stopDrag.current?.();
@@ -665,7 +684,7 @@ export default function Slider<T extends SliderValue = number>({
             ) ?? lastValues;
         }
         setDraggedIndex(null);
-        if (lastValues !== startValues) {
+        if (lastValues !== startValues && version === dragVersion.current) {
           latest.current.onChangeEnd?.(latest.current.report(lastValues));
         }
       },
@@ -709,7 +728,7 @@ export default function Slider<T extends SliderValue = number>({
     index: number,
     event: React.KeyboardEvent<HTMLDivElement>,
   ) => {
-    if (disabled) return;
+    if (disabled || event.defaultPrevented) return;
 
     const current = values[index];
     // Right is back in a right-to-left page

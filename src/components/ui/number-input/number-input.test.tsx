@@ -1024,6 +1024,68 @@ describe("NumberInput", () => {
     expect(input).toHaveAttribute("aria-valuenow", "7");
   });
 
+  it("steps with the wheel while focused inside a shadow root", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    const container = document.createElement("div");
+    shadow.append(container);
+    const onChange = vi.fn();
+    const { unmount } = render(
+      <NumberInput changeOnWheel defaultValue={5} onChange={onChange} />,
+      { container },
+    );
+
+    try {
+      const input = container.querySelector<HTMLInputElement>(
+        "[role='spinbutton']",
+      )!;
+      act(() => input.focus());
+      expect(shadow.activeElement).toBe(input);
+      expect(fireEvent.wheel(input, { deltaY: -100 })).toBe(false);
+      expect(input).toHaveAttribute("aria-valuenow", "6");
+      expect(onChange).toHaveBeenLastCalledWith(6);
+
+      act(() => input.blur());
+      expect(fireEvent.wheel(input, { deltaY: -100 })).toBe(true);
+      expect(input).toHaveAttribute("aria-valuenow", "6");
+      expect(onChange).toHaveBeenCalledTimes(1);
+    } finally {
+      unmount();
+      host.remove();
+    }
+  });
+
+  it("selects the number on keyboard refocus after a click in its focused shadow field", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    const container = document.createElement("div");
+    shadow.append(container);
+    const { unmount } = render(<NumberInput defaultValue={1234} />, {
+      container,
+    });
+
+    try {
+      const input = container.querySelector<HTMLInputElement>(
+        "[role='spinbutton']",
+      )!;
+      act(() => input.focus());
+      fireEvent.pointerDown(input);
+      act(() => input.blur());
+      expect(input).toHaveValue("1,234");
+
+      act(() => input.focus());
+      expect(shadow.activeElement).toBe(input);
+      expect(input).toHaveValue("1234");
+      expect(input.selectionStart).toBe(0);
+      expect(input.selectionEnd).toBe(4);
+    } finally {
+      unmount();
+      host.remove();
+    }
+  });
+
   it("steps large values in small steps", async () => {
     const user = userEvent.setup();
     render(

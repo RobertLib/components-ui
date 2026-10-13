@@ -6,10 +6,10 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Activity, useState } from "react";
+import { Activity, StrictMode, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import ConfirmDialog from "./confirm-dialog";
 import DateTimePicker from "./datetime-picker";
 import Dialog from "./dialog";
@@ -17,8 +17,13 @@ import Dropdown from "./dropdown";
 import FileUpload from "./file-upload";
 import Popover from "./popover";
 import Tooltip from "./tooltip";
-import { getActiveElement } from "./overlay-stack";
+import {
+  getActiveElement,
+  hasModalOverlay,
+  subscribeToOverlayStack,
+} from "./overlay-stack";
 import SnackbarProvider from "../../providers/snackbar-provider";
+import UIProvider from "../../providers/ui-provider";
 import { useSnackbar } from "../../providers/snackbar-context";
 import useHotkeys from "../../hooks/use-hotkeys";
 import * as tabbable from "../../utils/tabbable";
@@ -266,6 +271,77 @@ describe("Dialog focus trap", () => {
       screen.getByRole("button", { hidden: true, name: "Behind" }).focus(),
     );
     expect(name).toHaveFocus();
+  });
+
+  it.each(["disabled", "unable to take focus"])(
+    "recovers focus when the last focused control is %s",
+    (state) => {
+      renderWithPage();
+      const save = screen.getByRole("button", { name: "Save" });
+      act(() => save.focus());
+      if (state === "disabled") {
+        (save as HTMLButtonElement).disabled = true;
+      } else {
+        vi.spyOn(save, "focus").mockImplementation(noop);
+      }
+
+      act(() =>
+        screen.getByRole("button", { hidden: true, name: "Behind" }).focus(),
+      );
+      expect(
+        screen.getByRole("button", { name: "Close dialog" }),
+      ).toHaveFocus();
+    },
+  );
+
+  it("recovers focus past a fallback control that refuses it", () => {
+    renderWithPage();
+    const save = screen.getByRole("button", { name: "Save" });
+    act(() => save.focus());
+    (save as HTMLButtonElement).disabled = true;
+    vi.spyOn(
+      screen.getByRole("button", { name: "Close dialog" }),
+      "focus",
+    ).mockImplementation(noop);
+
+    act(() =>
+      screen.getByRole("button", { hidden: true, name: "Behind" }).focus(),
+    );
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveFocus();
+  });
+
+  it("recovers focus on the dialog when its controls cannot take focus", () => {
+    renderWithPage();
+    const panel = screen.getByRole("dialog", { name: "Edit" });
+    act(() => screen.getByRole("button", { name: "Save" }).focus());
+    for (const control of panel.querySelectorAll<
+      HTMLButtonElement | HTMLInputElement
+    >("button, input")) {
+      control.disabled = true;
+    }
+
+    act(() =>
+      screen.getByRole("button", { hidden: true, name: "Behind" }).focus(),
+    );
+    expect(panel).toHaveFocus();
+  });
+
+  it("returns focus to a programmatically focused element outside the tab order", () => {
+    render(
+      <>
+        <button type="button">Behind</button>
+        <Dialog open title="Edit">
+          <p tabIndex={-1}>Instructions</p>
+          <input aria-label="Name" />
+        </Dialog>
+      </>,
+    );
+    const instructions = screen.getByText("Instructions");
+    act(() => instructions.focus());
+    act(() =>
+      screen.getByRole("button", { hidden: true, name: "Behind" }).focus(),
+    );
+    expect(instructions).toHaveFocus();
   });
 
   it("keeps focus in a nested shadow field and cycles Tab through it", async () => {
@@ -1232,6 +1308,267 @@ describe("Uncontrolled Dialog unmounted by its parent", () => {
 });
 
 describe("Dialog and <Activity>", () => {
+  it.each([false, true])(
+    "returns focus to the reveal trigger after an initially hidden dialog (autoFocus: %s)",
+    async (autoFocus) => {
+      const user = userEvent.setup();
+      function Page() {
+        const [visible, setVisible] = useState(false);
+        return (
+          <StrictMode>
+            <button onClick={() => setVisible(true)}>Show details</button>
+            <button onClick={() => setVisible(true)}>Show other details</button>
+            <Activity mode={visible ? "visible" : "hidden"}>
+              <Dialog open title="Details" onClose={() => setVisible(false)}>
+                <input aria-label="Name" autoFocus={autoFocus} />
+              </Dialog>
+            </Activity>
+          </StrictMode>
+        );
+      }
+      await act(async () => {
+        render(<Page />);
+      });
+      const trigger = screen.getByRole("button", { name: "Show details" });
+      await user.click(trigger);
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveFocus();
+      await user.keyboard("{Escape}");
+      expect(trigger).toHaveFocus();
+      expect(hasModalOverlay()).toBe(false);
+      // Another activation captures its opener anew, with retained fields.
+      const otherTrigger = screen.getByRole("button", {
+        name: "Show other details",
+      });
+      await user.click(otherTrigger);
+      await user.keyboard("{Escape}");
+      expect(otherTrigger).toHaveFocus();
+    },
+  );
+
+  it("returns focus after a retained child's autofocus in a shadow root", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    const app = document.createElement("div");
+    const portal = document.createElement("div");
+    shadow.append(app, portal);
+    function Page() {
+      const [visible, setVisible] = useState(false);
+      return (
+        <UIProvider portalContainer={portal}>
+          <button onClick={() => setVisible(true)}>Show details</button>
+          <Activity mode={visible ? "visible" : "hidden"}>
+            <Dialog open title="Details" onClose={() => setVisible(false)}>
+              <input aria-label="Name" autoFocus />
+            </Dialog>
+          </Activity>
+        </UIProvider>
+      );
+    }
+    const { unmount } = await act(async () =>
+      render(<Page />, { container: app }),
+    );
+    onTestFinished(() => {
+      unmount();
+      host.remove();
+    });
+    const trigger = app.querySelector("button")!;
+    act(() => trigger.focus());
+    fireEvent.click(trigger, { composed: true });
+    expect(getActiveElement()).toBe(portal.querySelector("input"));
+    fireEvent.keyDown(portal.querySelector("input")!, {
+      composed: true,
+      key: "Escape",
+    });
+    expect(getActiveElement()).toBe(trigger);
+  });
+
+  it("uses a reveal click that leaves focus on the body as the return target", async () => {
+    function Page() {
+      const [visible, setVisible] = useState(false);
+      return (
+        <>
+          <button onClick={() => setVisible(true)}>Show details</button>
+          <Activity mode={visible ? "visible" : "hidden"}>
+            <Dialog open title="Details" onClose={() => setVisible(false)}>
+              <input aria-label="Name" autoFocus />
+            </Dialog>
+          </Activity>
+        </>
+      );
+    }
+    await act(async () => {
+      render(<Page />);
+    });
+    const trigger = screen.getByRole("button", { name: "Show details" });
+    expect(document.body).toHaveFocus();
+    // Safari does not focus a button clicked with the pointer.
+    fireEvent.click(trigger);
+    const field = screen.getByRole("textbox", { name: "Name" });
+    expect(field).toHaveFocus();
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(trigger).toHaveFocus();
+  });
+
+  it("keeps the reveal opener through a nested retained modal's autofocus", async () => {
+    const user = userEvent.setup();
+    function Page() {
+      const [visible, setVisible] = useState(false);
+      const [childOpen, setChildOpen] = useState(true);
+      return (
+        <>
+          <button onClick={() => setVisible(true)}>Show details</button>
+          <Activity mode={visible ? "visible" : "hidden"}>
+            <Dialog open title="Details" onClose={() => setVisible(false)}>
+              <input aria-label="Parent field" />
+              <Dialog
+                open={childOpen}
+                title="Child"
+                onClose={() => setChildOpen(false)}
+              >
+                <input aria-label="Child field" autoFocus />
+              </Dialog>
+            </Dialog>
+          </Activity>
+        </>
+      );
+    }
+    await act(async () => {
+      render(<Page />);
+    });
+    const trigger = screen.getByRole("button", { name: "Show details" });
+    await user.click(trigger);
+    expect(screen.getByRole("textbox", { name: "Child field" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Details" })).toContainElement(
+      document.activeElement as HTMLElement,
+    );
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveFocus();
+  });
+
+  it("leaves page shortcuts available with an initially hidden dialog", async () => {
+    const user = userEvent.setup();
+    const shortcut = vi.fn();
+    function Page() {
+      useHotkeys([["f2", shortcut]]);
+      return (
+        <StrictMode>
+          <Activity mode="hidden">
+            <Dialog open title="Hidden" />
+          </Activity>
+        </StrictMode>
+      );
+    }
+    await act(async () => {
+      render(<Page />);
+    });
+
+    expect(hasModalOverlay()).toBe(false);
+    await user.keyboard("{F2}");
+    expect(shortcut).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["hidden", "visible"] as const)(
+    "keeps Escape available when a %s closed popover opens while hidden",
+    async (initialMode) => {
+      const onClose = vi.fn();
+      const content = (mode: "hidden" | "visible", open: boolean) => (
+        <StrictMode>
+          <Dialog onClose={onClose} open title="Visible">
+            <input aria-label="Visible field" autoFocus />
+          </Dialog>
+          <Activity mode={mode}>
+            <Popover open={open} trigger={<span>More</span>}>
+              Panel
+            </Popover>
+          </Activity>
+        </StrictMode>
+      );
+      const { rerender } = render(content(initialMode, false));
+      await act(async () => rerender(content("hidden", true)));
+      expect(
+        screen.getByRole("textbox", { name: "Visible field" }),
+      ).toHaveFocus();
+
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["dialog", "popover"] as const)(
+    "keeps autofocus in a visible dialog beside an initially hidden %s",
+    async (kind) => {
+      const onClose = vi.fn();
+      await act(async () => {
+        render(
+          <StrictMode>
+            <Dialog onClose={onClose} open title="Visible">
+              <input aria-label="Visible field" autoFocus />
+            </Dialog>
+            <Activity mode="hidden">
+              {kind === "dialog" ? (
+                <Dialog open title="Hidden" />
+              ) : (
+                <Popover open trigger={<span>More</span>}>
+                  Panel
+                </Popover>
+              )}
+            </Activity>
+          </StrictMode>,
+        );
+      });
+      expect(
+        screen.getByRole("textbox", { name: "Visible field" }),
+      ).toHaveFocus();
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("shows a hidden dialog with its focus trap and Escape handler restored", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const content = (mode: "hidden" | "visible") => (
+      <Activity mode={mode}>
+        <Dialog onClose={onClose} open title="Details">
+          <input aria-label="Name" />
+        </Dialog>
+      </Activity>
+    );
+    const { rerender } = render(content("hidden"));
+    await act(async () => {});
+    expect(hasModalOverlay()).toBe(false);
+    rerender(content("visible"));
+    expect(hasModalOverlay()).toBe(true);
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies subscribers after an initially hidden layer leaves the stack", async () => {
+    const notified = vi.fn(() => hasModalOverlay());
+    const unsubscribe = subscribeToOverlayStack(notified);
+    try {
+      await act(async () => {
+        render(
+          <Activity mode="hidden">
+            <Popover open trigger={<span>More</span>}>
+              Panel
+            </Popover>
+            <Dialog open title="Hidden" />
+          </Activity>,
+        );
+      });
+      expect(notified).toHaveBeenCalled();
+      expect(
+        notified.mock.results.every((result) => result.value === false),
+      ).toBe(true);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("closes on Escape after a popover open in a hidden tab", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

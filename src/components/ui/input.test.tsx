@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
@@ -420,6 +420,41 @@ describe("Input mask", () => {
     await user.keyboard("{Backspace}");
     expect(withCaret(input)).toBe("12|");
   });
+
+  it.each([false, true])(
+    "restores the caret when masking an edit, shadow root=%s",
+    (inShadowRoot) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const container = inShadowRoot
+        ? host
+            .attachShadow({ mode: "open" })
+            .appendChild(document.createElement("div"))
+        : host;
+      const { unmount } = render(
+        <Input defaultValue="12345" label="PSČ" mask="### ##" />,
+        { container },
+      );
+      const input = within(container).getByRole<HTMLInputElement>("textbox");
+
+      try {
+        expect(input).toHaveValue("123 45");
+        act(() => input.focus());
+        // The browser removed the second digit before emitting input.
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, "13 45");
+        input.setSelectionRange(1, 1);
+        fireEvent.input(input, { inputType: "deleteContentBackward" });
+        expect(withCaret(input)).toBe("1|34 5");
+        expect(input.selectionEnd).toBe(1);
+      } finally {
+        unmount();
+        host.remove();
+      }
+    },
+  );
 
   it("moves on past a literal, also a typed one", async () => {
     const user = userEvent.setup();

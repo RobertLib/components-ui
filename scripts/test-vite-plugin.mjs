@@ -27,6 +27,128 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 // The plugin of the package - its build and the files npm publishes - is
 // tested in test-package.mjs
 
+test("The Vite plugin reads module script attributes", async (t) => {
+  const directory = createApp(t, "components-ui-vite-attributes-");
+  exportSource(directory);
+  symlinkSync(
+    join(root, "node_modules"),
+    join(directory, "node_modules"),
+    "junction",
+  );
+  const source = join(directory, "src");
+  writeFileSync(
+    join(source, "index.css"),
+    '@import "tailwindcss";\n@import "./ui-styles.css";\n',
+  );
+  writeFileSync(join(source, "main.tsx"), entryOf(["Button"]));
+  writeFileSync(join(source, "main😀.tsx"), entryOf(["Button"]));
+  writeFileSync(join(source, "main&sol;.tsx"), entryOf(["Button"]));
+  writeFileSync(join(source, "main_extra.tsx"), entryOf(["Button"]));
+  const { default: componentsUi } = await import(
+    pathToFileURL(join(source, "components/ui/vite.js")).href
+  );
+  const isLibrary = (id) =>
+    id.startsWith(`${normalizePath(source)}/`) && !id.endsWith("/src/main.tsx");
+  const full = await buildApp(directory, { isLibrary });
+  const expected = await buildApp(directory, {
+    isLibrary,
+    plugins: [componentsUi()],
+  });
+  assert.deepEqual(missingClasses(expected, full), []);
+  assert.ok(expected.css.length < full.css.length / 2);
+
+  for (const script of [
+    '<script data-type="classic" type="module" data-src="/not-the-entry.js" src="/src/main.tsx"></script>',
+    '<script type="module" data-note=\'src="/not-the-entry.js" > quoted text\' src="/src/main.tsx"></script>',
+    '<script data-type="module">require("provided-by-page");</script><script type="module" src="/src/main.tsx"></script>',
+    '<script data-note=\'type="module"\'>require("provided-by-page");</script><script type=module src=/src/main.tsx></script>',
+    '<script TYPE="module" data-src="/not-the-entry.js">import "/src/main.tsx";</script>',
+    '<script type="module" src>import "/src/main.tsx";</script>',
+    '<script type="module" src="">import "/src/main.tsx";</script>',
+    '<script type="module" src=\'\'>import "/src/main.tsx";</script>',
+    '<script type="mod&#117;le" src="&#47;src/main.tsx"></script>',
+    '<script type="m&#x6f;dule" src="&#X2F;src/main.tsx"></script>',
+    '<script type="mod&#117le" src="&#47src/main.tsx"></script>',
+    '<script type="module" src="&sol;src&sol;main&period;tsx"></script>',
+    '<script type="module" src="/src/main&#x1F600;.tsx"></script>',
+    '<script type="module" src="/src/main.tsx&quest;one&equals;1&amp;two=2&AMP;three=3"></script>',
+    '<script type="module" src="/src/main.tsx?one=1&amp;two=2&three=3"></script>',
+    '<script type="module" src="/src/main.tsx?one=1&amp&two=2"></script>',
+    '<script type="module" src="/src/main.tsx?amp=1&amp=2"></script>',
+    '<script type="module" src="/src/main&amp;sol;.tsx"></script>',
+    '<script type="module" data-note="&lowbar;" src="/src/main.tsx"></script>',
+    ...["MODULE", "Module"].map(
+      (type) =>
+        `<script type="${type}">require("provided-by-page");</script><script type="module" src="/src/main.tsx"></script>`,
+    ),
+  ]) {
+    writeFileSync(
+      join(directory, "index.html"),
+      `<div id="root"></div>${script}`,
+    );
+    const app = await buildApp(directory, {
+      isLibrary,
+      plugins: [componentsUi()],
+    });
+    assert.deepEqual(app.warnings, [], script);
+    assert.equal(app.css, expected.css, script);
+    assert.deepEqual(missingClasses(app, full), [], script);
+  }
+
+  const query = "/src/main.tsx?one=1&two=2&three=3&amp=4";
+  const resolvedScripts = new Set();
+  writeFileSync(
+    join(directory, "index.html"),
+    '<script type="module" src="/src/main.tsx&quest;one=1&amp;two=2&three=3&amp=4"></script>',
+  );
+  await buildApp(directory, {
+    isLibrary,
+    plugins: [
+      {
+        name: "check-decoded-script-query",
+        enforce: "pre",
+        resolveId(source, importer) {
+          if (
+            importer === normalizePath(join(directory, "index.html")) &&
+            source.includes("main.tsx")
+          ) {
+            resolvedScripts.add(source);
+          }
+        },
+      },
+      componentsUi(),
+    ],
+  });
+  // Both the plugin's import analysis and Vite must resolve the same URL:
+  // literal query separators and '&amp=4' survive; '&amp;' decodes once.
+  assert.deepEqual([...resolvedScripts], [query]);
+
+  // Named references outside the plugin's small URL table still work:
+  // Vite decodes them, while the plugin conservatively keeps every class.
+  for (const script of [
+    '<script type="module" src="/src/main&lowbar;extra.tsx"></script>',
+    '<script type="mod&lowbar;ule">require("provided-by-page");</script><script type="module" src="/src/main.tsx"></script>',
+  ]) {
+    writeFileSync(
+      join(directory, "index.html"),
+      `<div id="root"></div>${script}`,
+    );
+    const baseline = await buildApp(directory, { isLibrary });
+    const app = await buildApp(directory, {
+      isLibrary,
+      plugins: [componentsUi()],
+    });
+    assert.equal(app.css, baseline.css, script);
+    assert.deepEqual(missingClasses(app, baseline), [], script);
+    assert.equal(app.warnings.length, 1, script);
+    assert.match(
+      app.warnings[0],
+      /keeps the classes of all components.*cannot decode.*&lowbar;/,
+      script,
+    );
+  }
+});
+
 test("The Vite plugin of a source copy", async (t) => {
   const directory = createApp(t, "components-ui-vite-");
   exportSource(directory);

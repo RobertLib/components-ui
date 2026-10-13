@@ -295,6 +295,7 @@ export function ShadowKeyboardFixture() {
                 open={open}
                 shortcut={null}
               />
+              <DateTimePicker defaultValue="2026-09-24" label="Shadow date" />
             </div>
           </UIProvider>,
           roots.app,

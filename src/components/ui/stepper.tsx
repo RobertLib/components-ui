@@ -4,6 +4,9 @@ import CollapsibleContent from "./collapsible-content";
 import Tooltip from "./tooltip";
 import useIsMobile from "../../hooks/use-is-mobile";
 import { useMessages } from "../../providers/ui-context";
+import { attachRef } from "../../hooks/use-form-control";
+import { getActiveElement, getElementByIdAt } from "./overlay-stack";
+import { composedContains } from "../../utils/tabbable";
 
 export interface StepperStep {
   /**
@@ -94,11 +97,16 @@ const hasContent = (content: React.ReactNode) =>
  * when it has none. Called when the current step changed while the focus
  * was in the content of another one - content that is going away.
  */
-function focusStep(contentId: string, buttonId: string) {
-  const content = document.getElementById(contentId);
-  if (content?.contains(document.activeElement)) return;
+function focusStep(root: Element | null, contentId: string, buttonId: string) {
+  if (!root) return;
+  const content = getElementByIdAt(root, contentId);
+  if (
+    content &&
+    composedContains(content, getActiveElement(root.ownerDocument))
+  )
+    return;
 
-  (content ?? document.getElementById(buttonId))?.focus();
+  (content ?? getElementByIdAt(root, buttonId))?.focus();
 }
 
 interface StepState {
@@ -206,10 +214,12 @@ export default function Stepper({
   onFocus,
   onStepClick,
   orientation = "horizontal",
+  ref,
   steps,
   ...props
 }: StepperProps) {
   const messages = useMessages().ui;
+  const rootRef = useRef<HTMLDivElement>(null);
   const idPrefix = useId();
   const isMobile = useIsMobile();
   const isVertical =
@@ -243,7 +253,7 @@ export default function Stepper({
     }
 
     const { buttonId, contentId } = getStepIds(idPrefix, currentStepIndex);
-    focusStep(contentId, buttonId);
+    focusStep(rootRef.current, contentId, buttonId);
   }, [currentStepId, currentStepIndex, idPrefix]);
 
   const handleFocus = (event: React.FocusEvent<HTMLDivElement>) => {
@@ -683,6 +693,14 @@ export default function Stepper({
       data-orientation={isVertical ? "vertical" : "horizontal"}
       onBlur={handleBlur}
       onFocus={handleFocus}
+      ref={(element) => {
+        rootRef.current = element;
+        const detachRef = attachRef(ref, element);
+        return () => {
+          rootRef.current = null;
+          detachRef();
+        };
+      }}
     >
       {keepMounted ? retained : isVertical ? vertical : horizontal}
     </div>

@@ -1398,7 +1398,7 @@ export default function RichTextEditor({
         : "";
   const validates = required || limit !== undefined || canUploadImages;
 
-  useCustomValidity(validationRef, validationMessage);
+  const validityProps = useCustomValidity(validationRef, validationMessage);
 
   // Invalidate replaced uploads on every committed content revision, even
   // while hidden. Abort listeners can update their owner, so notify them
@@ -3150,6 +3150,7 @@ export default function RichTextEditor({
             aria-hidden="true"
             disabled={disabled}
             form={form}
+            {...validityProps}
             onChange={() => {}}
             // The browser focuses an invalid field on submit - the user
             // belongs in the editor (the message still shows)
