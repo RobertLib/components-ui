@@ -117,6 +117,23 @@ for (const key of ["Enter", "Escape"]) {
   });
 }
 
+// WebKit on Linux leaves a field focused by script out of view - the popup
+// hides with it, and its day could not take the focus
+test("ArrowDown in a date field scrolled out of view shows its popup with the focus", async ({
+  page,
+}) => {
+  await page.goto("/tests/browser/?scenario=shadow-keyboard");
+  await page.addStyleTag({ content: "body { padding-top: 150vh }" });
+  const field = page.getByRole("combobox", { name: /Shadow date/ });
+  await field.evaluate((element) => element.focus({ preventScroll: true }));
+  await expect(field).not.toBeInViewport();
+  await field.press("ArrowDown");
+  const selected = page.getByRole("button", { name: "September 24, 2026" });
+  await expect(selected).toBeFocused();
+  await expect(selected).toBeInViewport();
+  await expect(field).toBeInViewport();
+});
+
 test("tree and editor toolbar navigation follow focus inside a shadow root", async ({
   page,
 }) => {

@@ -275,6 +275,34 @@ test("nested group virtualization scrolls to later groups and collapses their de
   await expect(page.getByText("Person 299", { exact: true })).toBeVisible();
 });
 
+// Rows shorter than first estimated shrink the content under a jump to its
+// end - the browser takes the view back, which must stay at the end
+test("a jump to the end of rows estimated too tall shows the last rows", async ({
+  page,
+}) => {
+  await page.addStyleTag({
+    content: "tr[data-group-key] > td { height: 140px }",
+  });
+  const table = page.getByRole("table", { name: "Grouped people" });
+  await page
+    .getByRole("button", { name: "Team: Team 0 (30 rows)", exact: true })
+    .click();
+  await expect(table).toHaveAttribute("aria-rowcount", "328");
+  const scroller = table.locator("..");
+  await scroller.evaluate(
+    (element) => (element.scrollTop = element.scrollHeight),
+  );
+  await expect(page.getByText("Person 299", { exact: true })).toBeInViewport();
+  await expect
+    .poll(() =>
+      scroller.evaluate(
+        (element) =>
+          element.scrollHeight - element.clientHeight - element.scrollTop,
+      ),
+    )
+    .toBeLessThanOrEqual(1);
+});
+
 test("donut controls fit the viewport and the feature layout has no horizontal overflow", async ({
   page,
 }, testInfo) => {

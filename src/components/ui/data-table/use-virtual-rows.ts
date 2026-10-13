@@ -108,6 +108,11 @@ function getViewTop(body: Element, container: HTMLElement) {
   );
 }
 
+/** The container is scrolled as far as it goes - laid out, not hidden. */
+const isAtEnd = (container: HTMLElement) =>
+  container.clientHeight > 0 &&
+  container.scrollTop + container.clientHeight >= container.scrollHeight - 1;
+
 /**
  * The first row - or detail row - that starts at `top` in the body or
  * below it, and how far below: the one cut by the top changes its height
@@ -307,6 +312,10 @@ export default function useVirtualRows<T>({
     layout: RowsLayout | null;
   } | null>(null);
 
+  // The scroll of the container when the rows in view were last worked
+  // out, and whether it showed the end of the rows then
+  const seenScrollRef = useRef<{ atEnd: boolean; top: number } | null>(null);
+
   // Rows above the view that take another room than they did - measured
   // for the first time, measured again with another density or column
   // widths - must not move the rows in view: the first row (or detail)
@@ -332,10 +341,21 @@ export default function useVirtualRows<T>({
       return;
     }
 
+    // Rows that shrank may have cut the content short of the view - the
+    // browser has then taken it back to the new end on its own, e.g. after
+    // a jump to the end of rows estimated too tall. A view at the end stays
+    // there; another one was where it was last seen.
+    const seen = seenScrollRef.current;
+    const clampedBy =
+      seen && isAtEnd(container)
+        ? Math.max(0, seen.top - container.scrollTop)
+        : 0;
+    if (clampedBy > 0 && seen?.atEnd) return;
+
     // The rows are laid out anew by now - where the view was is read from
     // the layout they had, by the top of the view in the body
     const viewTop = getViewTop(body, container);
-    const anchor = findAnchor(previous.layout, viewTop);
+    const anchor = findAnchor(previous.layout, viewTop + clampedBy);
     if (!anchor) return;
 
     const { index, isSubRow } = anchor;
@@ -362,6 +382,10 @@ export default function useVirtualRows<T>({
     const body = bodyRef.current;
     const offsets = layoutRef.current?.layout?.offsets;
     if (!container || !body || !offsets) return;
+    seenScrollRef.current = {
+      atEnd: container.scrollTop > 0 && isAtEnd(container),
+      top: container.scrollTop,
+    };
 
     const viewHeight =
       container.clientHeight || INITIAL_ROWS * (offsets[1] - offsets[0] || 30);

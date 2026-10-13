@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.4
+
+- **DataTable** - a jump to the end of a virtualized table whose rows are
+  shorter than first estimated stays at its last rows, instead of keeping a
+  row the browser scrolled back to as the content shrank.
+- **Date and time pickers** - opening the popup with a key in a field
+  scrolled out of view brings the field into view, so the popup shows and
+  its day, month, week or time list takes the focus.
+
 ## 0.7.3
 
 - **DataTable and URL state** - unrelated renders and setters retain a

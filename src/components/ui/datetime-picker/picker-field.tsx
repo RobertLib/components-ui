@@ -161,8 +161,14 @@ export default function PickerField({
   // Whether the field was last pressed with a key or with a pointer
   const keyboardRef = useRef(false);
 
-  const changeOpen = (open: boolean, byKeyboard: boolean) =>
+  const changeOpen = (open: boolean, byKeyboard: boolean) => {
+    // A key in a field scrolled out of view - the popup hides with the
+    // field, and the focus could not move into it. Shown together.
+    if (open && byKeyboard) {
+      inputRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
     onOpenChange(open, byKeyboard);
+  };
 
   // Forget an open popup when the surrounding fieldset is disabled, so
   // enabling it again does not reopen the popup on its own.
