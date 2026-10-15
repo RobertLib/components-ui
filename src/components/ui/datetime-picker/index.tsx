@@ -7,7 +7,7 @@ import DateTimePanelPicker from "./date-time-picker";
 import FormDescription from "../form-description";
 import FormError from "../form-error";
 import hasLabel from "./has-label";
-import MonthPicker from "./month-picker";
+import PeriodPicker from "./period-picker";
 import TimePicker from "./time-picker";
 import WeekPicker from "./week-picker";
 import { isValueUnavailable, type DateDisabledPredicate } from "./availability";
@@ -18,6 +18,7 @@ import {
   formatDate,
   formatPattern,
   formatPlaceholder,
+  getDatePattern,
   getDayPeriods,
   parseISODate,
 } from "../../../utils/date";
@@ -27,11 +28,12 @@ import { useLocale } from "../../../providers/ui-context";
 import type { CustomPickerProps, DateTimePickerPreset } from "./types";
 import type { Locale } from "../../../i18n/ui/types";
 import RequiredMark from "../required-mark";
+import { fieldLabelClass, useReadOnly } from "../form-scope";
 
 export type { DateTimePickerPreset } from "./types";
 
 export type DateTimePickerType =
-  "date" | "time" | "datetime-local" | "month" | "week";
+  "date" | "time" | "datetime-local" | "month" | "week" | "quarter" | "year";
 
 /** `target` and `currentTarget` of a `DateTimePickerChangeEvent`. */
 export interface DateTimePickerChangeTarget {
@@ -84,8 +86,9 @@ export interface DateTimePickerProps extends Omit<
    * Days that cannot be picked, e.g. weekends or booked days - called with
    * the start of a day: its local midnight, 1:00 of one whose midnight a
    * clock change skips. The popup shows them struck through; the keys move
-   * over them, but they cannot be picked. A month or a week without another
-   * day cannot be picked either. A value on such a day - typed, a default
+   * over them, but they cannot be picked. A month, a week, a quarter or a
+   * year without another day cannot be picked either. A value on such a
+   * day - typed, a default
    * one or one of the parent - makes the field invalid (a submit is
    * blocked, the browser says `messages.dateTimePicker.unavailable`),
    * also in `native` mode, whose popup offers every day. Not for `time`.
@@ -106,7 +109,10 @@ export interface DateTimePickerProps extends Omit<
   min?: number | string;
   /**
    * `custom` (default) - the library's popup, formatted by the locale;
-   * `native` - the browser's own `<input type="date">` & co.
+   * `native` - the browser's own `<input type="date">` & co. No browser
+   * has an input of a year or a quarter: a year is then a number input
+   * (`<input type="number">` with the numeric keyboard of phones), a
+   * quarter keeps the custom picker.
    */
   mode?: "native" | "custom";
   /**
@@ -140,10 +146,12 @@ export interface DateTimePickerProps extends Omit<
    */
   popupActions?: boolean;
   /**
-   * `type="date"`: days offered next to the calendar (above it on phones),
-   * e.g. `{ label: "In a week", value: "2026-10-06" }` - a click picks the
-   * day. A preset out of `min` / `max` or on a disabled day is disabled,
-   * the preset of the value marked.
+   * Values offered next to the popup (above it on phones) - for the `date`,
+   * `month`, `quarter` and `year` types, in their value format: e.g.
+   * `{ label: "In a week", value: "2026-10-06" }`, `{ label: "Last
+   * quarter", value: "2026-Q2" }`. A click picks the value. A preset out of
+   * `min` / `max` or of disabled days is disabled, the preset of the value
+   * marked.
    */
   presets?: DateTimePickerPreset[];
   /**
@@ -161,9 +169,9 @@ export interface DateTimePickerProps extends Omit<
   step?: number | string;
   /**
    * The IANA time zone of today, e.g. `"America/New_York"` - the day the
-   * Today button picks and the popup marks, the day, month or week the
-   * popup opens at without a value, and the year of a value typed without
-   * one. The browser's by default, also for a zone it does not know (with a
+   * Today button picks and the popup marks, the day, month, week, quarter
+   * or year the popup opens at without a value, and the year of a value
+   * typed without one. The browser's by default, also for a zone it does not know (with a
    * warning in the console). The value stays a time on the clock, the same
    * in every zone. Not in `native` mode, whose popup is the browser's.
    */
@@ -177,21 +185,17 @@ export interface DateTimePickerProps extends Omit<
   /**
    * The value format is that of the native input: `YYYY-MM-DD` (date),
    * `HH:mm` (time), `YYYY-MM-DDTHH:mm` (datetime-local), `YYYY-MM` (month),
-   * `YYYY-Www` (week). Malformed `value` / `defaultValue` is shown and
-   * submitted as empty, like a native input, so `required` blocks it.
+   * `YYYY-Www` (week) - and of ISO 8601 for the types no native input has:
+   * `YYYY-Qq` (quarter, `2026-Q3`) and `YYYY` (year). Malformed `value` /
+   * `defaultValue` is shown and submitted as empty, like a native input, so
+   * `required` blocks it.
    */
   type?: DateTimePickerType;
 }
 
 /** The display pattern of the locale for a type of picker. */
 const getPattern = (locale: Locale, type: DateTimePickerType) =>
-  ({
-    date: locale.formats.date,
-    "datetime-local": locale.formats.dateTime,
-    month: locale.formats.month,
-    time: locale.formats.time,
-    week: locale.formats.week,
-  })[type];
+  getDatePattern(locale.formats, type === "datetime-local" ? "dateTime" : type);
 
 /** A whole number of minutes from 1 to 60. */
 const toMinuteStep = (step: number) =>
@@ -236,15 +240,18 @@ function formatValue(value: string, type: DateTimePickerType, locale: Locale) {
         week: Number(value.slice(6)),
         year: Number(value.slice(0, 4)),
       });
+    case "year":
+      return formatPattern(getPattern(locale, type), { year: Number(value) });
     default:
       return value;
   }
 }
 
 /**
- * Date, time, date-time, month and week picker. The value is always in the
- * format of the matching native input, whatever the display format - so it
- * can be sent to an API as it is. It can be typed in the display format of
+ * Date, time, date-time, month, week, quarter and year picker. The value is
+ * always in the format of the matching native input (ISO 8601 for a quarter
+ * and a year), whatever the display format - so it can be sent to an API as
+ * it is. It can be typed in the display format of
  * the locale, also with the year left out (the current one) or of two digits
  * (`24.9.26`). `onChange` gets an event-like object with `target.name` and
  * `target.value`, like a native input would.
@@ -274,7 +281,7 @@ export default function DateTimePicker({
   presets,
   preserveInvalidText,
   quarterMinutesOnly = false,
-  readOnly,
+  readOnly: ownReadOnly,
   ref,
   required,
   step,
@@ -283,6 +290,7 @@ export default function DateTimePicker({
   value: valueProp,
   ...inputProps
 }: DateTimePickerProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   // A zone `Intl` does not know would throw - the browser's instead
   const timeZone =
@@ -345,7 +353,8 @@ export default function DateTimePicker({
       locale.messages.ui.dateTimePicker.placeholderTokens,
     );
 
-  if (mode === "native") {
+  // No browser has a quarter input - the custom picker stands in for it
+  if (mode === "native" && type !== "quarter") {
     // The step of a time is in seconds
     const minuteStepSeconds =
       (type === "time" || type === "datetime-local") && pickerMinuteStep > 1
@@ -353,10 +362,13 @@ export default function DateTimePicker({
         : undefined;
 
     return (
-      <div className="flex flex-col gap-1.5">
+      <div className="cui-field flex flex-col gap-1.5">
         {hasLabel(label) && (
           <label
-            className="block truncate text-sm font-medium"
+            className={cn(
+              fieldLabelClass(dim),
+              "block truncate text-sm font-medium",
+            )}
             htmlFor={inputId}
           >
             {label}
@@ -396,6 +408,8 @@ export default function DateTimePicker({
           disabled={disabled}
           id={inputId}
           {...nativeValidityProps}
+          // A year is a number - with the numeric keyboard of phones
+          inputMode={type === "year" ? "numeric" : inputProps.inputMode}
           max={max}
           min={min}
           name={name}
@@ -407,7 +421,8 @@ export default function DateTimePicker({
           ref={nativeInputRef}
           required={required}
           step={step ?? minuteStepSeconds}
-          type={type}
+          // No browser has a year input either - a whole number stands in
+          type={type === "year" ? "number" : type}
           value={value}
         />
 
@@ -475,7 +490,9 @@ export default function DateTimePicker({
     case "datetime-local":
       return <DateTimePanelPicker {...pickerProps} />;
     case "month":
-      return <MonthPicker {...pickerProps} />;
+    case "quarter":
+    case "year":
+      return <PeriodPicker {...pickerProps} type={type} />;
     case "week":
       return <WeekPicker {...pickerProps} />;
     case "date":

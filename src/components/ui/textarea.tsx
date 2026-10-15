@@ -21,6 +21,7 @@ import cn, { joinTokens } from "../../utils/cn";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import RequiredMark from "./required-mark";
+import { fieldLabelClass, useReadOnly } from "./form-scope";
 import { useLocale } from "../../providers/ui-context";
 
 // All the padding lives here - base padding next to it would win over the
@@ -151,11 +152,13 @@ export default function Textarea({
   maxRows,
   minRows,
   name,
+  readOnly: ownReadOnly,
   ref,
   required,
   showCount = false,
   ...props
 }: TextareaProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const [isFocused, setIsFocused] = useState(false);
   const locale = useLocale();
   const messages = locale.messages.ui;
@@ -314,10 +317,13 @@ export default function Textarea({
     `calc(${rows}lh + ${floating ? floatingPaddings[dim] : verticalPaddings[dim]} + 2px)`;
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="cui-field flex flex-col gap-1.5">
       {hasLabel && !floating && (
         <label
-          className="block truncate text-sm font-medium"
+          className={cn(
+            fieldLabelClass(dim),
+            "block truncate text-sm font-medium",
+          )}
           htmlFor={textareaId}
         >
           {label}
@@ -357,7 +363,7 @@ export default function Textarea({
           aria-required={required ? "true" : props["aria-required"]}
           data-disabled={disabled ? "" : undefined}
           data-invalid={invalid ? "" : undefined}
-          data-readonly={props.readOnly ? "" : undefined}
+          data-readonly={readOnly ? "" : undefined}
           disabled={disabled}
           id={textareaId}
           name={name}
@@ -372,6 +378,7 @@ export default function Textarea({
           }}
           onChange={handleChange}
           placeholder={floating ? "" : props.placeholder}
+          readOnly={readOnly}
           ref={fieldRef}
           required={required}
           style={{

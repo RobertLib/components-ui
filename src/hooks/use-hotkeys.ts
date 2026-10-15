@@ -5,6 +5,7 @@ import {
   OverlayContext,
 } from "../components/ui/overlay-stack";
 import { matchesShortcut } from "../utils/shortcut";
+import { registerHotkeys } from "./hotkey-registry";
 
 /** Options of one shortcut of `useHotkeys`. */
 export interface HotkeyOptions {
@@ -14,6 +15,19 @@ export interface HotkeyOptions {
    * Ctrl / ⌘ like `"mod+s"`, wrong for single keys like `"?"`.
    */
   allowInFields?: boolean;
+  /**
+   * What the shortcut does, e.g. "Save the invoice" - it lists the shortcut
+   * in the `KeyboardShortcutsDialog` while the hook is mounted and enabled,
+   * and while it works (not under a modal dialog the component is not in).
+   * Shortcuts with the same description and `group` share a line.
+   */
+  description?: string;
+  /**
+   * The heading the shortcut is listed under in the
+   * `KeyboardShortcutsDialog`, e.g. "Invoices" - the localized "General"
+   * without one. Only with a `description`.
+   */
+  group?: string;
   /** Overrides the `preventDefault` of the hook for this shortcut. */
   preventDefault?: boolean;
 }
@@ -64,7 +78,7 @@ const EDITABLE =
   "[contenteditable=''], [contenteditable='true'], [contenteditable='plaintext-only']";
 
 /** Whether keys pressed in `element` type text (or pick by typing). */
-function isTypingTarget(element: EventTarget | null) {
+export function isTypingTarget(element: EventTarget | null) {
   if (!(element instanceof HTMLElement)) return false;
   if (element instanceof HTMLInputElement) {
     return !NON_TEXT_INPUTS.has(element.type);
@@ -131,7 +145,8 @@ function handleKeyDown(
  * under a modal dialog - unless the component is in it. An `escape`
  * shortcut waits while a popover, menu or tooltip the component is not in is
  * open: that Escape closes the overlay. One key press calls one shortcut,
- * the first that matches.
+ * the first that matches. A shortcut with a `description` is listed in the
+ * `KeyboardShortcutsDialog`.
  */
 export default function useHotkeys(
   hotkeys: Hotkey[],
@@ -145,6 +160,30 @@ export default function useHotkeys(
   useLayoutEffect(() => {
     latest.current = { ancestors, hotkeys, preventDefault };
   });
+
+  // The described shortcuts, for the help - registered anew only when they
+  // change, not with every inline array
+  const described = JSON.stringify(
+    hotkeys.flatMap(([shortcut, , options]) =>
+      options?.description
+        ? [[shortcut, options.description, options.group ?? null]]
+        : [],
+    ),
+  );
+
+  useEffect(() => {
+    const entries = JSON.parse(described) as [string, string, string | null][];
+    if (!enabled || entries.length === 0) return;
+
+    return registerHotkeys(
+      entries.map(([shortcut, description, group]) => ({
+        ancestors,
+        description,
+        group: group ?? undefined,
+        shortcut,
+      })),
+    );
+  }, [ancestors, described, enabled]);
 
   useEffect(() => {
     if (!enabled) return;

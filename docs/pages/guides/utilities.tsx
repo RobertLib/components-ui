@@ -64,6 +64,8 @@ const dates = `import { inTimeZone, useFormatDate, useToday } from "components-u
 const formatDate = useFormatDate();
 formatDate("2026-10-01"); // "01.10.2026" in cs, "10/01/2026" in en - by formats.date
 formatDate("2026-10"); // "10.2026" in cs, "10/2026" in en - a month by formats.month, a week and a time by theirs
+formatDate("2026-Q3"); // "3. čtvrtletí 2026" in cs, "Q3 2026" in en - a quarter and a year ("2026") too
+formatDate("2026-10-01", "quarter"); // "Q4 2026" - the quarter of a date
 formatDate(entry.createdAt, "dateTime", { timeZone: "Europe/Prague" });
 
 // Today of the club, wherever the browser is - a new date at its midnight
@@ -71,6 +73,15 @@ const today = useToday("Europe/Prague"); // null until the page hydrates
 formatDate(today); // its day in Prague - a date of useToday or inTimeZone keeps its zone
 // The same instant in a time zone - its getters read the clock there
 inTimeZone(new Date(), "Europe/Prague").getHours();`;
+
+const relativeTimes = `import { useFormatRelativeTime } from "components-ui";
+
+// Once in a list - each call runs its own timer
+const formatRelativeTime = useFormatRelativeTime();
+formatRelativeTime(comment.createdAt); // "před 5 minutami", "včera", "in 2 hours"
+formatRelativeTime(order.updatedAt, { style: "short" }); // "před 5 min"
+// Older than a week - the date and time of the locale instead
+formatRelativeTime(entry.time, { absoluteAfterDays: 7 }); // "12.03.2026 14:30"`;
 
 const checkedLocalStorage = `// Only a list of column ids counts - anything else is the default
 const [columns, setColumns] = useLocalStorage<string[]>("orders-columns", [], {
@@ -282,6 +293,14 @@ export default function UtilitiesGuide() {
               tooltip it is not inside is open: that Escape closes the overlay,
               the next one runs the shortcut - one Escape does one thing.
             </li>
+            <li>
+              A shortcut with a <code>description</code> (and a{" "}
+              <code>group</code>) is listed by the{" "}
+              <Link to="/components/keyboard-shortcuts-dialog">
+                KeyboardShortcutsDialog
+              </Link>{" "}
+              while the hook is mounted and enabled.
+            </li>
           </ul>
         </Prose>
         <Example name="utilities/hotkeys" />
@@ -401,27 +420,45 @@ export default function UtilitiesGuide() {
             <code>useFormatDate()</code> writes a date as the pickers show and
             take it - by the patterns of the locale&apos;s <code>formats</code>{" "}
             (<code>date</code>, <code>dateTime</code>, <code>time</code>,{" "}
-            <code>month</code>, <code>week</code>), so a list shows a date as
-            its edit form does. The values of the pickers -{" "}
-            <code>2026-10-01</code>, <code>2026-10-01T14:30</code>,{" "}
-            <code>2026-10</code>, <code>2026-W40</code>, <code>14:30</code> -
-            are times on the clock, written the same wherever the browser is; a
-            month, a week and a time by the pattern of their picker unless{" "}
-            <code>format</code> says otherwise - and also then when its pattern
-            has a part they do not have, such as the day of a month or the time
-            of a date. A moment in time - a <code>Date</code>, an ISO date and
-            time with its zone - is written in the <code>timeZone</code> given,
-            else in the zone of a date of <code>useToday</code> or{" "}
-            <code>inTimeZone</code>, else in the browser&apos;s: then as{" "}
-            <code>&quot;&quot;</code> on the server and while the page hydrates,
-            whose clock may be another. An invalid date or time zone is written
-            as <code>&quot;&quot;</code>. <code>useToday(timeZone)</code> is the
-            start of today, a new date at each midnight - e.g. the{" "}
-            <code>max</code> of a birth date - and <code>inTimeZone</code> the
-            same instant on the clock of a time zone.
+            <code>month</code>, <code>week</code>, <code>quarter</code>,{" "}
+            <code>year</code>), so a list shows a date as its edit form does.
+            The values of the pickers - <code>2026-10-01</code>,{" "}
+            <code>2026-10-01T14:30</code>, <code>2026-10</code>,{" "}
+            <code>2026-W40</code>, <code>2026-Q4</code>, <code>2026</code>,{" "}
+            <code>14:30</code> - are times on the clock, written the same
+            wherever the browser is; a month, a week, a quarter, a year and a
+            time by the pattern of their picker unless <code>format</code> says
+            otherwise - and also then when its pattern has a part they do not
+            have, such as the day of a month or the time of a date. A moment in
+            time - a <code>Date</code>, an ISO date and time with its zone - is
+            written in the <code>timeZone</code> given, else in the zone of a
+            date of <code>useToday</code> or <code>inTimeZone</code>, else in
+            the browser&apos;s: then as <code>&quot;&quot;</code> on the server
+            and while the page hydrates, whose clock may be another. An invalid
+            date or time zone is written as <code>&quot;&quot;</code>.{" "}
+            <code>useToday(timeZone)</code> is the start of today, a new date at
+            each midnight - e.g. the <code>max</code> of a birth date - and{" "}
+            <code>inTimeZone</code> the same instant on the clock of a time
+            zone.
           </p>
         </Prose>
         <CodeBlock code={dates} />
+        <Prose>
+          <p>
+            <code>useFormatRelativeTime(timeZone?)</code> writes a moment
+            relative to now in the language of the locale (
+            <code>Intl.RelativeTimeFormat</code>) and writes it again every
+            minute: less than 45 seconds is &quot;now&quot;, then minutes,
+            hours, calendar days (&quot;včera&quot;), weeks, months and years.
+            With <code>absoluteAfterDays</code> an older moment is written as
+            the locale&apos;s <code>dateTime</code>. On the server and while the
+            page hydrates it writes the date and time - the clock of the server
+            is not the user&apos;s. <code>NotificationCenter</code>,{" "}
+            <code>CommentThread</code> and <code>ChangeHistory</code> write
+            their times with it.
+          </p>
+        </Prose>
+        <CodeBlock code={relativeTimes} />
       </Section>
 
       <Section title="Copying to the clipboard">
@@ -555,15 +592,16 @@ export default function UtilitiesGuide() {
               <Link to="/localization">Localization</Link>
             </li>
             <li>
-              <code>getFieldError</code>, <code>getBaseError</code> and{" "}
-              <code>getNestedErrors</code> -{" "}
+              <code>getFieldError</code>, <code>getBaseError</code>,{" "}
+              <code>getNestedErrors</code>, <code>useUnsavedChanges</code>,{" "}
+              <code>hasUnsavedChanges</code> and <code>confirmLeave</code> -{" "}
               <Link to="/guides/forms">Forms &amp; validation</Link>
             </li>
             <li>
               <code>useDataTableQuery</code>, <code>toOffsetParams</code>,{" "}
               <code>toRelayVariables</code> and the other query helpers,{" "}
-              <code>createCsv</code>, <code>downloadCsv</code> and{" "}
-              <code>getCsvSeparator</code> -{" "}
+              <code>createCsv</code>, <code>createTsv</code>,{" "}
+              <code>downloadCsv</code> and <code>getCsvSeparator</code> -{" "}
               <Link to="/components/data-table">DataTable</Link>
             </li>
             <li>
@@ -590,6 +628,14 @@ export default function UtilitiesGuide() {
             <li>
               <code>formatShortcut</code>, <code>matchesShortcut</code> and{" "}
               <code>parseShortcut</code> - <Link to="/components/kbd">Kbd</Link>
+            </li>
+            <li>
+              <code>isValidIco</code>, <code>isValidDic</code>,{" "}
+              <code>isValidBirthNumber</code>, <code>parseBirthNumber</code>,{" "}
+              <code>isValidBankAccount</code>, <code>isValidIban</code>,{" "}
+              <code>isValidPostalCode</code> and the formatters of Czech
+              identifiers, <code>useCzValidators</code> and{" "}
+              <code>CZ_MASKS</code> - <Link to="/components/input">Input</Link>
             </li>
           </ul>
         </Prose>

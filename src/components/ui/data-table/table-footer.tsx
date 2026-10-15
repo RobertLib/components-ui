@@ -184,7 +184,7 @@ export function TableFooter({
   };
 
   return (
-    <footer className="flex flex-wrap items-center justify-end gap-3 rounded-b-lg border border-t-0 border-neutral-200 bg-surface p-2 dark:border-neutral-800 dark:bg-surface-dark">
+    <footer className="flex flex-wrap items-center justify-end gap-3 rounded-b-lg border border-t-0 border-neutral-200 bg-surface p-2 dark:border-neutral-800 dark:bg-surface-dark print:hidden">
       <Select
         aria-label={messages.dataTable.rowsPerPage}
         dim="xs"
@@ -197,6 +197,8 @@ export function TableFooter({
           label: value.toString(),
           value,
         }))}
+        // No value of the form around - a read-only section leaves it be
+        readOnly={false}
         value={query.pageSize}
       />
 

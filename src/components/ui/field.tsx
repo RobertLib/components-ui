@@ -4,6 +4,7 @@ import { isControlTarget } from "./control-target";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import RequiredMark from "./required-mark";
+import { useReadOnly } from "./form-scope";
 import { useMessages } from "../../providers/ui-context";
 import { getElementByIdAt } from "./overlay-stack";
 
@@ -31,6 +32,11 @@ export interface FieldControlProps {
   "data-invalid"?: "";
   /** The id the label points at. */
   id: string;
+  /**
+   * `true` for a `readOnly` field - also one in a read-only `FormGrid` or
+   * `FormSection`. Absent otherwise.
+   */
+  readOnly?: true;
 }
 
 export interface FieldProps extends Omit<
@@ -65,6 +71,12 @@ export interface FieldProps extends Omit<
    */
   label?: React.ReactNode;
   /**
+   * Passes `readOnly` to the control (`FieldControlProps`) - for a control
+   * that takes it as a native input does. Defaults to the `readOnly` of a
+   * `FormGrid` or `FormSection` around.
+   */
+  readOnly?: boolean;
+  /**
    * Marks the label with a star and the control with `aria-required` - the
    * control itself still has to be `required` for the browser to check it.
    */
@@ -84,9 +96,11 @@ export default function Field({
   error,
   id,
   label,
+  readOnly: ownReadOnly,
   required,
   ...props
 }: FieldProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const messages = useMessages().ui;
   const generatedId = useId();
   const controlId = id ?? generatedId;
@@ -102,13 +116,17 @@ export default function Field({
     "aria-required": required ? "true" : undefined,
     "data-invalid": error ? "" : undefined,
     id: controlId,
+    readOnly: readOnly || undefined,
   };
 
   return (
-    <div {...props} className={cn("flex flex-col gap-1.5", className)}>
+    <div
+      {...props}
+      className={cn("cui-field flex flex-col gap-1.5", className)}
+    >
       {hasLabel && (
         <label
-          className="block truncate text-sm font-medium"
+          className="cui-field-label block truncate text-sm font-medium"
           htmlFor={controlId}
           id={labelId}
           // A control no label reaches (a `div` with a role) gets the focus

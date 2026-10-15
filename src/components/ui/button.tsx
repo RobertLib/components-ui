@@ -1,6 +1,8 @@
-import { use } from "react";
-import cn from "../../utils/cn";
+import { use, useId } from "react";
+import cn, { joinTokens } from "../../utils/cn";
 import { ButtonGroupContext } from "./button-group-context";
+import { hasReason } from "./disabled-reason";
+import DisabledReasonTooltip from "./disabled-reason-tooltip";
 import type { LinkComponentProps } from "../../providers/router";
 import { useRouterActions } from "../../providers/ui-context";
 
@@ -12,6 +14,18 @@ export interface ButtonProps extends React.ComponentProps<"button"> {
    */
   color?:
     "default" | "primary" | "secondary" | "success" | "danger" | "warning";
+  /**
+   * Why the button is `disabled` - e.g. "Only an accountant can approve
+   * invoices". With a reason, the disabled button stays focusable
+   * (`aria-disabled`) and shows the reason in a tooltip on hover, keyboard
+   * focus, a tap and a long press; screen readers read it as its
+   * description. It still does nothing - no `onClick`, no submit, no
+   * navigation of a `link`. Used only while `disabled`: keep it given while
+   * the button is enabled too (`disabled={!canApprove}
+   * disabledReason="…"`), so the button stays the same element and keeps
+   * the focus.
+   */
+  disabledReason?: React.ReactNode;
   /** An icon after the label, e.g. `<ChevronDown size={16} />`. */
   endIcon?: React.ReactNode;
   /** Stretches the button to the width of its container. */
@@ -68,6 +82,7 @@ export default function Button({
   className,
   color: colorProp,
   disabled,
+  disabledReason,
   children,
   endIcon,
   fullWidth = false,
@@ -80,6 +95,7 @@ export default function Button({
   ...props
 }: ButtonProps) {
   const { Link } = useRouterActions();
+  const reasonId = useId();
   // Joined with the other buttons of a group, which may set these for all
   const group = use(ButtonGroupContext);
   const color = colorProp ?? group?.color ?? "primary";
@@ -176,6 +192,12 @@ export default function Button({
   // Loading, it looks disabled but stays focusable - a native `disabled`
   // would drop the focus of the button just pressed to the page
   const isBusy = loading && !disabled;
+  // Disabled with a reason, it stays focusable too - to show the reason
+  const isExplained = !!disabled && hasReason(disabledReason);
+  const describedBy = joinTokens(
+    props["aria-describedby"],
+    isExplained ? reasonId : undefined,
+  );
 
   // In a group only the outer corners are round, and each button overlaps
   // the border of the one before. The hovered and the focused one come to
@@ -288,6 +310,22 @@ export default function Button({
     className,
   );
 
+  // With a reason - even while enabled - the button is in the wrapper of
+  // its tooltip, so it stays the same element as it is disabled
+  const withReason = (control: React.ReactElement) =>
+    disabledReason === undefined ? (
+      control
+    ) : (
+      <DisabledReasonTooltip
+        active={isExplained}
+        className={fullWidth ? "w-full" : undefined}
+        reason={disabledReason}
+        reasonId={reasonId}
+      >
+        {control}
+      </DisabledReasonTooltip>
+    );
+
   if (link) {
     // Everything but what only a <button> understands goes to the link -
     // `ref`, `data-*`, `aria-*`, event handlers, …
@@ -310,26 +348,28 @@ export default function Button({
     if (disabled) {
       // Without an `href` nothing can open a disabled link - no click, no
       // middle click, no dragging it into a tab, no "Open in new tab" of
-      // the context menu - and it is not in the tab order
-      return (
+      // the context menu - and it is not in the tab order, but with a
+      // reason to show
+      return withReason(
         <a
           {...(linkProps as React.ComponentProps<"a">)}
           aria-busy={loading || undefined}
+          aria-describedby={describedBy}
           aria-disabled="true"
           className={commonClassNames}
           onAuxClick={preventActivation}
           onClick={preventActivation}
           role="link"
-          tabIndex={undefined}
+          tabIndex={isExplained ? 0 : undefined}
         >
           {content}
-        </a>
+        </a>,
       );
     }
 
     // A loading link keeps its `href` - rendered as the same element, it
     // keeps the focus - but a click or a middle click does nothing
-    return (
+    return withReason(
       <Link
         {...(linkProps as Omit<LinkComponentProps, "href">)}
         aria-busy={isBusy || undefined}
@@ -348,21 +388,22 @@ export default function Button({
         }
       >
         {content}
-      </Link>
+      </Link>,
     );
   }
 
-  return (
+  return withReason(
     <button
       {...props}
       aria-busy={loading || undefined}
-      aria-disabled={isBusy || props["aria-disabled"]}
+      aria-describedby={describedBy}
+      aria-disabled={isBusy || isExplained || props["aria-disabled"]}
       className={commonClassNames}
-      disabled={disabled}
-      onClick={isBusy ? preventActivation : props.onClick}
+      disabled={disabled && !isExplained}
+      onClick={isBusy || isExplained ? preventActivation : props.onClick}
       type={type ?? "button"}
     >
       {content}
-    </button>
+    </button>,
   );
 }

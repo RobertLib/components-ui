@@ -8,6 +8,8 @@ export default function Types() {
       <DateTimePicker label="Date and time" name="at" type="datetime-local" />
       <DateTimePicker label="Month" name="month" type="month" />
       <DateTimePicker label="Week" name="week" type="week" />
+      <DateTimePicker label="Quarter" name="quarter" type="quarter" />
+      <DateTimePicker label="Year" name="year" type="year" />
     </div>
   );
 }

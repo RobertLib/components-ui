@@ -9,6 +9,7 @@ import { formatMessage, formatPlural } from "../../../i18n/ui/format";
 import { formatDate, parseISODate, toISODate } from "../../../utils/date";
 import { useLocale } from "../../../providers/ui-context";
 import type { DateDisabledPredicate } from "../datetime-picker/availability";
+import { useReadOnly } from "../form-scope";
 
 /**
  * The attributes of an HTML element not listed here - `data-*`, `style`,
@@ -81,6 +82,7 @@ interface DateCalendarBaseProps extends Omit<
   /**
    * The value is shown and submitted, and the days can be browsed - but
    * nothing picked. The grids are `aria-readonly`.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /** Ref to the group of the calendar - the element of `id`. */
@@ -158,12 +160,13 @@ export default function DateCalendar({
   onBlur,
   onChange,
   onFocus,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required,
   value,
   ...props
 }: DateCalendarProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = locale.messages.ui;
   const generatedId = useId();

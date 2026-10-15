@@ -156,6 +156,37 @@ describe("applyMask", () => {
     expect(applyMask("###/", "12").formatted).toBe("12");
     expect(applyMask("###/", "123").formatted).toBe("123/");
   });
+
+  it("is complete where the value may end - before an optional placeholder", () => {
+    const tokens = { "?": { optional: true, pattern: /\d/ } };
+
+    expect(applyMask("######/###?", "530101123", tokens)).toEqual({
+      complete: true,
+      formatted: "530101/123",
+      raw: "530101123",
+    });
+    expect(applyMask("######/###?", "7801234562", tokens)).toEqual({
+      complete: true,
+      formatted: "780123/4562",
+      raw: "7801234562",
+    });
+    // Not before the placeholders that must be filled
+    expect(applyMask("######/###?", "78012345", tokens).complete).toBe(false);
+    expect(applyMask("######/###?", "", tokens).complete).toBe(false);
+    // Two optional ones - also after the first of them
+    expect(applyMask("CZ########??", "45274649", tokens).complete).toBe(true);
+    expect(applyMask("CZ########??", "CZ530101123", tokens).complete).toBe(
+      true,
+    );
+    expect(applyMask("CZ########??", "4527464", tokens).complete).toBe(false);
+    // An optional placeholder in the middle lets the value end there
+    expect(applyMask("##?##", "12", tokens).complete).toBe(true);
+    expect(applyMask("##?##", "123", tokens).complete).toBe(false);
+    // A value of nothing but optional placeholders may be empty
+    expect(applyMask("??", "", tokens).complete).toBe(true);
+    // A pattern alone is no optional placeholder
+    expect(applyMask("##?", "12", { "?": /\d/ }).complete).toBe(false);
+  });
 });
 
 describe("editMasked", () => {
@@ -273,6 +304,24 @@ describe("editMasked", () => {
     // The letter after a deleted one is left out where a digit belongs
     expect(edit(plate, "1AB 2345", "1|B 2345", "deleteContentBackward")).toBe(
       "1|B",
+    );
+  });
+
+  it("types into and deletes from optional placeholders", () => {
+    const birthNumber = parseMask("######/###?", {
+      "?": { optional: true, pattern: /\d/ },
+    });
+
+    expect(typeKeys(birthNumber, "530101123")).toBe("530101/123");
+    expect(typeKeys(birthNumber, "78012345629")).toBe("780123/4562");
+    expect(edit(birthNumber, "530101/123", "530101/1234|")).toBe(
+      "530101/1234|",
+    );
+    expect(
+      edit(birthNumber, "780123/4562", "780123/456|", "deleteContentBackward"),
+    ).toBe("780123/456|");
+    expect(edit(birthNumber, "", "780123/4562|", "insertFromPaste")).toBe(
+      "780123/4562|",
     );
   });
 

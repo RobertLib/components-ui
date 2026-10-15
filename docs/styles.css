@@ -6,8 +6,15 @@
 /* The tests are no source of classes (they contain made-up ones) */
 @source not "../src/**/*.test.{ts,tsx}";
 
-/* The docs switch the theme with a class, not only by the system setting */
-@custom-variant dark (&:where(.dark, .dark *));
+/* The docs switch the theme with a class, not only by the system setting -
+   on screen only, a page prints light */
+@custom-variant dark {
+  @media screen {
+    &:where(.dark, .dark *) {
+      @slot;
+    }
+  }
+}
 
 :root {
   font-family:
@@ -40,20 +47,23 @@
   --sh-comment: #9ca3af;
 }
 
-:root.dark {
-  color-scheme: dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: var(--color-background-dark);
+/* On screen only - like the dark variant above */
+@media screen {
+  :root.dark {
+    color-scheme: dark;
+    color: rgba(255, 255, 255, 0.87);
+    background-color: var(--color-background-dark);
 
-  --sh-class: #c4b5fd;
-  --sh-identifier: #e5e7eb;
-  --sh-sign: #9ca3af;
-  --sh-property: #93c5fd;
-  --sh-entity: #67e8f9;
-  --sh-jsxliterals: #d1d5db;
-  --sh-string: #6ee7b7;
-  --sh-keyword: #f9a8d4;
-  --sh-comment: #6b7280;
+    --sh-class: #c4b5fd;
+    --sh-identifier: #e5e7eb;
+    --sh-sign: #9ca3af;
+    --sh-property: #93c5fd;
+    --sh-entity: #67e8f9;
+    --sh-jsxliterals: #d1d5db;
+    --sh-string: #6ee7b7;
+    --sh-keyword: #f9a8d4;
+    --sh-comment: #6b7280;
+  }
 }
 
 body {

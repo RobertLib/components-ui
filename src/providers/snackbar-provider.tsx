@@ -427,7 +427,7 @@ export default function SnackbarProvider({
       // FOCUS_TRAP_EXEMPT_ATTRIBUTE of the overlay stack
       data-focus-trap-exempt=""
       className={cn(
-        "pointer-events-none fixed inset-x-4 z-60 mx-auto flex w-max max-w-[min(calc(100vw-2rem),36rem)] flex-col items-center",
+        "pointer-events-none fixed inset-x-4 z-60 mx-auto flex w-max max-w-[min(calc(100vw-2rem),36rem)] flex-col items-center print:hidden",
         placement.region,
         placement.column,
       )}

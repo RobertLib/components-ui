@@ -305,6 +305,8 @@ export default function CellEditor<T>({
           change(target.checked);
           commit(target.checked, 0, true);
         }}
+        // No value of the form around - a read-only section leaves it be
+        readOnly={false}
       />
     );
   } else if (kind === "select") {
@@ -317,6 +319,7 @@ export default function CellEditor<T>({
         hasEmpty={draft === "" || toDraft(kind, initialValue) === ""}
         onChange={({ target }) => change(target.value)}
         options={getEditorOptions(column)}
+        readOnly={false}
         value={String(draft)}
       />
     );
@@ -329,6 +332,7 @@ export default function CellEditor<T>({
         onChange={({ target }) => change(target.value)}
         onKeyDown={handleDateKeyDown}
         preserveInvalidText
+        readOnly={false}
         type="date"
         value={String(draft)}
       />
@@ -340,6 +344,7 @@ export default function CellEditor<T>({
         dim="xs"
         error={error}
         onChange={({ target }) => change(target.value)}
+        readOnly={false}
         type={kind === "number" ? "number" : "text"}
         value={String(draft)}
       />

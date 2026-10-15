@@ -13,15 +13,23 @@ import ButtonGroup from "./button-group";
 import Calendar from "./calendar";
 import Card from "./card";
 import Chip from "./chip";
+import ChangeHistory from "./change-history";
 import CollapsibleContent from "./collapsible-content";
+import CommentThread from "./comment-thread";
 import CopyButton from "./copy-button";
 import DataTable from "./data-table";
 import DescriptionList from "./description-list";
 import EmptyState from "./empty-state";
+import FormActions from "./form-actions";
+import FormGrid, { FormGridItem } from "./form-grid";
+import FormSection from "./form-section";
 import IconButton from "./icon-button";
+import KanbanBoard from "./kanban-board";
 import Kbd from "./kbd";
 import Link from "./link";
 import LoadingOverlay from "./loading-overlay";
+import MentionText from "./mention-input/mention-text";
+import NotificationCenter from "./notification-center";
 import Pagination from "./pagination";
 import Panel from "./panel";
 import Progress, { CircularProgress } from "./progress";
@@ -32,6 +40,7 @@ import Spinner from "./spinner";
 import Splitter from "./splitter";
 import Stat from "./stat";
 import Stepper from "./stepper";
+import SystemBanner from "./system-banner";
 import Table, {
   TableBody,
   TableCell,
@@ -41,7 +50,9 @@ import Table, {
 } from "./table";
 import Tabs from "./tabs";
 import Timeline from "./timeline";
+import Toolbar from "./toolbar";
 import TreeView from "./tree-view";
+import VirtualList from "./virtual-list";
 import VisuallyHidden from "./visually-hidden";
 
 /** A `ref` and a test id - both should reach the same element. */
@@ -98,6 +109,15 @@ const cases: [
   ["Button", (props) => <Button {...props}>Save</Button>, "button"],
   ["Button as a link", (props) => <Button link="/a" {...props} />, "a"],
   [
+    "Button with a disabledReason",
+    (props) => (
+      <Button disabled disabledReason="Not allowed" {...props}>
+        Save
+      </Button>
+    ),
+    "button",
+  ],
+  [
     "ButtonGroup",
     (props) => (
       <ButtonGroup {...props}>
@@ -141,6 +161,11 @@ const cases: [
     ),
     "div",
   ],
+  [
+    "CommentThread",
+    (props) => <CommentThread comments={[]} {...props} />,
+    "section",
+  ],
   ["CopyButton", (props) => <CopyButton {...props} value="A" />, "button"],
   [
     "DataTable",
@@ -161,7 +186,30 @@ const cases: [
     "dl",
   ],
   ["EmptyState", (props) => <EmptyState {...props} title="A" />, "div"],
+  ["FormActions", (props) => <FormActions sticky {...props} />, "div"],
+  ["FormGrid", (props) => <FormGrid columns={2} {...props} />, "div"],
+  [
+    "FormGridItem",
+    (props) => (
+      <FormGrid columns={2}>
+        <FormGridItem span={2} {...props} />
+      </FormGrid>
+    ),
+    "div",
+  ],
+  ["FormSection", (props) => <FormSection {...props} title="A" />, "fieldset"],
   ["IconButton", (props) => <IconButton aria-label="A" {...props} />, "button"],
+  [
+    "KanbanBoard",
+    (props) => (
+      <KanbanBoard
+        columns={[{ id: "a", title: "A" }]}
+        renderCard={() => "A"}
+        {...props}
+      />
+    ),
+    "div[data-kanban-board]",
+  ],
   ["Kbd", (props) => <Kbd {...props} shortcut="mod+k" />, "kbd"],
   ["Link", (props) => <Link href="/a" {...props} />, "a"],
   [
@@ -172,6 +220,16 @@ const cases: [
       </LoadingOverlay>
     ),
     "div[aria-busy]",
+  ],
+  [
+    "MentionText",
+    (props) => <MentionText value="@[A](1)" {...props} />,
+    "span",
+  ],
+  [
+    "NotificationCenter",
+    (props) => <NotificationCenter notifications={[]} {...props} />,
+    "div",
   ],
   [
     "Pagination",
@@ -220,6 +278,11 @@ const cases: [
       <Stepper currentStepId={1} {...props} steps={[{ id: 1, title: "A" }]} />
     ),
     "div[data-orientation]",
+  ],
+  [
+    "SystemBanner",
+    (props) => <SystemBanner {...props}>A</SystemBanner>,
+    "div[role=status]",
   ],
   [
     "Table - the table in its frame",
@@ -292,6 +355,11 @@ const cases: [
     "ol",
   ],
   [
+    "Toolbar",
+    (props) => <Toolbar items={[{ id: "a", label: "A" }]} {...props} />,
+    "div[role=toolbar]",
+  ],
+  [
     "TreeView",
     (props) => (
       <TreeView aria-label="A" items={[{ id: "a", label: "A" }]} {...props} />
@@ -302,6 +370,28 @@ const cases: [
     "VisuallyHidden",
     (props) => <VisuallyHidden {...props}>A</VisuallyHidden>,
     "span",
+  ],
+  [
+    "ChangeHistory",
+    (props) => (
+      <ChangeHistory
+        entries={[{ action: "created", id: 1, time: new Date() }]}
+        {...props}
+      />
+    ),
+    "div",
+  ],
+  [
+    "VirtualList",
+    (props) => (
+      <VirtualList
+        height={100}
+        items={["A"]}
+        renderItem={(item) => item}
+        {...props}
+      />
+    ),
+    "div[data-virtual-list]",
   ],
 ];
 

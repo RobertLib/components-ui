@@ -2,6 +2,8 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  ChevronsDownUp,
+  ChevronsUpDown,
   GripVertical,
   Info,
 } from "lucide-react";
@@ -12,6 +14,7 @@ import ColumnResizeHandle from "./column-resize-handle";
 import DateTimePicker from "../datetime-picker";
 import EdgeShadow from "./edge-shadow";
 import Popover from "../popover";
+import Select from "../select";
 import { useEffect, useId } from "react";
 import useIsMobile from "../../../hooks/use-is-mobile";
 import {
@@ -86,6 +89,11 @@ interface TableHeadProps<T> {
   filters: Record<string, DataTableFilterValue>;
   /** Changes when the filters are cleared - the fields drop what is typed. */
   filterResetKey: number;
+  /**
+   * How often the filter of a column was removed by its chip, by column key
+   * - its field drops what is typed.
+   */
+  filterResetKeys?: Readonly<Record<string, number>>;
   /** The key of the group of each grouped column. */
   groupOf: Readonly<Record<string, string>>;
   /** Lets a column header be a drop target. */
@@ -139,6 +147,17 @@ interface TableHeadProps<T> {
   stickyTop: number;
   /** Selects or deselects all rows of the page. */
   toggleSelectAll: () => void;
+  /**
+   * Tree data: the button in the header of the tree column expanding all
+   * rows - collapsing them while some are expanded. `null` for none.
+   */
+  treeToggle?: {
+    /** The column whose header has the button. */
+    columnKey: string;
+    /** Some row is expanded - the button collapses all. */
+    expanded: boolean;
+    onToggle: () => void;
+  } | null;
 }
 
 export function TableHead<T>({
@@ -151,6 +170,7 @@ export function TableHead<T>({
   columnWidths,
   expandColumnRef,
   filterResetKey,
+  filterResetKeys,
   filters,
   groupOf,
   handleDragOver,
@@ -176,6 +196,7 @@ export function TableHead<T>({
   sortedVisibleColumns,
   stickyTop,
   toggleSelectAll,
+  treeToggle,
 }: TableHeadProps<T>) {
   const messages = useMessages().ui;
   const idPrefix = useId();
@@ -233,6 +254,8 @@ export function TableHead<T>({
   const leadingCell = (key: string, className?: string) => (
     <td
       className={cn("sticky z-1 bg-surface dark:bg-surface-dark", className)}
+      // Left out of a printout, like the cells of its column
+      data-leading-column=""
       style={getCellStyle(null, layoutOf(key), false)}
     >
       <EdgeShadow side={layoutOf(key).shadow} />
@@ -241,7 +264,8 @@ export function TableHead<T>({
 
   return (
     <thead
-      className="sticky inset-s-0 z-2 bg-surface shadow dark:bg-surface-dark dark:shadow-neutral-800"
+      // Printed, it repeats at the top of every page - not sticking
+      className="sticky inset-s-0 z-2 bg-surface shadow dark:bg-surface-dark dark:shadow-neutral-800 print:static print:shadow-none"
       ref={ref}
       style={{ top: stickyTop }}
     >
@@ -383,6 +407,9 @@ export function TableHead<T>({
           const sortTitle = formatMessage(messages.dataTable.sortBy, {
             label: columnName,
           });
+          const treeToggleLabel = treeToggle?.expanded
+            ? messages.dataTable.tree.collapseAll
+            : messages.dataTable.tree.expandAll;
 
           return (
             <th
@@ -430,9 +457,25 @@ export function TableHead<T>({
                   clipped && "overflow-hidden",
                 )}
               >
+                {/* Over the toggles of the rows */}
+                {treeToggle?.columnKey === column.key && (
+                  <button
+                    aria-label={treeToggleLabel}
+                    className="relative flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-neutral-500 after:absolute after:-inset-1 after:content-[''] hover:bg-neutral-200 hover:text-neutral-700 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-500 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                    onClick={treeToggle.onToggle}
+                    title={treeToggleLabel}
+                    type="button"
+                  >
+                    {treeToggle.expanded ? (
+                      <ChevronsDownUp aria-hidden="true" size={16} />
+                    ) : (
+                      <ChevronsUpDown aria-hidden="true" size={16} />
+                    )}
+                  </button>
+                )}
                 <span
                   aria-hidden="true"
-                  className="shrink-0 cursor-grab opacity-50 hover:opacity-100"
+                  className="shrink-0 cursor-grab opacity-50 hover:opacity-100 print:hidden"
                   draggable
                   onDragStart={(event) => {
                     handleDragStart(event, column.key);
@@ -500,7 +543,10 @@ export function TableHead<T>({
                         <ArrowDown size={16} className="shrink-0" />
                       )
                     ) : (
-                      <ArrowUpDown size={16} className="shrink-0" />
+                      <ArrowUpDown
+                        size={16}
+                        className="shrink-0 print:hidden"
+                      />
                     )}
                     {showsPriority && (
                       <>
@@ -538,7 +584,7 @@ export function TableHead<T>({
                       {column.labelInfo}
                     </span>
                     <Popover
-                      className="shrink-0 rounded-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500"
+                      className="shrink-0 rounded-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 print:hidden"
                       contentClassName="p-2 text-sm"
                       position="bottom"
                       // A tap opens it on a touch screen; with a mouse it
@@ -580,7 +626,7 @@ export function TableHead<T>({
       {/* The filters have a row of their own, so they are no part of the
           names of the column headers */}
       {hasAnyFilters && (
-        <tr>
+        <tr className="print:hidden">
           {renderSubRow && leadingCell(LEADING_KEYS.expand)}
           {hasSelection && leadingCell(LEADING_KEYS.selection)}
           {actions && (
@@ -614,6 +660,9 @@ export function TableHead<T>({
             const filterValue = typeof rawValue === "string" ? rawValue : "";
             const changeFilter = (value: DataTableFilterValue) =>
               onFilterChange(column.key, value);
+            // Also when the chip of this filter is removed
+            const resetKey =
+              filterResetKey + (filterResetKeys?.[column.key] ?? 0);
 
             const filterField = (
               <>
@@ -622,7 +671,7 @@ export function TableHead<T>({
                     label={filterLabel}
                     onChange={changeFilter}
                     placeholder={filterPlaceholder}
-                    resetKey={filterResetKey}
+                    resetKey={resetKey}
                     value={filterValue}
                   />
                 )}
@@ -643,6 +692,8 @@ export function TableHead<T>({
                     }}
                     options={column.filterSelectOptions ?? []}
                     placeholder={filterPlaceholder}
+                    // No value of the form around - a read-only section leaves it be
+                    readOnly={false}
                     value={filterValue}
                   />
                 )}
@@ -663,6 +714,7 @@ export function TableHead<T>({
                     dim="sm"
                     onChange={({ target }) => changeFilter(target.value)}
                     placeholder={filterPlaceholder}
+                    readOnly={false}
                     type={
                       column.filter === "datetime"
                         ? "datetime-local"
@@ -677,7 +729,7 @@ export function TableHead<T>({
                       label: columnName,
                     })}
                     onChange={changeFilter}
-                    resetKey={filterResetKey}
+                    resetKey={resetKey}
                     toLabel={formatMessage(messages.dataTable.filterTo, {
                       label: columnName,
                     })}
@@ -689,6 +741,21 @@ export function TableHead<T>({
                     label={filterLabel}
                     onChange={(range) => changeFilter(range ?? "")}
                     value={toRange(rawValue)}
+                  />
+                )}
+                {column.filter === "boolean" && (
+                  <Select
+                    aria-label={filterLabel}
+                    dim="sm"
+                    onChange={({ target }) => changeFilter(target.value)}
+                    options={[
+                      { label: messages.dataTable.filterAny, value: "" },
+                      { label: messages.common.yes, value: "true" },
+                      { label: messages.common.no, value: "false" },
+                    ]}
+                    // No value of a read-only form around the table
+                    readOnly={false}
+                    value={filterValue}
                   />
                 )}
                 {column.filter === "custom" &&

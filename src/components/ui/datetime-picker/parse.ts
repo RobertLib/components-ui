@@ -44,6 +44,16 @@ export const parseWeek = (value: string | undefined) => {
   return week >= 1 && week <= getISOWeeksInYear(year) ? { week, year } : null;
 };
 
+/** Splits a complete `YYYY-Qq` value into numbers (quarter 1 - 4). */
+export const parseQuarter = (value: string | undefined) => {
+  const match = value?.match(/^(\d{4})-Q([1-4])$/);
+  return match ? { quarter: Number(match[2]), year: Number(match[1]) } : null;
+};
+
+/** The year of a complete `YYYY` value. */
+export const parseYear = (value: string | undefined) =>
+  value && /^\d{4}$/.test(value) ? { year: Number(value) } : null;
+
 /** A complete local date-time, with a real date and time. */
 const parseDateTime = (value: string | undefined) => {
   const match = value?.match(/^(\d{4}-\d{2}-\d{2})[T ](.+)$/);
@@ -65,6 +75,10 @@ export function sanitizePickerValue(value: string, type: DateTimePickerType) {
       return parseMonth(value) ? value : "";
     case "week":
       return parseWeek(value) ? value : "";
+    case "quarter":
+      return parseQuarter(value) ? value : "";
+    case "year":
+      return parseYear(value) ? value : "";
   }
 }
 
@@ -338,6 +352,8 @@ const ISO_DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?)?$/i;
 const ISO_MONTH = /^(\d{4})-(\d{2})$/;
 const ISO_WEEK = /^(\d{4})-?W(\d{2})$/i;
+// Also with a space or a slash - `2026 Q3`, `2026/Q3`
+const ISO_QUARTER = /^(\d{4})[\s/-]?Q([1-4])$/i;
 const ISO_TIME = /^(\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?$/;
 
 /** A zone of an ISO date-time as `Date` reads it - `Z`, `+02:00`. */
@@ -370,6 +386,14 @@ function parseISOText(
     if (!month) return undefined;
     return Number(month[2]) >= 1 && Number(month[2]) <= 12 ? text : null;
   }
+
+  if (type === "quarter") {
+    const quarter = ISO_QUARTER.exec(text);
+    return quarter ? `${quarter[1]}-Q${quarter[2]}` : undefined;
+  }
+
+  // The pattern of a year reads a year in ISO 8601 too
+  if (type === "year") return undefined;
 
   if (type === "week") {
     const week = ISO_WEEK.exec(text);
@@ -409,8 +433,9 @@ function parseISOText(
  * `dayPeriods` are the AM / PM of the locale. A year left out is the one of
  * `today` (of its ISO week for a week), two digits one of the 80 years
  * before it and the 19 after it: `24.9.` and `24.9.26` are `2026-09-24` in
- * 2026, `3.7.85` is `1985-07-03`. `null` when the text is no real date or
- * time (`31.02.2026`).
+ * 2026, `3.7.85` is `1985-07-03`. A quarter may be typed with words around
+ * its number that the pattern does not have (`Q3 2026`, `3rd quarter
+ * 2026`). `null` when the text is no real date or time (`31.02.2026`).
  */
 export function parseDisplayValue(
   text: string,
@@ -422,14 +447,30 @@ export function parseDisplayValue(
   const iso = parseISOText(text.trim(), type);
   if (iso !== undefined) return iso;
 
-  const parts = parsePattern(text, pattern, dayPeriods, today.getFullYear());
+  const parts =
+    parsePattern(text, pattern, dayPeriods, today.getFullYear()) ??
+    // The words of another language or of none - "Q3 2026" in Czech,
+    // "3. čtvrtletí 2026" in English - left out around the numbers
+    (type === "quarter"
+      ? parsePattern(
+          text.replace(/\p{L}+\.?/gu, " "),
+          pattern,
+          dayPeriods,
+          today.getFullYear(),
+        )
+      : null);
   if (!parts) return null;
 
-  const { day, hours = 0, minutes = 0, month, week } = parts;
+  const { day, hours = 0, minutes = 0, month, quarter, week } = parts;
   const time = `${pad2(hours)}:${pad2(minutes)}`;
 
   if (type === "time") {
     return isTime(hours, minutes) ? time : null;
+  }
+
+  // A year alone is never left out
+  if (type === "year") {
+    return parts.year === undefined ? null : padYear(parts.year);
   }
 
   const year =
@@ -445,6 +486,8 @@ export function parseDisplayValue(
       return week !== undefined && week >= 1 && week <= getISOWeeksInYear(year)
         ? `${padYear(year)}-W${pad2(week)}`
         : null;
+    case "quarter":
+      return quarter === undefined ? null : `${padYear(year)}-Q${quarter}`;
     default: {
       if (month === undefined || day === undefined) return null;
       if (!isValidDay(year, month, day)) return null;

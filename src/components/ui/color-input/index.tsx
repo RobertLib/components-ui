@@ -25,6 +25,7 @@ import Popover from "../popover";
 import { formatMessage } from "../../../i18n/ui/format";
 import { useMessages } from "../../../providers/ui-context";
 import RequiredMark from "../required-mark";
+import { fieldLabelClass, useReadOnly } from "../form-scope";
 
 export type { ColorFormat } from "./color";
 export type { ColorSwatch } from "./color-picker";
@@ -96,6 +97,7 @@ export interface ColorInputProps extends Omit<
    * The field shows the color and takes the focus, but it cannot be typed
    * over and the swatch opens no picker. Unlike a disabled field, it is
    * submitted with the form.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /**
@@ -172,13 +174,14 @@ export default function ColorInput({
   onBlur,
   onChange,
   onKeyDown,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required,
   swatches,
   value: controlledValue,
   ...props
 }: ColorInputProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const messages = useMessages().ui;
   // The portaled picker is outside the fieldset that disables its input.
   const [fieldsetDisabled, fieldsetRef] = useFieldsetDisabled();
@@ -349,9 +352,15 @@ export default function ColorInput({
   );
 
   return (
-    <div className="flex flex-col gap-1.5" ref={wrapperRef}>
+    <div className="cui-field flex flex-col gap-1.5" ref={wrapperRef}>
       {label && (
-        <label className="block truncate text-sm font-medium" htmlFor={inputId}>
+        <label
+          className={cn(
+            fieldLabelClass(dim),
+            "block truncate text-sm font-medium",
+          )}
+          htmlFor={inputId}
+        >
           {label}
           {messages.form.labelSuffix}{" "}
           {/* The star is for the eye - `required` tells assistive technology */}

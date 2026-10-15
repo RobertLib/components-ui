@@ -9,6 +9,7 @@ import { isControlTarget } from "./control-target";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import RequiredMark from "./required-mark";
+import { fieldLabelClass, useReadOnly } from "./form-scope";
 import { useMessages } from "../../providers/ui-context";
 
 export interface SelectOption<T = string | number> {
@@ -70,6 +71,7 @@ export interface SelectProps extends Omit<
    * `aria-readonly`. Unlike a `disabled` one it keeps the focus and is
    * submitted with its form. Like a read-only input it is not checked by
    * `required`, whose value the user could not fix. The arrow is hidden.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /**
@@ -163,12 +165,13 @@ export default function Select({
   onMouseDown,
   options,
   prefix,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required,
   suffix,
   ...props
 }: SelectProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const messages = useMessages().ui;
   const selectRef = useRef<HTMLSelectElement | null>(null);
 
@@ -299,7 +302,7 @@ export default function Select({
 
   return (
     <div
-      className="flex flex-col gap-1.5"
+      className="cui-field flex flex-col gap-1.5"
       // A press on a read-only select, which the pointer passes through,
       // lands here - it focuses the select, as it would a read-only input
       onMouseDown={(event) => {
@@ -311,7 +314,10 @@ export default function Select({
     >
       {hasContent(label) && (
         <label
-          className="block truncate text-sm font-medium"
+          className={cn(
+            fieldLabelClass(dim),
+            "block truncate text-sm font-medium",
+          )}
           htmlFor={selectId}
         >
           {label}

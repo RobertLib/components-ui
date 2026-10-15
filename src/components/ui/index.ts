@@ -145,6 +145,13 @@ export {
   type CommandPaletteProps,
 } from "./command-palette";
 export {
+  default as CommentThread,
+  type CommentAuthor,
+  type CommentSubmitContext,
+  type CommentThreadItem,
+  type CommentThreadProps,
+} from "./comment-thread";
+export {
   default as ConfirmDialog,
   type ConfirmDialogProps,
 } from "./confirm-dialog";
@@ -166,6 +173,8 @@ export {
   type DataTableGroupMetadata,
   type DataTableProps,
   type DataTableSelectionMode,
+  type DataTableView,
+  type DataTableViewQuery,
   type FilteredSelectionConfig,
   type GroupAction,
   type GroupActionSelection,
@@ -173,9 +182,11 @@ export {
 } from "./data-table";
 export {
   createCsv,
+  createTsv,
   downloadCsv,
   getCsvSeparator,
   type CsvOptions,
+  type TsvOptions,
 } from "./data-table/csv";
 export {
   applyDataTableQuery,
@@ -256,6 +267,10 @@ export {
   type DropdownRadioOption,
   type DropdownSeparator,
 } from "./dropdown";
+export {
+  default as DurationInput,
+  type DurationInputProps,
+} from "./duration-input";
 export { default as EmptyState, type EmptyStateProps } from "./empty-state";
 export {
   default as ErrorBoundary,
@@ -275,8 +290,18 @@ export {
   default as FormDescription,
   type FormDescriptionProps,
 } from "./form-description";
+export { default as FormActions, type FormActionsProps } from "./form-actions";
 export { default as FormDialog, type FormDialogProps } from "./form-dialog";
 export { default as FormError, type FormErrorProps } from "./form-error";
+export {
+  default as FormGrid,
+  FormGridItem,
+  type FormGridColumns,
+  type FormGridItemProps,
+  type FormGridProps,
+  type FormLabelPosition,
+} from "./form-grid";
+export { default as FormSection, type FormSectionProps } from "./form-section";
 export { default as Header, type HeaderProps } from "./header";
 export {
   default as IconButton,
@@ -290,7 +315,23 @@ export {
   type MaskToken,
   type MaskTokens,
 } from "./input-mask";
+export { CZ_MASKS, type CzMaskPreset, type CzMasks } from "./cz-masks";
+export {
+  default as KanbanBoard,
+  type KanbanBoardProps,
+  type KanbanCard,
+  type KanbanCardState,
+  type KanbanColor,
+  type KanbanColumn,
+  type KanbanId,
+  type KanbanMove,
+} from "./kanban-board";
 export { default as Kbd, type KbdProps } from "./kbd";
+export {
+  default as KeyboardShortcutsDialog,
+  type KeyboardShortcut,
+  type KeyboardShortcutsDialogProps,
+} from "./keyboard-shortcuts-dialog";
 export { default as Link, type LinkColor, type LinkProps } from "./link";
 export {
   default as List,
@@ -304,8 +345,43 @@ export {
   default as LoadingOverlay,
   type LoadingOverlayProps,
 } from "./loading-overlay";
+export {
+  default as MentionInput,
+  type LoadMentionSuggestions,
+  type Mention,
+  type MentionInputProps,
+  type MentionLoadContext,
+  type MentionOptions,
+  type MentionSuggestion,
+  type MentionTrigger,
+} from "./mention-input";
+export {
+  mentionsToText,
+  parseMentions,
+  toMentionToken,
+} from "./mention-input/markup";
+export {
+  default as MentionText,
+  type MentionTextProps,
+} from "./mention-input/mention-text";
+export {
+  renderMentions,
+  type RenderMentionsOptions,
+} from "./mention-input/render-mentions";
 export { default as Navbar, type NavbarProps, type NavbarUser } from "./navbar";
-export { default as NumberInput, type NumberInputProps } from "./number-input";
+export {
+  default as NotificationCenter,
+  type NotificationAction,
+  type NotificationCenterProps,
+  type NotificationFilter,
+  type NotificationId,
+  type NotificationItem,
+} from "./notification-center";
+export {
+  default as NumberInput,
+  type NumberInputProps,
+  type NumberInputStringModeProps,
+} from "./number-input";
 export { default as Overlay, type OverlayProps } from "./overlay";
 export {
   default as Pagination,
@@ -327,6 +403,11 @@ export {
   type PopoverPosition,
   type PopoverProps,
 } from "./popover";
+export {
+  default as PromptDialog,
+  type PromptDialogProps,
+  type PromptValidate,
+} from "./prompt-dialog";
 export {
   default as Progress,
   CircularProgress,
@@ -375,6 +456,12 @@ export {
 } from "./select";
 export { default as Separator, type SeparatorProps } from "./separator";
 export {
+  default as SessionTimeout,
+  type SessionEndDetails,
+  type SessionTime,
+  type SessionTimeoutProps,
+} from "./session-timeout";
+export {
   default as Sheet,
   type SheetProps,
   type SheetSide,
@@ -406,6 +493,12 @@ export {
   type StepperStep,
 } from "./stepper";
 export { default as Switch, type SwitchProps } from "./switch";
+export {
+  default as SystemBanner,
+  type SystemBannerAction,
+  type SystemBannerProps,
+  type SystemBannerVariant,
+} from "./system-banner";
 export {
   default as Table,
   TableBody,
@@ -442,6 +535,17 @@ export {
   type ToastProps,
   type ToastVariant,
 } from "./toast";
+export {
+  default as Toolbar,
+  type ToolbarButtonItem,
+  type ToolbarCustomItem,
+  type ToolbarItem,
+  type ToolbarItemProps,
+  type ToolbarProps,
+  type ToolbarSeparatorItem,
+  type ToolbarToggleItem,
+  type ToolbarVariant,
+} from "./toolbar";
 export { default as Tooltip, type TooltipProps } from "./tooltip";
 export { default as TreeSelect, type TreeSelectProps } from "./tree-select";
 export {
@@ -457,6 +561,53 @@ export {
   default as VisuallyHidden,
   type VisuallyHiddenProps,
 } from "./visually-hidden";
+export {
+  default as ChangeHistory,
+  type ChangeHistoryAction,
+  type ChangeHistoryAuthor,
+  type ChangeHistoryChange,
+  type ChangeHistoryEntry,
+  type ChangeHistoryField,
+  type ChangeHistoryFilter,
+  type ChangeHistoryProps,
+} from "./change-history";
+export {
+  default as FilterBuilder,
+  type FilterBuilderProps,
+} from "./filter-builder";
+export {
+  compactFilter,
+  isConditionComplete,
+  DEFAULT_OPERATORS as DEFAULT_FILTER_OPERATORS,
+} from "./filter-builder/operators";
+export { matchesFilter } from "./filter-builder/match";
+export { describeFilter } from "./filter-builder/describe";
+export type {
+  FilterCombinator,
+  FilterCondition,
+  FilterField,
+  FilterFieldOption,
+  FilterFieldType,
+  FilterGroup,
+  FilterNode,
+  FilterOperator,
+  FilterRange,
+  FilterValue,
+  FilterValueEditorProps,
+} from "./filter-builder/types";
+export {
+  default as VirtualList,
+  type VirtualListHandle,
+  type VirtualListProps,
+} from "./virtual-list";
+export {
+  default as useVirtualList,
+  type UseVirtualListOptions,
+  type UseVirtualListResult,
+  type VirtualItem,
+  type VirtualListAlign,
+  type VirtualListScrollOptions,
+} from "./virtual-list/use-virtual-list";
 
 // Configuration
 export {
@@ -502,10 +653,13 @@ export {
 export {
   useAlert,
   useConfirm,
+  usePrompt,
   type AlertFunction,
   type AlertOptions,
   type ConfirmFunction,
   type ConfirmOptions,
+  type PromptFunction,
+  type PromptOptions,
 } from "../../providers/confirm-context";
 
 // Localization
@@ -545,6 +699,23 @@ export {
 } from "../../hooks/use-color-scheme";
 export { getColorSchemeScript } from "../../utils/color-scheme";
 export {
+  default as useCzValidators,
+  type CzValidator,
+  type UseCzValidatorsResult,
+} from "../../hooks/use-cz-validators";
+export {
+  formatIban,
+  formatPostalCode,
+  isValidBankAccount,
+  isValidBirthNumber,
+  isValidDic,
+  isValidIban,
+  isValidIco,
+  isValidPostalCode,
+  parseBirthNumber,
+  type BirthNumberDetails,
+} from "../../utils/cz-validators";
+export {
   default as useDebouncedCallback,
   type DebouncedCallback,
   type UseDebouncedCallbackOptions,
@@ -561,11 +732,21 @@ export {
   type FormatDateOptions,
 } from "../../hooks/use-format-date";
 export {
+  default as useFormatRelativeTime,
+  type FormatRelativeTime,
+  type FormatRelativeTimeOptions,
+} from "../../hooks/use-format-relative-time";
+export {
   default as useHotkeys,
   type Hotkey,
   type HotkeyOptions,
   type UseHotkeysOptions,
 } from "../../hooks/use-hotkeys";
+export {
+  default as useIdle,
+  type UseIdleOptions,
+  type UseIdleResult,
+} from "../../hooks/use-idle";
 export { default as useIsApplePlatform } from "../../hooks/use-is-apple-platform";
 export { default as useIsHydrated } from "../../hooks/use-is-hydrated";
 export { default as useIsMobile } from "../../hooks/use-is-mobile";
@@ -580,6 +761,15 @@ export {
   type UseMediaQueryOptions,
 } from "../../hooks/use-media-query";
 export { default as useToday } from "../../hooks/use-today";
+export {
+  default as useUnsavedChanges,
+  type UseUnsavedChangesOptions,
+  type UseUnsavedChangesResult,
+} from "../../hooks/use-unsaved-changes";
+export {
+  confirmLeave,
+  hasUnsavedChanges,
+} from "../../providers/navigation-guard";
 export {
   default as useUrlState,
   type SetUrlState,

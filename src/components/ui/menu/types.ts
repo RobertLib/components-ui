@@ -19,6 +19,13 @@ export interface DropdownItem {
    * unavailable - but it cannot be picked.
    */
   disabled?: boolean;
+  /**
+   * Why the item is `disabled` - e.g. "Only an administrator can delete
+   * users". Shown on a line of its own under the label while the item is
+   * disabled, and read as its description. Keep it given while the item is
+   * enabled too - it shows only while `disabled`.
+   */
+  disabledReason?: React.ReactNode;
   /** Renders the item as a link. */
   href?: string;
   /** An icon before the label, e.g. `<Pencil size={16} />`. */
@@ -67,7 +74,7 @@ export interface DropdownGroup {
 /** An option of a `DropdownRadioGroup`. */
 export interface DropdownRadioOption extends Pick<
   DropdownItem,
-  "description" | "disabled" | "icon" | "label" | "shortcut"
+  "description" | "disabled" | "disabledReason" | "icon" | "label" | "shortcut"
 > {
   /** Passed to `onChange` - the option is checked while it equals `value`. */
   value: string;

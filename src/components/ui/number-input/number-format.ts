@@ -1,5 +1,6 @@
 import logger from "../../../utils/logger";
 import { toIntlLocale } from "../../../i18n/ui/format";
+import { decimalPlaces, shiftDecimal } from "./decimal";
 
 /** The characters a locale writes numbers with, and what to ignore around them. */
 interface NumberSymbols {
@@ -20,6 +21,11 @@ interface NumberSymbols {
 
 /** What a typed text says - see `readNumber`. */
 interface ReadNumber {
+  /**
+   * The number as an exact decimal text - "-1234.5" - `null` without
+   * digits or for no number.
+   */
+  decimal: string | null;
   /** Whether it has a decimal separator - a fraction was started. */
   hasDecimal: boolean;
   negative: boolean;
@@ -27,6 +33,28 @@ interface ReadNumber {
   number: number | null;
   /** Whether it is a number, or the start of one typing can complete. */
   valid: boolean;
+}
+
+/**
+ * `NumberFormat` for the decimal texts of `stringMode` ("1234.50") - exact
+ * at any size and precision, as `Intl.NumberFormat` writes and rounds a
+ * decimal text exactly.
+ */
+export interface DecimalFormat {
+  /** The value as the field shows it without the focus - "1 234,50 Kč". */
+  format: (value: string) => string;
+  /**
+   * The value a typed text stands for, rounded as the format does - `null`
+   * for a text without a number.
+   */
+  parse: (text: string) => string | null;
+  /**
+   * The value rounded as the format does, with the fraction digits it
+   * shows ("1234.50" for a currency) - exponential notation written out.
+   */
+  round: (value: string) => string;
+  /** The value as it is edited - "1234,50". */
+  toEditText: (value: string) => string;
 }
 
 /** Writes and reads the numbers of one locale and format - see `getNumberFormat`. */
@@ -40,6 +68,8 @@ export interface NumberFormat {
    * limit; exponential formats allow the full decimal range.
    */
   fractionDigits: number;
+  /** The same for exact decimal texts - see `stringMode` of `NumberInput`. */
+  decimal: DecimalFormat;
   /** The value as the field shows it without the focus - "1 234,50 Kč". */
   format: (value: number) => string;
   /**
@@ -71,6 +101,7 @@ const GROUPING_MARKS = /[\s'\u2019\u02BC]/g;
 const BIDI_MARKS = /[\u061C\u200E\u200F]/g;
 
 const INVALID: ReadNumber = {
+  decimal: null,
   hasDecimal: false,
   negative: false,
   number: null,
@@ -180,16 +211,19 @@ function readNumber(
   if (!/^\d*$/.test(integerDigits) || !/^\d*$/.test(fraction)) return INVALID;
 
   const hasDigits = integerDigits !== "" || fraction !== "";
-  const number = hasDigits
-    ? Number(
-        `${sign}${integerDigits || "0"}.${fraction || "0"}e-${scaleDigits}`,
-      )
+  const exactText = hasDigits
+    ? `${sign}${integerDigits || "0"}.${fraction || "0"}`
     : null;
+  const number =
+    exactText === null ? null : Number(`${exactText}e-${scaleDigits}`);
 
-  // More digits than a number holds - Infinity is no value
+  // More digits than a number holds - Infinity is no value. `stringMode`
+  // keeps every digit, but in the range of a number too: `Intl` writes a
+  // decimal text beyond it as infinity.
   if (number !== null && !Number.isFinite(number)) return INVALID;
 
   return {
+    decimal: exactText,
     hasDecimal: decimalIndex >= 0,
     negative: sign === "-",
     number,
@@ -390,6 +424,15 @@ function createNumberFormat(
           useGrouping: false,
         })
       : null;
+  // The minus sign, the decimal separator and the direction marks of an
+  // edited number - its digits are put in by `stringMode`
+  const editTemplate = new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+    numberingSystem: "latn",
+    useGrouping: false,
+  });
+  const scaleDigits = scale === 100 ? 2 : 0;
 
   // The typed number (25 for 25 %) rounded, then scaled to the value -
   // normalize -0 to 0. Without a scale it keeps all its digits
@@ -416,8 +459,53 @@ function createNumberFormat(
     return Number.isFinite(rounded) ? rounded : value;
   };
 
+  // `stringMode`: a value rounded as the display rounds it, exactly - its
+  // percent number for a percentage, which `Intl` scales without
+  // overflowing - written out of an exponential notation, and without the
+  // minus sign of "-0"
+  const roundDecimal = (value: string) =>
+    percentPlain
+      ? shiftDecimal(
+          percentPlain
+            .format(value as Intl.StringNumericLiteral)
+            .replace("%", ""),
+          -2,
+        )
+      : shiftDecimal(plain.format(value as Intl.StringNumericLiteral), 0);
+
+  const decimal: DecimalFormat = {
+    format: (value) => display.format(value as Intl.StringNumericLiteral),
+    parse: (text) => {
+      // The typed digits as they are - of a percent number beyond the
+      // range of a number too
+      const read = readNumber(text, symbols, allowsFraction, scaleDigits);
+      return read.decimal === null
+        ? null
+        : roundDecimal(shiftDecimal(read.decimal, -scaleDigits));
+    },
+    round: roundDecimal,
+    toEditText: (value) => {
+      const typed = shiftDecimal(roundDecimal(value), scaleDigits);
+      const negative = typed.startsWith("-");
+      const [integer, fraction = ""] = typed.replace("-", "").split(".");
+      return editTemplate
+        .formatToParts(negative ? -1.5 : 1.5)
+        .map((part) =>
+          part.type === "integer"
+            ? integer
+            : part.type === "fraction"
+              ? fraction
+              : part.type === "decimal" && !fraction
+                ? ""
+                : part.value,
+        )
+        .join("");
+    },
+  };
+
   return {
     allowsFraction,
+    decimal,
     fractionDigits,
     format: (value) => display.format(value),
     isPartial: (text, allowNegative) => {
@@ -488,15 +576,16 @@ export function getNumberFormat(
 }
 
 /**
- * The format of a field stepping by `step` - `getNumberFormat`, with the
- * fraction digits of a step finer than those the format keeps by default (3,
- * those of a currency): rounded to the format's digits, every step would be
- * rounded away. Digits the options set stay as they are.
+ * The format of a field stepping by `step` (a decimal text in `stringMode`)
+ * - `getNumberFormat`, with the fraction digits of a step finer than those
+ * the format keeps by default (3, those of a currency): rounded to the
+ * format's digits, every step would be rounded away. Digits the options set
+ * stay as they are.
  */
 export function getStepNumberFormat(
   localeCode: string,
   options: Intl.NumberFormatOptions | undefined,
-  step: number,
+  step: number | string,
 ) {
   const format = getNumberFormat(localeCode, options);
   if (
@@ -509,7 +598,11 @@ export function getStepNumberFormat(
 
   // The digits of the typed number - of the percent number for a percentage
   const scaleDigits = options?.style === "percent" ? 2 : 0;
-  const stepDigits = Math.min(20, decimalsOf(step) - scaleDigits);
+  const stepDigits = Math.min(
+    20,
+    (typeof step === "string" ? decimalPlaces(step) : decimalsOf(step)) -
+      scaleDigits,
+  );
 
   return stepDigits > format.fractionDigits
     ? getNumberFormat(localeCode, {

@@ -1314,8 +1314,11 @@ describe("Autocomplete with loadOptions", () => {
       for (const callback of callbacks) callback(performance.now());
     };
 
-    scrollListToEnd();
-    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(20));
+    // The page arrives within act, so its effects have run - the check of the
+    // list's end is scheduled. A commit seen by waitFor can come before them,
+    // with the scroll handler still seeing the loading state.
+    await act(async () => scrollListToEnd());
+    expect(screen.getAllByRole("option")).toHaveLength(20);
 
     // Scrolled on to the end as the page shows - a browser runs the scroll
     // and then the check of the list's end in one frame, before the loading

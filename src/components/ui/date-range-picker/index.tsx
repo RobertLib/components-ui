@@ -1,10 +1,11 @@
-import { useId } from "react";
+import { useEffect, useId } from "react";
 import { flushSync } from "react-dom";
 import PickerField from "../datetime-picker/picker-field";
 import RangePanel from "./range-panel";
 import { getRangeMessage, parseDisplayRange } from "../datetime-picker/parse";
 import usePickerPopup from "../datetime-picker/use-picker-popup";
 import useIsMobile from "../../../hooks/use-is-mobile";
+import useToday from "../../../hooks/use-today";
 import { useFormControl } from "../../../hooks/use-form-control";
 import { formatMessage } from "../../../i18n/ui/format";
 import { useLocale } from "../../../providers/ui-context";
@@ -13,7 +14,10 @@ import {
   formatPlaceholder,
   parseISODate,
   toISODate,
+  toLocalDay,
 } from "../../../utils/date";
+import { inTimeZone, isTimeZone } from "../../../utils/time-zone";
+import logger from "../../../utils/logger";
 import {
   decodeRange,
   DEFAULT_PRESETS,
@@ -30,6 +34,7 @@ import {
 } from "./range";
 import type { DateDisabledPredicate } from "../datetime-picker/availability";
 import type { DayRange } from "../datetime-picker/day-grid";
+import { useReadOnly } from "../form-scope";
 
 /** A range of days - both in the `YYYY-MM-DD` format of `<input type="date">`. */
 export interface DateRange {
@@ -103,6 +108,17 @@ export interface DateRangePickerProps extends Omit<
    * without a range) - see `startName`.
    */
   endName?: string;
+  /**
+   * Days after today (of `timeZone`) cannot be picked - like a `max` of
+   * today, e.g. for a report of past days. Applies once the page hydrates:
+   * a server cannot know the day of the browser.
+   */
+  disableFuture?: boolean;
+  /**
+   * Days before today (of `timeZone`) cannot be picked - like a `min` of
+   * today, e.g. for a booking. Applies once the page hydrates.
+   */
+  disablePast?: boolean;
   /** Validation message - also marks the field as invalid. */
   error?: string;
   /**
@@ -177,6 +193,16 @@ export interface DateRangePickerProps extends Omit<
    * `from=2026-09-24&to=2026-09-30`.
    */
   startName?: string;
+  /**
+   * The IANA time zone of today, e.g. `"Europe/Prague"` - the day the
+   * calendar marks as today and opens at without a range, the days of the
+   * built-in `presets` (today, the last 7 days, this month …), the today of
+   * `disablePast` / `disableFuture`, and the year of a range typed without
+   * one. The browser's by default, also for a zone it does not know (with a
+   * warning in the console). The range stays days of the calendar, the same
+   * in every zone.
+   */
+  timeZone?: string;
   /** The range - controlled; `null` for none. */
   value?: DateRange | null;
 }
@@ -198,6 +224,8 @@ export default function DateRangePicker({
   description,
   dim = "md",
   disabled,
+  disableFuture = false,
+  disablePast = false,
   endName,
   error,
   id,
@@ -213,16 +241,32 @@ export default function DateRangePicker({
   onFocus,
   placeholder,
   presets,
-  readOnly,
+  readOnly: ownReadOnly,
   ref,
   required,
   startName,
+  timeZone: timeZoneProp,
   value: valueProp,
   ...inputProps
 }: DateRangePickerProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = locale.messages.ui.dateRangePicker;
   const isMobile = useIsMobile();
+  // A zone `Intl` does not know would throw - the browser's instead
+  const timeZone =
+    timeZoneProp && isTimeZone(timeZoneProp) ? timeZoneProp : undefined;
+  useEffect(() => {
+    if (timeZoneProp && !timeZone) {
+      logger.warn(
+        `DateRangePicker: timeZone "${timeZoneProp}" is no IANA time zone this browser knows - today is the browser's.`,
+      );
+    }
+  }, [timeZone, timeZoneProp]);
+  // Today of `timeZone` as a day of the calendar - unknown on the server
+  // and while the page hydrates, then a new day at each midnight
+  const zoneToday = useToday(timeZone);
+  const today = zoneToday && toLocalDay(zoneToday);
 
   // The range as one string - `start/end` - which the form control and the
   // field of the pickers work with
@@ -253,12 +297,15 @@ export default function DateRangePicker({
   const range = toDayRange(decodeRange(String(value)));
   const days = range && toDateRange(range);
   const fieldValue = encodeRange(days);
+  const minDay = parseISODate(min);
+  const maxDay = parseISODate(max);
   const limits: RangeLimits = {
     allowDisabledInRange,
     isDateDisabled,
-    max: parseISODate(max),
+    // Today when it is the stricter limit
+    max: disableFuture && today && (!maxDay || today < maxDay) ? today : maxDay,
     maxDays: toDayLimit(maxDays),
-    min: parseISODate(min),
+    min: disablePast && today && (!minDay || today > minDay) ? today : minDay,
     minDays: toDayLimit(minDays),
   };
 
@@ -362,7 +409,10 @@ export default function DateRangePicker({
       // One month on phones - the width of the date popup
       panelClassName={isMobile ? "w-72" : undefined}
       parseText={(text) => {
-        const typed = toDayRange(parseDisplayRange(text, pattern));
+        // A year left out is the one of today of `timeZone`
+        const typed = toDayRange(
+          parseDisplayRange(text, pattern, inTimeZone(new Date(), timeZone)),
+        );
         if (!typed) return { error: "format" };
         return isAllowedRange(typed, limits)
           ? {
@@ -387,6 +437,7 @@ export default function DateRangePicker({
         onEscape={close}
         onPick={pickRange}
         presets={presets === true ? DEFAULT_PRESETS : presets || []}
+        timeZone={timeZone}
         value={range}
       />
     </PickerField>

@@ -33,7 +33,7 @@ import {
 import useIsMobile from "../../hooks/use-is-mobile";
 import { attachRef, useFieldsetDisabled } from "../../hooks/use-form-control";
 import { usePortalContainer } from "../../providers/ui-context";
-import { ButtonGroupContext } from "./button-group-context";
+import PortalContexts from "./portal-contexts";
 import {
   getArrowOffset,
   getClippingAncestors,
@@ -1396,12 +1396,13 @@ export default function Popover({
       {openState &&
         triggerRect &&
         createPortal(
-          <ButtonGroupContext value={null}>
+          <PortalContexts>
             {/* Fixed over the trigger, as big as it - the pointer goes
                 through to the trigger, only the panel and the bridge take
                 it. Hidden while the trigger is scrolled out of view. */}
             <div
-              className="pointer-events-none relative inline-flex"
+              // Not printed - a panel open over the page
+              className="pointer-events-none relative inline-flex print:hidden"
               dir={direction}
               style={{
                 ...getAbsoluteStyles().content,
@@ -1492,7 +1493,7 @@ export default function Popover({
                 />
               )}
             </div>
-          </ButtonGroupContext>,
+          </PortalContexts>,
           getPortalContainer(),
         )}
     </div>

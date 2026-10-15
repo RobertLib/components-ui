@@ -1,5 +1,167 @@
 # Changelog
 
+## 0.8.0
+
+Components and features for large information systems: new components for
+forms, the app frame, notifications, search and collaboration, and many
+extensions of DataTable and the fields. A few change what an app sees - see
+**Breaking**.
+
+- **Breaking - DataTable** - a table with active filters or a search shows
+  them as removable chips under its toolbar; `filterChips={false}` keeps the
+  old look.
+- **Breaking - DataTable** - Ctrl / ⌘ + C with rows selected, or on a
+  focused cell or row, copies them as tab-separated text (`copyable={false}`
+  turns it off); before, the browser did nothing.
+- **Breaking - useFormatDate** - a year value (`"2026"`) is written as the
+  year, not as January 1 of it.
+- **Breaking - Header** - `children` are rendered under the title row,
+  across the header; they were left out before.
+- **Breaking - useRouter** - `Link` is a wrapper around the `Link` of the
+  router adapter (it asks before a page with unsaved changes is left), so
+  it is not the same component as the one given to `UIProvider`.
+
+### New components
+
+- **FormSection** - a titled fieldset of a form with a description and
+  actions; lays out its fields in columns, with the labels beside them, all
+  read-only with `readOnly`.
+- **FormGrid** - 1 to 4 responsive columns of fields (`FormGridItem` spans
+  more), labels above or beside the fields (`labelPosition`, `labelWidth`),
+  and `readOnly` for every field inside.
+- **FormActions** - the bar of the buttons of a form; `sticky` keeps it at
+  the bottom until the end of the form is in view; `dirty` / `status` text.
+  Left out when printed.
+- **DurationInput** - a field for durations: "1:30" or "1 h 30 min", reads
+  many typed forms ("1,5", "90m", "1h 30m", "1 hodina 30 minut") and ISO
+  8601; the value in minutes, seconds or ISO.
+- **Toolbar** - actions in a row that move into a "More" menu by priority
+  as space runs out; buttons, toggles, separators and custom content, one
+  stop of Tab with the arrow keys.
+- **SystemBanner** - an app-wide message (info, warning, danger, neutral)
+  with an action and a dismiss remembered under `storageKey`; `AppShell`
+  stacks them above the navbar (`banner`).
+- **NotificationCenter** - a bell with an unread badge and a popover (a
+  sheet on phones) of notifications: filters, mark read, infinite loading,
+  skeleton, empty and error states, live unread announcements.
+- **SessionTimeout / useIdle** - a warning before an idle or expiring
+  session ends, with a countdown, stay / sign out, sync across tabs
+  (BroadcastChannel with a localStorage fallback) and correct timing after
+  sleep.
+- **KeyboardShortcutsDialog** - lists the shortcuts of `useHotkeys` that
+  work now (opened with `?`); shortcuts carry a `description` and `group`.
+- **usePrompt / PromptDialog** - asks for a text: single or multi-line,
+  required, `maxLength`, sync or async `validate`, async `onConfirm`;
+  queued with `useConfirm`.
+- **FilterBuilder** - an advanced search of conditions (field, operator,
+  value) in nested AND / OR groups, with the fields of the library for
+  text, numbers, dates, options (also loaded from an API), Yes / No and
+  fields of the app; a JSON value, controlled or uncontrolled, submitted
+  with a form under `name`, read-only with `readOnly`. `matchesFilter`
+  matches records in the browser, `describeFilter` writes a filter as a
+  sentence and `compactFilter` prepares it for a server.
+- **ChangeHistory** - the audit trail of a record on a timeline grouped by
+  days - authors, actions, relative times, a table of changed values with a
+  word diff of long texts, filters of fields and authors, and older entries
+  loaded on request.
+- **VirtualList / useVirtualList** - a list of thousands of items of
+  measured heights that renders only those in view, in its own scroll
+  container or the page, with `scrollToIndex`, infinite scrolling with
+  loading and error rows, and items put before others without moving the
+  view.
+- **MentionInput** - a multi-line field that offers people or records to
+  mention at the caret as the user types `@` (or other `triggers`), from a
+  static list or loaded asynchronously; mentions are stored as
+  `@[Jana Nováková](user:42)` tokens. `parseMentions`, `mentionsToText`,
+  `toMentionToken`, `renderMentions` and `MentionText` read and show stored
+  values.
+- **CommentThread** - a discussion of a record: relative times, an edited
+  marker, mentions, attachments, inline editing, deleting after a
+  confirmation, one level of replies, loading older comments, and a composer
+  (Ctrl / ⌘ + Enter) that keeps the text when sending fails.
+- **KanbanBoard** - columns of cards moved by the pointer (mouse, a long
+  press on touch, auto-scroll) or the keyboard, with announcements; an async
+  `onMoveCard` with optimistic moves and a rollback, `canMoveCard` /
+  `canDrop`, WIP limits (optionally enforced), collapsible columns, column
+  actions, "Add card", right to left and snap scrolling on phones.
+
+### DataTable
+
+- **DataTable** - tree data: rows with sub rows in the same columns
+  (`getSubRows`), or loaded when first expanded (`hasSubRows`,
+  `loadSubRows`, `loadSubRowsKey`, `onLoadSubRowsError`) with a spinner,
+  retry and abort. A toggle and the indentation go in the tree column
+  (`treeColumn`), with expand / collapse all in its header; the expansion is
+  controlled or uncontrolled (`expandedTreeIds`, `defaultExpandedTreeIds`,
+  `defaultExpandDepth`). Client-side, filtering keeps the ancestors of
+  matches, sorting orders siblings, pagination counts top-level rows and
+  the summaries count the rows at the bottom of the tree.
+  `cascadeSelection` selects a branch, with mixed parent checkboxes. The
+  CSV export writes the rows depth first with a Level column. The rows have
+  `aria-level`, `aria-posinset`, `aria-setsize` and `aria-expanded`, and
+  ArrowRight / ArrowLeft expand, collapse and move between parent and child.
+- **DataTable** - `error` and `onRetry` show a load error with "Try again"
+  in place of the rows, announced to screen readers; the toolbar, the
+  filters and the pagination stay usable.
+- **DataTable** - saved views: named filters, search, sort, page size and
+  columns (`enableViews`, `presetViews`, `views` / `onViewsChange`,
+  `activeViewId` / `onActiveViewChange`), remembered under `tableId`.
+- **DataTable** - `filter: "boolean"`: an any / yes / no filter;
+  `Column.formatFilterValue` writes a value in its chip.
+- **DataTable** - `Column.cellClassName` adds classes to the body cells of a
+  column, also by row.
+- **DataTable** - `getRowContextMenu`: a context menu of a row on a right
+  click, a long press, Shift + F10 or the context menu key.
+- **DataTable** - `createTsv` writes rows as tab-separated text, as Ctrl /
+  ⌘ + C copies them.
+- **DataTable** - prints cleanly: the controls left out, all rows of a
+  virtualized table rendered, the header row repeated on each page.
+
+### Forms and fields
+
+- **useUnsavedChanges** - asks "Leave without saving?" before library
+  links, `navigate` and `back` leave a dirty form, before back / forward
+  where the browser allows cancelling it, and before unload;
+  `hasUnsavedChanges()` and `confirmLeave()` for the blockers of routers.
+- **Fields** - `readOnly` defaults to that of a `FormSection` / `FormGrid`
+  around; **Field** passes `readOnly` to its control.
+- **NumberInput** - `stringMode` makes the value an exact decimal string
+  (`"1234.50"`) for money and large numbers; steps, bounds and rounding are
+  exact.
+- **DateTimePicker** - `type="quarter"` (`"2026-Q3"`) and `type="year"`
+  (`"2026"`) with popup grids, keyboard, typing, limits, disabled days and
+  presets; presets also for `month`.
+- **DateFormats** - optional `quarter` and `year` patterns and the `Q`
+  token; `useFormatDate` writes quarters and years.
+- **DateRangePicker** - `timeZone` for today, the presets and typed years;
+  `disablePast` / `disableFuture`.
+- **Input** - `validate` checks the value with a message of the app; mask
+  tokens can be `optional`.
+- **Czech identifiers** - `isValidIco`, `isValidDic`, `isValidBirthNumber`,
+  `parseBirthNumber`, `isValidBankAccount`, `isValidIban`, `formatIban`,
+  `isValidPostalCode` and `formatPostalCode`; `useCzValidators()` with
+  localized messages, and the masks `CZ_MASKS`.
+
+### App frame, menus and buttons
+
+- **Button / IconButton / SplitButton** - `disabledReason` explains a
+  disabled button: it stays focusable (`aria-disabled`), shows the reason in
+  a tooltip on hover, focus, a tap and a long press, is described by it,
+  and still refuses every activation.
+- **Dropdown / ContextMenu / Menubar** - `disabledReason` of an item (also
+  a radio option) shows why it is disabled under its label and describes
+  it; so do the items of `Toolbar`.
+- **Dropdown** - the keys of a button trigger marked `aria-disabled` (a
+  Button disabled with a `disabledReason`, or `loading`) open no menu.
+- **Tabs** - `overflow="menu"` moves the tabs a bar has no room for into a
+  "More" menu; the active tab stays in the bar.
+- **Header** - `breadcrumbs` above the title.
+- **Printing** - pages print their content: the app frame, the overlays and
+  the toolbars are left out, Tables print whole, an open Dialog or Sheet
+  prints alone, Tabs print the active panel. A new Printing guide.
+- **useFormatRelativeTime** - writes a moment relative to now ("před 5
+  minutami", "včera") in the language of the locale, again every minute.
+
 ## 0.7.4
 
 - **DataTable** - a jump to the end of a virtualized table whose rows are

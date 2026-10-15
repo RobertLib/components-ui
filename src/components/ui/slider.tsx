@@ -16,6 +16,7 @@ import {
 } from "./number-input/number-format";
 import { useLocale } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
+import { useReadOnly } from "./form-scope";
 
 /** A single value, or a range - its start and its end. */
 export type SliderValue = number | [number, number];
@@ -128,6 +129,7 @@ export interface SliderProps<T extends SliderValue = number> extends Omit<
    * The thumbs show the value and take the focus, but neither a drag nor a
    * key moves them (`onChange` is not called) - unlike a disabled slider,
    * the value is submitted with the form.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /** Ref to the first thumb - e.g. for `focus()`. */
@@ -408,7 +410,7 @@ export default function Slider<T extends SliderValue = number>({
   onChangeEnd,
   onFocus,
   orientation = "horizontal",
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required = false,
   showValue = false,
@@ -418,6 +420,7 @@ export default function Slider<T extends SliderValue = number>({
   valueLabel = "auto",
   ...props
 }: SliderProps<T>) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = locale.messages.ui;
 
@@ -790,9 +793,15 @@ export default function Slider<T extends SliderValue = number>({
     : format(values[0]);
 
   return (
-    <div className="flex flex-col gap-1.5" ref={wrapperRef}>
+    <div className="cui-field flex flex-col gap-1.5" ref={wrapperRef}>
       {(label || showValue) && (
-        <div className="flex items-baseline justify-between gap-2 text-sm">
+        // With the value beside the field - the thumbs are the control
+        <div
+          className={cn(
+            "flex items-baseline justify-between gap-2 text-sm",
+            !!label && "cui-field-label [--cui-label-offset:0px]",
+          )}
+        >
           {label && (
             // No input a `<label>` would focus by itself - the first thumb
             <label

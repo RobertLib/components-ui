@@ -63,3 +63,16 @@ it("includes both single and multiple AccordionGroup callback types", () => {
     required: false,
   });
 });
+
+it("gives the defaults of a component to each type of its union parameter", () => {
+  const root = fileURLToPath(new URL("../..", import.meta.url));
+  const { types } = generateDocs(root);
+  for (const name of ["NumberInputProps", "NumberInputStringModeProps"]) {
+    expect(types[name].props.find((prop) => prop.name === "dim")).toMatchObject(
+      { defaultValue: '"md"' },
+    );
+    expect(
+      types[name].props.find((prop) => prop.name === "stringMode"),
+    ).toMatchObject({ defaultValue: "false" });
+  }
+});

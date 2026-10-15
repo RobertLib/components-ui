@@ -63,6 +63,11 @@ const fixtures: Record<string, () => React.ReactElement> = {
   ),
   AppShell: () => (
     <ui.AppShell
+      banner={
+        <ui.SystemBanner dismissible storageKey="outage" variant="warning">
+          Outage
+        </ui.SystemBanner>
+      }
       drawer={<ui.Drawer items={[{ href: "/", label: "Home" }]} />}
       navbar={<ui.Navbar title="App" />}
     >
@@ -213,6 +218,36 @@ const fixtures: Record<string, () => React.ReactElement> = {
       open
     />
   ),
+  CommentThread: () => (
+    <ui.CommentThread
+      allowReplies
+      comments={[
+        {
+          author: { id: 1, name: "Jana Nováková" },
+          body: "Ahoj @[Petr Svoboda](7)",
+          createdAt: start,
+          editedAt: end,
+          id: 1,
+          replies: [
+            {
+              author: { id: 7, name: "Petr Svoboda" },
+              body: "Díky",
+              createdAt: end,
+              id: 2,
+            },
+          ],
+        },
+      ]}
+      currentUser={{ id: 1, name: "Jana Nováková" }}
+      getMentionHref={(mention) => `/users/${mention.id}`}
+      hasMore
+      onDelete={noop}
+      onEdit={noop}
+      onLoadMore={noop}
+      onSubmit={noop}
+      suggestions={[{ id: 7, label: "Petr Svoboda" }]}
+    />
+  ),
   ConfirmDialog: () => (
     <ui.ConfirmDialog onClose={noop} onConfirm={noop} open title="Delete?">
       For good
@@ -286,6 +321,17 @@ const fixtures: Record<string, () => React.ReactElement> = {
       trigger={<span>Menu</span>}
     />
   ),
+  DurationInput: () => (
+    <ui.DurationInput
+      clearable
+      defaultValue="PT1H30M"
+      display="units"
+      label="Response time"
+      max={480}
+      name="responseTime"
+      valueFormat="iso"
+    />
+  ),
   EmptyState: () => <ui.EmptyState description="Nothing yet" title="Empty" />,
   ErrorBoundary: () => <ui.ErrorBoundary>Content</ui.ErrorBoundary>,
   Field: () => (
@@ -314,7 +360,43 @@ const fixtures: Record<string, () => React.ReactElement> = {
     </ui.FormDialog>
   ),
   FormError: () => <ui.FormError>Required</ui.FormError>,
-  Header: () => <ui.Header back title={undefined} />,
+  FormActions: () => (
+    <ui.FormActions dirty sticky>
+      <ui.Button type="submit">Save</ui.Button>
+    </ui.FormActions>
+  ),
+  FormGrid: () => (
+    <ui.FormGrid columns={2} labelPosition="start" labelWidth="12rem" readOnly>
+      <ui.Input defaultValue="Acme" label="Company" name="company" />
+    </ui.FormGrid>
+  ),
+  FormGridItem: () => (
+    <ui.FormGrid columns={3}>
+      <ui.FormGridItem span={2}>
+        <ui.Textarea label="Note" name="note" />
+      </ui.FormGridItem>
+    </ui.FormGrid>
+  ),
+  FormSection: () => (
+    <ui.FormSection
+      actions={<ui.Button size="sm">Edit</ui.Button>}
+      columns={2}
+      description="Where the invoices go."
+      readOnly
+      title="Billing"
+    >
+      <ui.Input label="Street" name="street" />
+    </ui.FormSection>
+  ),
+  Header: () => (
+    <ui.Header
+      back
+      breadcrumbs={[{ href: "/a", label: "A" }]}
+      title={undefined}
+    >
+      Meta
+    </ui.Header>
+  ),
   IconButton: () => <ui.IconButton aria-label="Close">×</ui.IconButton>,
   Input: () => (
     <ui.Input
@@ -325,7 +407,34 @@ const fixtures: Record<string, () => React.ReactElement> = {
       type="password"
     />
   ),
+  KanbanBoard: () => (
+    <ui.KanbanBoard
+      columns={[
+        { color: "primary", id: "new", limit: 1, title: "Nové" },
+        { collapsed: true, id: "done", title: "Hotovo" },
+      ]}
+      defaultCards={[
+        { columnId: "new", id: 1, title: "Alza" },
+        { columnId: "new", id: 2, title: "Rohlik" },
+      ]}
+      getCardHref={(card) => (card.id === 1 ? "/deals/1" : undefined)}
+      onAddCard={noop}
+      renderCard={(card) => card.title}
+    />
+  ),
   Kbd: () => <ui.Kbd shortcut="mod+k" />,
+  KeyboardShortcutsDialog: () => (
+    <ui.KeyboardShortcutsDialog
+      defaultOpen
+      shortcuts={[
+        {
+          description: "Move",
+          group: "Table",
+          shortcut: ["arrowup", "arrowdown"],
+        },
+      ]}
+    />
+  ),
   Link: () => (
     <ui.Link external href="https://example.com">
       Site
@@ -351,7 +460,44 @@ const fixtures: Record<string, () => React.ReactElement> = {
       <button type="button">Covered</button>
     </ui.LoadingOverlay>
   ),
+  MentionInput: () => (
+    <ui.MentionInput
+      autosize
+      defaultValue="Ahoj @[Jana Nováková](1)"
+      label="Komentář"
+      maxLength={100}
+      name="comment"
+      showCount
+      suggestions={[{ id: 1, label: "Jana Nováková" }]}
+    />
+  ),
+  MentionText: () => (
+    <ui.MentionText
+      getMentionHref={(mention) => `/users/${mention.id}`}
+      value="Ahoj @[Jana Nováková](1)"
+    />
+  ),
   Navbar: () => <ui.Navbar title="App" />,
+  NotificationCenter: () => (
+    <ui.NotificationCenter
+      defaultOpen
+      hasMore
+      notifications={[
+        {
+          avatar: { name: "Jana Nováková" },
+          body: "Order 1042",
+          href: "/orders/1042",
+          id: 1,
+          time: start,
+          title: "New comment",
+        },
+        { id: 2, read: true, time: "2026-09-20T08:00:00Z", title: "Export" },
+      ]}
+      onLoadMore={noop}
+      onMarkAllRead={noop}
+      onReadChange={noop}
+    />
+  ),
   NumberInput: () => (
     <ui.NumberInput
       defaultValue={1234.5}
@@ -381,6 +527,19 @@ const fixtures: Record<string, () => React.ReactElement> = {
     </ui.Popover>
   ),
   Progress: () => <ui.Progress label="Upload" showPercentage value={40} />,
+  PromptDialog: () => (
+    <ui.PromptDialog
+      defaultValue="Copy of Invoice 2026-041"
+      label="Name"
+      maxLength={100}
+      multiline
+      onClose={noop}
+      onConfirm={noop}
+      open
+      required
+      title="Duplicate the invoice"
+    />
+  ),
   RadioGroup: () => (
     <ui.RadioGroup
       defaultValue="brno"
@@ -419,6 +578,14 @@ const fixtures: Record<string, () => React.ReactElement> = {
   ),
   Select: () => <ui.Select label="City" name="city" options={options} />,
   Separator: () => <ui.Separator label="or" />,
+  SessionTimeout: () => (
+    <ui.SessionTimeout
+      expiresAt="2026-10-15T10:00:00Z"
+      idleTimeout={15 * 60_000}
+      onLogout={noop}
+      onTimeout={noop}
+    />
+  ),
   Sheet: () => (
     <ui.Sheet onClose={noop} open title="Detail">
       Content
@@ -467,6 +634,16 @@ const fixtures: Record<string, () => React.ReactElement> = {
     />
   ),
   Switch: () => <ui.Switch label="Notifications" name="notify" />,
+  SystemBanner: () => (
+    <ui.SystemBanner
+      action={{ href: "/status", label: "Details" }}
+      dismissible
+      storageKey="outage"
+      title="Planned outage"
+    >
+      Saturday 22:00
+    </ui.SystemBanner>
+  ),
   Table: () => (
     <ui.Table caption="Orders" stickyHeader striped>
       <ui.TableHead>
@@ -538,6 +715,7 @@ const fixtures: Record<string, () => React.ReactElement> = {
         { content: "Two", label: "Second", onClose: noop, value: "second" },
       ]}
       keepMounted
+      overflow="menu"
     />
   ),
   TagsInput: () => (
@@ -548,6 +726,27 @@ const fixtures: Record<string, () => React.ReactElement> = {
   ),
   Timeline: () => <ui.Timeline items={[{ time: start, title: "Created" }]} />,
   Toast: () => <ui.Toast message="Saved" onClose={noop} title="Done" />,
+  Toolbar: () => (
+    <ui.Toolbar
+      items={[
+        { icon: <svg />, iconOnly: true, id: "new", label: "New" },
+        { type: "separator" },
+        {
+          id: "archived",
+          label: "Archived",
+          onPressedChange: noop,
+          pressed: true,
+          type: "toggle",
+        },
+        {
+          id: "search",
+          render: (props) => <input aria-label="Search" {...props} />,
+          type: "custom",
+        },
+        { id: "delete", label: "Delete", menuOnly: true },
+      ]}
+    />
+  ),
   Tooltip: () => (
     <ui.Tooltip title="Help">
       <button type="button">?</button>
@@ -576,6 +775,62 @@ const fixtures: Record<string, () => React.ReactElement> = {
   ),
   UIProvider: () => <ui.UIProvider locale={ui.cs}>App</ui.UIProvider>,
   VisuallyHidden: () => <ui.VisuallyHidden>Label</ui.VisuallyHidden>,
+  ChangeHistory: () => (
+    <ui.ChangeHistory
+      entries={[
+        {
+          action: "updated",
+          author: { name: "Jana Nováková" },
+          changes: [
+            { field: "status", from: "draft", to: "sent" },
+            { field: "note", from: "Old text ".repeat(20), to: "New text" },
+          ],
+          comment: "Sent to the customer",
+          id: 1,
+          time: start,
+        },
+        { action: "created", id: 2, time: "2026-09-20T08:00:00Z" },
+      ]}
+      filterable
+      hasMore
+      onLoadMore={noop}
+      timeZone="Europe/Prague"
+    />
+  ),
+  FilterBuilder: () => (
+    <ui.FilterBuilder
+      defaultValue={{
+        combinator: "and",
+        conditions: [
+          { field: "city", operator: "in", value: ["brno"] },
+          {
+            combinator: "or",
+            conditions: [
+              { field: "total", operator: "between", value: { from: 1 } },
+              { field: "due", operator: "before", value: "2026-10-01" },
+              { field: "paid", operator: "equals", value: true },
+            ],
+          },
+        ],
+      }}
+      fields={[
+        { key: "city", label: "City", options, type: "select" },
+        { key: "total", label: "Total", type: "number" },
+        { key: "due", label: "Due", type: "date" },
+        { key: "paid", label: "Paid", type: "boolean" },
+      ]}
+      name="filter"
+    />
+  ),
+  VirtualList: () => (
+    <ui.VirtualList
+      aria-label="Orders"
+      height={200}
+      items={Array.from({ length: 1000 }, (_, index) => index)}
+      onEndReached={noop}
+      renderItem={(item) => `Order ${item}`}
+    />
+  ),
 };
 
 // PascalCase - not the constants (DEFAULT_PAGE_SIZE) nor the error class

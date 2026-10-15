@@ -35,6 +35,7 @@ import {
 import type { TreeItem, TreeItemId, TreeItemState } from "../tree-view/types";
 import { encodeId } from "../tree-view/dom";
 import RequiredMark from "../required-mark";
+import { fieldLabelClass, useReadOnly } from "../form-scope";
 
 // The heights, paddings and font sizes of `Input`
 const dimStyles = {
@@ -140,6 +141,7 @@ interface BaseTreeSelectProps<T extends TreeItem> extends Omit<
   /**
    * The value shows and can be focused, but not changed - no popup opens
    * and no chip can be removed. It is submitted with the form.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /**
@@ -298,7 +300,7 @@ export default function TreeSelect<T extends TreeItem>({
   onChange,
   onFocus,
   placeholder,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   renderLabel,
   required = false,
@@ -308,6 +310,7 @@ export default function TreeSelect<T extends TreeItem>({
   virtualized = false,
   ...props
 }: TreeSelectProps<T>) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = useMessages().ui;
 
@@ -760,7 +763,7 @@ export default function TreeSelect<T extends TreeItem>({
   return (
     <div
       {...props}
-      className={cn("relative", className)}
+      className={cn("cui-field relative", className)}
       onBlur={(event) => {
         if (!isInField(event.relatedTarget)) onBlur?.(event);
       }}
@@ -772,7 +775,10 @@ export default function TreeSelect<T extends TreeItem>({
       {label && (
         // A combobox is no input a `<label>` focuses by itself
         <label
-          className="mb-1.5 block text-sm font-medium"
+          className={cn(
+            fieldLabelClass(dim),
+            "mb-1.5 block text-sm font-medium",
+          )}
           id={labelId}
           onClick={() => comboboxRef.current?.focus()}
         >

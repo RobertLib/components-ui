@@ -50,6 +50,8 @@ export function FilterInput({
         }
       }}
       placeholder={placeholder}
+      // No value of the form around - a read-only section leaves it be
+      readOnly={false}
       type="search"
       value={field.value}
     />
@@ -131,6 +133,7 @@ export function MultiSelectFilter({
           label: option.label,
           value: String(option.value),
         }))}
+        readOnly={false}
         value={value}
       />
     </Popover>
@@ -198,6 +201,7 @@ export function NumberRangeFilter({
           dim="sm"
           hideStepper
           onChange={(number) => change("from", number)}
+          readOnly={false}
           value={toBoundNumber(from)}
         />
       </div>
@@ -213,6 +217,7 @@ export function NumberRangeFilter({
           dim="sm"
           hideStepper
           onChange={(number) => change("to", number)}
+          readOnly={false}
           value={toBoundNumber(to)}
         />
       </div>
@@ -245,6 +250,7 @@ export function DateRangeFilter({
       onChange={(range) =>
         onChange(range ? { from: range.start, to: range.end } : null)
       }
+      readOnly={false}
       value={
         value.from && value.to ? { end: value.to, start: value.from } : null
       }

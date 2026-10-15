@@ -136,7 +136,9 @@ const alignClasses = {
  * `TableCell`s. With `striped`, `hover`, `bordered` and `density` for the
  * look, a `caption`, and a `stickyHeader`. A table wider than its frame
  * scrolls sideways - a Tab stop then, so that the keyboard scrolls it too.
- * For data that is sorted, filtered, paged or edited, use `DataTable`. The
+ * Printed, the frame does not scroll: every row is on paper, the header
+ * rows on every page and no row split between two. For data that is
+ * sorted, filtered, paged or edited, use `DataTable`. The
  * attributes and the `ref` go to the `<table>` - the frame around it takes
  * `containerClassName`.
  */
@@ -200,7 +202,8 @@ export default function Table({
     <div
       {...regionName}
       className={cn(
-        "overflow-auto rounded-lg border border-neutral-200 bg-surface focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 dark:border-neutral-800 dark:bg-surface-dark",
+        // Printed whole - also over the `maxHeight` of its style
+        "overflow-auto rounded-lg border border-neutral-200 bg-surface focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 dark:border-neutral-800 dark:bg-surface-dark print:max-h-none! print:overflow-visible",
         containerClassName,
       )}
       ref={containerRef}
@@ -233,11 +236,14 @@ export default function Table({
   );
 }
 
-/** The header rows of a `Table` - their cells are column headers. */
+/**
+ * The header rows of a `Table` - their cells are column headers. Printed on
+ * every page the table takes.
+ */
 export function TableHead({ className, ...props }: TableHeadProps) {
   return (
     <SectionContext value="head">
-      <thead {...props} className={className} />
+      <thead {...props} className={cn("print:table-header-group", className)} />
     </SectionContext>
   );
 }
@@ -248,21 +254,28 @@ export function TableBody({ className, ...props }: TableBodyProps) {
     <SectionContext value="body">
       <tbody
         {...props}
-        // The frame draws the line under the last row
-        className={cn("[&>tr:last-child>*]:border-b-0", className)}
+        // The frame draws the line under the last row. A row is not split
+        // between two printed pages.
+        className={cn(
+          "print:[&>tr]:break-inside-avoid [&>tr:last-child>*]:border-b-0",
+          className,
+        )}
       />
     </SectionContext>
   );
 }
 
-/** The footer rows of a `Table`, e.g. the totals - under a line. */
+/**
+ * The footer rows of a `Table`, e.g. the totals - under a line. Printed
+ * once, at the end - not on every page as browsers print a footer.
+ */
 export function TableFoot({ className, ...props }: TableFootProps) {
   return (
     <SectionContext value="foot">
       <tfoot
         {...props}
         className={cn(
-          "bg-neutral-50 font-medium text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100 [&>tr:first-child>*]:border-t [&>tr:last-child>*]:border-b-0",
+          "bg-neutral-50 font-medium text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100 print:table-row-group [&>tr:first-child>*]:border-t [&>tr:last-child>*]:border-b-0",
           className,
         )}
       />
@@ -460,7 +473,8 @@ export function TableCell({
     bordered && "border-e last:border-e-0",
     isHead &&
       "bg-neutral-50 text-xs font-semibold tracking-wide text-neutral-600 uppercase dark:bg-neutral-900 dark:text-neutral-400",
-    isHead && stickyHeader && "sticky top-0 z-10",
+    // Paper does not scroll - the header rows repeat on every page instead
+    isHead && stickyHeader && "sticky top-0 z-10 print:static",
     header && !isHead && "font-medium text-neutral-900 dark:text-neutral-100",
     className,
   );

@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 import { Info, Search } from "lucide-react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyMask, type MaskedValue } from "./input-mask";
+import { isValidIco, isValidPostalCode } from "../../utils/cz-validators";
 import { cs } from "../../i18n/ui/cs";
 import { hasVariantApplies } from "../../test/has-variant";
 import Input from "./input";
@@ -1000,6 +1001,154 @@ describe("Input mask", () => {
 
     act(() => root.unmount());
     container.remove();
+  });
+});
+
+describe("Input validate", () => {
+  const checkIco = (value: string) =>
+    isValidIco(value) ? undefined : "Unknown IČO";
+
+  it("makes the field invalid with the message it returns", async () => {
+    const user = userEvent.setup();
+    render(<Input label="IČO" validate={checkIco} />);
+
+    const input = textbox(/IČO/);
+    await user.type(input, "45274648");
+    expect(input).toBeInvalid();
+    expect(input.validationMessage).toBe("Unknown IČO");
+
+    await user.clear(input);
+    await user.type(input, "45274649");
+    expect(input).toBeValid();
+    expect(input.validationMessage).toBe("");
+  });
+
+  it("keeps the browser from submitting the form", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    render(
+      <form onSubmit={onSubmit}>
+        <Input
+          defaultValue="45274648"
+          label="IČO"
+          name="ico"
+          validate={checkIco}
+        />
+        <button type="submit">Save</button>
+      </form>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    const input = textbox(/IČO/);
+    await user.clear(input);
+    await user.type(input, "45274649");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves an empty field to required", async () => {
+    const user = userEvent.setup();
+    const validate = vi.fn(() => "Invalid");
+    render(<Input label="IČO" validate={validate} />);
+
+    const input = textbox(/IČO/);
+    expect(input).toBeValid();
+    expect(validate).not.toHaveBeenCalled();
+
+    await user.type(input, "1");
+    expect(input).toBeInvalid();
+    await user.clear(input);
+    expect(input).toBeValid();
+    expect(validate).not.toHaveBeenCalledWith("");
+  });
+
+  it("takes an empty string or null for a valid value", () => {
+    const { rerender } = render(
+      <Input defaultValue="x" label="Code" validate={() => ""} />,
+    );
+    expect(textbox(/Code/)).toBeValid();
+
+    rerender(<Input defaultValue="x" label="Code" validate={() => null} />);
+    expect(textbox(/Code/)).toBeValid();
+  });
+
+  it("checks the text of a mask once it is complete - after the mask's own message", async () => {
+    const user = userEvent.setup();
+    const validate = vi.fn((value: string) =>
+      isValidPostalCode(value) ? undefined : "Unknown PSČ",
+    );
+    render(
+      <UIProvider locale={cs}>
+        <Input label="PSČ" mask="### ##" validate={validate} />
+      </UIProvider>,
+    );
+
+    const input = textbox(/PSČ/);
+    await user.type(input, "910");
+    expect(input.validationMessage).toBe("Zadejte celou hodnotu.");
+    expect(validate).not.toHaveBeenCalled();
+
+    await user.type(input, "01");
+    expect(input).toHaveValue("910 01");
+    expect(validate).toHaveBeenLastCalledWith("910 01");
+    expect(input.validationMessage).toBe("Unknown PSČ");
+
+    await user.clear(input);
+    await user.type(input, "11000");
+    expect(input).toBeValid();
+  });
+
+  it("follows the value of the parent and a new validate", () => {
+    const { rerender } = render(
+      <Input
+        label="IČO"
+        onChange={() => {}}
+        validate={checkIco}
+        value="45274648"
+      />,
+    );
+    expect(textbox(/IČO/).validationMessage).toBe("Unknown IČO");
+
+    rerender(
+      <Input
+        label="IČO"
+        onChange={() => {}}
+        validate={checkIco}
+        value="45274649"
+      />,
+    );
+    expect(textbox(/IČO/)).toBeValid();
+
+    rerender(
+      <Input
+        label="IČO"
+        onChange={() => {}}
+        validate={() => "Taken"}
+        value="45274649"
+      />,
+    );
+    expect(textbox(/IČO/).validationMessage).toBe("Taken");
+
+    rerender(<Input label="IČO" onChange={() => {}} value="45274649" />);
+    expect(textbox(/IČO/)).toBeValid();
+  });
+
+  it("leaves a validity message of the page alone", () => {
+    const ref = createRef<HTMLInputElement>();
+    render(<Input label="IČO" ref={ref} validate={checkIco} />);
+
+    act(() => ref.current!.setCustomValidity("Already registered"));
+    fireEvent.change(ref.current!, { target: { value: "45274649" } });
+    expect(ref.current!.validationMessage).toBe("Already registered");
+  });
+
+  it("renders on the server", () => {
+    const html = renderToString(
+      <Input defaultValue="45274648" label="IČO" validate={checkIco} />,
+    );
+    expect(html).toContain('value="45274648"');
   });
 });
 

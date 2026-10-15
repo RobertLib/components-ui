@@ -75,6 +75,30 @@ describe("useFormatDate", () => {
     );
   });
 
+  it("writes quarters and years by the patterns of their pickers", () => {
+    const format = formatterOf();
+
+    expect(format("2026-Q3")).toBe("Q3 2026");
+    expect(formatterOf(cs)("2026-Q3")).toBe("3. čtvrtletí 2026");
+    // A year alone, not January 1 - the year before west of Greenwich
+    expect(format("2026")).toBe("2026");
+    expect(format("2026-Q5")).toBe("");
+
+    // A date or a month has its quarter and its year too
+    expect(format("2026-10-01", "quarter")).toBe("Q4 2026");
+    expect(format("2026-03", "quarter")).toBe("Q1 2026");
+    expect(format("2026-10-01T14:30", "year")).toBe("2026");
+    expect(format(new Date(2026, 6, 1, 12), "quarter")).toBe("Q3 2026");
+    // A quarter by its own pattern - no day it does not have
+    expect(format("2026-Q3", "date")).toBe("Q3 2026");
+
+    // A locale of an app written before the quarter and year formats
+    const { quarter: _quarter, year: _year, ...formats } = cs.formats;
+    const older = formatterOf({ ...cs, formats });
+    expect(older("2026-Q3")).toBe("Q3 2026");
+    expect(older("2026-10-01", "year")).toBe("2026");
+  });
+
   it("writes no part a value lacks as a zero", () => {
     const format = formatterOf();
 

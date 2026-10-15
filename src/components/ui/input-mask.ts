@@ -6,11 +6,17 @@
 
 /**
  * A placeholder of a mask of your own: the characters it takes - tested one
- * by one - and how it writes them.
+ * by one - how it writes them, and whether the value may end without it.
  */
 export type MaskToken =
   | RegExp
   | {
+      /**
+       * The value may end at this placeholder - it is complete without it
+       * and the ones after it. For the last placeholders: `######/###?`
+       * with an optional `?` takes a birth number of 9 or 10 digits.
+       */
+      optional?: boolean;
       /** The characters the placeholder takes - tested one by one. */
       pattern: RegExp;
       /**
@@ -22,13 +28,17 @@ export type MaskToken =
 
 /**
  * Placeholders of your own for `mask`, by the character that stands for
- * them - they may also replace `#`, `@` and `*`.
+ * them - they may also replace `#`, `@` and `*`. An `optional` one lets the
+ * value end before it.
  */
 export type MaskTokens = Record<string, MaskToken>;
 
 /** What a masked value is made of - see `applyMask`. */
 export interface MaskedValue {
-  /** Whether every placeholder of the mask is filled. */
+  /**
+   * Whether every placeholder of the mask is filled - or the value ends
+   * where it may, before an `optional` placeholder of `maskTokens`.
+   */
   complete: boolean;
   /** The text as the field shows it - `123 45`. */
   formatted: string;
@@ -40,6 +50,8 @@ export interface MaskedValue {
 interface Slot {
   accept: (char: string) => string | null;
   kind: "slot";
+  /** Whether the value may end before it. */
+  optional: boolean;
 }
 
 /** Text of the mask, written as it is - a space, `+420`, `CZ`. */
@@ -147,7 +159,11 @@ export function parseMask(mask: string, tokens?: MaskTokens): ParsedMask {
 
     if (accept) {
       parsed.slots.push(parsed.tokens.length);
-      parsed.tokens.push({ accept, kind: "slot" });
+      parsed.tokens.push({
+        accept,
+        kind: "slot",
+        optional: !!custom && !(custom instanceof RegExp) && !!custom.optional,
+      });
       if (custom || char !== "#") parsed.numeric = false;
     } else {
       parsed.tokens.push({ char, kind: "literal" });
@@ -309,8 +325,18 @@ function readRaw(mask: ParsedMask, text: string) {
   return fillBest(mask, text, 0, mask.slots.length);
 }
 
+/**
+ * Whether `filled` characters complete the mask - every placeholder has
+ * one, or the next would be an optional one.
+ */
+function isComplete(mask: ParsedMask, filled: number) {
+  if (filled === mask.slots.length) return filled > 0;
+  const next = mask.tokens[mask.slots[filled]];
+  return next.kind === "slot" && next.optional;
+}
+
 const toValue = (mask: ParsedMask, read: Fill): MaskedValue => ({
-  complete: mask.slots.length > 0 && read.chars.length === mask.slots.length,
+  complete: isComplete(mask, read.chars.length),
   formatted: layout(mask, read.chars, read.end).text,
   raw: read.chars.join(""),
 });

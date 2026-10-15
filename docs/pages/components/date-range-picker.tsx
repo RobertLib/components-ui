@@ -202,6 +202,30 @@ export default function DateRangePickerPage() {
       <Example
         description={
           <p>
+            Today is the browser&apos;s - give a <code>timeZone</code> (an IANA
+            zone, e.g. <code>&quot;Europe/Prague&quot;</code>) for today of
+            another zone: the day the calendar marks as today and opens at, the
+            days of the built-in presets (today, the last 7 days, this month …)
+            and the year of a range typed without one - so a hotel in Prague
+            offers the same days to a guest booking from New York, late in the
+            evening there. The range stays days of the calendar, the same in
+            every zone. <code>disablePast</code> disables the days before today
+            of that zone and <code>disableFuture</code> those after it, like a{" "}
+            <code>min</code> / <code>max</code> of today that moves on at
+            midnight - a <code>min</code> / <code>max</code> stricter than today
+            wins, and a range out of them makes the field invalid. A server
+            cannot know the day of the browser: they apply once the page
+            hydrates. A zone the browser does not know falls back to its own,
+            with a warning in the console.
+          </p>
+        }
+        name="date-range-picker/time-zone"
+        title="Time zone, past and future"
+      />
+
+      <Example
+        description={
+          <p>
             <code>startName</code> and <code>endName</code> submit the days in
             hidden inputs, <code>name</code> the range as one ISO 8601 interval
             - an empty value without a range. <code>required</code>,{" "}
@@ -257,8 +281,8 @@ export default function DateRangePickerPage() {
               is no blur.
             </li>
             <li>
-              The presets count from the day the popup opens, in the browser -
-              server rendering shows the field only.
+              The presets count from the day the popup opens, in the browser (or
+              in <code>timeZone</code>) - server rendering shows the field only.
             </li>
             <li>
               For a single day, a month or a week, use{" "}

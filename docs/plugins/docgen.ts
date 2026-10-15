@@ -394,8 +394,11 @@ function documentType(symbol: ts.Symbol, context: Context): TypeDoc | null {
   };
 }
 
-/** The exported type a parameter is declared with, e.g. `ButtonProps`. */
-function parameterTypeName(
+/**
+ * The exported types a parameter is declared with, e.g. `ButtonProps` - each
+ * of a union, `NumberInputProps | NumberInputStringModeProps`.
+ */
+function parameterTypeNames(
   parameter: ts.ParameterDeclaration,
   context: Context,
 ) {
@@ -411,10 +414,15 @@ function parameterTypeName(
     typeNode = typeNode.typeArguments[0];
   }
 
-  if (!typeNode || !ts.isTypeReferenceNode(typeNode)) return undefined;
+  const typeNodes =
+    typeNode && ts.isUnionTypeNode(typeNode) ? typeNode.types : [typeNode];
 
-  const symbol = resolveReference(typeNode, context.checker);
-  return symbol && context.publicNames.get(symbol);
+  return typeNodes.flatMap((node) => {
+    if (!node || !ts.isTypeReferenceNode(node)) return [];
+    const symbol = resolveReference(node, context.checker);
+    const name = symbol && context.publicNames.get(symbol);
+    return name ? [name] : [];
+  });
 }
 
 /**
@@ -427,8 +435,10 @@ function destructuredDefaults(declaration: ts.Declaration, context: Context) {
   if (!ts.isFunctionDeclaration(declaration)) return byType;
 
   for (const parameter of declaration.parameters) {
-    const typeName = parameterTypeName(parameter, context);
-    if (!typeName || !ts.isObjectBindingPattern(parameter.name)) continue;
+    const typeNames = parameterTypeNames(parameter, context);
+    if (!typeNames.length || !ts.isObjectBindingPattern(parameter.name)) {
+      continue;
+    }
 
     const defaults: Record<string, string> = {};
 
@@ -447,7 +457,7 @@ function destructuredDefaults(declaration: ts.Declaration, context: Context) {
         : initializer.getText();
     }
 
-    byType.set(typeName, defaults);
+    for (const typeName of typeNames) byType.set(typeName, defaults);
   }
 
   return byType;

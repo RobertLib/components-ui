@@ -159,4 +159,66 @@ describe("DataTable on the server", () => {
       container.remove();
     }
   });
+
+  it("renders a load error, filter chips, views and row menus, then hydrates them", async () => {
+    // Views saved in the browser - the server knows none of them
+    localStorage.setItem(
+      "table-views-ssr",
+      JSON.stringify([{ id: "1", name: "Saved", query: {} }]),
+    );
+    const table = (error: boolean) => (
+      <DataTable
+        columns={[
+          { filter: "boolean", key: "active", label: "Active" },
+          ...columns,
+        ]}
+        data={rows.slice(0, 3)}
+        defaultQuery={{ filters: { active: "true" } }}
+        enableViews
+        error={error}
+        getRowContextMenu={() => [{ label: "Open" }]}
+        onRetry={() => {}}
+        presetViews={[{ id: "all", name: "All", query: {} }]}
+        tableId="ssr"
+      />
+    );
+
+    const storage = vi
+      .spyOn(window, "localStorage", "get")
+      .mockReturnValue(undefined as unknown as Storage);
+    vi.stubGlobal("ResizeObserver", undefined);
+    const html = renderToString(table(true));
+    const rowsHtml = renderToString(table(false));
+    storage.mockRestore();
+    vi.unstubAllGlobals();
+
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("The data could not be loaded.");
+    expect(html).toContain("Try again");
+    expect(html).toContain("Active: Yes");
+    expect(html).toContain(">Views<");
+    expect(rowsHtml).toContain("Person 1<");
+
+    const container = document.createElement("div");
+    container.innerHTML = rowsHtml;
+    document.body.append(container);
+    const onRecoverableError = vi.fn();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    let root: Root | undefined;
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, table(false), { onRecoverableError });
+      });
+
+      expect(onRecoverableError).not.toHaveBeenCalled();
+      expect(container.querySelector("tbody tr")).toHaveAttribute(
+        "tabindex",
+        "0",
+      );
+    } finally {
+      act(() => root?.unmount());
+      container.remove();
+    }
+  });
 });

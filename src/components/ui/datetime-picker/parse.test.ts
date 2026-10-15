@@ -8,6 +8,8 @@ import {
   normalizeTime,
   parseDisplayRange,
   parseDisplayValue,
+  sanitizePickerLimit,
+  sanitizePickerValue,
   snapDateTime,
   snapTime,
 } from "./parse";
@@ -585,5 +587,60 @@ describe("parseDisplayRange", () => {
     ]) {
       expect(parseDisplayRange(text, "DD.MM.YYYY"), text).toBeNull();
     }
+  });
+});
+
+describe("parseDisplayValue of quarters and years", () => {
+  // Friday, September 25, 2026
+  const today = new Date(2026, 8, 25);
+
+  it("reads a quarter in the pattern of the locale or in ISO 8601", () => {
+    const read = (text: string, pattern = "[Q]Q YYYY") =>
+      parseDisplayValue(text, pattern, "quarter", undefined, today);
+
+    expect(read("Q3 2026")).toBe("2026-Q3");
+    expect(read("3 2026")).toBe("2026-Q3");
+    expect(read("q3/26")).toBe("2026-Q3");
+    expect(read("Q4")).toBe("2026-Q4");
+    expect(read("2027-Q1")).toBe("2027-Q1");
+    expect(read("2027Q1")).toBe("2027-Q1");
+    expect(read("2027 q2")).toBe("2027-Q2");
+    expect(read("3. čtvrtletí 2026", "Q. [čtvrtletí] YYYY")).toBe("2026-Q3");
+    expect(read("3.2026", "Q. [čtvrtletí] YYYY")).toBe("2026-Q3");
+    // Words of another language, or of none, around the numbers
+    expect(read("Q3/2026", "Q. [čtvrtletí] YYYY")).toBe("2026-Q3");
+    expect(read("3rd quarter 2026")).toBe("2026-Q3");
+
+    expect(read("Q5 2026")).toBeNull();
+    expect(read("Q0 2026")).toBeNull();
+    expect(read("2026-Q5")).toBeNull();
+    expect(read("quarter")).toBeNull();
+    expect(read("2026")).toBeNull();
+  });
+
+  it("reads a year of four or two digits, never one left out", () => {
+    const read = (text: string) =>
+      parseDisplayValue(text, "YYYY", "year", undefined, today);
+
+    expect(read("2026")).toBe("2026");
+    expect(read(" 1999 ")).toBe("1999");
+    expect(read("0999")).toBe("0999");
+    expect(read("85")).toBe("1985");
+    expect(read("26")).toBe("2026");
+    expect(read("202")).toBeNull();
+    expect(read("20261")).toBeNull();
+    expect(read("year")).toBeNull();
+    expect(read("2026-01")).toBeNull();
+  });
+
+  it("sanitizes values and limits like those of the other types", () => {
+    expect(sanitizePickerValue("2026-Q3", "quarter")).toBe("2026-Q3");
+    expect(sanitizePickerValue("2026-Q5", "quarter")).toBe("");
+    expect(sanitizePickerValue("2026-q3", "quarter")).toBe("");
+    expect(sanitizePickerValue("2026", "year")).toBe("2026");
+    expect(sanitizePickerValue("26", "year")).toBe("");
+    expect(sanitizePickerValue("2026-01", "year")).toBe("");
+    expect(sanitizePickerLimit("2020", "year")).toBe("2020");
+    expect(sanitizePickerLimit("2020-Q1", "year")).toBeUndefined();
   });
 });

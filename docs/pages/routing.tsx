@@ -200,6 +200,14 @@ export default function Routing() {
             with an in-memory or hash router.
           </p>
         </Callout>
+        <Callout title="Unsaved changes">
+          <p>
+            The links, <code>navigate</code> and <code>back</code> of the
+            adapter ask before they leave a form with unsaved changes (
+            <code>useUnsavedChanges</code>) - the router&apos;s blocker asks
+            before the app&apos;s own: see Forms &amp; validation.
+          </p>
+        </Callout>
       </Section>
 
       <Section title="React Router">

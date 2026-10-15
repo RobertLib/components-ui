@@ -89,7 +89,7 @@ export const groups: DocsGroup[] = [
         "/guides/forms",
         "Forms & validation",
         () => import("./pages/guides/forms"),
-        "server errors formdata react-hook-form description help text Field custom control",
+        "server errors formdata react-hook-form description help text Field custom control layout sections columns labels beside read-only detail edit unsaved changes leave page useUnsavedChanges beforeunload blocker confirmLeave hasUnsavedChanges",
       ),
       page(
         "/guides/app-layout",
@@ -98,10 +98,16 @@ export const groups: DocsGroup[] = [
         "appshell drawer navbar sidebar",
       ),
       page(
+        "/guides/printing",
+        "Printing",
+        () => import("./pages/guides/printing"),
+        "print media paper pdf print:hidden print:block page break dark mode beforeprint window.print",
+      ),
+      page(
         "/guides/utilities",
         "Hooks & utilities",
         () => import("./pages/guides/utilities"),
-        "helpers hooks cn class names useIsMobile useMediaQuery responsive media query useDisclosure open state useHotkeys keyboard shortcuts hotkeys useLocalStorage persist remember useDebouncedValue useDebouncedCallback debounce useClipboard copy clipboard removeDiacritics accents isActivePath useRouter normalizeLoadOptionsResult DEFAULT_PAGE_SIZE uploadWithProgress progress DrawerProvider storageKey",
+        "helpers hooks cn class names useIdle idle inactivity useIsMobile useMediaQuery responsive media query useDisclosure open state useHotkeys keyboard shortcuts hotkeys useLocalStorage persist remember useFormatDate useFormatRelativeTime relative time ago useToday inTimeZone useDebouncedValue useDebouncedCallback debounce useClipboard copy clipboard removeDiacritics accents isActivePath useRouter normalizeLoadOptionsResult DEFAULT_PAGE_SIZE uploadWithProgress progress DrawerProvider storageKey",
       ),
       page(
         "/guides/contributing",
@@ -119,7 +125,7 @@ export const groups: DocsGroup[] = [
         "button",
         "Button",
         () => import("./pages/components/button"),
-        "icon loading full width",
+        "icon loading full width disabled reason disabledReason why unavailable permission aria-disabled",
       ),
       component(
         "button-group",
@@ -131,7 +137,13 @@ export const groups: DocsGroup[] = [
         "split-button",
         "SplitButton",
         () => import("./pages/components/split-button"),
-        "split dropdown button menu more options save",
+        "split dropdown button menu more options save disabledReason",
+      ),
+      component(
+        "toolbar",
+        "Toolbar",
+        () => import("./pages/components/toolbar"),
+        "actions bar overflow more menu priority responsive resize toggle pressed roving tabindex arrow keys",
       ),
       component(
         "link",
@@ -143,7 +155,7 @@ export const groups: DocsGroup[] = [
         "icon-button",
         "IconButton",
         () => import("./pages/components/icon-button"),
-        "icon button tooltip link size",
+        "icon button tooltip link size disabledReason disabled reason",
       ),
       component(
         "copy-button",
@@ -155,7 +167,7 @@ export const groups: DocsGroup[] = [
         "dropdown",
         "Dropdown",
         () => import("./pages/components/dropdown"),
-        "menu submenu checkbox radio shortcut separator typeahead placement align position controlled",
+        "menu submenu checkbox radio shortcut separator typeahead placement align position controlled disabledReason disabled reason permission",
       ),
       component(
         "menubar",
@@ -179,7 +191,7 @@ export const groups: DocsGroup[] = [
         "input",
         "Input",
         () => import("./pages/components/input"),
-        "text field password prefix suffix adornment icon clearable clear mask masked format pattern phone postal code psč ičo iban card unmask applyMask password strength meter getPasswordStrength readonly",
+        "text field password prefix suffix adornment icon clearable clear mask masked format pattern phone postal code psč ičo iban card unmask applyMask password strength meter getPasswordStrength readonly validate validation dič rodné číslo birth number bank account czech CZ_MASKS useCzValidators isValidIco parseBirthNumber",
       ),
       component(
         "phone-input",
@@ -194,10 +206,22 @@ export const groups: DocsGroup[] = [
         "multiline autosize character counter maxlength readonly",
       ),
       component(
+        "mention-input",
+        "MentionInput",
+        () => import("./pages/components/mention-input"),
+        "mention mentions at sign @ hashtag # tag people users colleagues tickets suggestions autocomplete textarea comment parseMentions mentionsToText MentionText renderMentions",
+      ),
+      component(
         "number-input",
         "NumberInput",
         () => import("./pages/components/number-input"),
-        "number numeric spinbutton stepper currency percent decimal amount quantity clearable clear readonly",
+        "number numeric spinbutton stepper currency percent decimal amount quantity clearable clear readonly string mode exact money bigint precision",
+      ),
+      component(
+        "duration-input",
+        "DurationInput",
+        () => import("./pages/components/duration-input"),
+        "duration time span hours minutes timesheet work report worklog SLA ISO 8601 PT1H30M spinbutton clearable readonly",
       ),
       component(
         "select",
@@ -259,6 +283,12 @@ export const groups: DocsGroup[] = [
         "dual list assignment transfer select members searchable",
       ),
       component(
+        "filter-builder",
+        "FilterBuilder",
+        () => import("./pages/components/filter-builder"),
+        "advanced search query builder filter conditions and or groups nested rules operators matchesFilter describeFilter compactFilter json saved filter",
+      ),
+      component(
         "pin-input",
         "PinInput",
         () => import("./pages/components/pin-input"),
@@ -286,13 +316,13 @@ export const groups: DocsGroup[] = [
         "datetime-picker",
         "DateTimePicker",
         () => import("./pages/components/datetime-picker"),
-        "date time calendar picker month week today disabled days holidays weekends presets",
+        "date time calendar picker month week quarter year fiscal čtvrtletí today disabled days holidays weekends presets",
       ),
       component(
         "date-range-picker",
         "DateRangePicker",
         () => import("./pages/components/date-range-picker"),
-        "date range period from to interval presets report filter calendar",
+        "date range period from to interval presets report filter calendar time zone timezone disable past future",
       ),
       component(
         "date-calendar",
@@ -336,6 +366,24 @@ export const groups: DocsGroup[] = [
         () => import("./pages/components/form-error"),
         "validation message",
       ),
+      component(
+        "form-section",
+        "FormSection",
+        () => import("./pages/components/form-section"),
+        "fieldset group section heading legend title columns layout read-only readonly detail edit labels beside disabled",
+      ),
+      component(
+        "form-grid",
+        "FormGrid",
+        () => import("./pages/components/form-grid"),
+        "grid columns layout responsive span FormGridItem labels beside left horizontal label position width read-only readonly",
+      ),
+      component(
+        "form-actions",
+        "FormActions",
+        () => import("./pages/components/form-actions"),
+        "buttons save cancel submit sticky footer bar toolbar unsaved changes status dirty",
+      ),
     ],
   },
   {
@@ -346,7 +394,7 @@ export const groups: DocsGroup[] = [
         "data-table",
         "DataTable",
         () => import("./pages/components/data-table"),
-        "grid table pagination sorting filters resize columns pin density csv export excel virtualization virtual scrolling inline editing summary totals multi sort range filter multiselect row selection row link row click column groups grouped rows group by column state",
+        "grid table pagination sorting filters resize columns pin density csv export excel virtualization virtual scrolling inline editing summary totals multi sort range filter multiselect row selection row link row click column groups grouped rows group by column state saved views presets filter chips active filters boolean yes no context menu right click copy clipboard tsv print load error retry cell class tree data treegrid hierarchy sub rows subrows nested rows lazy loading chart of accounts bill of materials bom org structure",
       ),
       component(
         "calendar",
@@ -367,6 +415,12 @@ export const groups: DocsGroup[] = [
         "list item row menu navigation chevron icon avatar link button divided framed",
       ),
       component(
+        "virtual-list",
+        "VirtualList",
+        () => import("./pages/components/virtual-list"),
+        "virtual scrolling windowing infinite scroll load more large list thousands chat feed useVirtualList scrollToIndex",
+      ),
+      component(
         "table",
         "Table",
         () => import("./pages/components/table"),
@@ -377,6 +431,12 @@ export const groups: DocsGroup[] = [
         "TreeView",
         () => import("./pages/components/tree-view"),
         "tree hierarchy nested categories folders files permissions checkbox tri-state indeterminate independent lazy load expand collapse filter navigation drag drop move reorder sortable virtualized virtual large",
+      ),
+      component(
+        "kanban-board",
+        "KanbanBoard",
+        () => import("./pages/components/kanban-board"),
+        "kanban board columns cards pipeline deals crm sales stages tickets support workflow drag drop move reorder sortable wip limit swimlanes trello",
       ),
       component(
         "stat",
@@ -439,6 +499,18 @@ export const groups: DocsGroup[] = [
         "activity audit log history feed events changes",
       ),
       component(
+        "change-history",
+        "ChangeHistory",
+        () => import("./pages/components/change-history"),
+        "audit trail history log changes diff versions who changed what timeline activity",
+      ),
+      component(
+        "comment-thread",
+        "CommentThread",
+        () => import("./pages/components/comment-thread"),
+        "comments discussion conversation thread replies notes mentions chat activity feed edit delete relative time",
+      ),
+      component(
         "spinner",
         "Spinner & Skeleton",
         () => import("./pages/components/spinner"),
@@ -461,6 +533,12 @@ export const groups: DocsGroup[] = [
         "Alert",
         () => import("./pages/components/alert"),
         "banner message dismissible close actions",
+      ),
+      component(
+        "system-banner",
+        "SystemBanner",
+        () => import("./pages/components/system-banner"),
+        "banner announcement outage maintenance test environment impersonation signed in as global message dismissible app shell",
       ),
       component(
         "loading-overlay",
@@ -502,7 +580,13 @@ export const groups: DocsGroup[] = [
         "confirm-dialog",
         "ConfirmDialog",
         () => import("./pages/components/confirm-dialog"),
-        "confirmation modal useConfirm ConfirmProvider promise alert useAlert type to confirm",
+        "confirmation modal useConfirm ConfirmProvider promise alert useAlert type to confirm prompt usePrompt PromptDialog input text reason name validate",
+      ),
+      component(
+        "session-timeout",
+        "SessionTimeout & useIdle",
+        () => import("./pages/components/session-timeout"),
+        "session timeout idle inactivity auto logout sign out expire expiry token refresh stay signed in countdown warning useIdle away presence broadcastchannel tabs sleep",
       ),
       component(
         "tooltip",
@@ -556,13 +640,13 @@ export const groups: DocsGroup[] = [
         "header",
         "Header",
         () => import("./pages/components/header"),
-        "page title",
+        "page title breadcrumbs path details",
       ),
       component(
         "tabs",
         "Tabs",
         () => import("./pages/components/tabs"),
-        "tablist vertical tabpanel panels closable",
+        "tablist vertical tabpanel panels closable overflow more menu",
       ),
       component(
         "breadcrumbs",
@@ -586,7 +670,19 @@ export const groups: DocsGroup[] = [
         "app-shell",
         "AppShell, Drawer & Navbar",
         () => import("./pages/components/app-shell"),
-        "sidebar layout overlay",
+        "sidebar layout overlay banner print",
+      ),
+      component(
+        "notification-center",
+        "NotificationCenter",
+        () => import("./pages/components/notification-center"),
+        "notifications bell inbox unread badge mark as read mark all infinite load more realtime activity feed alerts",
+      ),
+      component(
+        "keyboard-shortcuts-dialog",
+        "KeyboardShortcutsDialog",
+        () => import("./pages/components/keyboard-shortcuts-dialog"),
+        "keyboard shortcuts help hotkeys cheat sheet question mark ? useHotkeys description group",
       ),
       component(
         "command-palette",

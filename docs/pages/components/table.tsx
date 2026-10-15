@@ -84,6 +84,13 @@ export default function TablePage() {
             paged, selected or edited belong in a{" "}
             <Link to="/components/data-table">DataTable</Link>.
           </p>
+          <p>
+            Printed, the frame does not scroll: all rows are on paper, also
+            those under a <code>maxHeight</code>. The header rows repeat on
+            every page, a row is not split between two pages and the footer -
+            the totals - is printed once, at the end. See{" "}
+            <Link to="/guides/printing">Printing</Link>.
+          </p>
         </Prose>
       </Section>
 

@@ -114,35 +114,98 @@ function ProjectForm() {
   );
 }`;
 
-const unsavedChanges = `import { useEffect } from "react";
-import { useBlocker } from "react-router";
-import { useConfirm, useMessages } from "components-ui";
+const unsavedChanges = `import { useForm } from "react-hook-form";
+import { useRouter, useUnsavedChanges } from "components-ui";
 
-// A page with a form asks before the user leaves it with unsaved changes -
-// for the links of the app (the router blocks them) and for closing the tab
-function useUnsavedChanges(dirty: boolean) {
-  const confirm = useConfirm();
-  const texts = useMessages().ui.formDialog;
-  const blocker = useBlocker(dirty);
+function EditOrder({ order }) {
+  const { formState, handleSubmit, register, reset } = useForm({
+    defaultValues: order,
+  });
+  const { release } = useUnsavedChanges(formState.isDirty);
+  const { navigate } = useRouter();
+
+  const save = async (values) => {
+    await api.saveOrder(values);
+    reset(values); // not dirty - from the next render on
+    release(); // …so let this navigation go now
+    navigate(\`/orders/\${order.id}\`);
+  };
+
+  return <form onSubmit={handleSubmit(save)}>…</form>;
+}`;
+
+const reactRouterBlocker = `import { useEffect } from "react";
+import { useBlocker } from "react-router";
+import { confirmLeave, hasUnsavedChanges } from "components-ui";
+
+// Once, inside the router (e.g. in the root route): the app's own links,
+// its navigate() and back / forward in every browser ask too
+export function UnsavedChangesBlocker() {
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      currentLocation.pathname !== nextLocation.pathname &&
+      hasUnsavedChanges(),
+  );
 
   useEffect(() => {
     if (blocker.state !== "blocked") return;
-    void confirm({
-      cancelLabel: texts.keepEditing,
-      confirmColor: "danger",
-      confirmLabel: texts.discard,
-      message: texts.discardMessage,
-      title: texts.discardTitle,
-    }).then((leave) => (leave ? blocker.proceed() : blocker.reset()));
-  }, [blocker, confirm, texts]);
+    void confirmLeave().then((leave) =>
+      leave ? blocker.proceed() : blocker.reset(),
+    );
+  }, [blocker]);
 
-  useEffect(() => {
-    if (!dirty) return;
-    const ask = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", ask);
-    return () => window.removeEventListener("beforeunload", ask);
-  }, [dirty]);
+  return null;
 }`;
+
+const tanstackBlocker = `import { useBlocker } from "@tanstack/react-router";
+import { confirmLeave, hasUnsavedChanges } from "components-ui";
+
+export function UnsavedChangesBlocker() {
+  useBlocker({
+    // The library asks the browser before an unload itself
+    enableBeforeUnload: false,
+    shouldBlockFn: async ({ current, next }) =>
+      current.pathname !== next.pathname &&
+      hasUnsavedChanges() &&
+      !(await confirmLeave()),
+  });
+
+  return null;
+}`;
+
+const nextBlocker = `"use client";
+import { useRouter } from "next/navigation";
+import { Button, confirmLeave } from "components-ui";
+
+// Next.js has no blocker: the links of the library ask through the adapter -
+// render your own with Link of components-ui, and ask before router.push()
+function OrderActions() {
+  const router = useRouter();
+
+  return (
+    <Button
+      onClick={async () => {
+        if (await confirmLeave()) router.push("/orders");
+      }}
+    >
+      Orders
+    </Button>
+  );
+}`;
+
+const layoutCode = `<form>
+  <FormSection columns={2} labelPosition="start" title="Company">
+    <Input label="Name" name="name" />
+    <Input label="Company ID" name="companyId" />
+    <FormGridItem span="full">
+      <Textarea label="Note" name="note" />
+    </FormGridItem>
+  </FormSection>
+  <FormActions dirty={dirty} sticky>
+    <Button type="reset" variant="outline">Cancel</Button>
+    <Button type="submit">Save</Button>
+  </FormActions>
+</form>`;
 
 const stateStyles = `// The data attributes of the states, for Tailwind's data-* variants
 <Checkbox className="data-[state=indeterminate]:opacity-75" label="All" />
@@ -207,6 +270,52 @@ export default function FormsGuide() {
           collapsed
           name="guides/form-data"
           title="FormData without state"
+        />
+      </Section>
+
+      <Section title="Layout">
+        <Prose>
+          <p>
+            <code>FormSection</code> is a titled part of a form - a fieldset
+            named by its heading, with a description and actions.{" "}
+            <code>FormGrid</code>, which lays out the fields of a section, puts
+            them in 1 to 4 <code>columns</code> where the form is wide enough
+            and in one on a phone; <code>FormGridItem</code> spans a field over
+            more. <code>labelPosition=&quot;start&quot;</code> puts the labels
+            beside the fields, in a column of <code>labelWidth</code> - every
+            field of the library, its description and error message under the
+            control. <code>FormActions</code> is the bar of the buttons at the
+            end - with <code>sticky</code> it stays at the bottom of the screen
+            until the end of a long form scrolls into view.
+          </p>
+        </Prose>
+        <CodeBlock code={layoutCode} />
+        <Example
+          collapsed
+          name="form-grid/labels-beside"
+          title="Labels beside the fields"
+        />
+      </Section>
+
+      <Section title="Read-only forms">
+        <Prose>
+          <p>
+            <code>readOnly</code> of a <code>FormSection</code> or a{" "}
+            <code>FormGrid</code> makes every field inside read-only, as its own{" "}
+            <code>readOnly</code> would: the value shows, can be selected and
+            copied, and is submitted, but not changed - one form for the detail
+            and the edit of a record. It renders read-only on the server too. A
+            field with <code>readOnly={"{false}"}</code> stays editable, and so
+            do a grid with <code>readOnly={"{false}"}</code> inside and the
+            fields of a dialog or a popover opened from the form.{" "}
+            <code>Field</code> passes <code>readOnly</code> on to a control of
+            your own.
+          </p>
+        </Prose>
+        <Example
+          collapsed
+          name="form-section/detail-edit"
+          title="Detail and edit"
         />
       </Section>
 
@@ -400,12 +509,71 @@ export default function FormsGuide() {
       <Section title="Unsaved changes of a page">
         <Prose>
           <p>
-            Leaving a page is up to its router - the library knows no router.
-            With React Router, its blocker and <code>useConfirm()</code> ask the
-            question of <code>FormDialog</code> in its texts:
+            <code>useUnsavedChanges(dirty)</code> asks before the user leaves a
+            page with unsaved changes. The browser asks with its own words
+            before a reload, closing the tab and a link to another site; the
+            library asks &quot;Leave without saving?&quot; - in a{" "}
+            <code>ConfirmDialog</code> of a <code>ConfirmProvider</code>, else
+            with the browser&apos;s <code>confirm()</code> - before its own
+            navigations to another path: the links it renders through the router
+            adapter (<code>Drawer</code>, <code>Tabs</code>,{" "}
+            <code>Breadcrumbs</code>, <code>Button href</code>,{" "}
+            <code>Link</code>, the rows of <code>DataTable</code>…), the back
+            button of <code>Header</code> and <code>navigate</code> and{" "}
+            <code>back</code> of <code>useRouter()</code>. A change of the query
+            or the hash alone - a tab, a filter, a page of a table kept in the
+            URL - stays on the page and asks nothing.
+          </p>
+          <p>
+            Several forms with changes ask once together. <code>dirty</code>{" "}
+            going <code>false</code> - saved - asks no more, and so does a form
+            submitted to the server (a native POST). A handler that saves and
+            navigates at once calls <code>release()</code> before it navigates:
+            the new <code>dirty</code> comes only with the next render.{" "}
+            <code>onBeforeLeave</code> asks a question of your own, e.g. with a
+            Save button.
           </p>
         </Prose>
+        <Example
+          collapsed
+          name="guides/unsaved-changes"
+          title="Leaving a form with changes"
+        />
         <CodeBlock code={unsavedChanges} />
+
+        <h3 className="mt-8 mb-2 text-lg font-semibold">
+          The links of your app
+        </h3>
+        <Prose>
+          <p>
+            Navigations the library does not render - the links and{" "}
+            <code>navigate()</code> calls of your app - are your router&apos;s.
+            Its blocker asks with <code>hasUnsavedChanges()</code>, which tells
+            synchronously whether a form has changes, and{" "}
+            <code>confirmLeave()</code>, which asks the question of the form and
+            resolves <code>true</code> to leave (at once without changes):
+          </p>
+        </Prose>
+        <CodeBlock code={reactRouterBlocker} title="React Router" />
+        <CodeBlock
+          className="mt-4"
+          code={tanstackBlocker}
+          title="TanStack Router"
+        />
+        <CodeBlock className="mt-4" code={nextBlocker} title="Next.js" />
+        <Callout title="Back and forward">
+          <p>
+            Back and forward between the pages of a single-page app are the
+            router&apos;s too. Where the Navigation API lets a page cancel them
+            - Chrome and Edge, once the user has interacted with the page - the
+            library stops them, asks, and goes on to the same entry; elsewhere
+            only a blocker of the router stops them. The library never cancels
+            the router&apos;s own navigations (a push or a replace of the
+            History API): the router would show a page the address does not - a
+            blocker asks before them. A traversal to another document cannot be
+            canceled at all - the browser asks before it unloads.
+          </p>
+        </Callout>
       </Section>
       <Section title="React Hook Form">
         <Prose>

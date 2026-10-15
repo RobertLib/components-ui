@@ -13,8 +13,11 @@ import useCustomValidity from "../../../hooks/use-custom-validity";
 import cn from "../../../utils/cn";
 import { flushSync } from "react-dom";
 import { formatMessage } from "../../../i18n/ui/format";
-import { getStepNumberFormat, stepValue, toCanonical } from "./number-format";
+import { compareDecimals, normalizeDecimal } from "./decimal";
+import { getStepNumberFormat, toCanonical } from "./number-format";
+import { useFieldValues, type FieldValue } from "./values";
 import { InputBase } from "../input";
+import { useReadOnly } from "../form-scope";
 import { getActiveElement } from "../overlay-stack";
 import { useLocale, useMessages } from "../../../providers/ui-context";
 
@@ -54,13 +57,6 @@ function inputModeFor(
   return hasDecimals ? "decimal" : "numeric";
 }
 
-const clamp = (value: number, min?: number, max?: number) =>
-  Math.min(max ?? Infinity, Math.max(min ?? -Infinity, value));
-
-/** A finite number - anything else (`undefined`, `NaN`) is no value. */
-const toValue = (value: number | null | undefined) =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
-
 /**
  * Puts back the text a keystroke would have made no number - with the caret
  * where it was before the keystroke.
@@ -72,6 +68,27 @@ function revertInput(input: HTMLInputElement, text: string) {
   );
   input.value = text;
   input.setSelectionRange(caret, caret);
+}
+
+/**
+ * The step of a field in `stringMode` - a positive decimal string, also of
+ * a step given as a number. `"1"` by default, `"0.01"` (one percent) for a
+ * percentage, whose value is the fraction.
+ */
+function toDecimalStep(step: number | string | undefined, isPercent: boolean) {
+  const decimal =
+    typeof step === "number"
+      ? Number.isFinite(step) && step > 0
+        ? toCanonical(step)
+        : null
+      : step === undefined
+        ? null
+        : normalizeDecimal(step);
+  return decimal !== null && compareDecimals(decimal, "0") > 0
+    ? decimal
+    : isPercent
+      ? "0.01"
+      : "1";
 }
 
 // `min`, `max` and `step` take numbers only - no need to omit them
@@ -176,6 +193,14 @@ export interface NumberInputProps extends Omit<
    */
   step?: number;
   /**
+   * `true` makes the value a decimal string instead of a `number` - exact
+   * at any size and precision, for money and large numbers, where a
+   * `number` loses digits (0.1 + 0.2, past 2^53): `value`, `defaultValue`
+   * and `onChange` take `"1234.50"`, `"-0.1"` or `null`, and `min`, `max`
+   * and `step` decimal strings too - see `NumberInputStringModeProps`.
+   */
+  stringMode?: false;
+  /**
    * Content after the number, inside the border of the field - see the
    * `suffix` of `Input`.
    */
@@ -185,11 +210,51 @@ export interface NumberInputProps extends Omit<
 }
 
 /**
+ * The props of `NumberInput` with `stringMode` - those of
+ * `NumberInputProps`, with decimal strings for its numbers.
+ */
+export interface NumberInputStringModeProps extends Omit<
+  NumberInputProps,
+  "defaultValue" | "max" | "min" | "onChange" | "step" | "stringMode" | "value"
+> {
+  /**
+   * Initial value of an uncontrolled field - a decimal string
+   * (`"1234.50"`), `null` for an empty one.
+   */
+  defaultValue?: string | null;
+  /** The largest value - a decimal string or a number, see `NumberInputProps`. */
+  max?: number | string;
+  /** The smallest value - a decimal string or a number, see `NumberInputProps`. */
+  min?: number | string;
+  /**
+   * Called with the new value as a decimal string with the fraction digits
+   * of the format - `"1234.50"` for a currency, `"-0.1"`; `null` for an
+   * empty field. When as in `NumberInputProps`.
+   */
+  onChange?: (value: string | null) => void;
+  /**
+   * What the arrow keys, the step buttons and the wheel add or take away -
+   * a decimal string or a number, stepped exactly: `"0.01"`. `"1"` by
+   * default, `"0.01"` for a percentage.
+   */
+  step?: number | string;
+  /** The value is a decimal string. */
+  stringMode: true;
+  /**
+   * Value of a controlled field - a decimal string (`"1234.5"`, also with
+   * an exponent: `"1e21"`), `null` for an empty one. Another string is no
+   * value.
+   */
+  value?: string | null;
+}
+
+/**
  * A number field that writes the number as the locale of `UIProvider` does
  * ("1 234,5" in Czech, "1,234.5" in English) while it has no focus, and
  * reads what the user types - also "1.5" in Czech. Step buttons, the arrow
  * keys, Page Up / Page Down and Home / End change the value; a form gets it
- * as a plain number ("1234.5") under `name`.
+ * as a plain number ("1234.5") under `name`. With `stringMode` the value is
+ * an exact decimal string.
  */
 export default function NumberInput({
   changeOnWheel = false,
@@ -217,14 +282,16 @@ export default function NumberInput({
   onKeyDown,
   onPointerDown,
   prefix,
-  readOnly,
+  readOnly: ownReadOnly,
   ref,
   required,
   step,
+  stringMode = false,
   suffix,
   value: controlledValue,
   ...props
-}: NumberInputProps) {
+}: NumberInputProps | NumberInputStringModeProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = useMessages().ui;
   const platform = useSyncExternalStore(
@@ -234,11 +301,14 @@ export default function NumberInput({
   );
 
   // The value of a percentage is the fraction - a step of 1 would be 100 %
-  const defaultStep = formatOptions?.style === "percent" ? 0.01 : 1;
-  const stepSize =
-    step !== undefined && Number.isFinite(step) && step > 0
+  const isPercent = formatOptions?.style === "percent";
+  const stepSize = stringMode
+    ? toDecimalStep(step, isPercent)
+    : typeof step === "number" && Number.isFinite(step) && step > 0
       ? step
-      : defaultStep;
+      : isPercent
+        ? 0.01
+        : 1;
   // A step finer than the digits of the format keeps its digits
   const numberFormat = getStepNumberFormat(
     locale.code,
@@ -247,13 +317,25 @@ export default function NumberInput({
       : { ...formatOptions, maximumFractionDigits },
     stepSize,
   );
-  const allowsNegative = min === undefined || min < 0;
+  // Numbers, or the exact decimal strings of `stringMode`
+  const values = useFieldValues(numberFormat, stringMode);
+  // The mode decides the type of the value `onChange` gets
+  const emitChange = onChange as
+    ((value: FieldValue | null) => void) | undefined;
+  const minValue = min === undefined ? null : values.from(min);
+  const maxValue = max === undefined ? null : values.from(max);
+  const allowsNegative =
+    minValue === null || values.compare(minValue, values.from(0) ?? 0) < 0;
+
+  /** Whether two values - or no values - are the same number. */
+  const isSame = (a: FieldValue | null, b: FieldValue | null) =>
+    a === null || b === null ? a === b : values.compare(a, b) === 0;
 
   // What the user entered into an uncontrolled field - until then, and
   // again after a reset, it shows `defaultValue`, like a native field does
-  const [enteredValue, setEnteredValue] = useState<number | null>();
+  const [enteredValue, setEnteredValue] = useState<FieldValue | null>();
   const isControlled = controlledValue !== undefined;
-  const sourceValue = toValue(
+  const sourceValue = values.from(
     isControlled
       ? controlledValue
       : enteredValue === undefined
@@ -262,7 +344,7 @@ export default function NumberInput({
   );
   // Loaded values follow the same precision as typed ones. Submission,
   // validation and stepping all use the number the field actually shows.
-  const value = sourceValue === null ? null : numberFormat.round(sourceValue);
+  const value = sourceValue === null ? null : values.round(sourceValue);
 
   // The text being typed - `null` while the field shows the value
   const [text, setText] = useState<string | null>(null);
@@ -270,15 +352,15 @@ export default function NumberInput({
 
   // A value from elsewhere - the parent, or a change it refused - replaces
   // the typed text
-  if (text !== null && numberFormat.parse(text) !== value) setText(null);
+  if (text !== null && !isSame(values.parse(text), value)) setText(null);
 
   const displayText =
     text ??
     (value === null
       ? ""
       : isFocused
-        ? numberFormat.toEditText(value)
-        : numberFormat.format(value));
+        ? values.toEditText(value)
+        : values.format(value));
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   // Set by a press on the input - its focus keeps the caret of the press,
@@ -290,16 +372,20 @@ export default function NumberInput({
   // from a script while the field has the focus), or one of the parent
   const rangeMessage =
     value !== null &&
-    max !== undefined &&
-    (value > max || (sourceValue !== null && sourceValue > max))
+    sourceValue !== null &&
+    maxValue !== null &&
+    (values.compare(value, maxValue) > 0 ||
+      values.compare(sourceValue, maxValue) > 0)
       ? formatMessage(messages.numberInput.rangeOverflow, {
-          max: numberFormat.format(max),
+          max: values.format(maxValue),
         })
       : value !== null &&
-          min !== undefined &&
-          (value < min || (sourceValue !== null && sourceValue < min))
+          sourceValue !== null &&
+          minValue !== null &&
+          (values.compare(value, minValue) < 0 ||
+            values.compare(sourceValue, minValue) < 0)
         ? formatMessage(messages.numberInput.rangeUnderflow, {
-            min: numberFormat.format(min),
+            min: values.format(minValue),
           })
         : "";
   // A partial number may stay while typing, but cannot be submitted as an
@@ -312,27 +398,39 @@ export default function NumberInput({
   const inputId = id ?? generatedId;
   const validityProps = useCustomValidity(inputRef, validityMessage);
 
-  const commitValue = (next: number | null) => {
-    const rounded = next === null ? null : numberFormat.round(next);
-    if (rounded === sourceValue) return;
+  const commitValue = (next: FieldValue | null) => {
+    const rounded = next === null ? null : values.round(next);
+    if (isSame(rounded, sourceValue)) return;
     // The hidden input holds the value before `onChange`, which may submit
     // the form. A controlled parent can only render it after `onChange`.
     if (!isControlled) flushSync(() => setEnteredValue(rounded));
-    onChange?.(rounded);
+    emitChange?.(rounded);
   };
 
-  const isInRange = (next: number) =>
-    (min === undefined || next >= min) && (max === undefined || next <= max);
+  const isInRange = (next: FieldValue) =>
+    (minValue === null || values.compare(next, minValue) >= 0) &&
+    (maxValue === null || values.compare(next, maxValue) <= 0);
+
+  /** `next` moved into `min` - `max` - to `max` when `min` is larger. */
+  const clamp = (next: FieldValue) => {
+    let clamped = next;
+    if (minValue !== null && values.compare(clamped, minValue) < 0) {
+      clamped = minValue;
+    }
+    if (maxValue !== null && values.compare(clamped, maxValue) > 0) {
+      clamped = maxValue;
+    }
+    return clamped;
+  };
 
   // What leaving the field or Enter makes of the typed text: its value
   // within `min` - `max`, which the field then shows
   const commit = () => {
     if (text === null) return;
 
-    const parsed = numberFormat.parse(text);
+    const parsed = values.parse(text);
     setText(null);
-    const next =
-      parsed === null ? null : numberFormat.round(clamp(parsed, min, max));
+    const next = parsed === null ? null : values.round(clamp(parsed));
     // A bound may need more precision than the format permits. Do not
     // replace the draft with another value outside the permitted range.
     if (next === null || isInRange(next)) commitValue(next);
@@ -343,15 +441,19 @@ export default function NumberInput({
    * a step up never lowers it, one down never raises it.
    */
   const stepFrom = (
-    current: number | null,
+    current: FieldValue | null,
     direction: 1 | -1,
     count: number,
   ) => {
-    const next = numberFormat.round(
-      stepValue(current, direction, count, { max, min, step: stepSize }),
+    const next = values.round(
+      values.step(current, direction, count, {
+        max: maxValue ?? undefined,
+        min: minValue ?? undefined,
+        step: stepSize,
+      }),
     );
-    const backwards =
-      current !== null && (direction > 0 ? next < current : next > current);
+    const order = current === null ? 0 : values.compare(next, current);
+    const backwards = direction > 0 ? order < 0 : order > 0;
     return backwards || !isInRange(next) ? current : next;
   };
 
@@ -365,17 +467,18 @@ export default function NumberInput({
     }
 
     // A typed text is where the step starts
-    const current = text === null ? value : numberFormat.parse(text);
+    const current = text === null ? value : values.parse(text);
     const next = stepFrom(current, direction, count);
+    const changed = !isSame(next, current);
 
     setText(null);
-    if (next !== current) commitValue(next);
-    return next !== current;
+    if (changed) commitValue(next);
+    return changed;
   };
 
-  const jumpTo = (bound: number) => {
+  const jumpTo = (bound: FieldValue) => {
     setText(null);
-    const next = numberFormat.round(clamp(bound, min, max));
+    const next = values.round(clamp(bound));
     if (isInRange(next)) commitValue(next);
   };
 
@@ -488,8 +591,8 @@ export default function NumberInput({
   // the press that reached the bound move the focus out of the field. The
   // bound is where a step changes nothing - also the last step below a
   // `max` off the grid of the steps.
-  const canIncrement = !readOnly && stepFrom(value, 1, 1) !== value;
-  const canDecrement = !readOnly && stepFrom(value, -1, 1) !== value;
+  const canIncrement = !readOnly && !isSame(stepFrom(value, 1, 1), value);
+  const canDecrement = !readOnly && !isSame(stepFrom(value, -1, 1), value);
 
   const stepButton = (direction: 1 | -1) => {
     const isUp = direction > 0;
@@ -580,16 +683,20 @@ export default function NumberInput({
           name={name}
           readOnly
           type="hidden"
-          value={value === null ? "" : toCanonical(value)}
+          value={value === null ? "" : values.toFormValue(value)}
         />
       )}
       <InputBase
         autoComplete="off"
         {...props}
-        aria-valuemax={max}
-        aria-valuemin={min}
-        aria-valuenow={value ?? undefined}
-        aria-valuetext={value === null ? undefined : numberFormat.format(value)}
+        aria-valuemax={
+          maxValue === null ? undefined : values.toNumber(maxValue)
+        }
+        aria-valuemin={
+          minValue === null ? undefined : values.toNumber(minValue)
+        }
+        aria-valuenow={value === null ? undefined : values.toNumber(value)}
+        aria-valuetext={value === null ? undefined : values.format(value)}
         autoCorrect="off"
         className={className}
         clearable={clearable}
@@ -616,13 +723,13 @@ export default function NumberInput({
         onChange={(event) => {
           const input = event.currentTarget;
 
-          if (!numberFormat.isPartial(input.value, allowsNegative)) {
+          if (!values.isPartial(input.value, allowsNegative)) {
             revertInput(input, displayText);
             return;
           }
 
           setText(input.value);
-          commitValue(numberFormat.parse(input.value));
+          commitValue(values.parse(input.value));
         }}
         onFocus={(event) => {
           setIsFocused(true);
@@ -632,7 +739,7 @@ export default function NumberInput({
           const input = event.currentTarget;
           const editText =
             text === null && value !== null
-              ? numberFormat.toEditText(value)
+              ? values.toEditText(value)
               : input.value;
 
           if (input.value !== editText) {
@@ -686,12 +793,12 @@ export default function NumberInput({
               break;
             // Without the bound Home and End move the caret
             case "Home":
-              if (min === undefined || disabled || readOnly) handled = false;
-              else jumpTo(min);
+              if (minValue === null || disabled || readOnly) handled = false;
+              else jumpTo(minValue);
               break;
             case "End":
-              if (max === undefined || disabled || readOnly) handled = false;
-              else jumpTo(max);
+              if (maxValue === null || disabled || readOnly) handled = false;
+              else jumpTo(maxValue);
               break;
             default:
               handled = false;

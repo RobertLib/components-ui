@@ -49,6 +49,8 @@ interface TableHeaderProps<T> {
   densityControl: boolean;
   /** Shows the global search field and its toggle. */
   enableGlobalSearch?: boolean;
+  /** The bar of the active filters - on a line of its own under the rest. */
+  filterChips?: React.ReactNode;
   /** The key of the group of each grouped column. */
   groupOf: Readonly<Record<string, string>>;
   /** Lets a row of the column settings be a drop target. */
@@ -88,6 +90,8 @@ interface TableHeaderProps<T> {
   ref?: React.Ref<HTMLElement>;
   /** The search term of the query. */
   search: string;
+  /** Changes when the search is removed - a term on its way is dropped. */
+  searchResetKey?: number;
   /** Shows or hides columns. */
   setColumnVisibility: (
     visibility:
@@ -104,6 +108,8 @@ interface TableHeaderProps<T> {
   showClearFilters: boolean;
   /** Content left of the table controls. */
   toolbar: React.ReactNode;
+  /** The menu of the saved views - first of the table controls. */
+  viewsMenu?: React.ReactNode;
 }
 
 export function TableHeader<T>({
@@ -115,6 +121,7 @@ export function TableHeader<T>({
   density,
   densityControl,
   enableGlobalSearch = false,
+  filterChips,
   groupOf,
   handleDragOver,
   handleDragStart,
@@ -133,10 +140,12 @@ export function TableHeader<T>({
   pinnedColumns,
   ref,
   search,
+  searchResetKey,
   setColumnVisibility,
   setIsFullScreen,
   showClearFilters,
   toolbar,
+  viewsMenu,
 }: TableHeaderProps<T>) {
   const messages = useMessages().ui;
 
@@ -153,7 +162,12 @@ export function TableHeader<T>({
   }
 
   // The field shows what is typed right away; the query follows debounced
-  const searchField = useDebouncedField(search, onSearchChange);
+  const searchField = useDebouncedField(
+    search,
+    onSearchChange,
+    undefined,
+    searchResetKey,
+  );
 
   const [isDensityOpen, setIsDensityOpen] = useState(false);
   // "Reset columns" with the focus - once pressed there is nothing to reset,
@@ -229,7 +243,7 @@ export function TableHeader<T>({
 
   return (
     <header
-      className="sticky inset-s-0 top-0 z-3 flex min-h-10 flex-wrap items-start justify-between gap-2 bg-surface p-2 pb-0 dark:bg-surface-dark"
+      className="sticky inset-s-0 top-0 z-3 flex min-h-10 flex-wrap items-start justify-between gap-2 bg-surface p-2 pb-0 dark:bg-surface-dark print:hidden"
       ref={(element) => {
         headerRef.current = element;
         const detachRef = attachRef(ref, element);
@@ -301,6 +315,8 @@ export function TableHeader<T>({
             isSearchOpen && "hidden sm:flex",
           )}
         >
+          {viewsMenu}
+
           {showClearFilters && (
             <ClearFiltersButton
               hasActiveFilters={hasActiveFilters}
@@ -530,6 +546,8 @@ export function TableHeader<T>({
                             [column.key]: target.checked,
                           }))
                         }
+                        // No value of the form around - a read-only section leaves it be
+                        readOnly={false}
                       />
                       <span className="ms-3 text-sm font-medium whitespace-nowrap">
                         {columnName}
@@ -550,6 +568,7 @@ export function TableHeader<T>({
           </IconButton>
         </div>
       </div>
+      {filterChips}
     </header>
   );
 }

@@ -21,6 +21,7 @@ import { useLocale } from "../../providers/ui-context";
 import cn from "../../utils/cn";
 import Input, { type InputProps } from "./input";
 import Select from "./select";
+import { useReadOnly } from "./form-scope";
 
 /** Information accompanying an international phone value, including incomplete input. */
 export interface PhoneInputValue {
@@ -46,6 +47,7 @@ export interface PhoneInputProps extends Omit<
   | "onMaskChange"
   | "unmask"
   | "passwordStrength"
+  | "validate"
 > {
   /** Classes of the country/number group. */
   className?: string;
@@ -93,13 +95,14 @@ export default function PhoneInput({
   onBlur,
   onChange,
   onCountryChange,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required,
   validate = true,
   value,
   ...props
 }: PhoneInputProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = locale.messages.ui.phoneInput;
   const generatedId = useId();
@@ -204,7 +207,10 @@ export default function PhoneInput({
   };
   return (
     <div
-      className={cn("flex items-start gap-2", className)}
+      className={cn(
+        "cui-field cui-field-phone flex items-start gap-2",
+        className,
+      )}
       data-disabled={disabled ? "" : undefined}
       data-readonly={readOnly ? "" : undefined}
       data-invalid={

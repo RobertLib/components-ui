@@ -105,15 +105,40 @@ export default function TabsPage() {
       <Example
         description={
           <p>
-            A bar wider than its container scrolls sideways - by touch, a
-            trackpad or its scrollbar. The edges that hide more tabs fade out,
-            and the active tab is scrolled into view, also when the page opens
-            on it, the bar gets narrower (a phone turned) or the keyboard
-            reaches a tab under a fade.
+            By default a bar wider than its container scrolls sideways - by
+            touch, a trackpad or its scrollbar. The edges that hide more tabs
+            fade out, and the active tab is scrolled into view, also when the
+            page opens on it, the bar gets narrower (a phone turned) or the
+            keyboard reaches a tab under a fade.
           </p>
         }
         name="tabs/overflow"
         title="More tabs than room"
+      />
+      <Example
+        description={
+          <>
+            <p>
+              With <code>overflow="menu"</code> the tabs a horizontal bar has no
+              room for move into a "More" menu at its end - from the end of the
+              bar, and back as it widens (it follows its size, also as labels
+              change or a web font loads). The active tab always stays in the
+              bar: a tab picked in the menu takes the place of the last one and
+              the focus. In the menu a tab keeps its icon and is disabled when
+              the tab is; link tabs are links there. A closable tab is closed
+              once it is back in the bar.
+            </p>
+            <p>
+              Value tabs stay one tab stop: the arrow keys move along the tabs
+              in the bar and to the "More" button after the last one, around the
+              ends; ArrowDown, Enter or Space open its menu. With link tabs the
+              button is a tab stop of its own. Rendered on the server, all tabs
+              are in the bar until the page is laid out.
+            </p>
+          </>
+        }
+        name="tabs/overflow-menu"
+        title="Tabs in a menu"
       />
       <Example name="tabs/sizes" title="Sizes and loading" />
 
@@ -144,6 +169,11 @@ export default function TabsPage() {
               {'<div role="tabpanel" id={panelId} aria-labelledby={id}>'}
             </code>
             .
+          </p>
+          <p>
+            Printed, the bar shows the active tab alone, over its panel - the
+            other panels are not in the page, or hidden. See{" "}
+            <Link to="/guides/printing">Printing</Link>.
           </p>
           <p>
             A closable tab has no close button of its own - a button in a tab
