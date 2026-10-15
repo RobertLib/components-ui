@@ -6,8 +6,9 @@ export type RowId = string | number;
  * The filter field of a column: `input` (a text the cell contains),
  * `select` (one of `filterSelectOptions`), `multiSelect` (any of the
  * options picked), `date` / `time` / `datetime` (a day, a time, a moment),
- * `numberRange` (a number from - to), `dateRange` (days from - to) or
- * `custom` (`customFilter`). See `DataTableFilterValue` for the values.
+ * `numberRange` (a number from - to), `dateRange` (days from - to),
+ * `boolean` (any, yes or no) or `custom` (`customFilter`). See
+ * `DataTableFilterValue` for the values.
  */
 export type ColumnFilter =
   | "input"
@@ -18,6 +19,7 @@ export type ColumnFilter =
   | "datetime"
   | "numberRange"
   | "dateRange"
+  | "boolean"
   | "custom";
 
 /**
@@ -82,6 +84,11 @@ export interface CellEditorProps<T> {
 
 export interface Column<T> {
   /**
+   * Extra classes of the body cells of the column - the same for all, or by
+   * the row, e.g. `(row) => row.balance < 0 ? "text-danger-700" : undefined`.
+   */
+  cellClassName?: string | ((row: T) => string | undefined);
+  /**
    * Renders the filter of a `filter: "custom"` column - call
    * `handleFilterChange(column.key, value)` with the new value: a text, a
    * list of texts or a range (see `DataTableFilterValue`). `filterValue` is
@@ -135,6 +142,13 @@ export interface Column<T> {
   /** Options of a `filter: "select"` or `"multiSelect"` column. */
   filterSelectOptions?: { label: string; value: string | number }[];
   /**
+   * The text of the column's filter in the chips of the active filters
+   * (`filterChips`) - for a `custom` filter or a `filterFn`, whose values
+   * the table cannot know, or instead of the default: the labels of the
+   * options, days by the locale, ranges as `100–500`, Yes / No.
+   */
+  formatFilterValue?: (value: DataTableFilterValue) => string;
+  /**
    * The value of the cell for client-side sorting, filtering and searching -
    * and for display when there is no `render`: dates are shown by the date
    * format of the locale in the local time zone (a server rendering the table
@@ -185,7 +199,9 @@ export interface Column<T> {
   /**
    * Adds the column to the summary row under the table - computed from all
    * rows matching the filters of a `clientSide` table (the loaded rows with
-   * server data, unless `summaryValues` has the column).
+   * server data, unless `summaryValues` has the column). Of tree data from
+   * the rows at the bottom of the tree - without sub rows, or with sub rows
+   * not loaded yet - so that parents holding totals do not count twice.
    */
   summary?: ColumnSummary<T>;
   /**
@@ -248,6 +264,37 @@ export interface DataTableColumnState {
   visibility?: Record<string, boolean>;
   /** Widths in pixels of the columns the user resized. */
   widths?: Record<string, number>;
+}
+
+/**
+ * What a saved view keeps of the query - its filters, search, sorting and
+ * page size, not the page.
+ */
+export type DataTableViewQuery = Partial<
+  Pick<DataTableQuery, "filters" | "pageSize" | "search" | "sort">
+>;
+
+/**
+ * A named view of a table - the query and the column settings the user
+ * saved under a name, or a preset of the app (`presetViews`). Applying it
+ * shows its rows from the first page.
+ */
+export interface DataTableView {
+  /**
+   * The column settings of the view - their order, visibility, pinning and
+   * widths. Left out, applying the view keeps the columns as they are.
+   */
+  columnState?: DataTableColumnState;
+  /** Unique id of the view - also among the presets. */
+  id: string;
+  /** Name of the view in the views menu. */
+  name: string;
+  /**
+   * The filters, search, sorting and page size of the view. Filters, search
+   * and sorting left out are none; a page size left out keeps the current
+   * one.
+   */
+  query: DataTableViewQuery;
 }
 
 /**

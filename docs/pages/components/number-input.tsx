@@ -94,6 +94,38 @@ export default function NumberInputPage() {
       />
       <Example
         description={
+          <>
+            <p>
+              A <code>number</code> is a binary fraction: 0.1 + 0.2 is
+              0.30000000000000004, and past 2<sup>53</sup> (9 007 199 254 740
+              992) it loses its last digits. For money and large numbers,{" "}
+              <code>stringMode</code> makes the value a decimal string -{" "}
+              <code>value</code>, <code>defaultValue</code> and{" "}
+              <code>onChange</code> take <code>&quot;1234.50&quot;</code>,{" "}
+              <code>&quot;-0.1&quot;</code> or <code>null</code>, as JSON of an
+              accounting API or a <code>decimal</code> column of a database has
+              them. <code>min</code>, <code>max</code> and <code>step</code>{" "}
+              take decimal strings too (or numbers).
+            </p>
+            <p>
+              Nothing goes through a <code>number</code>: the typed text is read
+              digit by digit (&quot;1 234,50&quot; in Czech), the steps and the
+              bounds are counted exactly with <code>BigInt</code>, and{" "}
+              <code>Intl.NumberFormat</code> formats and rounds the decimal
+              string exactly. The value has the fraction digits of{" "}
+              <code>formatOptions</code> - <code>&quot;1234.50&quot;</code> for
+              a currency, trailing zeros included - and the form submits it as
+              it is. Every digit is kept, in the range of a number (up to
+              1.8e308). The props of such a field are typed as{" "}
+              <code>NumberInputStringModeProps</code>.
+            </p>
+          </>
+        }
+        name="number-input/string-mode"
+        title="Exact decimals - stringMode"
+      />
+      <Example
+        description={
           <p>
             With a <code>name</code> a hidden input submits the plain number
             (&quot;1234.5&quot;, empty for no value) - the visible field has no

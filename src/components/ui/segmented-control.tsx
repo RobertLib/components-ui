@@ -15,6 +15,7 @@ import {
 } from "./read-only-choice";
 import { useMessages } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
+import { fieldLabelClass, useReadOnly } from "./form-scope";
 
 type Dim = "xs" | "sm" | "md" | "lg";
 
@@ -121,6 +122,7 @@ export interface SegmentedControlProps<
    * keys move the focus through the options. Unlike a disabled control,
    * the pick is submitted with the form. As a native read-only field, it is
    * not validated: `required` only marks it.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /** Ref to the group element (see `id`). */
@@ -202,13 +204,14 @@ export default function SegmentedControl<
   onFocus,
   options,
   orientation = "horizontal",
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required,
   size,
   value: controlledValue,
   ...props
 }: SegmentedControlProps<T>) {
+  const readOnly = useReadOnly(ownReadOnly);
   const dim = dimProp ?? size ?? "md";
   const vertical = orientation === "vertical";
   const messages = useMessages().ui;
@@ -435,11 +438,16 @@ export default function SegmentedControl<
   };
 
   return (
-    <div className="flex min-w-0 flex-col gap-1.5" ref={wrapperRef}>
+    <div className="cui-field flex min-w-0 flex-col gap-1.5" ref={wrapperRef}>
       {label ? (
         // A fieldset is a `group`, which has no invalid or required state
         <fieldset {...groupProps} className="min-w-0">
-          <legend className="mb-1.5 block text-sm font-medium">
+          <legend
+            className={cn(
+              fieldLabelClass(dim),
+              "mb-1.5 block text-sm font-medium",
+            )}
+          >
             {label}
             {messages.form.labelSuffix}{" "}
             {/* The star is for the eye - `required` tells assistive technology */}

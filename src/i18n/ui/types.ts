@@ -54,6 +54,7 @@ export type DatePatternToken =
   | "HH"
   | "M"
   | "MM"
+  | "Q"
   | "W"
   | "WW"
   | "YYYY"
@@ -65,8 +66,8 @@ export type DatePatternToken =
  * Display patterns of the date and time pickers - they are also what the
  * user types into them. Tokens: `YYYY` year, `MM` / `M` month, `DD` / `D`
  * day, `HH` / `H` hours, `hh` / `h` hours of the 12-hour clock with `A` for
- * AM / PM, `mm` minutes, `WW` / `W` ISO week. Text in square brackets is
- * printed as is, e.g. `[W]WW YYYY`.
+ * AM / PM, `mm` minutes, `WW` / `W` ISO week, `Q` quarter. Text in square
+ * brackets is printed as is, e.g. `[W]WW YYYY`.
  */
 export interface DateFormats {
   /** `type="date"`, e.g. `DD.MM.YYYY` */
@@ -75,10 +76,17 @@ export interface DateFormats {
   dateTime: string;
   /** `type="month"`, e.g. `MM.YYYY` */
   month: string;
+  /**
+   * `type="quarter"`, e.g. `Q. [čtvrtletí] YYYY` (3. čtvrtletí 2026) -
+   * `[Q]Q YYYY` (Q3 2026) when left out
+   */
+  quarter?: string;
   /** `type="time"`, e.g. `HH:mm` or `h:mm A` */
   time: string;
   /** `type="week"`, e.g. `[W]WW.YYYY` */
   week: string;
+  /** `type="year"` - `YYYY` when left out */
+  year?: string;
 }
 
 /**
@@ -399,14 +407,57 @@ export interface UIMessages {
     copy: string;
     error: string;
   };
+  /**
+   * Validity messages of `useCzValidators` - the field holds no valid
+   * identifier of its kind.
+   */
+  czValidators: {
+    /** A bank account number - `19-2000145399/0800`. */
+    bankAccount: string;
+    /** Rodné číslo - the birth number. */
+    birthNumber: string;
+    /** DIČ - the tax identification number. */
+    dic: string;
+    iban: string;
+    /** IČO - the identification number of a company or a trader. */
+    ico: string;
+    /** PSČ - the postal code. */
+    postalCode: string;
+  };
   dataTable: {
     actions: string;
+    /** The bar of the chips of the active filters (`filterChips`). */
+    activeFilters: {
+      /** A chip - `{label}` is the column, `{value}` its filter. */
+      chip: string;
+      /** The button removing all the filters and the search. */
+      clearAll: string;
+      /** A range with a lower bound only - `{value}` is the bound. */
+      from: string;
+      /** Accessible name of the bar. */
+      label: string;
+      /** A range with both bounds - `{from}` and `{to}`. */
+      range: string;
+      /** The chip of the global search - `{value}` is the term. */
+      search: string;
+      /** A range with an upper bound only - `{value}` is the bound. */
+      to: string;
+    };
     clearFilters: string;
     closeSearch: string;
     collapseRow: string;
     /** Screen reader text of a column's resize handle - its width in pixels. */
     columnWidth: PluralMessage;
     columns: string;
+    /** Announced once Ctrl + C copied rows or a cell of the table. */
+    copied: {
+      /** A focused cell was copied. */
+      cell: string;
+      /** The clipboard refused the text. */
+      failed: string;
+      /** Rows were copied - the selected ones, or the focused one. */
+      rows: PluralMessage;
+    };
     /** The row density control of the toolbar and its choices. */
     density: {
       comfortable: string;
@@ -424,6 +475,8 @@ export interface UIMessages {
     exportCsv: string;
     /** Shown when CSV export fails. */
     exportFailed: string;
+    /** The choice of a `boolean` filter that filters nothing out. */
+    filterAny: string;
     filterColumn: string;
     /** The first field of a range filter - `{label}` is the column. */
     filterFrom: string;
@@ -438,6 +491,8 @@ export interface UIMessages {
     groupRowCount: PluralMessage;
     /** A number field of an edited cell holds text that is no number. */
     invalidNumber: string;
+    /** Shown in place of the rows for `error={true}`. */
+    loadFailed: string;
     /** The handle in the column settings that moves a column by the arrow keys. */
     moveColumn: string;
     /** The tooltip of a sort button of a table sorting by several columns. */
@@ -454,6 +509,10 @@ export interface UIMessages {
     resetColumns: string;
     /** The handle on the edge of a column header that resizes the column. */
     resizeColumn: string;
+    /** The button under a load `error` that calls `onRetry`. */
+    retry: string;
+    /** Accessible name of the context menu of a row (`getRowContextMenu`). */
+    rowMenu: string;
     rowsPerPage: string;
     /** A cell whose change is being saved. */
     saving: string;
@@ -493,6 +552,61 @@ export interface UIMessages {
       sum: string;
     };
     toggleFullScreen: string;
+    /** Texts of tree data - rows with sub rows (`getSubRows`, `loadSubRows`). */
+    tree: {
+      /** The header button of the tree column collapsing every row. */
+      collapseAll: string;
+      /** Announced once every row was collapsed. */
+      collapsedAll: string;
+      /** The header button of the tree column expanding every row. */
+      expandAll: string;
+      /** Announced once every row was expanded. */
+      expandedAll: string;
+      /** Header of the column of the CSV export with the level of each row. */
+      level: string;
+      /** Shown under a row whose sub rows `loadSubRows` failed to load. */
+      loadFailed: string;
+      /** Announced when the sub rows the user expanded have arrived. */
+      loaded: PluralMessage;
+      /** Loads the sub rows again after `loadFailed`. */
+      retry: string;
+      /**
+       * Name of the button showing and hiding the sub rows of a row, read
+       * with the row and whether it is expanded.
+       */
+      toggle: string;
+    };
+    /** The saved views (`enableViews`) - their menu and dialogs. */
+    views: {
+      /** Accessible name of the menu button while a view is applied. */
+      active: string;
+      /** The same with the settings changed since the view was applied. */
+      activeModified: string;
+      /** The menu item deleting the applied view. */
+      delete: string;
+      /** The question before a view is deleted - `{name}` is the view. */
+      deleteMessage: string;
+      /** Title of the question before a view is deleted. */
+      deleteTitle: string;
+      /** The menu button with no view applied, and the list of the views. */
+      label: string;
+      /** The field of the name of a view. */
+      name: string;
+      /** Validation message of an empty name. */
+      nameRequired: string;
+      /** The menu item renaming the applied view. */
+      rename: string;
+      /** Title of the dialog renaming a view. */
+      renameTitle: string;
+      /** The confirming button of the name dialog. */
+      save: string;
+      /** The menu item saving the settings as a new view. */
+      saveAsNew: string;
+      /** Title of the dialog saving a new view. */
+      saveTitle: string;
+      /** The menu item saving the settings into the applied view - `{name}`. */
+      update: string;
+    };
   };
   dateCalendar: {
     /**
@@ -550,6 +664,8 @@ export interface UIMessages {
     month: string;
     nextMonth: string;
     nextYear: string;
+    /** The button of the year popup that shows the next twelve years. */
+    nextYears: string;
     /** Name of a date or date-time field without a label. */
     openCalendar: string;
     /**
@@ -569,6 +685,8 @@ export interface UIMessages {
     presetsLabel: string;
     previousMonth: string;
     previousYear: string;
+    /** The button of the year popup that shows the previous twelve years. */
+    previousYears: string;
     /**
      * Validity message of a value after `max` - `{max}` is the limit as the
      * field shows values. The form cannot be submitted with it, as with a
@@ -588,18 +706,25 @@ export interface UIMessages {
     /** The month popup - also the name of a month field without a label. */
     selectMonth: string;
     /**
+     * The quarter popup - also the name of a quarter field without a
+     * label.
+     */
+    selectQuarter: string;
+    /**
      * The time popup and its time lists in the date-time popup - also the
      * name of a time field without a label.
      */
     selectTime: string;
     /** The week popup - also the name of a week field without a label. */
     selectWeek: string;
+    /** The year popup - also the name of a year field without a label. */
+    selectYear: string;
     /** The button of the date popup that picks today. */
     today: string;
     /**
      * Validity message of a value `isDateDisabled` disables - a day, or a
-     * month or week with no day left - `{value}` is the value as the field
-     * shows it. The form cannot be submitted with it.
+     * month, week, quarter or year with no day left - `{value}` is the
+     * value as the field shows it. The form cannot be submitted with it.
      */
     unavailable: string;
     /** Accessible name of a week button, e.g. "Week 39, 2026". */
@@ -616,6 +741,31 @@ export interface UIMessages {
   };
   drawer: {
     label: string;
+  };
+  durationInput: {
+    /**
+     * Under a field whose typed text is no duration - `{text}` is the text,
+     * `{clock}` and `{units}` are an hour and a half as the field writes it
+     * in each `display` ("1:30", "1 h 30 min"). The field shows its value
+     * again; while typing it is the validity message.
+     */
+    invalidText: string;
+    /**
+     * Under a field whose typed duration is negative - `{text}` is the text.
+     * The field shows its value again; while typing it is the validity
+     * message.
+     */
+    negativeText: string;
+    /**
+     * Validity message of a value above `max` - `{max}` is the limit as the
+     * field shows values.
+     */
+    rangeOverflow: string;
+    /**
+     * Validity message of a value below `min` - `{min}` is the limit as the
+     * field shows values.
+     */
+    rangeUnderflow: string;
   };
   errorBoundary: {
     retry: string;
@@ -690,6 +840,10 @@ export interface UIMessages {
      */
     labelSuffix: string;
   };
+  /** The status of `FormActions` with `dirty`. */
+  formActions: {
+    unsavedChanges: string;
+  };
   /** The question of a `FormDialog` with unsaved changes before it closes. */
   formDialog: {
     discard: string;
@@ -721,6 +875,22 @@ export interface UIMessages {
      */
     showPassword: string;
   };
+  /** `KeyboardShortcutsDialog` - the shortcuts of the page. */
+  keyboardShortcuts: {
+    /** Shown in place of the list while no shortcut is registered. */
+    empty: string;
+    /** Heading of the shortcuts registered without a `group`. */
+    general: string;
+    /**
+     * Between the shortcuts of one action, e.g. "Ctrl+K or /" - a word with
+     * the spaces around it.
+     */
+    or: string;
+    /** What the shortcut that opens the dialog does - listed with the others. */
+    show: string;
+    /** Heading and accessible name of the dialog. */
+    title: string;
+  };
   link: {
     /** Read by screen readers after the text of an `external` link. */
     opensInNewTab: string;
@@ -728,6 +898,39 @@ export interface UIMessages {
   navbar: {
     toggleMenu: string;
     toggleSidebar: string;
+  };
+  /** `NotificationCenter` - the bell and its panel. */
+  notificationCenter: {
+    /** Shown in place of the list without notifications. */
+    empty: string;
+    /** Shown in place of the list when the Unread filter leaves none. */
+    emptyUnread: string;
+    /** Shown when loading the notifications failed (`error`). */
+    error: string;
+    /** Accessible name of the All / Unread filter. */
+    filter: string;
+    /** The filter option that shows every notification. */
+    filterAll: string;
+    /** The filter option that shows the unread notifications only. */
+    filterUnread: string;
+    /** The button that loads older notifications (`onLoadMore`). */
+    loadMore: string;
+    /** The button that marks every notification as read. */
+    markAllRead: string;
+    /** Accessible name of the button that marks a notification as read. */
+    markRead: string;
+    /** Accessible name of the button that marks a notification as unread. */
+    markUnread: string;
+    /** Loads the notifications again after `error`. */
+    retry: string;
+    /** Heading of the panel and name of the bell without unread ones. */
+    title: string;
+    /** Read before the title of an unread notification. */
+    unread: string;
+    /** Announced once new unread notifications arrive - the unread count. */
+    unreadCount: PluralMessage;
+    /** Accessible name of the bell with unread notifications. */
+    unreadLabel: PluralMessage;
   };
   numberInput: {
     /** Accessible name of the button that lowers the value by a step. */
@@ -771,6 +974,13 @@ export interface UIMessages {
     character: string;
     /** Accessible name of a cell of a numeric code - `{index}` of `{length}`. */
     digit: string;
+  };
+  /** `PromptDialog` and the prompts of `usePrompt()`. */
+  promptDialog: {
+    /** Shown under the field of a `required` prompt left empty. */
+    required: string;
+    /** Shown under a value longer than `maxLength` - `{count}` is the limit. */
+    tooLong: PluralMessage;
   };
   rating: {
     /** The value of a `Rating` nothing was picked in. */
@@ -860,6 +1070,27 @@ export interface UIMessages {
     /** Accessible name of the blank option `hasEmpty` adds. */
     emptyOption: string;
   };
+  /** The warning of `SessionTimeout` before the session ends. */
+  sessionTimeout: {
+    /** The button that keeps the user signed in. */
+    extend: string;
+    /** Shown when `onExtend` failed. */
+    extendError: string;
+    /** The message of a session that ends at `expiresAt`. */
+    expiresMessage: string;
+    /** The message of a session that ends for inactivity. */
+    idleMessage: string;
+    /** The button that signs the user out at once. */
+    logout: string;
+    /** Announced as the time runs out - whole minutes left. */
+    remainingMinutes: PluralMessage;
+    /** Announced as the time runs out - seconds left. */
+    remainingSeconds: PluralMessage;
+    /** Accessible name of the countdown. */
+    timeLeft: string;
+    /** Heading of the warning. */
+    title: string;
+  };
   slider: {
     /**
      * Names the thumb of the end of a range - read after the name of the
@@ -898,9 +1129,16 @@ export interface UIMessages {
     /** Under the title of a step marked `optional`. */
     optional: string;
   };
+  /** `SystemBanner` - the message bar of `AppShell`. */
+  systemBanner: {
+    /** Accessible name of the close button of a `dismissible` banner. */
+    dismiss: string;
+  };
   tabs: {
     /** Title of the × of a closable tab (`onClose`). */
     close: string;
+    /** The button of the menu of the tabs with no room (`overflow="menu"`). */
+    more: string;
   };
   tagsInput: {
     /** A value that is in the list already - `{tag}` is the value. */
@@ -931,6 +1169,10 @@ export interface UIMessages {
   };
   toast: {
     close: string;
+  };
+  toolbar: {
+    /** Accessible name of the button of the menu of the items with no room. */
+    more: string;
   };
   /** `TreeSelect` - its field, the chips of a multiple one and the popup. */
   treeSelect: {
@@ -980,6 +1222,268 @@ export interface UIMessages {
     noMatches: string;
     /** Loads the children again after `loadError`. */
     retry: string;
+  };
+  /** `VirtualList` - the rows at its end while more items load. */
+  virtualList: {
+    /** The row at the end while `onEndReached` loads more items. */
+    loading: string;
+    /** The row at the end when loading more items failed. */
+    loadError: string;
+    /** The button of `loadError` that loads them again. */
+    retry: string;
+  };
+  /** `FilterBuilder`, and `describeFilter` writing its value. */
+  filterBuilder: {
+    /** The button that adds a condition to a group. */
+    addCondition: string;
+    /** The button that adds a group of conditions to a group. */
+    addGroup: string;
+    /** The choice joining the conditions of a group - all must match. */
+    and: string;
+    /** Accessible name of the choice between `and` and `or`. */
+    combinator: string;
+    /** Accessible name of a condition - `{index}` is its place, e.g. "2.1". */
+    condition: string;
+    /** Shown in a group without conditions. */
+    empty: string;
+    /** Accessible name of the field select of a condition. */
+    field: string;
+    /** Accessible name of the first field of a range ("between"). */
+    from: string;
+    /** Accessible name of a nested group - `{index}` is its place. */
+    group: string;
+    /** Accessible name of a `FilterBuilder` without a `label`. */
+    label: string;
+    /** Accessible name of the operator select of a condition. */
+    operator: string;
+    /** The names of the operators - in the select and in `describeFilter`. */
+    operators: {
+      after: string;
+      before: string;
+      between: string;
+      contains: string;
+      endsWith: string;
+      equals: string;
+      greaterThan: string;
+      greaterThanOrEqual: string;
+      hasAll: string;
+      hasAny: string;
+      hasNone: string;
+      in: string;
+      isEmpty: string;
+      isNotEmpty: string;
+      lessThan: string;
+      lessThanOrEqual: string;
+      notContains: string;
+      notEquals: string;
+      notIn: string;
+      on: string;
+      onOrAfter: string;
+      onOrBefore: string;
+      startsWith: string;
+    };
+    /** The choice joining the conditions of a group - any may match. */
+    or: string;
+    /** `describeFilter`: a text value - `{value}` in the quotes of the language. */
+    quoted: string;
+    /** `describeFilter`: the two ends of a range, e.g. "100 and 200". */
+    range: string;
+    /** Accessible name of the button removing a condition - `{index}` is its place. */
+    removeCondition: string;
+    /** Accessible name of the button removing a group - `{index}` is its place. */
+    removeGroup: string;
+    /** Accessible name of the second field of a range ("between"). */
+    to: string;
+    /** Accessible name of the value field of a condition. */
+    value: string;
+    /** `describeFilter`: the word joining the conditions of an `and` group. */
+    wordAnd: string;
+    /** `describeFilter`: the word joining the conditions of an `or` group. */
+    wordOr: string;
+  };
+  /** `ChangeHistory` - the audit trail of a record. */
+  changeHistory: {
+    /** The labels of the built-in actions. */
+    actions: {
+      created: string;
+      deleted: string;
+      updated: string;
+    };
+    /**
+     * Read before the words a text gained, in the comparison of a long
+     * text.
+     */
+    added: string;
+    /** The filter of the authors - the option of all of them. */
+    allAuthors: string;
+    /** The filter of the fields - the option of all of them. */
+    allFields: string;
+    /** Accessible name of the filter of the authors. */
+    author: string;
+    /** Read before the comment of an entry. */
+    comment: string;
+    /** Shown without entries. */
+    empty: string;
+    /** Read in place of the "—" of an empty value. */
+    emptyValue: string;
+    /** Header of the column of the fields - also the filter of the fields. */
+    field: string;
+    /** Header of the column of the values before the change. */
+    from: string;
+    /** The button that loads older entries (`onLoadMore`). */
+    loadMore: string;
+    /** Shown when loading older entries failed. */
+    loadError: string;
+    /** Announced once older entries are loaded. */
+    loaded: PluralMessage;
+    /** Shown when the filters leave no entry. */
+    noMatches: string;
+    /** Read before the words a text lost, in the comparison of a long text. */
+    removed: string;
+    /** The button of `loadError` that loads them again. */
+    retry: string;
+    /** Collapses a long text shown whole. */
+    showLess: string;
+    /** Shows a long text whole. */
+    showMore: string;
+    /** The author of a change no person made. */
+    system: string;
+    /** Header of the column of the values after the change. */
+    to: string;
+    /** The day heading of today. */
+    today: string;
+    /** The day heading of yesterday. */
+    yesterday: string;
+  };
+  /**
+   * The question of `useUnsavedChanges` before the page with a form with
+   * unsaved changes is left.
+   */
+  unsavedChanges: {
+    /** The button that leaves the page - the changes are lost. */
+    leave: string;
+    message: string;
+    /** The button that stays on the page with the form. */
+    stay: string;
+    title: string;
+  };
+  /** `MentionInput` - its list of suggestions. */
+  mentionInput: {
+    /** Announced once a mention is inserted - `{label}` is its name. */
+    inserted: string;
+    /** Shown in the list when `loadSuggestions` failed. */
+    loadError: string;
+    /** Shown in the list when nothing matches the typed text. */
+    noResults: string;
+    /** Announced to screen readers - the number of suggestions listed. */
+    resultCount: PluralMessage;
+    /** Accessible name of the list of a trigger without a `label`. */
+    suggestions: string;
+  };
+  /** `CommentThread` - its comments, their actions and the fields. */
+  commentThread: {
+    /** Accessible name of the list of the comments. */
+    comments: string;
+    /** Accessible name of the field of a new comment. */
+    composerLabel: string;
+    /** Placeholder of the field of a new comment. */
+    composerPlaceholder: string;
+    /** The button that deletes a comment. */
+    delete: string;
+    /** Shown in the dialog when `onDelete` failed without a message. */
+    deleteError: string;
+    /** Message of the dialog confirming a deletion. */
+    deleteMessage: string;
+    /** Title of the dialog confirming a deletion. */
+    deleteTitle: string;
+    /** Announced once a comment is deleted. */
+    deleted: string;
+    /** The button that edits a comment. */
+    edit: string;
+    /** Shown under the field when `onEdit` failed without a message. */
+    editError: string;
+    /** Accessible name of the field editing a comment. */
+    editLabel: string;
+    /** After the time of an edited comment. */
+    edited: string;
+    /** Tooltip of `edited` - `{time}` is the date and time of the edit. */
+    editedAt: string;
+    /** Shown instead of the list when there are no comments. */
+    empty: string;
+    /** The button above the comments that loads older ones. */
+    loadOlder: string;
+    /** Shown when `onLoadMore` failed. */
+    loadOlderError: string;
+    /** Announced when a comment is added - `{author}` is its author. */
+    newComment: string;
+    /** Announced when several comments are added at once. */
+    newComments: PluralMessage;
+    /** Accessible name of the list of the replies to the comment of `{author}`. */
+    replies: string;
+    /** The button that opens the field of a reply. */
+    reply: string;
+    /** Accessible name of the field of a reply to the comment of `{author}`. */
+    replyLabel: string;
+    /** Placeholder of the field of a reply. */
+    replyPlaceholder: string;
+    /** The button that saves an edited comment. */
+    save: string;
+    /** The button that sends a comment or a reply. */
+    submit: string;
+    /** Shown under the field when `onSubmit` failed without a message. */
+    submitError: string;
+    /**
+     * Next to the send button - `{shortcut}` is where the keys of
+     * Ctrl / ⌘ + Enter are shown.
+     */
+    submitHint: string;
+  };
+  /** `KanbanBoard` - its columns and the moving of the cards. */
+  kanbanBoard: {
+    /** The button `onAddCard` adds to the columns. */
+    addCard: string;
+    /** Accessible name of `addCard` - `{column}` is the title of the column. */
+    addCardTo: string;
+    /** Read after the name of a card being moved. */
+    beingMoved: string;
+    /** `aria-roledescription` of a card that can be moved. */
+    card: string;
+    /** The number of cards of a column, for screen readers. */
+    cardCount: PluralMessage;
+    /** Accessible name of the button collapsing the column `{column}`. */
+    collapse: string;
+    /** Shown in a column without cards. */
+    empty: string;
+    /** Accessible name of the button expanding the column `{column}`. */
+    expand: string;
+    /**
+     * Read with a card that can be moved - how to move it with the keys.
+     */
+    instructions: string;
+    /** The cards of a column and its limit, shown - `{count}` / `{limit}`. */
+    limit: string;
+    /** For screen readers - `{cards}` is `cardCount`, `{limit}` the limit. */
+    limitLabel: string;
+    /**
+     * Announced after a drop - the card `{card}` in the column `{column}`,
+     * at `{position}` of its `{count}` cards.
+     */
+    moved: string;
+    /** Announced when a move is cancelled - `{card}` is its label. */
+    moveCancelled: string;
+    /** Shown and announced when `onMoveCard` failed - `{card}` is its label. */
+    moveError: string;
+    /** For screen readers - a column over its limit, like `limitLabel`. */
+    overLimit: string;
+    /**
+     * Announced when a card is picked up with the keys - `{card}`, and its
+     * place: `{column}`, `{position}` of `{count}`.
+     */
+    pickedUp: string;
+    /** Announced as a picked up card moves - `{column}`, `{position}` of `{count}`. */
+    position: string;
+    /** Announced when a card is dropped where it was - `{card}` is its label. */
+    unchanged: string;
   };
 }
 

@@ -81,15 +81,21 @@ const protectText = (text: string) =>
 /** A field quoted (RFC 4180), quotes doubled. */
 const quote = (text: string) => `"${text.replace(/"/g, '""')}"`;
 
+// What makes a field of a CSV file quoted - a quote, a line break or a list
+// separator, also the one not used: a spreadsheet set up for it would split
+// the field, and the part after the split could start a formula
+const CSV_QUOTED = /[",;\t\r\n]/;
+
+// Pasted tab-separated text is split by tabs and lines only
+const TSV_QUOTED = /["\t\r\n]/;
+
 /**
  * A text field: protected from starting a formula, and quoted when it has
- * a quote, a line break or a list separator - also the one not used, as a
- * spreadsheet set up for it would split the field, and the part after the
- * split could start a formula.
+ * the separator or a character of `quoted`.
  */
-function toTextField(text: string, separator: string) {
+function toTextField(text: string, separator: string, quoted = CSV_QUOTED) {
   const protectedText = protectText(text);
-  return protectedText.includes(separator) || /[",;\t\r\n]/.test(protectedText)
+  return protectedText.includes(separator) || quoted.test(protectedText)
     ? quote(protectedText)
     : protectedText;
 }
@@ -120,6 +126,7 @@ function toField(
   locale: Locale,
   separator: string,
   isNumber: boolean,
+  quoted = CSV_QUOTED,
 ) {
   let text: string;
 
@@ -137,6 +144,7 @@ function toField(
     return toTextField(
       formatCellValue(value, locale) ?? toJson(value),
       separator,
+      quoted,
     );
   }
 
@@ -161,9 +169,20 @@ export function createCsv<T>(
   columns: Column<T>[],
   { locale, separator = getCsvSeparator(locale.code) }: CsvOptions,
 ) {
-  const header = columns
-    .map((column) => toTextField(column.labelTitle ?? column.label, separator))
-    .join(separator);
+  return toLines(rows, columns, locale, separator, CSV_QUOTED, true).join(
+    "\r\n",
+  );
+}
+
+/** The header line (with `header`) and a line per row of the fields. */
+function toLines<T>(
+  rows: T[],
+  columns: Column<T>[],
+  locale: Locale,
+  separator: string,
+  quoted: RegExp,
+  header: boolean,
+) {
   const numberColumns = columns.map(isNumberColumn);
   const lines = rows.map((row) =>
     columns
@@ -175,12 +194,49 @@ export function createCsv<T>(
           locale,
           separator,
           numberColumns[index],
+          quoted,
         ),
       )
       .join(separator),
   );
 
-  return [header, ...lines].join("\r\n");
+  if (!header) return lines;
+  const names = columns
+    .map((column) =>
+      toTextField(column.labelTitle ?? column.label, separator, quoted),
+    )
+    .join(separator);
+  return [names, ...lines];
+}
+
+export interface TsvOptions {
+  /** Set to `false` to leave out the line of the column names. */
+  header?: boolean;
+  /**
+   * The language the values are written in - numbers with its decimal
+   * separator, dates by its date format, booleans as its "Yes" / "No".
+   */
+  locale: Locale;
+}
+
+/**
+ * The rows as tab-separated text - what Ctrl + C copies from a `DataTable`,
+ * which a spreadsheet pastes into its cells: a line of the column names
+ * (unless `header: false`), then a line per row with the values of
+ * `columns` in their order, written as `createCsv` writes them. A field is
+ * quoted only when it holds a tab, a line break or a quote.
+ *
+ * ```ts
+ * const { copy } = useClipboard();
+ * copy(createTsv(selectedRows, columns, { locale: useLocale() }));
+ * ```
+ */
+export function createTsv<T>(
+  rows: T[],
+  columns: Column<T>[],
+  { header = true, locale }: TsvOptions,
+) {
+  return toLines(rows, columns, locale, "\t", TSV_QUOTED, header).join("\n");
 }
 
 /**

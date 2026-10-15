@@ -29,6 +29,23 @@ export default function HeaderPage() {
         name="header/basic"
         title="Basic"
       />
+      <Example
+        description={
+          <p>
+            <code>breadcrumbs</code> shows the path to the page above the title
+            - <code>BreadcrumbItem</code>s become <code>Breadcrumbs</code> with
+            the home crumb first, the last one the page itself; pass your own
+            element for other options, like a long path collapsed with{" "}
+            <code>maxItems</code>. An empty list shows nothing (the home page).
+            The children go under the row of the title, across the whole header
+            - the key facts of a record, the <code>Tabs</code> of its pages.
+            Printed, the back arrow and the actions are left out, the path and
+            the title stay.
+          </p>
+        }
+        name="header/breadcrumbs"
+        title="Breadcrumbs and details"
+      />
 
       <Section title="Props">
         <PropsTable of="Header" />

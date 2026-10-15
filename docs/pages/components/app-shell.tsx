@@ -67,6 +67,21 @@ const custom = `// The pieces on their own - the navbar and main must follow the
   <main>{children}</main>
 </DrawerProvider>`;
 
+const banners = `<AppShell
+  banner={
+    <>
+      <SystemBanner variant="warning">TEST environment</SystemBanner>
+      <SystemBanner action={{ label: "Stop", onClick: stopImpersonating }} variant="neutral">
+        Signed in as Jana Nováková
+      </SystemBanner>
+    </>
+  }
+  drawer={<Drawer items={items} />}
+  navbar={<Navbar user={user} />}
+>
+  {children}
+</AppShell>`;
+
 export default function AppShellPage() {
   return (
     <DocPage
@@ -167,6 +182,27 @@ export default function AppShellPage() {
             group of the menu and the toggle of the navbar, like their{" "}
             <code>aria-expanded</code>. The current page keeps the system colors
             of a selection in forced colors (Windows High Contrast).
+          </p>
+        </Prose>
+      </Section>
+
+      <Section title="Banners">
+        <Prose>
+          <p>
+            <code>banner</code> of <code>AppShell</code> takes messages across
+            the whole app -{" "}
+            <Link to="/components/system-banner">SystemBanner</Link>s of a
+            planned outage, a test environment or the user the app is used as.
+            They stack above the navbar, beside the drawer as wide as the page,
+            and scroll away with the page while the navbar stays.
+          </p>
+        </Prose>
+        <CodeBlock code={banners} />
+        <Prose>
+          <p>
+            Printed, the drawer, the banners and the navbar are left out and the
+            content takes the width of the paper - see{" "}
+            <Link to="/guides/printing">Printing</Link>.
           </p>
         </Prose>
       </Section>

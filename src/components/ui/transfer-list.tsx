@@ -24,6 +24,7 @@ import IconButton from "./icon-button";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import RequiredMark from "./required-mark";
+import { useReadOnly } from "./form-scope";
 
 export type TransferListValue = string | number;
 
@@ -64,7 +65,10 @@ export interface TransferListProps extends Omit<
   error?: string;
   /** Disable interaction, validation and submission. */
   disabled?: boolean;
-  /** Show and submit the values, with no transfers allowed. */
+  /**
+   * Show and submit the values, with no transfers allowed.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
+   */
   readOnly?: boolean;
   /** One hidden input per selected value. An empty list submits an empty value. */
   name?: string;
@@ -104,7 +108,7 @@ export default function TransferList({
   name,
   onChange,
   options,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required = false,
   searchable = true,
@@ -112,6 +116,7 @@ export default function TransferList({
   value,
   ...props
 }: TransferListProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = locale.messages.ui.transferList;
   const generatedId = useId();
@@ -262,6 +267,8 @@ export default function TransferList({
                 event.preventDefault();
               }
             }}
+            // No value of the form around - a read-only section leaves it be
+            readOnly={false}
             type="search"
             value={search}
           />
@@ -323,7 +330,7 @@ export default function TransferList({
       )}
       aria-invalid={shownError ? "true" : props["aria-invalid"]}
       aria-labelledby={label ? `${groupId}-label` : props["aria-labelledby"]}
-      className={cn("flex flex-col gap-2", className)}
+      className={cn("cui-field flex flex-col gap-2", className)}
       data-invalid={
         shownError || validationMessage || isAriaInvalid(props["aria-invalid"])
           ? ""
@@ -346,7 +353,10 @@ export default function TransferList({
       role="group"
     >
       {label && (
-        <div className="text-sm font-medium" id={`${groupId}-label`}>
+        <div
+          className="cui-field-label text-sm font-medium [--cui-label-offset:0px]"
+          id={`${groupId}-label`}
+        >
           {label}
           {required && (
             <>

@@ -68,6 +68,26 @@ export default function ButtonPage() {
       <Example
         description={
           <p>
+            <code>disabledReason</code> says why a disabled button cannot be
+            used - a missing permission, the state of the record. A natively
+            disabled button cannot be focused and shows no tooltip; with a
+            reason it stays in the tab order (<code>aria-disabled</code>), shows
+            the reason on hover, keyboard focus, a tap and a long press, and
+            screen readers read it as its description. A click, Enter, Space,
+            the submit of its form and the navigation of a <code>link</code> do
+            nothing. <code>IconButton</code> shows the reason under its name,{" "}
+            <code>SplitButton</code> on both its buttons. Keep the reason given
+            while the button is enabled - it shows only while{" "}
+            <code>disabled</code>, and the button stays the same element, so the
+            focus stays on it.
+          </p>
+        }
+        name="button/disabled-reason"
+        title="Why it is disabled"
+      />
+      <Example
+        description={
+          <p>
             <code>fullWidth</code> stretches the button to its container, e.g.
             in a narrow form or on a phone.
           </p>
@@ -102,7 +122,14 @@ export default function ButtonPage() {
             </li>
             <li>
               A disabled link is removed from the tab order and does not
-              navigate - nor open in a new tab by a middle click or a drag.
+              navigate - nor open in a new tab by a middle click or a drag. With
+              a <code>disabledReason</code> it stays in the tab order, without
+              an <code>href</code>.
+            </li>
+            <li>
+              A button disabled with a <code>disabledReason</code> is{" "}
+              <code>aria-disabled</code>: screen readers announce it as
+              unavailable and read the reason as its description.
             </li>
           </ul>
         </Prose>

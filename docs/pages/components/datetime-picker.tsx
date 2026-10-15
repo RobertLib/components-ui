@@ -27,15 +27,16 @@ export default function DateTimePickerPage() {
         description={
           <>
             <p>
-              One component for all five native types. The value can be typed in
-              the display format of the locale - forgiving about separators and
-              zeros (<code>3.7.1985</code>), and a time without its minutes is
-              the full hour (<code>14</code>; <code>930</code> is 9:30; with a
-              12-hour format like the English one also <code>5 pm</code>) - or
-              picked in the popup: with the mouse or the keyboard. ArrowDown
-              opens it and moves into it, Tab and Shift + Tab move through it
-              and out of it, Enter picks, Escape closes. The month and year
-              selects of the date popup jump far, e.g. to a birth date.
+              One component for the five native types, a quarter and a year. The
+              value can be typed in the display format of the locale - forgiving
+              about separators and zeros (<code>3.7.1985</code>), and a time
+              without its minutes is the full hour (<code>14</code>;{" "}
+              <code>930</code> is 9:30; with a 12-hour format like the English
+              one also <code>5 pm</code>) - or picked in the popup: with the
+              mouse or the keyboard. ArrowDown opens it and moves into it, Tab
+              and Shift + Tab move through it and out of it, Enter picks, Escape
+              closes. The month and year selects of the date popup jump far,
+              e.g. to a birth date.
             </p>
             <p>
               A year after the day and the month (or the week) may be left out -
@@ -50,11 +51,11 @@ export default function DateTimePickerPage() {
               A value pasted in ISO 8601 is taken in any locale -{" "}
               <code>2026-09-24</code>, <code>2026-09-24T14:30</code> (a
               date-time with a zone, <code>…Z</code> or <code>…+02:00</code>, on
-              the local clock), <code>2026-09</code>, <code>2026-W39</code>. A
-              day alone typed into a date-time field keeps the time it had
-              (midnight without one), like a day picked in the popup. A text
-              that is no value, or one out of <code>min</code> /{" "}
-              <code>max</code>, is dropped - the field shows its value again,
+              the local clock), <code>2026-09</code>, <code>2026-W39</code>,{" "}
+              <code>2026-Q3</code>. A day alone typed into a date-time field
+              keeps the time it had (midnight without one), like a day picked in
+              the popup. A text that is no value, or one out of <code>min</code>{" "}
+              / <code>max</code>, is dropped - the field shows its value again,
               and a message under it says why and in which format to type it.
               The placeholder shows that format with the tokens of the language
               (<code>DD.MM.RRRR</code> in Czech).
@@ -76,9 +77,11 @@ export default function DateTimePickerPage() {
           The value is always in the format of the native input -{" "}
           <code>YYYY-MM-DD</code>, <code>HH:mm</code>,{" "}
           <code>YYYY-MM-DDTHH:mm</code>, <code>YYYY-MM</code> and{" "}
-          <code>YYYY-Www</code> - so it can be sent to an API as it is. What the
-          user sees and types follows the <code>formats</code> of the active
-          locale (<code>09/24/2026 2:30 PM</code> in English,{" "}
+          <code>YYYY-Www</code> - and of ISO 8601 for a quarter (
+          <code>2026-Q3</code>) and a year (<code>2026</code>), which no native
+          input has - so it can be sent to an API as it is. What the user sees
+          and types follows the <code>formats</code> of the active locale (
+          <code>09/24/2026 2:30 PM</code> in English,{" "}
           <code>24.09.2026 14:30</code> in Czech), and month and weekday names
           and AM / PM come from <code>Intl</code>.
         </p>
@@ -94,9 +97,12 @@ export default function DateTimePickerPage() {
               selects show are announced to screen readers.
             </li>
             <li>
-              Months and weeks: the arrow keys move on into the next or the
-              previous year, Home / End to the first and the last month or week
-              of the year, Page Up / Down by a year - with Shift by ten.
+              Months, quarters and weeks: the arrow keys move on into the next
+              or the previous year, Home / End to the first and the last month,
+              quarter or week of the year, Page Up / Down by a year - with Shift
+              by ten. Years: the arrow keys move on into the next or the
+              previous page of twelve years, Home / End to the first and the
+              last year of the page, Page Up / Down by a page.
             </li>
             <li>
               Hours and minutes: the arrow keys move to the next or the previous
@@ -105,11 +111,11 @@ export default function DateTimePickerPage() {
             </li>
             <li>
               All of them stop at <code>min</code> / <code>max</code>. The days,
-              months and weeks of <code>isDateDisabled</code> take the focus -
-              they are announced as unavailable - but Enter and Space do not
-              pick them. The month and year buttons page with Enter and Space;
-              elsewhere in the date popup Page Up / Down pages without moving
-              the focus.
+              months, quarters, weeks and years of <code>isDateDisabled</code>{" "}
+              take the focus - they are announced as unavailable - but Enter and
+              Space do not pick them. The month and year buttons page with Enter
+              and Space; elsewhere in the date popup Page Up / Down pages
+              without moving the focus.
             </li>
             <li>
               In a right-to-left page (<code>dir="rtl"</code>) the left arrow
@@ -221,8 +227,10 @@ export default function DateTimePickerPage() {
             <code>presets</code> offers days of your own beside the calendar
             (above it on phones) - a click picks the day and closes the popup; a
             preset that cannot be picked is disabled, the one of the value is
-            marked (<code>aria-pressed</code>). Today is the browser&apos;s -
-            give a <code>timeZone</code> (e.g.{" "}
+            marked (<code>aria-pressed</code>). The <code>month</code>,{" "}
+            <code>quarter</code> and <code>year</code> types take presets too,
+            in their value format. Today is the browser&apos;s - give a{" "}
+            <code>timeZone</code> (e.g.{" "}
             <code>&quot;America/New_York&quot;</code>) for today of another
             zone, also where the popups open and the year of a date typed
             without one.
@@ -230,6 +238,41 @@ export default function DateTimePickerPage() {
         }
         name="datetime-picker/popup-actions"
         title="Today, Clear and presets"
+      />
+      <Example
+        description={
+          <>
+            <p>
+              <code>type="quarter"</code> picks a quarter of a year - the value
+              is <code>2026-Q3</code>, as ISO 8601 writes it - and{" "}
+              <code>type="year"</code> a year, <code>2026</code>. The quarter
+              popup shows the four quarters of a year with their months, the
+              year popup twelve years - the decade first - with buttons for the
+              previous and the next ones. <code>min</code>, <code>max</code>,{" "}
+              <code>isDateDisabled</code> (a quarter or a year without a day
+              left cannot be picked), <code>presets</code>,{" "}
+              <code>timeZone</code> and the forms work as for the other types.
+            </p>
+            <p>
+              The field shows them by the <code>quarter</code> and{" "}
+              <code>year</code> formats of the locale - <code>Q3 2026</code> in
+              English, <code>3. čtvrtletí 2026</code> in Czech - and a locale of
+              your own without them takes <code>[Q]Q YYYY</code> and{" "}
+              <code>YYYY</code>. A quarter can be typed as the format writes it
+              or with other words around its number (<code>Q3 2026</code> in
+              Czech, <code>3/2026</code>, <code>2026-Q3</code>), with the year
+              left out (the current one) or of two digits; a year with four
+              digits or two (<code>26</code>). <code>useFormatDate</code> writes
+              both values, and the quarter or the year of a date (
+              <code>
+                formatDate(&quot;2026-10-01&quot;, &quot;quarter&quot;)
+              </code>
+              ).
+            </p>
+          </>
+        }
+        name="datetime-picker/periods"
+        title="Quarters and years"
       />
       <Example
         description={
@@ -260,7 +303,10 @@ export default function DateTimePickerPage() {
           <p>
             <code>mode="native"</code> renders the browser's own input instead -
             handy on mobile devices. <code>minuteStep</code> becomes its{" "}
-            <code>step</code>.
+            <code>step</code>. No browser has an input of a year or a quarter: a
+            year is then a number input (<code>{'<input type="number">'}</code>{" "}
+            with the numeric keyboard of phones, <code>min</code> /{" "}
+            <code>max</code> as its limits), a quarter keeps the custom picker.
           </p>
         }
         name="datetime-picker/native"
@@ -299,7 +345,8 @@ export default function DateTimePickerPage() {
               The first day of the week comes from the locale (
               <code>weekStartsOn</code>); the week picker always uses ISO weeks,
               which start on Monday, and labels them by the locale's week format
-              (<code>W39</code>).
+              (<code>W39</code>) - the quarter picker its quarters by the
+              quarter format (<code>Q3</code>, <code>3. čtvrtletí</code>).
             </li>
             <li>
               The time columns follow the time format of the locale - 12 AM to

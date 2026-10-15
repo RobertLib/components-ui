@@ -95,7 +95,11 @@ createRoot(container).render(
                   ? "month"
                   : params.get("kind") === "week"
                     ? "week"
-                    : "date"
+                    : params.get("kind") === "quarter"
+                      ? "quarter"
+                      : params.get("kind") === "year"
+                        ? "year"
+                        : "date"
           }
         />
       ) : params.get("scenario") === "drawer-menu" ? (

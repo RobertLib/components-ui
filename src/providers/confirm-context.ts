@@ -1,5 +1,6 @@
 import { createContext, use, useCallback } from "react";
 import type { ConfirmDialogProps } from "../components/ui/confirm-dialog";
+import type { PromptDialogProps } from "../components/ui/prompt-dialog";
 
 /**
  * What `confirm()` asks - the props of `ConfirmDialog`, which it shows (all
@@ -44,8 +45,39 @@ export type AlertOptions = Omit<
  */
 export type AlertFunction = (options: AlertOptions) => Promise<void>;
 
+/**
+ * What `prompt()` asks - the props of `PromptDialog`, which it shows (all
+ * but its `ref`), with an `onConfirm` that may use the value before the
+ * dialog closes.
+ */
+export interface PromptOptions extends Omit<
+  PromptDialogProps,
+  "loading" | "onClose" | "onConfirm" | "open" | "ref"
+> {
+  /**
+   * Runs with the value the user confirmed - trimmed and checked - before
+   * `prompt()` resolves it, e.g. the request that rejects the invoice with
+   * the reason. While a returned promise is pending, the confirm button
+   * shows a spinner and the dialog cannot be cancelled. Return (or resolve)
+   * `false` to keep the dialog open; a rejection keeps it open too, so the
+   * user can try again or cancel - tell them about the error yourself; it
+   * is logged in development.
+   */
+  onConfirm?: (value: string) => unknown;
+}
+
+/**
+ * Asks the user for a text in a `PromptDialog` - resolves the value once
+ * they confirm it (trimmed of the spaces around it), `null` when they cancel
+ * (Cancel, the close button, Escape).
+ */
+export type PromptFunction = (options: PromptOptions) => Promise<string | null>;
+
 export const ConfirmContext =
   /* @__PURE__ */ createContext<ConfirmFunction | null>(null);
+
+export const PromptContext =
+  /* @__PURE__ */ createContext<PromptFunction | null>(null);
 
 /**
  * Returns `confirm(options)`, which asks the user in a `ConfirmDialog` and
@@ -87,4 +119,27 @@ export function useAlert(): AlertFunction {
       confirm({ ...options, alert: true }).then(() => undefined),
     [confirm],
   );
+}
+
+/**
+ * Returns `prompt(options)`, which asks the user for a text in a
+ * `PromptDialog` and resolves it - or `null` when they cancel. Queued with
+ * the questions of `useConfirm()`. Requires a `ConfirmProvider` above.
+ *
+ * ```tsx
+ * const prompt = usePrompt();
+ * const reason = await prompt({ title: "Reject the invoice?", label: "Reason", required: true, multiline: true });
+ * if (reason !== null) await rejectInvoice(id, reason);
+ * ```
+ */
+export function usePrompt(): PromptFunction {
+  const prompt = use(PromptContext);
+
+  if (!prompt) {
+    throw new Error(
+      "usePrompt() needs a <ConfirmProvider> above it - render one near the root of the app, e.g. around the router.",
+    );
+  }
+
+  return prompt;
 }

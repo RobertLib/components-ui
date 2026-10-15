@@ -54,6 +54,8 @@ export function SummaryCells<T>({
     return (
       <td
         className="sticky z-1 bg-neutral-50 dark:bg-neutral-900"
+        // Left out of a printout, like the cells of its column
+        data-leading-column=""
         style={getCellStyle(null, layout, false)}
       >
         <EdgeShadow side={layout.shadow} />
@@ -131,7 +133,7 @@ export function TableSummary<T>({
 }: TableSummaryProps<T>) {
   return (
     <tfoot
-      className="sticky bottom-0 z-2 bg-neutral-50 font-medium shadow-[0_-1px_3px_0_rgb(0_0_0/0.1)] dark:bg-neutral-900 dark:shadow-neutral-800"
+      className="sticky bottom-0 z-2 bg-neutral-50 font-medium shadow-[0_-1px_3px_0_rgb(0_0_0/0.1)] dark:bg-neutral-900 dark:shadow-neutral-800 print:static print:shadow-none"
       ref={ref}
     >
       <tr aria-rowindex={ariaRowIndex}>

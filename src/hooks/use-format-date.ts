@@ -2,17 +2,21 @@ import { useCallback } from "react";
 import useIsHydrated from "./use-is-hydrated";
 import {
   parseMonth,
+  parseQuarter,
   parseTime,
   parseWeek,
+  parseYear,
 } from "../components/ui/datetime-picker/parse";
 import type { DateFormats, Locale } from "../i18n/ui/types";
 import { useLocale } from "../providers/ui-context";
 import {
   formatDate,
   formatPattern,
+  getDatePattern,
   getDayPeriods,
   getISOWeekOfDay,
   isValidDay,
+  quarterOfMonth,
   writesWeek,
   type DateParts,
 } from "../utils/date";
@@ -31,9 +35,9 @@ export interface FormatDateOptions {
 
 /**
  * Writes a date by a pattern of the locale's `formats` - `date` by default,
- * the pattern of its picker for a month, a week or a time, also in place of
- * a `format` with a part they do not have (the day of `2026-10`) - `""` for
- * none, an invalid one or an invalid `timeZone`.
+ * the pattern of its picker for a month, a week, a quarter, a year or a
+ * time, also in place of a `format` with a part they do not have (the day
+ * of `2026-10`) - `""` for none, an invalid one or an invalid `timeZone`.
  */
 export type FormatDate = (
   value: Date | string | null | undefined,
@@ -45,7 +49,7 @@ export type FormatDate = (
 // date (`2026-02-30`), which `Date` would take for a day of March, and a
 // date and time with a lowercase `t`, which RFC 3339 allows
 const PICKER_VALUE =
-  /^(?:\d{4}-\d{2}(?:-\d{2}(?:[Tt ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?)?|\d{4}-W\d{2}|\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)$/;
+  /^(?:\d{4}(?:-\d{2}(?:-\d{2}(?:[Tt ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?)?)?|\d{4}-W\d{2}|\d{4}-Q\d|\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)$/;
 
 // Every part of a date - see `writesOnly`
 const ALL_PARTS: DateParts = {
@@ -53,6 +57,7 @@ const ALL_PARTS: DateParts = {
   hours: 1,
   minutes: 1,
   month: 1,
+  quarter: 1,
   week: 1,
   year: 1,
 };
@@ -68,10 +73,10 @@ const writesOnly = (pattern: string, parts: Partial<DateParts>) =>
 
 /**
  * A value as the pickers take it - `YYYY-MM-DD`, `YYYY-MM-DDTHH:mm`,
- * `YYYY-MM`, `YYYY-Www` or `HH:mm` - written as they show it: a time on the
- * clock, not midnight in UTC, which is the day (the month) before west of
- * Greenwich. `""` for one that is no real date or time, `undefined` for
- * anything else.
+ * `YYYY-MM`, `YYYY-Www`, `YYYY-Qq`, `YYYY` or `HH:mm` - written as they show
+ * it: a time on the clock, not midnight in UTC, which is the day (the
+ * month, the year) before west of Greenwich. `""` for one that is no real
+ * date or time, `undefined` for anything else.
  */
 function formatPickerValue(
   value: string,
@@ -90,8 +95,10 @@ function formatPickerValue(
     parts: Partial<DateParts>,
     weekYear?: number,
   ) => {
-    const wanted = locale.formats[format ?? kind];
-    const pattern = writesOnly(wanted, parts) ? wanted : locale.formats[kind];
+    const wanted = getDatePattern(locale.formats, format ?? kind);
+    const pattern = writesOnly(wanted, parts)
+      ? wanted
+      : getDatePattern(locale.formats, kind);
     return formatPattern(
       pattern,
       weekYear !== undefined && writesWeek(pattern)
@@ -116,6 +123,7 @@ function formatPickerValue(
       {
         day: date,
         month,
+        quarter: quarterOfMonth(month),
         week: isoWeek.week,
         year,
         ...(time && {
@@ -128,10 +136,18 @@ function formatPickerValue(
   }
 
   const month = parseMonth(value);
-  if (month) return write("month", month);
+  if (month) {
+    return write("month", { ...month, quarter: quarterOfMonth(month.month) });
+  }
 
   const week = parseWeek(value);
   if (week) return write("week", week);
+
+  const quarter = parseQuarter(value);
+  if (quarter) return write("quarter", quarter);
+
+  const year = parseYear(value);
+  if (year) return write("year", year);
 
   const time = parseTime(value);
   if (time) {
@@ -174,6 +190,7 @@ function formatInstant(
  * const formatDate = useFormatDate();
  * formatDate("2026-10-01"); // "10/01/2026" in `en`, "01.10.2026" in `cs`
  * formatDate("2026-10"); // "10/2026" - by `formats.month`
+ * formatDate("2026-Q3"); // "Q3 2026" in `en`, "3. čtvrtletí 2026" in `cs`
  * formatDate(entry.createdAt, "dateTime", { timeZone: "Europe/Prague" });
  * ```
  *
@@ -205,7 +222,7 @@ export default function useFormatDate(): FormatDate {
 
       return formatInstant(
         date,
-        locale.formats[format ?? "date"],
+        getDatePattern(locale.formats, format ?? "date"),
         locale,
         timeZone,
       );

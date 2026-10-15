@@ -9,6 +9,7 @@ import {
   useCheckedControl,
 } from "../../hooks/use-form-control";
 import RequiredMark from "./required-mark";
+import { useReadOnly } from "./form-scope";
 
 type Dim = "xs" | "sm" | "md" | "lg";
 
@@ -46,6 +47,7 @@ export interface SwitchProps extends Omit<
    * does not change it (`onChange` is not called) - unlike a disabled one,
    * a read-only switch that is on is submitted with the form. As a native
    * read-only field, it is not validated: `required` only marks it.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
 }
@@ -94,11 +96,12 @@ export default function Switch({
   name,
   onChange,
   onClick,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required,
   ...props
 }: SwitchProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const checkboxRef = useCheckedControl({
     checked: props.checked,
     form: props.form,
@@ -131,7 +134,7 @@ export default function Switch({
   );
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="cui-field cui-field-check flex flex-col gap-1.5">
       <label
         className={cn(
           "inline-flex items-center",

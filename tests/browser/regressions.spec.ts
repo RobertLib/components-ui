@@ -7,6 +7,8 @@ for (const [kind, valid] of [
   ["datetime-local", "2026-09-24T09:30"],
   ["month", "2026-09"],
   ["week", "2026-W39"],
+  ["quarter", "2026-Q3"],
+  ["year", "2026"],
 ]) {
   test(`invalid loaded ${kind} values are empty for display, validation and submission`, async ({
     page,

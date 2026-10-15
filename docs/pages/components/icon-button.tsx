@@ -45,6 +45,20 @@ export default function IconButtonPage() {
       <Example
         description={
           <p>
+            <code>disabledReason</code> says why a disabled button cannot be
+            used: it stays focusable (<code>aria-disabled</code>), its tooltip
+            shows the reason under its name on hover, keyboard focus, a tap and
+            a long press, and screen readers read the reason as its description.
+            A disabled link keeps no <code>href</code>. See <code>Button</code>{" "}
+            for the details.
+          </p>
+        }
+        name="button/disabled-reason"
+        title="Why it is disabled"
+      />
+      <Example
+        description={
+          <p>
             With <code>href</code> the button is a link rendered by the router
             of <code>UIProvider</code>, like <code>Button</code> with{" "}
             <code>link</code>. A disabled link has no <code>href</code> -

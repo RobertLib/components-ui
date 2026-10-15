@@ -257,16 +257,21 @@ export default function Localization() {
             / PM (<code>en</code> uses <code>h:mm A</code>; AM / PM is written
             in the language of <code>code</code>, e.g. <code>dop.</code> /{" "}
             <code>odp.</code> in Czech), <code>mm</code> minutes,{" "}
-            <code>WW</code> / <code>W</code> ISO week. Text in square brackets
-            is printed as it is: <code>[W]WW.YYYY</code> → W39.2026 - the week
-            picker labels its weeks with the week format without the year (W39).
-            The user types dates in the same format - any separators and missing
-            zeros are fine, a time without its minutes is the full hour, a
-            format with <code>A</code> takes the AM / PM of the language and the
-            English <code>am</code> / <code>pm</code> (a 24-hour format takes
-            neither), and values pasted in ISO 8601 (<code>2026-09-24</code>)
-            are read in every locale. The placeholders show the patterns without
-            their bracketed text, with the tokens written by{" "}
+            <code>WW</code> / <code>W</code> ISO week, <code>Q</code> quarter.
+            Text in square brackets is printed as it is: <code>[W]WW.YYYY</code>{" "}
+            → W39.2026 - the week picker labels its weeks with the week format
+            without the year (W39), the quarter picker its quarters with the
+            quarter format without it (<code>Q. [čtvrtletí] YYYY</code> → 3.
+            čtvrtletí). The <code>quarter</code> and <code>year</code> formats
+            may be left out - a locale of yours written before them takes{" "}
+            <code>[Q]Q YYYY</code> and <code>YYYY</code>. The user types dates
+            in the same format - any separators and missing zeros are fine, a
+            time without its minutes is the full hour, a format with{" "}
+            <code>A</code> takes the AM / PM of the language and the English{" "}
+            <code>am</code> / <code>pm</code> (a 24-hour format takes neither),
+            and values pasted in ISO 8601 (<code>2026-09-24</code>) are read in
+            every locale. The placeholders show the patterns without their
+            bracketed text, with the tokens written by{" "}
             <code>messages.ui.dateTimePicker.placeholderTokens</code> -{" "}
             <code>{`{ YYYY: "RRRR" }`}</code> makes <code>DD.MM.YYYY</code> the
             Czech <code>DD.MM.RRRR</code>, <code>{`{ A: "AM/PM" }`}</code> the

@@ -19,6 +19,7 @@ import { getNextTabStop } from "../overlay-stack";
 import { useMessages } from "../../../providers/ui-context";
 import type { CustomPickerProps } from "./types";
 import RequiredMark from "../required-mark";
+import { fieldLabelClass, useReadOnly } from "../form-scope";
 
 /**
  * What a picker makes of a typed text: the value, or why the text gives
@@ -140,12 +141,13 @@ export default function PickerField({
   placeholder,
   popupLabel,
   preserveInvalidText,
-  readOnly,
+  readOnly: ownReadOnly,
   required,
   sourceValue,
   validityMessage,
   value,
 }: PickerFieldProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const messages = useMessages().ui;
   const isMobile = useIsMobile();
   const popupId = useId();
@@ -338,7 +340,7 @@ export default function PickerField({
 
   return (
     <div
-      className="flex flex-col gap-1.5"
+      className="cui-field flex flex-col gap-1.5"
       onBlur={(event) => {
         if (!isInPicker(event.relatedTarget)) onBlur?.(asFieldEvent(event));
       }}
@@ -348,7 +350,13 @@ export default function PickerField({
       ref={rootRef}
     >
       {hasLabel(label) && (
-        <label className="block truncate text-sm font-medium" htmlFor={inputId}>
+        <label
+          className={cn(
+            fieldLabelClass(dim),
+            "block truncate text-sm font-medium",
+          )}
+          htmlFor={inputId}
+        >
           {label}
           {messages.form.labelSuffix} {required && <RequiredMark />}
         </label>

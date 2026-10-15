@@ -41,7 +41,7 @@ export default function Overlay({
     <div
       {...props}
       className={cn(
-        "fixed inset-0 z-30 animate-fade-in bg-black/50",
+        "fixed inset-0 z-30 animate-fade-in bg-black/50 print:hidden",
         className,
       )}
     />

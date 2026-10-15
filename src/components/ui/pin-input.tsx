@@ -16,6 +16,7 @@ import { formatMessage } from "../../i18n/ui/format";
 import { useMessages } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
 import { getActiveElement } from "./overlay-stack";
+import { fieldLabelClass, useReadOnly } from "./form-scope";
 
 type PinType = "numeric" | "alphanumeric";
 
@@ -117,6 +118,7 @@ export interface PinInputProps extends Omit<
    * between them - but typing, pasting or deleting changes nothing. Unlike
    * a disabled field, the code is submitted with the form. As a native
    * read-only field, it is not validated.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /** Ref to the first cell - e.g. for `focus()`. */
@@ -237,7 +239,7 @@ export default function PinInput({
   onComplete,
   onFocus,
   placeholder,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required = false,
   separator,
@@ -245,6 +247,7 @@ export default function PinInput({
   value,
   ...props
 }: PinInputProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const messages = useMessages().ui;
   const length =
     lengthProp ??
@@ -651,11 +654,11 @@ export default function PinInput({
     type === "numeric" ? messages.pinInput.digit : messages.pinInput.character;
 
   return (
-    <div className="flex flex-col gap-1.5" ref={formResetRef}>
+    <div className="cui-field flex flex-col gap-1.5" ref={formResetRef}>
       {label && (
         // Points at the cell the next character goes to
         <label
-          className="block text-sm font-medium"
+          className={cn(fieldLabelClass(dim), "block text-sm font-medium")}
           htmlFor={cellId(activeIndex)}
           id={labelId}
         >

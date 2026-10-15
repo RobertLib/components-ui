@@ -10,6 +10,7 @@ import {
   formatMonthYear,
   formatPattern,
   formatPlaceholder,
+  getDatePattern,
   getDayPeriods,
   getISOWeek,
   getISOWeeksInYear,
@@ -587,5 +588,48 @@ describe("addMonths", () => {
     const date = addMonths(dateOf(1995, 0, 31, kiritimati), -1);
     expect(toISODate(date)).toBe("1994-12-30");
     expect(date.getHours()).toBe(0);
+  });
+});
+
+describe("quarters", () => {
+  it("writes and reads the quarter token", () => {
+    expect(formatPattern("[Q]Q YYYY", { quarter: 3, year: 2026 })).toBe(
+      "Q3 2026",
+    );
+    expect(
+      formatPattern("Q. [čtvrtletí] YYYY", { quarter: 3, year: 2026 }),
+    ).toBe("3. čtvrtletí 2026");
+    expect(formatDate(new Date(2026, 9, 1), "[Q]Q YYYY")).toBe("Q4 2026");
+    expect(parsePattern("Q3 2026", "[Q]Q YYYY")).toEqual({
+      quarter: 3,
+      year: 2026,
+    });
+    expect(parsePattern("3. čtvrtletí 2026", "Q. [čtvrtletí] YYYY")).toEqual({
+      quarter: 3,
+      year: 2026,
+    });
+    // The year may be left out after the quarter
+    expect(parsePattern("Q3", "[Q]Q YYYY")).toEqual({ quarter: 3 });
+    expect(parsePattern("Q5 2026", "[Q]Q YYYY")).toBeNull();
+    expect(formatPlaceholder("Q. [čtvrtletí] YYYY", { YYYY: "RRRR" })).toBe(
+      "Q. RRRR",
+    );
+    expect(withoutYear("Q. [čtvrtletí] YYYY")).toBe("Q. [čtvrtletí]");
+  });
+
+  it("takes the default patterns a locale leaves out", () => {
+    const formats = {
+      date: "DD.MM.YYYY",
+      dateTime: "DD.MM.YYYY HH:mm",
+      month: "MM.YYYY",
+      time: "HH:mm",
+      week: "[W]WW.YYYY",
+    };
+    expect(getDatePattern(formats, "quarter")).toBe("[Q]Q YYYY");
+    expect(getDatePattern(formats, "year")).toBe("YYYY");
+    expect(getDatePattern(formats, "month")).toBe("MM.YYYY");
+    expect(
+      getDatePattern({ ...formats, quarter: "[KV]Q/YYYY" }, "quarter"),
+    ).toBe("[KV]Q/YYYY");
   });
 });

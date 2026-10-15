@@ -296,6 +296,18 @@ export function isBelowModalOverlay(ancestors: string[]) {
 }
 
 /**
+ * `isBelowModalOverlay` as it was before the overlay `id` opened - with it
+ * and the overlays above it left out: what works under the dialog that
+ * lists the keyboard shortcuts of the page.
+ */
+export function isBelowModalOverlayUnder(ancestors: string[], id: string) {
+  const index = stack.findIndex((entry) => entry.id === id);
+  const below = index === -1 ? stack : stack.slice(0, index);
+  const topmostModal = below.findLast((entry) => entry.modal);
+  return !!topmostModal && !ancestors.includes(topmostModal.id);
+}
+
+/**
  * Whether the topmost open overlay is none of `ancestors` and handles
  * Escape - an Escape is for it (a popover, a menu, a tooltip open
  * elsewhere), not for what is rendered in them. Under a panel that does
@@ -707,6 +719,12 @@ function getBackground(index: number) {
 }
 
 /**
+ * Marks the page behind a modal overlay - the print styles leave it out, so
+ * an open Dialog is printed alone.
+ */
+export const BACKGROUND_ATTRIBUTE = "data-cui-background";
+
+/**
  * Hides the page behind the topmost modal overlay whose focus trap is on
  * from assistive technology (`aria-hidden`), as `aria-modal` alone is not
  * honoured everywhere, and shows it again once the overlay closes. Called
@@ -722,12 +740,14 @@ function syncBackground() {
     if (background.includes(element)) continue;
     if (previous === null) element.removeAttribute("aria-hidden");
     else element.setAttribute("aria-hidden", previous);
+    element.removeAttribute(BACKGROUND_ATTRIBUTE);
     hiddenBackground.delete(element);
   }
   for (const element of background) {
     if (hiddenBackground.has(element)) continue;
     hiddenBackground.set(element, element.getAttribute("aria-hidden"));
     element.setAttribute("aria-hidden", "true");
+    element.setAttribute(BACKGROUND_ATTRIBUTE, "");
   }
 }
 

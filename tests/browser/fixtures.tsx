@@ -148,6 +148,8 @@ const loadedPickerValues = {
   month: ["2026-13", "2026-09"],
   time: ["25:99", "09:30"],
   week: ["2026-W54", "2026-W39"],
+  quarter: ["2026-Q5", "2026-Q3"],
+  year: ["26", "2026"],
 } satisfies Record<DateTimePickerType, [string, string]>;
 
 export function LoadedPickerValueFixture({

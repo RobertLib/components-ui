@@ -32,8 +32,9 @@ export interface DataTableRangeFilter {
 /**
  * The value of a column filter - one of three operators:
  * - a text: the field of an `input` filter (the cell contains it), of a
- *   `select` (the cell equals it) or of a `date` / `time` / `datetime`
- *   filter (`2026-09-24` matches the whole day),
+ *   `select` (the cell equals it), of a `date` / `time` / `datetime`
+ *   filter (`2026-09-24` matches the whole day) or of a `boolean` filter
+ *   (`"true"` or `"false"`),
  * - a list of texts: the cell matches any of them (`multiSelect`),
  * - a range `{ from, to }`: the cell lies between the bounds (`numberRange`,
  *   `dateRange`).
@@ -733,6 +734,21 @@ const toTimeText = (value: unknown) => {
 
 type FilterType = Column<unknown>["filter"];
 
+// The texts a cell may hold for "yes" - an API may send booleans as them
+const TRUE_TEXTS = new Set(["1", "true", "yes"]);
+
+/**
+ * Whether a cell value is "yes" for a `boolean` filter - `true`, a number
+ * other than 0, `"true"`, `"yes"` or `"1"`. Anything else is "no", also an
+ * empty value.
+ */
+const isTruthyCell = (value: unknown) =>
+  typeof value === "boolean"
+    ? value
+    : typeof value === "number" || typeof value === "bigint"
+      ? Number(value) !== 0
+      : typeof value === "string" && TRUE_TEXTS.has(value.trim().toLowerCase());
+
 const isDateFilter = (filterType: FilterType) =>
   filterType === "date" ||
   filterType === "datetime" ||
@@ -822,6 +838,12 @@ function matchesFilter(
       return (
         compareNumericValues(toSortKey(value), toSortKey(filterValue)) === 0
       );
+    case "boolean":
+      // `"true"` or `"false"` - another text (a hand-edited URL) is no
+      // choice the field offers, and filters nothing out
+      return filterValue === "true" || filterValue === "false"
+        ? isTruthyCell(value) === (filterValue === "true")
+        : true;
     default:
       return containsText(value, normalizeText(filterValue), locale);
   }

@@ -130,7 +130,7 @@ export default function MenuPopup({
   return createPortal(
     <ButtonGroupContext value={null}>
       <div
-        className="fixed z-50 max-w-[calc(100vw-1rem)] animate-fade-in overflow-y-auto rounded-md border border-neutral-100 bg-surface shadow-md dark:border-neutral-900 dark:bg-surface-dark"
+        className="fixed z-50 max-w-[calc(100vw-1rem)] animate-fade-in overflow-y-auto rounded-md border border-neutral-100 bg-surface shadow-md dark:border-neutral-900 dark:bg-surface-dark print:hidden"
         data-align={position?.align}
         data-side={position?.side}
         data-state="open"

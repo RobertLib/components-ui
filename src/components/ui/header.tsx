@@ -1,5 +1,7 @@
 import { ArrowLeft } from "lucide-react";
+import { isValidElement } from "react";
 import cn from "../../utils/cn";
+import Breadcrumbs, { type BreadcrumbItem } from "./breadcrumbs";
 import IconButton from "./icon-button";
 import Skeleton from "./skeleton";
 import VisuallyHidden from "./visually-hidden";
@@ -27,6 +29,17 @@ export interface HeaderProps extends Omit<
    * on it also calls `onBack`.
    */
   backHref?: string;
+  /**
+   * The path to the page, above the title: `BreadcrumbItem`s - shown as
+   * `Breadcrumbs`, from the home crumb to the page itself - or an element
+   * of your own, e.g. `<Breadcrumbs maxItems={4} … />`.
+   */
+  breadcrumbs?: BreadcrumbItem[] | React.ReactNode;
+  /**
+   * Content under the row of the title, across the whole header - e.g. the
+   * key facts of a record (`DescriptionList`), or the `Tabs` of its pages.
+   */
+  children?: React.ReactNode;
   /** A line under the title - e.g. the counts of a list or the dates of a record. */
   description?: React.ReactNode;
   /**
@@ -53,15 +66,34 @@ export interface HeaderProps extends Omit<
   title: React.ReactNode;
 }
 
+/** Whether a node renders anything - `false`, `null` and `""` do not. */
+const hasContent = (node: React.ReactNode) =>
+  node !== undefined && node !== null && node !== false && node !== "";
+
+/** Whether `breadcrumbs` are crumbs to render - not an element of the app. */
+const isCrumbList = (value: unknown): value is BreadcrumbItem[] =>
+  Array.isArray(value) &&
+  value.every(
+    (item) =>
+      typeof item === "object" &&
+      item !== null &&
+      !isValidElement(item) &&
+      "label" in item,
+  );
+
 /**
- * The heading row of a page: optional back arrow, title and actions. `ref`
- * and the other props go to the row.
+ * The heading row of a page: optional back arrow, title and actions - the
+ * `breadcrumbs` above it and `children` under it, each on a line of their
+ * own. Printed, the back arrow and the actions are left out. `ref` and the
+ * other props go to the header.
  */
 export default function Header({
   actions,
   afterTitle,
   back,
   backHref,
+  breadcrumbs,
+  children,
   className,
   description,
   headingLevel = 1,
@@ -73,6 +105,11 @@ export default function Header({
   const messages = useMessages().ui;
   const Heading = `h${headingLevel}` as const;
 
+  // An empty path - the home page itself - shows nothing
+  const crumbs = isCrumbList(breadcrumbs)
+    ? breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} />
+    : breadcrumbs;
+
   return (
     <div
       {...props}
@@ -81,10 +118,13 @@ export default function Header({
         className,
       )}
     >
+      {/* A line of its own in the wrapping row, closer to the title */}
+      {hasContent(crumbs) && <div className="-mb-1 basis-full">{crumbs}</div>}
       <div className="flex min-w-0 items-center gap-2.5">
         {backHref !== undefined ? (
           <IconButton
             aria-label={messages.header.back}
+            className="print:hidden"
             href={backHref}
             // Not for a click this page stays at - Ctrl, Cmd or Shift opens
             // the link in a new tab or window, Alt downloads it
@@ -104,6 +144,7 @@ export default function Header({
           back && (
             <IconButton
               aria-label={messages.header.back}
+              className="print:hidden"
               // Not with the click - `back` and `onBack` take no arguments,
               // and a router's may read one as where to go
               onClick={() => (onBack ? onBack() : router.back())}
@@ -129,17 +170,16 @@ export default function Header({
             </Heading>
             {afterTitle}
           </div>
-          {description !== undefined &&
-            description !== null &&
-            description !== false &&
-            description !== "" && (
-              <div className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
-                {description}
-              </div>
-            )}
+          {hasContent(description) && (
+            <div className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
+              {description}
+            </div>
+          )}
         </div>
       </div>
-      <div className="flex flex-wrap gap-2">{actions}</div>
+      {/* Commands are of no use on paper */}
+      <div className="flex flex-wrap gap-2 print:hidden">{actions}</div>
+      {hasContent(children) && <div className="basis-full">{children}</div>}
     </div>
   );
 }

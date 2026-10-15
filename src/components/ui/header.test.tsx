@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import Header from "./header";
@@ -162,5 +162,92 @@ describe("Header", () => {
     expect(
       screen.getByRole("heading", { level: 2, name: "Items" }),
     ).toBeInTheDocument();
+  });
+
+  it("shows the path to the page above the title", () => {
+    const { container } = render(
+      <UIProvider locale={cs}>
+        <Header
+          breadcrumbs={[
+            { href: "/customers", label: "Zákazníci" },
+            { label: "Novák s.r.o." },
+          ]}
+          title="Novák s.r.o."
+        />
+      </UIProvider>,
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Drobečková navigace" });
+    expect(
+      within(nav).getByRole("link", { name: "Zákazníci" }),
+    ).toHaveAttribute("href", "/customers");
+    expect(within(nav).getByText("Novák s.r.o.")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // Before the heading - read first, also by screen readers
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(
+      nav.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // A line of its own
+    expect(nav.parentElement).toHaveClass("basis-full");
+    expect(container.firstElementChild).toBe(nav.parentElement?.parentElement);
+  });
+
+  it("takes breadcrumbs of its own, and none for an empty path", () => {
+    const { rerender } = render(
+      <Header
+        breadcrumbs={<nav aria-label="Path">Custom</nav>}
+        title="Settings"
+      />,
+    );
+    expect(
+      screen.getByRole("navigation", { name: "Path" }),
+    ).toBeInTheDocument();
+
+    rerender(<Header breadcrumbs={[]} title="Home" />);
+    expect(screen.queryByRole("navigation")).toBeNull();
+
+    // An array of elements is content, not crumbs
+    rerender(
+      <Header
+        breadcrumbs={[<span key="a">Reports</span>, <span key="b">2026</span>]}
+        title="Reports"
+      />,
+    );
+    expect(
+      screen.getByText("Reports", { selector: "span" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("navigation")).toBeNull();
+  });
+
+  it("shows its children under the title, across the header", () => {
+    const { container } = render(
+      <Header title="Invoice 2026-0042">
+        <p>Due 31 Oct 2026</p>
+      </Header>,
+    );
+
+    const content = screen.getByText("Due 31 Oct 2026").parentElement;
+    expect(content).toHaveClass("basis-full");
+    expect(container.firstElementChild?.lastElementChild).toBe(content);
+  });
+
+  it("leaves the back arrow and the actions out when printed", () => {
+    render(
+      <Header
+        actions={<button type="button">Export</button>}
+        backHref="/orders"
+        title="Order 42"
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Back" })).toHaveClass(
+      "print:hidden",
+    );
+    expect(
+      screen.getByRole("button", { name: "Export" }).parentElement,
+    ).toHaveClass("print:hidden");
   });
 });

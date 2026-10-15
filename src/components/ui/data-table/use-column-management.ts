@@ -306,6 +306,15 @@ export default function useColumnManagement<T>(
     [updateState],
   );
 
+  /** The column settings as they are - what a saved view keeps. */
+  const currentColumnState = useMemo(() => toColumnState(state), [state]);
+
+  /** Replaces all the column settings - those of a saved view. */
+  const applyColumnState = useCallback(
+    (next: DataTableColumnState) => updateState(fromColumnState(next)),
+    [updateState],
+  );
+
   const handleDragStart = useCallback(
     (event: React.DragEvent<HTMLElement>, columnKey: string) => {
       event.dataTransfer.setData("columnKey", columnKey);
@@ -444,7 +453,9 @@ export default function useColumnManagement<T>(
     );
 
   return {
+    applyColumnState,
     columnOrder,
+    columnState: currentColumnState,
     columnVisibility,
     columnWidths,
     density: state.density,

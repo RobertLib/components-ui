@@ -28,10 +28,31 @@ async function handleDelete() {
   }
 }`;
 
+const promptUsage = `const prompt = usePrompt();
+
+async function handleReject() {
+  const reason = await prompt({
+    title: "Reject the invoice?",
+    label: "Reason",
+    multiline: true,
+    required: true,
+    confirmLabel: "Reject",
+    confirmColor: "danger",
+  });
+  if (reason !== null) await rejectInvoice(id, reason);
+}`;
+
 export default function ConfirmDialogPage() {
   return (
     <DocPage
-      imports={["ConfirmDialog", "ConfirmProvider", "useAlert", "useConfirm"]}
+      imports={[
+        "ConfirmDialog",
+        "ConfirmProvider",
+        "PromptDialog",
+        "useAlert",
+        "useConfirm",
+        "usePrompt",
+      ]}
       title="ConfirmDialog"
     >
       <Example
@@ -162,10 +183,73 @@ export default function ConfirmDialogPage() {
         </Prose>
       </Section>
 
+      <Section title="Asking for a text with usePrompt">
+        <Prose>
+          <p>
+            <code>usePrompt()</code> returns <code>prompt(options)</code>, which
+            asks for a text in a <code>PromptDialog</code> - the reason of a
+            rejection, the name of a copy - and resolves the value the user
+            confirmed, or <code>null</code> when they cancel. It waits in line
+            with the questions of <code>useConfirm()</code>, and needs the same{" "}
+            <code>ConfirmProvider</code>.
+          </p>
+        </Prose>
+        <CodeBlock code={promptUsage} />
+        <Example
+          description={
+            <p>
+              <code>multiline</code> asks in a <code>Textarea</code> that grows
+              with the text - Enter starts a new line there, Ctrl + Enter (⌘ +
+              Enter) confirms; <code>maxLength</code> adds a counter.{" "}
+              <code>required</code> refuses an empty value with a message under
+              the field. <code>onConfirm</code> gets the value and runs before
+              the dialog closes, with a spinner, as in <code>confirm()</code>;{" "}
+              <code>confirmColor</code> colors a destructive action.
+            </p>
+          }
+          name="confirm-dialog/prompt-reason"
+          title="The reason of a rejection"
+        />
+        <Example
+          description={
+            <p>
+              <code>defaultValue</code> starts the field, selected, so typing
+              replaces it. <code>validate</code> checks the value as the user
+              confirms it and returns the message to show under the field - a
+              promise of it too, e.g. a request asking the server whether the
+              name is free; the button shows a spinner meanwhile.
+            </p>
+          }
+          name="confirm-dialog/prompt-copy-name"
+          title="The name of a copy"
+        />
+        <Prose>
+          <ul>
+            <li>
+              The value is trimmed of the spaces around it before it is checked
+              and resolved.
+            </li>
+            <li>
+              The field takes the focus; Enter confirms a single-line one. A
+              refused value keeps the dialog open with the message under the
+              field - read by screen readers as its description - and the focus
+              in the field; the message goes as the user types.
+            </li>
+            <li>
+              Without a <code>label</code> the field is named by the{" "}
+              <code>title</code>. <code>PromptDialog</code> is the same dialog
+              for an <code>open</code> state of your own.
+            </li>
+          </ul>
+        </Prose>
+      </Section>
+
       <Section title="Props">
         <PropsTable of="ConfirmDialog" />
         <PropsTable of="ConfirmOptions" title="confirm(options)" />
         <PropsTable of="AlertOptions" title="alert(options)" />
+        <PropsTable of="PromptDialog" />
+        <PropsTable of="PromptOptions" title="prompt(options)" />
         <PropsTable of="ConfirmProvider" />
       </Section>
     </DocPage>

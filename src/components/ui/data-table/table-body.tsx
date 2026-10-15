@@ -8,7 +8,9 @@ import {
   useState,
 } from "react";
 import cn from "../../../utils/cn";
+import ContextMenu from "../context-menu";
 import EdgeShadow from "./edge-shadow";
+import { findBodyRow } from "./body-row";
 import Spinner from "../spinner";
 import useIsMobile from "../../../hooks/use-is-mobile";
 import useVirtualRows, { getMeasureKey } from "./use-virtual-rows";
@@ -30,12 +32,15 @@ import {
   type CellPosition,
 } from "./cell-navigation";
 import { getTabbableElements } from "../../../utils/tabbable";
+import { isTypingTarget } from "../../../hooks/use-hotkeys";
 import { getRowKey } from "./row-key";
 import { TableRow } from "./table-row";
 import { useLocale } from "../../../providers/ui-context";
 import type { BodyRowGroup } from "./grouping";
 import type { CellChange, CellEditState } from "./editing";
+import type { TreeRowState } from "./use-data-table-tree";
 import type { DataTableFilterValue } from "./query";
+import type { DropdownEntry } from "../menu/types";
 import type {
   Column,
   DataTableDensity,
@@ -52,23 +57,24 @@ interface FocusTarget {
 // Fixed so the placeholder rows do not change width on every render
 const SKELETON_WIDTHS = [72, 45, 60, 38, 80, 52, 66, 30, 58, 47];
 
-/**
- * The row of `body` an element is in - not a row of a table nested in the
- * detail of a row (master-detail), whose rows are numbered too.
- */
-function findBodyRow(body: Element, element: Element) {
-  let row = element.closest("tr[data-row-index]");
-  while (row && row.parentElement !== body) {
-    row = row.parentElement?.closest("tr[data-row-index]") ?? null;
-  }
-  return row;
-}
-
 type BodyItem =
   | { id: string; type: "row"; index: number }
   | { id: string; type: "group" | "summary"; group: BodyRowGroup };
 const bodyItemId = (item: BodyItem) => item.id;
+const NO_ENTRIES: DropdownEntry[] = [];
 const virtualRowId = (id: RowId) => `row:${getRowKey(id)}`;
+
+/** Tree data of the body (`getSubRows` / `loadSubRows`). */
+export interface TableTree {
+  /** The column whose cells hold the toggles and the indentation. */
+  columnKey: string | null;
+  /** Loads the sub rows of a row again after a failure. */
+  onRetry: (rowId: RowId) => void;
+  /** Expands or collapses the sub rows of a row. */
+  onToggle: (rowId: RowId) => void;
+  /** Where each row shown is in the tree, by `getRowKey` of its id. */
+  rows: ReadonlyMap<string, TreeRowState>;
+}
 
 interface TableBodyProps<T> {
   /** Content of the sticky actions cell of a row. */
@@ -99,6 +105,8 @@ interface TableBodyProps<T> {
   getRowClassName?: (row: T) => string | undefined;
   /** The page a row opens - its first cell links there. */
   getRowHref?: (row: T) => string | undefined;
+  /** Entries of the context menu of a row - see `DataTableProps`. */
+  getRowContextMenu?: (row: T) => DropdownEntry[] | null | undefined;
   /** A value of a column from any row - it picks the field of an empty cell. */
   getColumnSample: (column: Column<T>) => unknown;
   /**
@@ -139,6 +147,8 @@ interface TableBodyProps<T> {
   renderSubRow?: (row: T) => React.ReactNode;
   /** The element that scrolls the table - virtualization follows it. */
   scrollRef: React.RefObject<HTMLElement | null>;
+  /** Ids of the rows whose checkbox is mixed - some of their branch selected. */
+  partlySelectedIds?: ReadonlySet<RowId>;
   /** Term of the global search - highlighted where no column filter is. */
   search: string;
   /** Ids of the rows whose checkbox is checked. */
@@ -151,6 +161,11 @@ interface TableBodyProps<T> {
   toggleRowExpansion: (rowId: RowId) => void;
   /** Selects or deselects a row - `extend` from the row toggled before. */
   toggleRowSelection: (row: T, extend: boolean) => void;
+  /**
+   * Tree data: the rows of `data` are a tree, depth first - `null` for
+   * rows of one level.
+   */
+  tree?: TableTree | null;
   /** Renders only the rows in view of `scrollRef`. */
   virtualized: boolean;
 }
@@ -172,6 +187,7 @@ export function TableBody<T>({
   getRowBackgroundColor,
   getRowClassName,
   getRowHref,
+  getRowContextMenu,
   groups,
   headerRowCount,
   isEditable,
@@ -182,6 +198,7 @@ export function TableBody<T>({
   onRowClick,
   onStartEdit,
   onToggleGroup,
+  partlySelectedIds,
   renderSubRow,
   scrollRef,
   search,
@@ -190,6 +207,7 @@ export function TableBody<T>({
   sortedVisibleColumns,
   toggleRowExpansion,
   toggleRowSelection,
+  tree,
   virtualized,
 }: TableBodyProps<T>) {
   const locale = useLocale();
@@ -255,8 +273,51 @@ export function TableBody<T>({
 
   // Rows activated by a click and Enter, without links, are one tab stop -
   // the one focused last, or the first one rendered; the arrow keys move
-  // between them
-  const hasFocusableRows = !!onRowClick;
+  // between them. So are the rows of tree data, whose arrow keys also
+  // expand and collapse them, and rows with a context menu, which Shift +
+  // F10 opens.
+  const hasFocusableRows = !!onRowClick || !!tree || !!getRowContextMenu;
+
+  // The row the context menu is for - the one pressed last (a right click,
+  // a long press) or the one the focus came into (Shift + F10). Known
+  // before the menu opens: its entries are those of the row by then. A
+  // field of an edited cell keeps the menu of the browser.
+  const [menuRowId, setMenuRowId] = useState<RowId | null>(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRow =
+    menuRowId === null
+      ? undefined
+      : data.find((row) => getRowId(row) === menuRowId);
+  const menuEntries =
+    (menuRow !== undefined && getRowContextMenu?.(menuRow)) || NO_ENTRIES;
+
+  const trackMenuRow = (body: Element, target: EventTarget | null) => {
+    const rowElement =
+      target instanceof Element && !isTypingTarget(target)
+        ? findBodyRow(body, target)
+        : null;
+    const index = rowElement?.getAttribute("data-row-index");
+    const row = index ? data[Number(index)] : undefined;
+    const rowId = row === undefined ? null : getRowId(row);
+    if (rowId !== menuRowId && !isMenuOpen) setMenuRowId(rowId);
+  };
+
+  const withRowMenu = (body: React.ReactElement) =>
+    getRowContextMenu ? (
+      <ContextMenu
+        aria-label={messages.dataTable.rowMenu}
+        items={menuEntries}
+        onOpenChange={setIsMenuOpen}
+        onPointerDown={(event) =>
+          trackMenuRow(event.currentTarget, event.target)
+        }
+      >
+        {body}
+      </ContextMenu>
+    ) : (
+      body
+    );
+
   const [activeRowId, setActiveRowId] = useState<RowId | null>(null);
 
   // The row with the focus stays rendered while it is scrolled out of view,
@@ -432,6 +493,60 @@ export function TableBody<T>({
     }
   };
 
+  /** Moves the focus to a row - one with a link is no tab stop. */
+  const focusRow = (target: T) => {
+    if (getRowHref?.(target) !== undefined) return;
+    setActiveRowId(getRowId(target));
+    focusTarget({ columnKey: null, rowId: getRowId(target) });
+  };
+
+  /**
+   * The keys of tree data on a row (the tree view pattern): ArrowRight
+   * expands a collapsed row and goes to the first sub row of an expanded
+   * one, ArrowLeft collapses an expanded row and goes to the parent of
+   * another - the other way round right to left; Enter expands and
+   * collapses a row without `onRowClick`. Whether the key was taken.
+   */
+  const handleTreeKey = (
+    row: T,
+    index: number,
+    event: React.KeyboardEvent<HTMLTableRowElement>,
+  ) => {
+    const levelOf = (candidate: T | undefined) =>
+      candidate === undefined
+        ? 0
+        : (tree?.rows.get(getRowKey(getRowId(candidate)))?.level ?? 0);
+    const state = tree?.rows.get(getRowKey(getRowId(row)));
+    if (!tree || !state) return false;
+
+    if (event.key === "Enter") {
+      if (state.expanded === undefined) return false;
+      event.preventDefault();
+      tree.onToggle(getRowId(row));
+      return true;
+    }
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return false;
+
+    event.preventDefault();
+    const isRtl = getComputedStyle(event.currentTarget).direction === "rtl";
+    const isForward = (event.key === "ArrowRight") !== isRtl;
+
+    if (isForward ? state.expanded === false : state.expanded) {
+      tree.onToggle(getRowId(row));
+    } else if (isForward) {
+      const child = data[index + 1];
+      if (state.expanded && levelOf(child) > state.level) focusRow(child);
+    } else {
+      for (let parent = index - 1; parent >= 0; parent--) {
+        if (levelOf(data[parent]) < state.level) {
+          focusRow(data[parent]);
+          break;
+        }
+      }
+    }
+    return true;
+  };
+
   // The arrow keys move between the rows, Home and End to the first and
   // last one
   const handleRowKeyDown = (
@@ -443,6 +558,7 @@ export function TableBody<T>({
     }
 
     const index = data.indexOf(row);
+    if (handleTreeKey(row, index, event)) return;
     let targetIndex =
       event.key === "ArrowDown"
         ? index + 1
@@ -526,7 +642,9 @@ export function TableBody<T>({
     onCommitEdit,
     onRowClick,
     onRowKeyDown: handleRowKeyDown,
+    onRetryTree: tree?.onRetry,
     onStartEdit,
+    onToggleTree: tree?.onToggle,
     toggleRowExpansion,
     toggleRowSelection,
   };
@@ -552,8 +670,11 @@ export function TableBody<T>({
     ) => rowCallbacksRef.current.onRowClick?.(row, event),
     onRowKeyDown: (row: T, event: React.KeyboardEvent<HTMLTableRowElement>) =>
       rowCallbacksRef.current.onRowKeyDown(row, event),
+    onRetryTree: (rowId: RowId) => rowCallbacksRef.current.onRetryTree?.(rowId),
     onStartEdit: (rowId: RowId, columnKey: string) =>
       rowCallbacksRef.current.onStartEdit(rowId, columnKey),
+    onToggleTree: (rowId: RowId) =>
+      rowCallbacksRef.current.onToggleTree?.(rowId),
     toggleRowExpansion: (rowId: RowId) =>
       rowCallbacksRef.current.toggleRowExpansion(rowId),
     toggleRowSelection: (row: T, extend: boolean) =>
@@ -655,6 +776,7 @@ export function TableBody<T>({
     const row = data[index];
     const rowsBefore = tableRowsBefore(virtualIndex);
     const href = getRowHref?.(row);
+    const treeRow = tree?.rows.get(getRowKey(getRowId(row)));
 
     return (
       <TableRow
@@ -666,6 +788,7 @@ export function TableBody<T>({
         cellStates={cellStates}
         columnCount={columnCount}
         columns={sortedVisibleColumns}
+        contextMenuOpen={isMenuOpen && menuRowId === getRowId(row)}
         density={density}
         editHintId={editHintId}
         editingColumnKey={
@@ -681,6 +804,7 @@ export function TableBody<T>({
         isEditable={isEditable}
         isExpanded={expandedRows.has(getRowId(row))}
         isMobile={isMobile}
+        isPartlySelected={partlySelectedIds?.has(getRowId(row))}
         isSelected={selectedIds.has(getRowId(row))}
         key={getRowKey(getRowId(row))}
         locale={locale}
@@ -692,8 +816,10 @@ export function TableBody<T>({
         onCommitEdit={rowHandlers.onCommitEdit}
         onRowClick={onRowClick && rowHandlers.onRowClick}
         onRowFocus={setActiveRowId}
+        onRetryTree={rowHandlers.onRetryTree}
         onRowKeyDown={rowHandlers.onRowKeyDown}
         onStartEdit={rowHandlers.onStartEdit}
+        onToggleTree={rowHandlers.onToggleTree}
         renderSubRow={renderSubRow}
         row={row}
         getRowId={getRowId}
@@ -711,6 +837,12 @@ export function TableBody<T>({
         }
         toggleRowExpansion={rowHandlers.toggleRowExpansion}
         toggleRowSelection={rowHandlers.toggleRowSelection}
+        treeColumnKey={tree?.columnKey}
+        treeExpanded={treeRow?.expanded}
+        treeLevel={treeRow?.level}
+        treePosInSet={treeRow?.posInSet}
+        treeSetSize={treeRow?.setSize}
+        treeStatus={treeRow?.status}
       />
     );
   };
@@ -793,7 +925,7 @@ export function TableBody<T>({
     );
   };
 
-  return (
+  return withRowMenu(
     <tbody
       className={cn(
         "divide-y divide-neutral-100 transition-opacity dark:divide-neutral-900",
@@ -806,6 +938,7 @@ export function TableBody<T>({
         if (event.target.isConnected) focusRef.current = null;
       }}
       onFocus={(event) => {
+        if (getRowContextMenu) trackMenuRow(event.currentTarget, event.target);
         // Focus in a popup of a row (a portal) keeps the row it came from
         const target = event.target as Element;
         const rowElement = findBodyRow(event.currentTarget, target);
@@ -873,6 +1006,6 @@ export function TableBody<T>({
             : renderGroup(item, segment.index);
         })
       )}
-    </tbody>
+    </tbody>,
   );
 }

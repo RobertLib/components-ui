@@ -38,6 +38,7 @@ import {
 import { useLocale } from "../../providers/ui-context";
 import type { UIMessages } from "../../i18n/ui/types";
 import RequiredMark from "./required-mark";
+import { useReadOnly } from "./form-scope";
 
 const MAX_FILE_SIZE = 200; // MB
 
@@ -833,6 +834,7 @@ export interface FileUploadProps<
    * The files are shown - their links open - and submitted, but none can be
    * added or removed: there is no upload button, and dropped or pasted files
    * are ignored. Like a read-only native field, it is not `required`.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /** Ref to the group element (see `id`). */
@@ -914,7 +916,7 @@ export default function FileUpload<
   onRemove,
   onUpload,
   preview = false,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required,
   upload,
@@ -922,6 +924,7 @@ export default function FileUpload<
   variant = "dropzone",
   ...props
 }: Readonly<FileUploadProps<TResult>>) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = locale.messages.ui;
   const generatedId = useId();
@@ -1913,7 +1916,7 @@ export default function FileUpload<
       aria-invalid={hasError ? "true" : undefined}
       aria-labelledby={label ? labelId : undefined}
       className={cn(
-        "relative rounded-md transition-colors motion-reduce:transition-none",
+        "cui-field relative rounded-md transition-colors motion-reduce:transition-none",
         // Forced colors (Windows High Contrast) draw no tint and no ring -
         // an outline of the system's highlight color then
         isDragOver &&
@@ -1947,7 +1950,7 @@ export default function FileUpload<
     >
       {label ? (
         <div
-          className="mb-2 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
+          className="cui-field-label mb-2 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
           id={labelId}
         >
           {label}

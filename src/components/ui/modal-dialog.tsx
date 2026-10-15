@@ -38,7 +38,7 @@ import { attachRef } from "../../hooks/use-form-control";
 import isPromiseLike from "../../utils/is-promise-like";
 import { composedContains, getTabbableElements } from "../../utils/tabbable";
 import { useMessages, usePortalContainer } from "../../providers/ui-context";
-import { ButtonGroupContext } from "./button-group-context";
+import PortalContexts from "./portal-contexts";
 
 /**
  * How a `DialogFooter` makes room for itself: the body of its dialog leaves
@@ -638,7 +638,7 @@ export default function ModalDialog({
   const closeButton = (
     <IconButton
       aria-label={messages.dialog.close}
-      className="opacity-70 hover:opacity-100"
+      className="opacity-70 hover:opacity-100 print:hidden"
       disabled={closeDisabled}
       onClick={handleClose}
       ref={closeButtonRef}
@@ -664,11 +664,11 @@ export default function ModalDialog({
   // All of it is in the dialog for the overlays opened in it - also its
   // title: a tooltip or popover there is not the page under the dialog
   return createPortal(
-    <ButtonGroupContext value={null}>
+    <PortalContexts>
       <OverlayContext value={childContext}>
         <div
           className={cn(
-            "fixed inset-0 z-50 bg-black/50 transition-opacity",
+            "fixed inset-0 z-50 bg-black/50 transition-opacity print:hidden",
             isOpen ? "opacity-100" : "opacity-0",
             isClosing && "pointer-events-none",
             backdropClassName,
@@ -690,6 +690,8 @@ export default function ModalDialog({
           {...ariaProps}
           aria-modal="true"
           className={cn(
+            // Printed alone, in the flow of the page (styles.css)
+            "cui-modal-dialog",
             panelClassName,
             isOpen ? openClassName : closedClassName,
             isClosing && "pointer-events-none",
@@ -724,7 +726,7 @@ export default function ModalDialog({
           {title ? (
             <header
               className={cn(
-                "sticky top-0 z-1 flex items-center justify-between border-b border-neutral-200 bg-surface px-6 pt-[calc(0.8125rem+var(--cui-safe-top,0px))] pb-3.25 dark:border-neutral-800 dark:bg-surface-dark",
+                "sticky top-0 z-1 flex items-center justify-between border-b border-neutral-200 bg-surface px-6 pt-[calc(0.8125rem+var(--cui-safe-top,0px))] pb-3.25 dark:border-neutral-800 dark:bg-surface-dark print:static",
                 swipeToClose && "touch-none",
               )}
               {...swipeHandlers}
@@ -738,7 +740,8 @@ export default function ModalDialog({
           ) : (
             <div
               className={cn(
-                "sticky top-0 z-1 flex items-center justify-end border-b border-neutral-200 bg-surface px-4 pt-[calc(0.8125rem+var(--cui-safe-top,0px))] pb-3.25 dark:border-neutral-800 dark:bg-surface-dark",
+                // Nothing but the close button - not printed
+                "sticky top-0 z-1 flex items-center justify-end border-b border-neutral-200 bg-surface px-4 pt-[calc(0.8125rem+var(--cui-safe-top,0px))] pb-3.25 dark:border-neutral-800 dark:bg-surface-dark print:hidden",
                 swipeToClose && "touch-none",
               )}
               {...swipeHandlers}
@@ -749,7 +752,8 @@ export default function ModalDialog({
           )}
           <div
             className={cn(
-              "flex-1 overflow-y-auto p-6",
+              // Printed whole - the paper is as long as it takes
+              "flex-1 overflow-y-auto p-6 print:overflow-visible",
               // Not the margin of a `space-y` form either: the footer out of
               // the flow is its last child, the content before it gets one.
               // With content after the footer, that content is the last one
@@ -775,7 +779,7 @@ export default function ModalDialog({
           </div>
         </div>
       </OverlayContext>
-    </ButtonGroupContext>,
+    </PortalContexts>,
     getPortalContainer(),
   );
 }
@@ -798,8 +802,8 @@ export function DialogFooter({
       className={cn(
         // Above the home indicator of a phone at the bottom of its screen.
         // No margin of a `space-y` form with content after it - it would
-        // lift the footer off the bottom
-        "absolute inset-x-0 bottom-0 z-10 m-0 border-t border-neutral-200 bg-surface px-6 pt-3.25 pb-[calc(0.8125rem+var(--cui-safe-bottom,0px))] dark:border-neutral-800 dark:bg-surface-dark",
+        // lift the footer off the bottom. Its buttons are of no use on paper.
+        "absolute inset-x-0 bottom-0 z-10 m-0 border-t border-neutral-200 bg-surface px-6 pt-3.25 pb-[calc(0.8125rem+var(--cui-safe-bottom,0px))] dark:border-neutral-800 dark:bg-surface-dark print:hidden",
         slot?.className,
         className,
       )}

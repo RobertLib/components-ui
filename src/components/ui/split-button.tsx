@@ -38,16 +38,17 @@ const toggleStyles = {
 /**
  * The button of the main action joined with a button that opens a menu of
  * related ones, e.g. "Save" and "Save as draft". `color`, `variant`,
- * `size`, `disabled` and `loading` apply to both; `className` and `style`
- * go to the group around them, the other props - `ref`, `onClick`,
- * `type="submit"`, … - to the main button. The menu button has
- * `data-state="open"` or `"closed"`.
+ * `size`, `disabled`, `disabledReason` and `loading` apply to both;
+ * `className` and `style` go to the group around them, the other props -
+ * `ref`, `onClick`, `type="submit"`, … - to the main button. The menu button
+ * has `data-state="open"` or `"closed"`.
  */
 export default function SplitButton({
   children,
   className,
   color,
   disabled = false,
+  disabledReason,
   fullWidth = false,
   id,
   items,
@@ -80,6 +81,7 @@ export default function SplitButton({
         {...props}
         className={fullWidth ? "min-w-0 flex-1" : undefined}
         disabled={disabled}
+        disabledReason={disabledReason}
         id={buttonId}
         loading={loading}
       >
@@ -94,6 +96,14 @@ export default function SplitButton({
             className={toggleStyles[effectiveSize]}
             // Busy as a whole - no other action while the main one runs
             disabled={disabled || loading}
+            // The reason of the main action - not while it only runs
+            disabledReason={
+              disabledReason === undefined
+                ? undefined
+                : disabled
+                  ? disabledReason
+                  : null
+            }
           >
             <ChevronDown aria-hidden="true" size={16} />
           </Button>

@@ -25,6 +25,7 @@ import type {
   DateRangePreset,
   DateRangePresetKey,
 } from "../date-range-picker";
+import { useReadOnly } from "../form-scope";
 
 /**
  * The attributes of an HTML element not listed here - `data-*`, `style`,
@@ -137,6 +138,7 @@ export interface RangeCalendarProps extends Omit<
   /**
    * The range is shown and submitted, and the days can be browsed - but
    * nothing picked. The grids are `aria-readonly`.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /** Ref to the group of the calendar - the element of `id`. */
@@ -185,13 +187,14 @@ export default function RangeCalendar({
   onChange,
   onFocus,
   presets,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required,
   startName,
   value,
   ...props
 }: RangeCalendarProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = locale.messages.ui;
   const isMobile = useIsMobile();

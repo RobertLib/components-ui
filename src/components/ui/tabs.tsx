@@ -1,7 +1,15 @@
-import { X } from "lucide-react";
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { ChevronDown, X } from "lucide-react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { attachRef } from "../../hooks/use-form-control";
+import Dropdown from "./dropdown";
+import type { DropdownEntry } from "./menu/types";
 import { getActiveElement } from "./overlay-stack";
+import {
+  getColumnGap,
+  getContentWidth,
+  getOverflowingItems,
+  OVERFLOW_HIDDEN_CLASSES,
+} from "./overflow";
 import cn from "../../utils/cn";
 import Skeleton from "./skeleton";
 import { createLinkMatcher } from "../../providers/active-path";
@@ -100,9 +108,18 @@ export interface TabsProps extends Omit<
   /**
    * `vertical` stacks the tabs in a column, e.g. beside the sections of a
    * settings page - value tabs are then switched with the up and down
-   * arrows. A horizontal bar too wide for its container scrolls sideways.
+   * arrows. A horizontal bar too wide for its container scrolls sideways,
+   * or moves tabs into a menu (`overflow`).
    */
   orientation?: "horizontal" | "vertical";
+  /**
+   * What a horizontal bar does with the tabs it has no room for: `scroll` -
+   * it scrolls sideways, the edges with more tabs faded; `menu` - they move
+   * from the end into a "More" menu at the end of the bar, and back as the
+   * bar widens. The active tab always stays in the bar.
+   * @default "scroll"
+   */
+  overflow?: "scroll" | "menu";
   /** Classes of each tab panel (`content`) - `pt-4` under a horizontal bar. */
   panelClassName?: string;
   /** Padding and text size of the tabs. */
@@ -116,6 +133,26 @@ export interface TabsProps extends Omit<
 }
 
 type Orientation = NonNullable<TabsProps["orientation"]>;
+
+/** A tab in the "More" menu - its index and the text of its label. */
+interface MenuTab {
+  index: number;
+  label: string;
+}
+
+const NO_MENU_TABS: MenuTab[] = [];
+
+const isSameMenu = (a: MenuTab[], b: MenuTab[]) =>
+  a.length === b.length &&
+  a.every(
+    (tab, index) =>
+      tab.index === b[index].index && tab.label === b[index].label,
+  );
+
+// The "More" button among the stops of the arrow keys
+const MORE = "more";
+
+type KeyStop = number | typeof MORE;
 
 interface IndicatorBounds {
   height: number;
@@ -165,6 +202,12 @@ function getNeighborValue(items: TabItem[], index: number) {
 
 const isRtl = (element: Element) =>
   getComputedStyle(element).direction === "rtl";
+
+/** The tabs of the list - its items, past the indicator. */
+const getTabElements = (list: HTMLElement) =>
+  Array.from(list.children).filter(
+    (child) => child.tagName === "LI",
+  ) as HTMLElement[];
 
 /**
  * The active one of link tabs that differ by their query: of the tabs of the
@@ -216,33 +259,34 @@ const MOVE_KEYS: Record<Orientation | "rtl", Record<string, number>> = {
 };
 
 /**
- * The tab a key moves to from `index` - the next enabled one in the
- * direction of the arrow (`keys` of `MOVE_KEYS`), around the ends, or the
- * first / last enabled one for Home / End. `null` for other keys.
+ * Where a key moves to from `current`: the next of `stops` - the enabled
+ * tabs in the bar, and the "More" button after them - in the direction of
+ * the arrow (`keys` of `MOVE_KEYS`), around the ends, or the first / last
+ * tab for Home / End. `null` for other keys.
  */
 function getKeyTarget(
-  items: TabItem[],
-  index: number,
+  stops: KeyStop[],
+  current: KeyStop,
   key: string,
   keys: Record<string, number>,
-) {
-  const enabled = items.flatMap((item, itemIndex) =>
-    item.disabled ? [] : [itemIndex],
-  );
-  if (enabled.length === 0) return null;
-  if (key === "Home") return enabled[0];
-  if (key === "End") return enabled[enabled.length - 1];
+): KeyStop | null {
+  const tabs = stops.filter((stop) => stop !== MORE);
+  if (key === "Home") return tabs[0] ?? null;
+  if (key === "End") return tabs.at(-1) ?? null;
 
   const step = keys[key];
-  if (!step) return null;
+  if (!step || stops.length === 0) return null;
 
-  const count = items.length;
-  for (let offset = 1; offset <= count; offset++) {
-    const candidate = (((index + step * offset) % count) + count) % count;
-    if (!items[candidate].disabled) return candidate;
+  const position = stops.indexOf(current);
+  if (position === -1) {
+    // From a tab that is no stop - to the next one in the direction
+    const ahead = tabs.filter((tab) =>
+      step > 0 ? tab > (current as number) : tab < (current as number),
+    );
+    return (step > 0 ? ahead[0] : ahead.at(-1)) ?? stops.at(step > 0 ? 0 : -1)!;
   }
 
-  return null;
+  return stops[(position + step + stops.length) % stops.length];
 }
 
 /** Where the indicator goes - over `tab`, in the coordinates of `list`. */
@@ -351,7 +395,9 @@ const sizeVariants = {
  * (`href`, active by the current URL) or buttons (`value`), which show
  * their tab panel (`content`) or tell `onChange`; button tabs are one tab
  * stop, the arrow keys (and Home / End) select the next one, Delete closes
- * a closable one (`onClose`). Horizontal, or `vertical` in a column.
+ * a closable one (`onClose`). Horizontal, or `vertical` in a column. Tabs
+ * that do not fit scroll, or move into a "More" menu (`overflow="menu"`).
+ * Printed, the bar shows the active tab alone.
  *
  * The attributes and the `ref` go to the list of the tabs (the `<ul>`,
  * with `data-orientation`). The active tab has `data-selected` - a link
@@ -367,6 +413,7 @@ export default function Tabs({
   loadingTabsCount = 3,
   onChange,
   orientation = "horizontal",
+  overflow = "scroll",
   panelClassName,
   ref,
   size = "md",
@@ -409,9 +456,20 @@ export default function Tabs({
   // Track active tab index and position for animation
   const [activeTabBounds, setActiveTabBounds] =
     useState<IndicatorBounds | null>(null);
-  const [overflow, setOverflow] = useState(NO_OVERFLOW);
+  const [scrollEdges, setScrollEdges] = useState(NO_OVERFLOW);
   const tabsRef = useRef<HTMLUListElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+
+  // The tabs a horizontal bar has no room for, with `overflow="menu"` - in
+  // the "More" menu at the end of the bar
+  const isMenuOverflow = overflow === "menu" && !isVertical && !loading;
+  const [menuTabs, setMenuTabs] = useState(NO_MENU_TABS);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  // The slot of the "More" button - measured also while it is out of sight
+  const moreRef = useRef<HTMLDivElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  // The tab picked in the menu - it takes the focus once it is in the bar
+  const focusAfterPickRef = useRef<string | null>(null);
 
   // The list for the tabs themselves and for a `ref` passed to them - which
   // must not take it away from the arrow keys, the indicator and the fades
@@ -449,6 +507,93 @@ export default function Tabs({
           -1,
         );
 
+  // The tabs in the menu - never the active one, also before the bar is
+  // measured again for it
+  const shownMenuTabs = isMenuOverflow
+    ? menuTabs.filter(
+        ({ index }) => index !== activeIndex && index < items.length,
+      )
+    : NO_MENU_TABS;
+  const hiddenTabs = new Set(shownMenuTabs.map(({ index }) => index));
+  const hasMenu = shownMenuTabs.length > 0;
+  // Changes with the tabs in the bar - the indicator is measured again
+  const menuKey = shownMenuTabs.map(({ index }) => index).join();
+
+  // With `overflow="menu"`, the tabs past the room of the bar move into the
+  // menu - from the end, the active one staying. Every tab stays in the
+  // page, those in the menu out of sight, so the bar knows how wide they
+  // are once it has room again. Not on the server: all tabs are in the bar
+  // until the page is laid out.
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    const list = tabsRef.current;
+    const more = moreRef.current;
+
+    if (!isMenuOverflow || !scroller || !list || !more) {
+      setMenuTabs((prev) => (prev.length === 0 ? prev : NO_MENU_TABS));
+      return;
+    }
+
+    const update = () => {
+      const tabs = getTabElements(list);
+      const hidden = getOverflowingItems({
+        available: getContentWidth(scroller),
+        gap: getColumnGap(list),
+        moreWidth: more.getBoundingClientRect().width,
+        order: tabs
+          .map((_, index) => index)
+          .filter((index) => index !== activeIndex)
+          .reverse(),
+        widths: tabs.map((tab) => tab.getBoundingClientRect().width),
+      });
+      // The menu shows the text of a label - also of one for screen readers
+      // only, or of an element that renders it
+      const next = hidden.map((index) => ({
+        index,
+        label: tabs[index].textContent?.trim() ?? "",
+      }));
+      setMenuTabs((prev) => (isSameMenu(prev, next) ? prev : next));
+    };
+
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+
+    // The bar narrows or widens, a label changes, a web font loads
+    const observer = new ResizeObserver(update);
+    observer.observe(scroller);
+    getTabElements(list).forEach((tab) => observer.observe(tab));
+    observer.observe(more);
+    return () => observer.disconnect();
+  }, [activeIndex, hasPanels, isMenuOverflow, items]);
+
+  // A tab with the focus that moves into the menu leaves it to the "More"
+  // button - the focus is not lost to the page
+  useLayoutEffect(() => {
+    const list = tabsRef.current;
+    const focused = getActiveElement(list?.ownerDocument);
+    const tab = focused?.closest("li");
+
+    if (tab && list?.contains(tab) && tab.hasAttribute("inert")) {
+      moreButtonRef.current?.focus();
+    }
+  }, [menuKey]);
+
+  // The tab picked in the menu takes the focus from the "More" button the
+  // closed menu gives it back to - once it is selected, in the bar
+  useEffect(() => {
+    const picked = focusAfterPickRef.current;
+    if (picked === null || isMenuOpen) return;
+
+    focusAfterPickRef.current = null;
+    const index = items.findIndex(
+      (item) => !isLinkTab(item) && item.value === picked,
+    );
+    if (index === -1 || index !== activeIndex) return;
+    tabsRef.current
+      ?.querySelectorAll<HTMLElement>("[role='tab']")
+      [index]?.focus();
+  });
+
   useLayoutEffect(() => {
     const list = tabsRef.current;
 
@@ -460,9 +605,7 @@ export default function Tabs({
     }
 
     // Skip the first child if it's the animated indicator
-    const tabElements = Array.from(list.children).filter(
-      (child) => child.tagName === "LI",
-    ) as HTMLElement[];
+    const tabElements = getTabElements(list);
     const activeTab = tabElements[activeIndex];
 
     if (!activeTab) {
@@ -509,7 +652,8 @@ export default function Tabs({
     tabElements.forEach((tab) => observer.observe(tab));
     if (scroller) observer.observe(scroller);
     return () => observer.disconnect();
-  }, [activeIndex, isVertical, items, loading]);
+    // The tabs moved in or out of the menu - the active one may be elsewhere
+  }, [activeIndex, isVertical, items, loading, menuKey]);
 
   // A bar wider than its container fades out at the edges it hides tabs
   // behind - it scrolls there by touch, trackpad or its scrollbar. Panels
@@ -519,7 +663,7 @@ export default function Tabs({
     const list = tabsRef.current;
 
     if (!scroller || !list || isVertical) {
-      setOverflow(NO_OVERFLOW);
+      setScrollEdges(NO_OVERFLOW);
       return;
     }
 
@@ -530,7 +674,7 @@ export default function Tabs({
       const scrolled = Math.abs(scroller.scrollLeft);
       const start = scrolled > 1;
       const end = scrolled + scroller.clientWidth < scroller.scrollWidth - 1;
-      setOverflow((prev) =>
+      setScrollEdges((prev) =>
         prev.start === start && prev.end === end && prev.rtl === rtl
           ? prev
           : { end, rtl, start },
@@ -596,6 +740,46 @@ export default function Tabs({
     if (item.value === selectedValue && neighbor !== null) select(neighbor);
   };
 
+  // The stops of the arrow keys - the enabled tabs in the bar, and the
+  // "More" button after them
+  const keyStops: KeyStop[] = items.flatMap((item, index) =>
+    item.disabled || hiddenTabs.has(index) ? [] : [index],
+  );
+  if (hasMenu) keyStops.push(MORE);
+
+  /**
+   * Moves the focus where a key on `current` leads - to a tab it selects,
+   * or to the "More" button. Other keys are left alone.
+   */
+  const moveFocus = (
+    event: React.KeyboardEvent<HTMLElement>,
+    current: KeyStop,
+  ) => {
+    const keys =
+      MOVE_KEYS[
+        isVertical
+          ? "vertical"
+          : isRtl(event.currentTarget)
+            ? "rtl"
+            : "horizontal"
+      ];
+    const next = getKeyTarget(keyStops, current, event.key, keys);
+    if (next === MORE) {
+      event.preventDefault();
+      moreButtonRef.current?.focus();
+      return;
+    }
+
+    const item = next === null ? undefined : items[next];
+    if (next === null || !item || isLinkTab(item)) return;
+
+    event.preventDefault();
+    select(item.value);
+    tabsRef.current
+      ?.querySelectorAll<HTMLElement>("[role='tab']")
+      [next]?.focus();
+  };
+
   // Value tabs are one tab stop - the arrow keys move between them and
   // select the one they move to, past the disabled ones
   const handleTabKeyDown = (
@@ -615,31 +799,42 @@ export default function Tabs({
       return;
     }
 
-    const keys =
-      MOVE_KEYS[
-        isVertical
-          ? "vertical"
-          : isRtl(event.currentTarget)
-            ? "rtl"
-            : "horizontal"
-      ];
-    const next = getKeyTarget(items, index, event.key, keys);
-    const item = next === null ? undefined : items[next];
-    if (next === null || !item || isLinkTab(item)) return;
-
-    event.preventDefault();
-    select(item.value);
-    tabsRef.current
-      ?.querySelectorAll<HTMLElement>("[role='tab']")
-      [next]?.focus();
+    moveFocus(event, index);
   };
 
-  // The selected tab takes the focus - the first enabled one while none is
-  // selected, or the selected one is disabled
+  // The "More" button of value tabs is a stop of the arrow keys too - they
+  // go on from it to the tabs (ArrowDown, Enter and Space open the menu)
+  const handleMoreKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (isLinkList || event.altKey || event.ctrlKey || event.metaKey) return;
+    moveFocus(event, MORE);
+  };
+
+  /** Selects a tab picked in the menu - it moves into the bar. */
+  const pickFromMenu = (next: string) => {
+    focusAfterPickRef.current = next;
+    select(next);
+  };
+
+  const menuEntries: DropdownEntry[] = shownMenuTabs.map(({ index, label }) => {
+    const item = items[index];
+    return isLinkTab(item)
+      ? { disabled: item.disabled, href: item.href, icon: item.icon, label }
+      : {
+          disabled: item.disabled,
+          icon: item.icon,
+          label,
+          onClick: () => pickFromMenu(item.value),
+        };
+  });
+
+  // The selected tab takes the focus - the first enabled one in the bar
+  // while none is selected, or the selected one is disabled
   const tabStopIndex =
     activeIndex !== -1 && !items[activeIndex]?.disabled
       ? activeIndex
-      : items.findIndex((item) => !item.disabled);
+      : items.findIndex(
+          (item, index) => !item.disabled && !hiddenTabs.has(index),
+        );
 
   const tabClassName = cn(
     "flex items-center rounded-md font-medium",
@@ -651,7 +846,7 @@ export default function Tabs({
   const focusClassName =
     "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500";
 
-  const fadeMask = getFadeMask(overflow);
+  const fadeMask = getFadeMask(scrollEdges);
 
   // Tab stops at a tab under a fade - the browser scrolls it only to the
   // edge. Not after a click: the tab would move away under the pointer.
@@ -664,14 +859,196 @@ export default function Tabs({
     }
   };
 
+  // Printed, the bar shows the active tab alone - the tab of what is
+  // printed. The indicator, placed for the screen, would miss it on paper.
+  const hasActive = activeIndex !== -1;
+
+  const list = (
+    <ul
+      // Placeholders are no tabs - a tablist without any is none yet
+      aria-busy={loading || undefined}
+      aria-orientation={isLinkList || loading ? undefined : orientation}
+      role={isLinkList || loading ? undefined : "tablist"}
+      {...props}
+      className={cn(
+        "relative border-neutral-200 dark:border-neutral-800",
+        // The line runs under the whole bar - past the last tab too, up to
+        // the "More" button
+        isVertical
+          ? "flex flex-col border-s print:border-s-0"
+          : isMenuOverflow
+            ? "flex min-w-0 flex-1 border-b whitespace-nowrap"
+            : "flex w-max min-w-full border-b whitespace-nowrap",
+        sizeClasses.container,
+        className,
+      )}
+      data-orientation={orientation}
+      ref={listRef}
+    >
+      {/* Animated indicator - over the line, under or beside the tab. At
+          the measured place of the tab, which is physical - `left` also
+          right to left. A system color in forced colors mode, which
+          would drop its fill. */}
+      {!loading && activeTabBounds && (
+        <div
+          aria-hidden="true"
+          className={cn(
+            "absolute rounded-full bg-primary-600 transition-all duration-300 ease-in-out motion-reduce:transition-none dark:bg-primary-400 print:hidden forced-colors:bg-[Highlight]",
+            isVertical ? "-inset-s-px w-0.5" : "-bottom-px h-0.5",
+          )}
+          style={
+            isVertical
+              ? {
+                  height: `${activeTabBounds.height}px`,
+                  top: `${activeTabBounds.top}px`,
+                }
+              : {
+                  left: `${activeTabBounds.left}px`,
+                  width: `${activeTabBounds.width}px`,
+                }
+          }
+        />
+      )}
+
+      {loading
+        ? // Loading skeleton tabs
+          Array.from({ length: loadingTabsCount }).map((_, index) => (
+            <li
+              aria-hidden="true"
+              className={sizeClasses.skeleton}
+              key={`skeleton-${index}`}
+            >
+              <Skeleton
+                height="h-2"
+                width={skeletonWidths[index % skeletonWidths.length]}
+              />
+            </li>
+          ))
+        : // Normal tabs
+          items.map((item, index) => {
+            const isActive = index === activeIndex;
+            // In the "More" menu - out of sight, but measured
+            const isInMenu = hiddenTabs.has(index);
+            const isClosable =
+              !isLinkTab(item) && !!item.onClose && !item.disabled;
+            const content = (
+              <>
+                {item.icon && (
+                  <span aria-hidden="true" className="flex shrink-0">
+                    {item.icon}
+                  </span>
+                )}
+                {item.label}
+                {isClosable && (
+                  // For the pointer - the keyboard closes the tab with
+                  // Delete (`aria-keyshortcuts`), and a button in a tab
+                  // would be a control in a control
+                  <span
+                    aria-hidden="true"
+                    className="-me-1.5 flex size-5 shrink-0 items-center justify-center rounded text-neutral-500 hover:bg-neutral-200 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100 print:hidden"
+                    data-tab-close=""
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeTab(index);
+                    }}
+                    // The click leaves the focus where it is
+                    onMouseDown={(event) => event.preventDefault()}
+                    title={messages.tabs.close}
+                  >
+                    <X size={14} />
+                  </span>
+                )}
+              </>
+            );
+
+            return (
+              <li
+                aria-hidden={isInMenu || undefined}
+                className={cn(
+                  "relative z-10 transition-colors duration-200",
+                  item.disabled && "opacity-50",
+                  isActive && "text-primary-600 dark:text-primary-400",
+                  !isActive && "text-neutral-500 dark:text-neutral-400",
+                  !isActive &&
+                    !item.disabled &&
+                    "hover:text-neutral-700 dark:hover:text-neutral-300",
+                  hasActive && !isActive && "print:hidden",
+                  isInMenu && OVERFLOW_HIDDEN_CLASSES,
+                )}
+                inert={isInMenu || undefined}
+                key={index}
+                role={isLinkTab(item) ? undefined : "presentation"}
+              >
+                {isLinkTab(item) ? (
+                  item.disabled ? (
+                    // Without an `href` nothing opens it - no click, no
+                    // middle click, no "Open in new tab" - and Tab skips it
+                    <a
+                      aria-current={isActive ? "page" : undefined}
+                      aria-disabled="true"
+                      className={cn(tabClassName, "cursor-not-allowed")}
+                      data-current={isActive ? "" : undefined}
+                      data-disabled=""
+                      data-selected={isActive ? "" : undefined}
+                      role="link"
+                    >
+                      {content}
+                    </a>
+                  ) : (
+                    <Link
+                      aria-current={isActive ? "page" : undefined}
+                      className={cn(tabClassName, focusClassName)}
+                      data-current={isActive ? "" : undefined}
+                      data-selected={isActive ? "" : undefined}
+                      href={item.href}
+                    >
+                      {content}
+                    </Link>
+                  )
+                ) : (
+                  <button
+                    aria-controls={
+                      item.panelId ??
+                      (hasPanel(item) && (isActive || keepMounted)
+                        ? `${baseId}-panel-${index}`
+                        : undefined)
+                    }
+                    aria-keyshortcuts={isClosable ? "Delete" : undefined}
+                    aria-selected={isActive}
+                    className={cn(
+                      tabClassName,
+                      focusClassName,
+                      "cursor-pointer disabled:cursor-not-allowed",
+                    )}
+                    data-disabled={item.disabled ? "" : undefined}
+                    data-selected={isActive ? "" : undefined}
+                    disabled={item.disabled}
+                    id={
+                      item.id ??
+                      (hasPanel(item) ? `${baseId}-tab-${index}` : undefined)
+                    }
+                    onClick={() => select(item.value)}
+                    onKeyDown={(event) => handleTabKeyDown(event, index)}
+                    role="tab"
+                    tabIndex={index === tabStopIndex ? 0 : -1}
+                    type="button"
+                  >
+                    {content}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+    </ul>
+  );
+
   const bar = (
     <div
       className={
         isVertical
-          ? hasPanels
-            ? "shrink-0"
-            : undefined
-          : "scrollbar-thin overflow-x-auto"
+          ? cn(hasPanels && "shrink-0", "print:mb-4")
+          : // Not scrolled on paper - the tab printed is at the start
+            "scrollbar-thin overflow-x-auto print:overflow-visible print:mask-none!"
       }
       onFocus={handleFocus}
       ref={scrollerRef}
@@ -681,180 +1058,64 @@ export default function Tabs({
           : undefined
       }
     >
-      <ul
-        // Placeholders are no tabs - a tablist without any is none yet
-        aria-busy={loading || undefined}
-        aria-orientation={isLinkList || loading ? undefined : orientation}
-        role={isLinkList || loading ? undefined : "tablist"}
-        {...props}
-        className={cn(
-          "relative border-neutral-200 dark:border-neutral-800",
-          // The line runs under the whole bar - past the last tab too
-          isVertical
-            ? "flex flex-col border-s"
-            : "flex w-max min-w-full border-b whitespace-nowrap",
-          sizeClasses.container,
-          className,
-        )}
-        data-orientation={orientation}
-        ref={listRef}
-      >
-        {/* Animated indicator - over the line, under or beside the tab. At
-            the measured place of the tab, which is physical - `left` also
-            right to left. A system color in forced colors mode, which
-            would drop its fill. */}
-        {!loading && activeTabBounds && (
+      {isMenuOverflow ? (
+        // The "More" button after the list - a tablist holds tabs alone
+        <div className="relative flex w-max min-w-full">
+          {list}
           <div
-            aria-hidden="true"
+            aria-hidden={!hasMenu || undefined}
             className={cn(
-              "absolute rounded-full bg-primary-600 transition-all duration-300 ease-in-out motion-reduce:transition-none dark:bg-primary-400 forced-colors:bg-[Highlight]",
-              isVertical ? "-inset-s-px w-0.5" : "-bottom-px h-0.5",
+              // On the line with the tabs - also under a margin of the list
+              "flex shrink-0 items-end border-b border-neutral-200 dark:border-neutral-800 print:hidden",
+              !hasMenu && OVERFLOW_HIDDEN_CLASSES,
             )}
-            style={
-              isVertical
-                ? {
-                    height: `${activeTabBounds.height}px`,
-                    top: `${activeTabBounds.top}px`,
-                  }
-                : {
-                    left: `${activeTabBounds.left}px`,
-                    width: `${activeTabBounds.width}px`,
-                  }
-            }
-          />
-        )}
-
-        {loading
-          ? // Loading skeleton tabs
-            Array.from({ length: loadingTabsCount }).map((_, index) => (
-              <li
-                aria-hidden="true"
-                className={sizeClasses.skeleton}
-                key={`skeleton-${index}`}
-              >
-                <Skeleton
-                  height="h-2"
-                  width={skeletonWidths[index % skeletonWidths.length]}
-                />
-              </li>
-            ))
-          : // Normal tabs
-            items.map((item, index) => {
-              const isActive = index === activeIndex;
-              const isClosable =
-                !isLinkTab(item) && !!item.onClose && !item.disabled;
-              const content = (
-                <>
-                  {item.icon && (
-                    <span aria-hidden="true" className="flex shrink-0">
-                      {item.icon}
-                    </span>
-                  )}
-                  {item.label}
-                  {isClosable && (
-                    // For the pointer - the keyboard closes the tab with
-                    // Delete (`aria-keyshortcuts`), and a button in a tab
-                    // would be a control in a control
-                    <span
-                      aria-hidden="true"
-                      className="-me-1.5 flex size-5 shrink-0 items-center justify-center rounded text-neutral-500 hover:bg-neutral-200 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
-                      data-tab-close=""
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        closeTab(index);
-                      }}
-                      // The click leaves the focus where it is
-                      onMouseDown={(event) => event.preventDefault()}
-                      title={messages.tabs.close}
-                    >
-                      <X size={14} />
-                    </span>
-                  )}
-                </>
-              );
-
-              return (
-                <li
+            inert={!hasMenu || undefined}
+            ref={moreRef}
+          >
+            <Dropdown
+              buttonTrigger
+              items={menuEntries}
+              offset={4}
+              onOpenChange={setIsMenuOpen}
+              // Closed with nothing left in it - the bar has room again
+              open={isMenuOpen && hasMenu}
+              trigger={
+                <button
                   className={cn(
-                    "relative z-10 transition-colors duration-200",
-                    item.disabled && "opacity-50",
-                    isActive && "text-primary-600 dark:text-primary-400",
-                    !isActive && "text-neutral-500 dark:text-neutral-400",
-                    !isActive &&
-                      !item.disabled &&
-                      "hover:text-neutral-700 dark:hover:text-neutral-300",
+                    tabClassName,
+                    focusClassName,
+                    "cursor-pointer text-neutral-500 transition-colors duration-200 hover:text-neutral-700 data-[state=open]:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-300 dark:data-[state=open]:text-neutral-300",
                   )}
-                  key={index}
-                  role={isLinkTab(item) ? undefined : "presentation"}
+                  onKeyDown={handleMoreKeyDown}
+                  ref={moreButtonRef}
+                  // Value tabs are one tab stop - the arrow keys reach it
+                  tabIndex={isLinkList ? undefined : -1}
+                  type="button"
                 >
-                  {isLinkTab(item) ? (
-                    item.disabled ? (
-                      // Without an `href` nothing opens it - no click, no
-                      // middle click, no "Open in new tab" - and Tab skips it
-                      <a
-                        aria-current={isActive ? "page" : undefined}
-                        aria-disabled="true"
-                        className={cn(tabClassName, "cursor-not-allowed")}
-                        data-current={isActive ? "" : undefined}
-                        data-disabled=""
-                        data-selected={isActive ? "" : undefined}
-                        role="link"
-                      >
-                        {content}
-                      </a>
-                    ) : (
-                      <Link
-                        aria-current={isActive ? "page" : undefined}
-                        className={cn(tabClassName, focusClassName)}
-                        data-current={isActive ? "" : undefined}
-                        data-selected={isActive ? "" : undefined}
-                        href={item.href}
-                      >
-                        {content}
-                      </Link>
-                    )
-                  ) : (
-                    <button
-                      aria-controls={
-                        item.panelId ??
-                        (hasPanel(item) && (isActive || keepMounted)
-                          ? `${baseId}-panel-${index}`
-                          : undefined)
-                      }
-                      aria-keyshortcuts={isClosable ? "Delete" : undefined}
-                      aria-selected={isActive}
-                      className={cn(
-                        tabClassName,
-                        focusClassName,
-                        "cursor-pointer disabled:cursor-not-allowed",
-                      )}
-                      data-disabled={item.disabled ? "" : undefined}
-                      data-selected={isActive ? "" : undefined}
-                      disabled={item.disabled}
-                      id={
-                        item.id ??
-                        (hasPanel(item) ? `${baseId}-tab-${index}` : undefined)
-                      }
-                      onClick={() => select(item.value)}
-                      onKeyDown={(event) => handleTabKeyDown(event, index)}
-                      role="tab"
-                      tabIndex={index === tabStopIndex ? 0 : -1}
-                      type="button"
-                    >
-                      {content}
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-      </ul>
+                  {messages.tabs.more}
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="shrink-0"
+                    size={14}
+                  />
+                </button>
+              }
+            />
+          </div>
+        </div>
+      ) : (
+        list
+      )}
     </div>
   );
 
   if (!hasPanels || loading) return bar;
 
   return (
-    <div className={isVertical ? "flex items-start gap-6" : undefined}>
+    // Printed, the panel goes under its tab - the whole width of the paper
+    <div
+      className={isVertical ? "flex items-start gap-6 print:block" : undefined}
+    >
       {bar}
       {items.map((item, index) => {
         if (!hasPanel(item)) return null;

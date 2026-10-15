@@ -165,6 +165,7 @@ import {
   type RichTextToolbarItem,
 } from "./rich-text/tools";
 import RequiredMark from "./required-mark";
+import { useReadOnly } from "./form-scope";
 
 export type { RichTextTool, RichTextToolbarItem } from "./rich-text/tools";
 
@@ -1025,6 +1026,7 @@ export interface RichTextEditorProps extends Omit<
    * the toolbar is hidden. Unlike a disabled editor it is focusable and
    * submitted with its form (like a read-only native field, it is not
    * validated). Marked with `aria-readonly` and `data-readonly`.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /**
@@ -1110,7 +1112,7 @@ export default function RichTextEditor({
   onBlur,
   onChange,
   placeholder,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required,
   resize = false,
@@ -1122,6 +1124,7 @@ export default function RichTextEditor({
   value,
   ...props
 }: RichTextEditorProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = locale.messages.ui;
   const texts = messages.richTextEditor;
@@ -3104,14 +3107,14 @@ export default function RichTextEditor({
 
   return (
     <div
-      className={cn("space-y-1.5", className)}
+      className={cn("cui-field space-y-1.5", className)}
       onBlur={handleBlur}
       ref={wrapperCallbackRef}
     >
       {label && (
         // No labelable element to point at - a click still leads to the text
         <label
-          className="block text-sm font-medium"
+          className="cui-field-label block text-sm font-medium"
           id={labelId}
           onClick={() => editorRef.current?.focus()}
         >

@@ -6,7 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
-import cn from "../../../utils/cn";
+import cn, { joinTokens } from "../../../utils/cn";
+import { hasReason } from "../disabled-reason";
 import Kbd from "../kbd";
 import MenuPopup from "./menu-popup";
 import {
@@ -565,6 +566,12 @@ export default function MenuList({
         : !!row.item.checked;
     const danger = row.kind === "item" && !!row.item.danger;
     const disabled = !!fields.disabled;
+    // Why it is disabled - on a line of its own, not faded with the item
+    const reason =
+      disabled && hasReason(fields.disabledReason)
+        ? fields.disabledReason
+        : undefined;
+    const faded = reason !== undefined && "opacity-50";
     const href =
       row.kind === "item" && !isCheckable && !isParent
         ? row.item.href
@@ -574,11 +581,13 @@ export default function MenuList({
     const descriptionId = fields.description
       ? `${itemId(index)}-description`
       : undefined;
+    const reasonId =
+      reason !== undefined ? `${itemId(index)}-reason` : undefined;
 
     const itemProps = {
       "aria-checked": isCheckable ? checked : undefined,
       "aria-controls": isSubmenuOpen ? submenuId : undefined,
-      "aria-describedby": descriptionId,
+      "aria-describedby": joinTokens(descriptionId, reasonId),
       "aria-disabled": disabled || undefined,
       "aria-expanded": isParent ? isSubmenuOpen : undefined,
       "aria-haspopup": isParent ? ("menu" as const) : undefined,
@@ -588,7 +597,10 @@ export default function MenuList({
       className: cn(
         "flex w-full items-center gap-2.5 rounded px-3 py-1.5 text-start text-sm transition-colors focus:outline-hidden motion-reduce:transition-none pointer-coarse:py-2",
         disabled
-          ? "cursor-not-allowed opacity-50 forced-colors:text-[GrayText]"
+          ? cn(
+              "cursor-not-allowed forced-colors:text-[GrayText]",
+              reason === undefined && "opacity-50",
+            )
           : "cursor-pointer",
         danger && "text-danger-700 dark:text-danger-400",
         // The highlight follows the pointer and the keys alike - a tap only
@@ -634,7 +646,10 @@ export default function MenuList({
         {hasCheck && (
           <span
             aria-hidden="true"
-            className="flex size-4 shrink-0 items-center justify-center"
+            className={cn(
+              "flex size-4 shrink-0 items-center justify-center",
+              faded,
+            )}
           >
             {isCheckable &&
               checked &&
@@ -652,7 +667,10 @@ export default function MenuList({
         {hasIcon && (
           <span
             aria-hidden="true"
-            className="flex min-w-4 shrink-0 items-center justify-center"
+            className={cn(
+              "flex min-w-4 shrink-0 items-center justify-center",
+              faded,
+            )}
           >
             {fields.icon}
           </span>
@@ -660,15 +678,31 @@ export default function MenuList({
         <span className="min-w-0 flex-1">
           {/* On one line, the menu as wide as it needs - a description
               wraps within that width, and so does a label on a phone */}
-          <span className="block sm:whitespace-nowrap">{fields.label}</span>
+          <span className={cn("block sm:whitespace-nowrap", faded)}>
+            {fields.label}
+          </span>
           {fields.description && (
             // Read as the description of the item, not as part of its name
             <span
               aria-hidden="true"
-              className="block text-xs text-neutral-500 dark:text-neutral-400"
+              className={cn(
+                "block text-xs text-neutral-500 dark:text-neutral-400",
+                faded,
+              )}
               id={descriptionId}
             >
               {fields.description}
+            </span>
+          )}
+          {reason !== undefined && (
+            // Read as a description too - in full contrast, it is what the
+            // user needs to know
+            <span
+              aria-hidden="true"
+              className="mt-0.5 block text-xs text-neutral-600 dark:text-neutral-300"
+              id={reasonId}
+            >
+              {reason}
             </span>
           )}
         </span>
@@ -676,7 +710,7 @@ export default function MenuList({
           // Announced by `aria-keyshortcuts` - not read as part of the name
           <Kbd
             aria-hidden="true"
-            className="ms-3 shrink-0"
+            className={cn("ms-3 shrink-0", faded)}
             shortcut={fields.shortcut}
             size="sm"
           />
@@ -685,7 +719,10 @@ export default function MenuList({
           <ChevronRight
             aria-hidden="true"
             // Towards the submenu - to the left right to left
-            className="-me-1 shrink-0 text-neutral-500 rtl:rotate-180 dark:text-neutral-400"
+            className={cn(
+              "-me-1 shrink-0 text-neutral-500 rtl:rotate-180 dark:text-neutral-400",
+              faded,
+            )}
             size={16}
           />
         )}

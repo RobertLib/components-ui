@@ -9,6 +9,7 @@ import {
   useCheckedControl,
 } from "../../hooks/use-form-control";
 import RequiredMark from "./required-mark";
+import { useReadOnly } from "./form-scope";
 
 export interface CheckboxProps extends Omit<
   React.ComponentProps<"input">,
@@ -44,6 +45,7 @@ export interface CheckboxProps extends Omit<
    * does not change it (`onChange` is not called) - unlike a disabled one,
    * a checked read-only checkbox is submitted with the form. As a native
    * read-only field, it is not validated: `required` only marks it.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
 }
@@ -94,11 +96,12 @@ export default function Checkbox({
   label,
   onChange,
   onClick,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required,
   ...props
 }: CheckboxProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const checkboxRef = useCheckedControl({
     checked: props.checked,
     form: props.form,
@@ -113,7 +116,7 @@ export default function Checkbox({
   const invalid = !!error || isAriaInvalid(props["aria-invalid"]);
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="cui-field cui-field-check flex flex-col gap-1.5">
       <div className={cn("flex items-start", gaps[dim])}>
         <input
           {...props}

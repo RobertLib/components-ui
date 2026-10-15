@@ -34,6 +34,22 @@ export function isMonthUnavailable(
   return true;
 }
 
+/**
+ * Whether every day of the months `first` to `last` (1 - 12) of `year` is
+ * disabled - of a quarter, or of a whole year.
+ */
+export function areMonthsUnavailable(
+  year: number,
+  first: number,
+  last: number,
+  isDateDisabled: DateDisabledPredicate,
+) {
+  for (let month = first; month <= last; month++) {
+    if (!isMonthUnavailable(year, month, isDateDisabled)) return false;
+  }
+  return true;
+}
+
 /** The start of Monday of the ISO week `week` of `year`. */
 export function isoWeekStart(year: number, week: number) {
   // January 4th always lies in the first week
@@ -111,7 +127,7 @@ export function findEnabledDay(
 /**
  * Whether `isDateDisabled` leaves nothing of a value of a picker of `type`
  * that can be picked: its day (also of a date-time), or every day of its
- * month or week. `false` for a time, and for no value.
+ * month, week, quarter or year. `false` for a time, and for no value.
  */
 export function isValueUnavailable(
   value: string,
@@ -143,6 +159,24 @@ export function isValueUnavailable(
         )
       );
     }
+    case "quarter": {
+      const quarter = /^(\d{4})-Q([1-4])$/.exec(value);
+      const first = (Number(quarter?.[2]) - 1) * 3 + 1;
+      return (
+        !!quarter &&
+        areMonthsUnavailable(
+          Number(quarter[1]),
+          first,
+          first + 2,
+          isDateDisabled,
+        )
+      );
+    }
+    case "year":
+      return (
+        /^\d{4}$/.test(value) &&
+        areMonthsUnavailable(Number(value), 1, 12, isDateDisabled)
+      );
     default:
       return false;
   }

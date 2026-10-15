@@ -1,9 +1,19 @@
-import { use, useInsertionEffect, useMemo, useRef, useState } from "react";
+import {
+  use,
+  useCallback,
+  useInsertionEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { deepMerge, toIntlLocale } from "../i18n/ui/format";
 import { en } from "../i18n/ui/en";
 import type { DeepPartial, Locale, Messages } from "../i18n/ui/types";
 import DefaultLink from "./default-link";
+import GuardedLink from "./guarded-link";
+import { guardNavigation, type RouterLocation } from "./navigation-guard";
 import { browserBack, browserNavigate, type RouterAdapter } from "./router";
+import { RouterLinkContext } from "./router-link-context";
 import {
   RouterActionsContext,
   RouterLocationContext,
@@ -104,23 +114,37 @@ export default function UIProvider({
   // navigation (React Router's does), an inline one on every render, and
   // each change would render again all that navigates. Before the effects
   // of the children, which may navigate already.
-  const latest = useRef({ back, navigate });
+  const latest = useRef({ back, navigate, pathname, search });
   useInsertionEffect(() => {
-    latest.current = { back, navigate };
+    latest.current = { back, navigate, pathname, search };
   });
   const hasNavigate = navigate !== undefined;
   const hasBack = back !== undefined;
-  const stableNavigate = useMemo<RouterAdapter["navigate"]>(() => {
-    if (!hasNavigate) return browserNavigate;
-
+  // Where the router is - a navigation that leaves the path of a form with
+  // unsaved changes asks first (`useUnsavedChanges`)
+  const getLocation = useCallback((): RouterLocation | null => {
+    const current = latest.current;
+    return current.pathname === undefined
+      ? null
+      : { pathname: current.pathname, search: current.search ?? "" };
+  }, []);
+  const stableNavigate = useMemo<RouterAdapter["navigate"]>(
     // The arguments as they come - a router may tell apart none and
     // `undefined`
-    return (...args) => {
-      latest.current.navigate?.(...args);
-    };
-  }, [hasNavigate]);
+    () =>
+      (...args) =>
+        guardNavigation(args[0], getLocation(), () =>
+          hasNavigate
+            ? latest.current.navigate?.(...args)
+            : browserNavigate(...args),
+        ),
+    [getLocation, hasNavigate],
+  );
   const stableBack = useMemo<RouterAdapter["back"]>(
-    () => (hasBack ? () => latest.current.back?.() : browserBack),
+    () => () =>
+      guardNavigation(null, null, () =>
+        hasBack ? latest.current.back?.() : browserBack(),
+      ),
     [hasBack],
   );
 
@@ -136,22 +160,30 @@ export default function UIProvider({
     [resolvedLocale, Link, stableNavigate, stableBack, routerScope],
   );
   const location = useMemo(() => ({ pathname, search }), [pathname, search]);
+  // The links ask before they leave unsaved changes too - `GuardedLink`
+  // renders the `Link` of the router with what `linkRouter` tells it
   const actions = useMemo(
+    () => ({ back: stableBack, Link: GuardedLink, navigate: stableNavigate }),
+    [stableBack, stableNavigate],
+  );
+  const linkRouter = useMemo(
     () => ({
-      back: stableBack,
+      getLocation,
       Link: Link ?? DefaultLink,
-      navigate: stableNavigate,
+      navigate: hasNavigate ? stableNavigate : undefined,
     }),
-    [Link, stableBack, stableNavigate],
+    [getLocation, hasNavigate, Link, stableNavigate],
   );
 
   return (
     <UIContext value={value}>
       <PortalContainerContext value={container}>
         <RouterActionsContext value={actions}>
-          <RouterLocationContext value={location}>
-            {children}
-          </RouterLocationContext>
+          <RouterLinkContext value={linkRouter}>
+            <RouterLocationContext value={location}>
+              {children}
+            </RouterLocationContext>
+          </RouterLinkContext>
         </RouterActionsContext>
       </PortalContainerContext>
     </UIContext>

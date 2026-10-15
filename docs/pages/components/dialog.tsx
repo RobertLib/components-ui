@@ -160,6 +160,12 @@ export default function DialogPage() {
               has hydrated.
             </li>
             <li>
+              Printed while it is open, the dialog is printed alone - as long as
+              its content, without the page behind it, its close button and its{" "}
+              <code>DialogFooter</code>. A "Print" button in it prints the
+              dialog. See <Link to="/guides/printing">Printing</Link>.
+            </li>
+            <li>
               A panel sliding in from an edge of the screen, for the details or
               the edit form of a record, is a{" "}
               <Link to="/components/sheet">Sheet</Link> - the same dialog.

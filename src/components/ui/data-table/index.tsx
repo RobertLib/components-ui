@@ -16,7 +16,17 @@ import {
 } from "react";
 import Button from "../button";
 import { attachRef } from "../../../hooks/use-form-control";
+import { CircleAlert } from "lucide-react";
 import cn from "../../../utils/cn";
+import { findBodyRow } from "./body-row";
+import { flushSync } from "react-dom";
+import { getTabbableElements } from "../../../utils/tabbable";
+import { isTypingTarget } from "../../../hooks/use-hotkeys";
+import { matchesShortcut } from "../../../utils/shortcut";
+import useClipboard from "../../../hooks/use-clipboard";
+import { FilterChips, type FilterChip } from "./filter-chips";
+import { formatFilterChipValue } from "./format-filter-value";
+import { SavedViews } from "./saved-views";
 import columnRecord from "./column-record";
 import { defaultRowId, getRowKey } from "./row-key";
 import logger from "../../../utils/logger";
@@ -24,6 +34,14 @@ import useColumnManagement from "./use-column-management";
 import usePendingValue from "./use-pending-value";
 import useQueryColumns from "./use-query-columns";
 import useRowSelection from "./use-row-selection";
+import useDataTableTree from "./use-data-table-tree";
+import {
+  getBranchRows,
+  getTreeCheckStates,
+  LEVEL_COLUMN_KEY,
+  selectAncestors,
+  type TreeNode,
+} from "./tree";
 import {
   clampWidth,
   DEFAULT_CELL_LAYOUT,
@@ -32,7 +50,7 @@ import {
   type CellLayout,
 } from "./cell-layout";
 import { computeSummary } from "./summary";
-import { createCsv, downloadCsv } from "./csv";
+import { createCsv, createTsv, downloadCsv } from "./csv";
 import {
   flattenColumns,
   groupRowsBy,
@@ -86,6 +104,7 @@ import {
 } from "../../../i18n/ui/format";
 import { useLocale } from "../../../providers/ui-context";
 import type { PluralMessage } from "../../../i18n/ui/types";
+import type { DropdownEntry } from "../menu/types";
 import type {
   CellEditResult,
   Column,
@@ -94,6 +113,7 @@ import type {
   DataTableDensity,
   DataTableGroupMetadata,
   DataTableSelectionMode,
+  DataTableView,
   FilteredSelectionConfig,
   GroupAction,
   GroupActionSelection,
@@ -114,6 +134,8 @@ export type {
   DataTableDensity,
   DataTableGroupMetadata,
   DataTableSelectionMode,
+  DataTableView,
+  DataTableViewQuery,
   FilteredSelectionConfig,
   GroupAction,
   GroupActionSelection,
@@ -142,6 +164,9 @@ function retainSelectedActionIds(
 }
 
 const MAX_TOGGLED_ROWS = 1000;
+
+// The rows of the body while a load error takes their place
+const NO_ROWS: never[] = [];
 
 // How many reports of all matching rows a late parent may still apply
 const MAX_PENDING_REPORTS = 50;
@@ -234,6 +259,11 @@ export interface DataTableProps<T> extends Omit<
   /** Content of a sticky first column, e.g. edit / delete buttons. */
   actions?: (row: T) => React.ReactNode;
   /**
+   * Id of the applied saved view - controlled, with `onActiveViewChange`;
+   * `null` for none. See `enableViews`.
+   */
+  activeViewId?: string | null;
+  /**
    * Name of the table - of the region around it (by default "Data table"),
    * of the `<table>` and of its pagination ("People pagination"). Several
    * tables of a page are told apart by it.
@@ -249,6 +279,12 @@ export interface DataTableProps<T> extends Omit<
    * returns `false`). Rows selected or reselected meanwhile stay selected.
    */
   autoResetSelectedRows?: boolean;
+  /**
+   * Tree data: checking a row checks its sub rows too - all of its branch
+   * that is loaded, also collapsed - and unchecking unchecks them. A row
+   * is checked when its whole branch is, mixed when only some of it is.
+   */
+  cascadeSelection?: boolean;
   /**
    * The table filters, searches, sorts and pages `data` itself - pass all
    * rows. Otherwise `data` is the current page, loaded for `query`.
@@ -266,6 +302,16 @@ export interface DataTableProps<T> extends Omit<
    */
   columnState?: DataTableColumnState;
   /**
+   * Ctrl + C (⌘ + C on a Mac) in the table copies the selected rows - the
+   * visible columns in their order under a line of their names, as
+   * tab-separated text that a spreadsheet pastes into cells, the values as
+   * the CSV export writes them (`createTsv`) - or, with no row selected,
+   * the focused cell (or row). A text the user selected and a focused field
+   * copy as usual. Screen readers hear what was copied. Set to `false` to
+   * leave the keys to the browser.
+   */
+  copyable?: boolean;
+  /**
    * Field separator of the CSV export - by default `;` for languages
    * writing a decimal comma (so e.g. a Czech Excel opens the file in
    * columns) and `,` for the others.
@@ -281,6 +327,17 @@ export interface DataTableProps<T> extends Omit<
   defaultColumnState?: DataTableColumnState;
   /** Initial query of an uncontrolled table. */
   defaultQuery?: Partial<DataTableQuery>;
+  /**
+   * Tree data: rows up to this level start expanded - `1` the top-level
+   * rows, `Infinity` all - also rows loaded later; rows expanded by it load
+   * their `loadSubRows`. Default `0`, all collapsed.
+   */
+  defaultExpandDepth?: number;
+  /**
+   * Tree data: ids of the rows expanded at first - uncontrolled, instead of
+   * `defaultExpandDepth`.
+   */
+  defaultExpandedTreeIds?: RowId[];
   /** Opens the global search field right away. */
   defaultSearchOpen?: boolean;
   /** Ids of the rows selected at first - uncontrolled, see `selectedIds`. */
@@ -312,10 +369,45 @@ export interface DataTableProps<T> extends Omit<
    * `clientSide` table, and "Clear filters" clears it for a server.
    */
   enableGlobalSearch?: boolean;
+  /**
+   * Adds the views menu to the toolbar: the user saves the filters, search,
+   * sorting, page size and column settings under a name, applies a view
+   * (from the first page), and updates, renames or deletes the applied one.
+   * Its button names the applied view, with a dot once the settings differ
+   * from it - pick the view again to bring them back. The views are
+   * remembered under `tableId` in `localStorage` (without one as long as
+   * the table), or controlled by `views`. On with `views` or `presetViews`
+   * too.
+   */
+  enableViews?: boolean;
+  /**
+   * The rows could not be loaded: the body shows this message in place of
+   * them - `true` for a generic one - announced to screen readers, with a
+   * "Try again" button calling `onRetry`. It wins over the rows, which
+   * belong to the query that failed or an older one, and over `loading`,
+   * which shows a spinner in the button instead. The toolbar, the filters
+   * and the pagination stay usable - the user can change the query.
+   */
+  error?: React.ReactNode;
   /** Rows with a `renderSubRow` start expanded - also rows loaded later. */
   expandedByDefault?: boolean;
+  /**
+   * Tree data: ids of the rows whose sub rows are shown - controlled, with
+   * `onExpandedTreeIdsChange`. Apart from `expandedIds`, the details of
+   * `renderSubRow`.
+   */
+  expandedTreeIds?: RowId[];
   /** Name of the file of the CSV export - `.csv` is added when missing. */
   exportFilename?: string;
+  /**
+   * Shows a bar under the toolbar with a chip of each active filter and of
+   * the search - the column and its value as the user reads it (labels of
+   * the options, days by the locale, `100–500`, Yes / No; see
+   * `Column.formatFilterValue`), also of a filter whose field is hidden.
+   * The × of a chip removes its filter, "Clear all" all of them and the
+   * search. Set to `false` to leave it out.
+   */
+  filterChips?: boolean;
   /**
    * Offers "select all N rows matching the filters" once a whole page is
    * selected - `true` for the defaults, or an object to adjust them.
@@ -326,6 +418,15 @@ export interface DataTableProps<T> extends Omit<
   /** Extra classes of a row. */
   getRowClassName?: (row: T) => string | undefined;
   /**
+   * Entries of the context menu of a row - the items of `Dropdown`; `null`
+   * or none leave the menu of the browser. It opens on a right click or a
+   * long press on the row, and from the keyboard on a focused row or a
+   * control in it (Shift + F10 or the context menu key) - rows without a
+   * `getRowHref` link are one Tab stop then, the arrow keys move between
+   * them. A field of an edited cell keeps the menu of the browser.
+   */
+  getRowContextMenu?: (row: T) => DropdownEntry[] | null | undefined;
+  /**
    * The page a row opens - its first column shows its content as a link
    * there (`useRouter().Link`, so middle and Ctrl + click open a new tab),
    * and a click elsewhere on the row follows it too, the middle button in a
@@ -333,16 +434,54 @@ export interface DataTableProps<T> extends Omit<
    * first column - a link cannot hold them.
    */
   getRowHref?: (row: T) => string | undefined;
-  /** Stable identity of a row - defaults to its `id` field. */
+  /**
+   * Stable identity of a row - defaults to its `id` field. With tree data
+   * it must be unique across all levels.
+   */
   getRowId?: (row: T) => RowId;
+  /**
+   * Tree data: the sub rows of a row, shown under it with the same columns
+   * - a toggle in the tree column expands them. `[]` for a row without
+   * any; `undefined` or `null` leaves them to `loadSubRows`. `data` holds
+   * the top-level rows: `clientSide` filters, sorts and pages them with
+   * their sub rows, a server pages the top-level rows. Keep it the same
+   * function between renders. Not with `groupBy`.
+   */
+  getSubRows?: (row: T) => T[] | undefined | null;
+  /**
+   * Tree data: whether a row has sub rows for `loadSubRows` to load - its
+   * toggle shows before they are loaded. By default every row without
+   * `getSubRows` may have some; one that loads none shows as a leaf.
+   */
+  hasSubRows?: (row: T) => boolean;
   /** Rows the user can select. Select all and Shift selection skip others. */
   isRowSelectable?: (row: T) => boolean;
+  /**
+   * Tree data: loads the sub rows of a row when it is first expanded - its
+   * toggle shows a spinner meanwhile, a failure a message with a retry
+   * button. The loaded rows are kept (collapsing and expanding again loads
+   * nothing) until `loadSubRowsKey` changes; `signal` aborts when the row
+   * is collapsed or the table unmounts. "Expand all" opens only rows whose
+   * sub rows are at hand - it loads none.
+   */
+  loadSubRows?: (row: T, options: { signal: AbortSignal }) => Promise<T[]>;
+  /**
+   * Tree data: change it to load the sub rows again, e.g. after a change on
+   * the server - those shown stay until their new rows come, the others
+   * load when expanded next. Loads on their way are aborted.
+   */
+  loadSubRowsKey?: string | number;
   /** Controlled ids of expanded detail rows; use with `onExpandedIdsChange`. */
   expandedIds?: RowId[];
   /** Initial expanded detail rows, instead of `expandedByDefault`. */
   defaultExpandedIds?: RowId[];
   /** Called when the user expands or collapses a detail row. */
   onExpandedIdsChange?: (ids: RowId[]) => void;
+  /**
+   * Tree data: called with the ids of all expanded rows when the user
+   * expands or collapses a row, or all of them.
+   */
+  onExpandedTreeIdsChange?: (ids: RowId[]) => void;
   /** Buttons acting on the selected rows - adds a checkbox column. */
   groupActions?: GroupAction<T>[];
   /** Column key or keys to group by, from outermost to innermost. Groups support virtualization; server data groups the loaded page. */
@@ -377,6 +516,8 @@ export interface DataTableProps<T> extends Omit<
    * `query.sort` to sort by several columns.
    */
   multiSort?: boolean;
+  /** Called with the id of the view the user applied, saved or deleted (`null`). */
+  onActiveViewChange?: (viewId: string | null) => void;
   /**
    * Called with the new value of an `editable` cell - not for a field left
    * as it was, also when a refetch changed the cell meanwhile. While a
@@ -413,8 +554,12 @@ export interface DataTableProps<T> extends Omit<
   onExport?: (query: DataTableQuery) => T[] | Promise<T[]>;
   /** An export failed; the table also shows a localized error message. */
   onExportError?: (error: unknown) => void;
+  /** Tree data: `loadSubRows` failed - the row also offers a retry. */
+  onLoadSubRowsError?: (error: unknown, row: T) => void;
   /** Called with the new query whenever the user pages, sorts, filters or searches. */
   onQueryChange?: (query: DataTableQuery) => void;
+  /** Called by the "Try again" button shown with `error`. */
+  onRetry?: () => void;
   /**
    * Called for a click on a row - not on a control in it (a button, a
    * checkbox, a link, an editable cell) nor at the end of selecting its
@@ -437,6 +582,12 @@ export interface DataTableProps<T> extends Omit<
     selection: GroupActionSelection<T>,
   ) => void;
   /**
+   * Called with the user's views (not the presets) whenever they save,
+   * update, rename or delete one - also of uncontrolled views, e.g. to
+   * store them on a server.
+   */
+  onViewsChange?: (views: DataTableView[]) => void;
+  /**
    * Cursor pagination (GraphQL / Relay): the `pageInfo` of the connection.
    * Leave out for offset pagination, which needs `total`.
    */
@@ -448,6 +599,12 @@ export interface DataTableProps<T> extends Omit<
    * table then shows all its rows.
    */
   pagination?: boolean;
+  /**
+   * Views of the app, listed before the user's own (`enableViews`) - e.g.
+   * "Unpaid invoices". They can be applied, but not updated, renamed or
+   * deleted.
+   */
+  presetViews?: DataTableView[];
   /** Controlled query - see `useDataTableQuery`. */
   query?: DataTableQuery;
   /** Expandable detail of a row, shown under it. */
@@ -483,49 +640,70 @@ export interface DataTableProps<T> extends Omit<
    */
   summaryValues?: Record<string, React.ReactNode>;
   /**
-   * Remembers the column order, visibility, pinning and widths and the row
-   * density in `localStorage` under this id - the row density alone with a
-   * controlled `columnState`. Include the user id when several people share
+   * Remembers the column order, visibility, pinning and widths, the row
+   * density and the saved views (`enableViews`) in `localStorage` under this
+   * id - the row density alone with a controlled `columnState`, no views
+   * with controlled `views`. Include the user id when several people share
    * a browser.
    */
   tableId?: string;
   /** Content left of the table controls, e.g. filters or a "New" button. */
   toolbar?: React.ReactNode;
+  /**
+   * Tree data: key of the column whose cells hold the toggles of the sub
+   * rows and are indented by their level - by default the first column
+   * shown. Its header gets a button expanding and collapsing all rows.
+   */
+  treeColumn?: string;
   /** Number of rows matching the query (offset pagination). */
   total?: number;
+  /**
+   * The user's saved views - controlled, with `onViewsChange`. See
+   * `enableViews`.
+   */
+  views?: DataTableView[];
   /**
    * Renders only the rows in view of the scrolling table (see `maxHeight`)
    * - for thousands of rows, e.g. a `clientSide` table with
    * `pagination={false}`. Rows may differ in height (expanded details);
-   * they are measured.
+   * they are measured. A printout has all of them.
    */
   virtualized?: boolean;
 }
 
 /**
  * A data grid with sorting by one or several columns, column filters (texts,
- * options, ranges), global search, pagination, row selection with group
- * actions, row links, expandable and grouped rows, column groups,
- * reordering, hiding, pinning and resizing, row density, inline editing, a
- * summary row, CSV export and row virtualization. Works with any data
- * source: the table reports a `DataTableQuery` and shows the rows it is
- * given. The attributes and the `ref` go to the region around it. A selected
- * row has `data-selected`, a row with a detail (`renderSubRow`) and a group
- * of rows `data-state="open"` or `"closed"` - for styling.
+ * options, ranges, yes / no) shown as removable chips, global search,
+ * pagination, row selection with group actions, row links, context menus,
+ * expandable and grouped rows, tree data (sub rows with the same columns,
+ * also loaded lazily), column groups, reordering, hiding, pinning and
+ * resizing, row density, saved views, inline editing, a summary row, CSV
+ * export, copying to the clipboard, printing, a load error with a retry and
+ * row virtualization. Works with any data source: the table reports a
+ * `DataTableQuery` and shows the rows it is given. The attributes and the
+ * `ref` go to the region around it. A selected row has `data-selected`, a
+ * row with a detail (`renderSubRow`) and a group of rows
+ * `data-state="open"` or `"closed"` - for styling; rows of tree data have
+ * `aria-level` and, with sub rows, `aria-expanded`.
  */
 export default function DataTable<T>({
   actions,
+  activeViewId: activeViewIdProp,
   "aria-label": ariaLabel,
   "aria-labelledby": ariaLabelledBy,
   autoResetSelectedRows = false,
+  cascadeSelection = false,
   className,
   clientSide = false,
   columns: columnEntries,
   columnState,
+  copyable = true,
   csvSeparator,
   data,
   defaultExpandedIds,
   defaultColumnState,
+  defaultExpandDepth = 0,
+  defaultExpandedTreeIds,
   defaultQuery,
   defaultSearchOpen = false,
   defaultSelectedIds,
@@ -534,14 +712,21 @@ export default function DataTable<T>({
   emptyMessage,
   enableCsvExport = false,
   enableGlobalSearch = false,
+  enableViews = false,
+  error,
   expandedByDefault = false,
   expandedIds: controlledExpandedIds,
+  expandedTreeIds,
   exportFilename = "export.csv",
+  filterChips = true,
   filteredSelection,
   getRowBackgroundColor,
   getRowClassName,
+  getRowContextMenu,
   getRowHref,
   getRowId = defaultRowId,
+  getSubRows,
+  hasSubRows,
   isRowSelectable,
   groupActions,
   groupBy,
@@ -549,20 +734,29 @@ export default function DataTable<T>({
   collapsedGroupKeys,
   defaultCollapsedGroupKeys = [],
   onCollapsedGroupKeysChange,
+  loadSubRows,
+  loadSubRowsKey,
   loading,
   maxHeight = "calc(100vh - 212px)",
   multiSort = clientSide,
+  onActiveViewChange,
   onCellEdit,
   onColumnStateChange,
   onExport,
   onExportError,
   onExpandedIdsChange,
+  onExpandedTreeIdsChange,
+  onKeyDown,
+  onLoadSubRowsError,
   onQueryChange,
+  onRetry,
   onRowClick,
   onSelectedIdsChange,
+  onViewsChange,
   pageInfo,
   pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   pagination = true,
+  presetViews,
   query: controlledQuery,
   ref,
   renderSubRow,
@@ -573,6 +767,8 @@ export default function DataTable<T>({
   tableId,
   toolbar,
   total,
+  treeColumn,
+  views,
   virtualized: virtualizedProp = false,
   ...props
 }: DataTableProps<T>) {
@@ -624,7 +820,9 @@ export default function DataTable<T>({
   } = useMemo(() => flattenColumns(columnEntries), [columnEntries]);
 
   const {
+    applyColumnState,
     columnOrder,
+    columnState: currentColumnState,
     columnVisibility,
     columnWidths: userWidths,
     density: savedDensity,
@@ -651,8 +849,10 @@ export default function DataTable<T>({
   // The user's choice - unless the control to make it is gone
   const density = (densityControl && savedDensity) || defaultDensity;
 
+  // Tree data nests the rows under their parents - not in groups as well
+  const isTree = !!getSubRows || !!loadSubRows;
   const groupingKey = JSON.stringify(
-    typeof groupBy === "string" ? [groupBy] : (groupBy ?? []),
+    isTree ? [] : typeof groupBy === "string" ? [groupBy] : (groupBy ?? []),
   );
   const groupColumns = useMemo(
     () =>
@@ -662,7 +862,37 @@ export default function DataTable<T>({
       }),
     [columns, groupingKey],
   );
-  const virtualized = virtualizedProp;
+
+  // A printout has all the rows - not only those a virtualized table shows.
+  // Rendered before the browser lays the page out for print, which comes
+  // right after `beforeprint` (or the change of the media query in Safari).
+  const [isPrinting, setIsPrinting] = useState(false);
+
+  useEffect(() => {
+    if (!virtualizedProp) return;
+
+    const printing = (value: boolean) => () =>
+      flushSync(() => setIsPrinting(value));
+    const handleBeforePrint = printing(true);
+    const handleAfterPrint = printing(false);
+    const media =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia("print")
+        : null;
+    const handleMediaChange = (event: MediaQueryListEvent) =>
+      printing(event.matches)();
+
+    window.addEventListener("beforeprint", handleBeforePrint);
+    window.addEventListener("afterprint", handleAfterPrint);
+    media?.addEventListener?.("change", handleMediaChange);
+    return () => {
+      window.removeEventListener("beforeprint", handleBeforePrint);
+      window.removeEventListener("afterprint", handleAfterPrint);
+      media?.removeEventListener?.("change", handleMediaChange);
+    };
+  }, [virtualizedProp]);
+
+  const virtualized = virtualizedProp && !isPrinting;
 
   // The term of the search field - without the field nothing could show or
   // clear a search, so a `clientSide` table ignores one then
@@ -708,8 +938,8 @@ export default function DataTable<T>({
         }),
     ),
   );
-  const matchingRows = useMemo(() => {
-    if (!clientSide) return null;
+  const flatMatchingRows = useMemo(() => {
+    if (!clientSide || isTree) return null;
 
     const result = filterAndSortRows(
       data,
@@ -737,6 +967,7 @@ export default function DataTable<T>({
     data,
     filtersKey,
     groupingKey,
+    isTree,
     locale,
     queryColumns,
     searchColumns,
@@ -745,14 +976,60 @@ export default function DataTable<T>({
   ]);
   const clientPage = useMemo(
     () =>
-      matchingRows && pagination
-        ? paginateRows(matchingRows, query.page, query.pageSize)
+      flatMatchingRows && pagination
+        ? paginateRows(flatMatchingRows, query.page, query.pageSize)
         : null,
-    [matchingRows, pagination, query.page, query.pageSize],
+    [flatMatchingRows, pagination, query.page, query.pageSize],
   );
-  const rows = clientPage?.rows ?? matchingRows ?? data;
-  const rowsTotal = matchingRows?.length ?? total;
-  const page = clientPage?.page ?? (matchingRows ? 1 : query.page);
+
+  // Tree data: the rows with their sub rows - client-side filtered with the
+  // ancestors of the matches, siblings sorted, paged by the top-level rows
+  const treeFilters = useMemo(
+    () => JSON.parse(filtersKey) as DataTableQuery["filters"],
+    [filtersKey],
+  );
+  const tree = useDataTableTree({
+    clientSide,
+    data,
+    defaultExpandDepth,
+    defaultExpandedIds: defaultExpandedTreeIds,
+    expandedIds: expandedTreeIds,
+    filterKey: JSON.stringify([filtersKey, searchTerm]),
+    filters: treeFilters,
+    getRowId,
+    getSubRows,
+    hasGroupBy: typeof groupBy === "string" || !!groupBy?.length,
+    hasSubRows,
+    loadSubRows,
+    loadSubRowsKey,
+    locale,
+    onExpandedIdsChange: onExpandedTreeIdsChange,
+    onLoadError: onLoadSubRowsError,
+    page: query.page,
+    pageInfo,
+    pageSize: query.pageSize,
+    pagination,
+    queryColumns,
+    search: searchTerm,
+    searchColumns,
+    sort,
+    total,
+    treeColumn,
+  });
+
+  // All rows matching the filters of a `clientSide` table - of tree data
+  // also the sub rows, depth first
+  const matchingRows = tree.matchingRows ?? flatMatchingRows;
+  const rows = tree.pageRows ?? clientPage?.rows ?? matchingRows ?? data;
+  // The rows a row is looked up among by its id - with tree data also the
+  // known sub rows
+  const knownRows = tree.knownRows ?? data;
+  // The number of rows the pagination pages - of tree data the top-level
+  // ones
+  const rowsTotal = tree.enabled
+    ? (tree.rootTotal ?? total)
+    : (matchingRows?.length ?? total);
+  const page = tree.page ?? clientPage?.page ?? (matchingRows ? 1 : query.page);
 
   // The rendered widths of the columns by key - for the sticky offsets
   const [measuredWidths, setMeasuredWidths] = useState<Record<string, number>>(
@@ -844,8 +1121,10 @@ export default function DataTable<T>({
   }, []);
 
   // Summaries: of all rows matching the filters of a `clientSide` table, of
-  // the loaded rows with server data - where the server gave no value
-  const summaryRows = matchingRows ?? rows;
+  // the loaded rows with server data - where the server gave no value. Of
+  // tree data the rows at the bottom of the tree: the rows above may hold
+  // the totals of their branches, which would count twice.
+  const summaryRows = tree.summaryRows ?? matchingRows ?? rows;
   const summaryData = useMemo(() => {
     const values = columnRecord<unknown>();
     let hasValues = false;
@@ -866,7 +1145,12 @@ export default function DataTable<T>({
 
     return hasValues ? values : null;
   }, [sortedVisibleColumns, summaryRows, summaryValues]);
-  const hasSummaryRow = !!summaryData && rows.length > 0;
+
+  // A load that failed - its message takes the place of the rows, which
+  // belong to the query that failed or an older one
+  const hasError =
+    error !== undefined && error !== null && error !== false && error !== "";
+  const hasSummaryRow = !!summaryData && rows.length > 0 && !hasError;
 
   // The height of the sticky parts of the table - the focus scrolls a
   // control (a checkbox, an edited cell) out from under them
@@ -1076,7 +1360,7 @@ export default function DataTable<T>({
     defaultSelectedIds,
     // Client-side all rows are loaded - a controlled selection may keep
     // rows of other pages
-    lookupRows: clientSide ? data : rows,
+    lookupRows: clientSide ? knownRows : rows,
     loading,
     resetKey: selectionScopeKey,
     selectedIds: controlledSelectedIds,
@@ -1139,7 +1423,7 @@ export default function DataTable<T>({
   ): GroupActionSelection<T> => {
     const idSet = new Set(ids);
     const loaded = new Map(
-      (clientSide ? data : rows)
+      (clientSide ? knownRows : rows)
         .filter(canSelectRow)
         .map((row) => [getRowId(row), row]),
     );
@@ -1169,7 +1453,7 @@ export default function DataTable<T>({
    */
   const commitSelection = (ids: RowId[], excluded: T[] | null = null) => {
     if (excluded === null) {
-      const known = new Map(data.map((row) => [getRowId(row), row]));
+      const known = new Map(knownRows.map((row) => [getRowId(row), row]));
       ids = ids.filter(
         (id) => !known.has(id) || canSelectRow(known.get(id) as T),
       );
@@ -1567,6 +1851,97 @@ export default function DataTable<T>({
     );
   };
 
+  // Count the removals of single filters by their chips, and of the search -
+  // their fields drop a text typed but not committed yet
+  const [chipResetKeys, setChipResetKeys] = useState(() =>
+    columnRecord<number>(),
+  );
+  const [searchResetKey, setSearchResetKey] = useState(0);
+
+  // The chips of the active filters - in the order of the columns, those of
+  // no column after them (a server gets them), then the search where it
+  // applies
+  const activeFilterChips: FilterChip[] = [];
+  if (filterChips) {
+    const { activeFilters } = messages.dataTable;
+    const addChip = (key: string, label: string, column?: Column<T>) => {
+      const value = normalizeFilterValue(
+        Object.hasOwn(query.filters, key) ? query.filters[key] : undefined,
+      );
+      if (value === null) return;
+      activeFilterChips.push({
+        key,
+        text: formatMessage(activeFilters.chip, {
+          label,
+          value: formatFilterChipValue(column, value, locale),
+        }),
+      });
+    };
+
+    for (const key of columnOrder) {
+      const column = columns.find((candidate) => candidate.key === key);
+      if (column && isFilterColumn(column)) {
+        addChip(key, column.labelTitle ?? column.label, column);
+      }
+    }
+    if (!clientSide) {
+      for (const key of activeFilterKeys) {
+        if (!isColumnFilter(key)) addChip(key, key);
+      }
+    }
+    const appliedSearch = clientSide ? searchTerm : query.search;
+    if (appliedSearch) {
+      activeFilterChips.push({
+        key: null,
+        text: formatMessage(activeFilters.search, { value: appliedSearch }),
+      });
+    }
+  }
+
+  const removeFilterChip = (key: string | null) => {
+    if (key === null) {
+      setSearchResetKey((count) => count + 1);
+      updateQuery((current) =>
+        current.search ? resetPagination(current, { search: "" }) : current,
+      );
+      return;
+    }
+
+    setChipResetKeys((previous) =>
+      columnRecord({ ...previous, [key]: (previous[key] ?? 0) + 1 }),
+    );
+    updateQuery((current) => setFilter(current, key, ""));
+  };
+
+  const clearFilterChips = () => {
+    setFilterResetKey((count) => count + 1);
+    setSearchResetKey((count) => count + 1);
+    updateQuery((current) =>
+      resetPagination(current, { filters: {}, search: "" }),
+    );
+  };
+
+  // Saved views - their menu, by the presets of the app or the user's own
+  const hasViews =
+    enableViews || views !== undefined || (presetViews?.length ?? 0) > 0;
+
+  // The query and the column settings of a view, from the first page
+  const applyView = (view: DataTableView) => {
+    // Texts typed in the fields would come back once typing pauses
+    setFilterResetKey((count) => count + 1);
+    setSearchResetKey((count) => count + 1);
+    updateQuery((current) =>
+      resetPagination(current, {
+        filters: columnRecord(view.query.filters),
+        // Left out, the page size stays
+        pageSize: view.query.pageSize,
+        search: view.query.search ?? "",
+        sort: view.query.sort ?? [],
+      }),
+    );
+    if (view.columnState) applyColumnState(view.columnState);
+  };
+
   // Column widths: the one the user drags or resized the column to, or its
   // `width` - within its limits. A drag renders when it starts and when it
   // ends; in between the width follows the pointer through a CSS variable.
@@ -1642,6 +2017,14 @@ export default function DataTable<T>({
 
   const hasCellEditing = !!onCellEdit;
   const hasRowLinks = getRowHref !== undefined;
+  // Tree data: the column with the toggles of the sub rows - the one named,
+  // or the first one shown while it is hidden
+  const treeColumnKey = !tree.enabled
+    ? null
+    : treeColumn !== undefined &&
+        sortedVisibleColumns.some((column) => column.key === treeColumn)
+      ? treeColumn
+      : (sortedVisibleColumns[0]?.key ?? null);
 
   // Where the cells of each column go, in the order the columns are shown:
   // the expand, selection and actions columns stick first, then the columns
@@ -1743,7 +2126,8 @@ export default function DataTable<T>({
     // hidden, it measures no width and would stick again, shown, too wide
     // to stick); one of a group, whose header spans it; an editable one,
     // whose cell may be the tab stop of the editable cells; the first one of
-    // rows with links, which holds them
+    // rows with links, which holds them; the tree column, which holds the
+    // toggles of the sub rows
     sortedVisibleColumns.forEach((column, index) => {
       const columnLayout = layouts[column.key] ?? DEFAULT_CELL_LAYOUT;
       if (
@@ -1752,7 +2136,8 @@ export default function DataTable<T>({
         !pinnedColumns.right.includes(column.key) &&
         groupOf[column.key] === undefined &&
         !(hasCellEditing && column.editable) &&
-        !(hasRowLinks && index === 0)
+        !(hasRowLinks && index === 0) &&
+        column.key !== treeColumnKey
       ) {
         layouts[column.key] = { ...columnLayout, hideBelow: column.hideBelow };
       }
@@ -1774,6 +2159,7 @@ export default function DataTable<T>({
     scrollEdges.start,
     sizedWidthsKey,
     sortedVisibleColumns,
+    treeColumnKey,
     viewWidth,
   ]);
 
@@ -1811,10 +2197,10 @@ export default function DataTable<T>({
   // New rows drop the changes that no longer show - a refusal must not stay
   // under a cell that holds another value by now, nor the changes of rows
   // gone pile up
-  const [cellStatesData, setCellStatesData] = useState(data);
-  if (cellStates.size > 0 && cellStatesData !== data) {
-    const pruned = pruneCellStates(cellStates, data, columns, getRowId);
-    setCellStatesData(data);
+  const [cellStatesData, setCellStatesData] = useState(knownRows);
+  if (cellStates.size > 0 && cellStatesData !== knownRows) {
+    const pruned = pruneCellStates(cellStates, knownRows, columns, getRowId);
+    setCellStatesData(knownRows);
     setCellStates(pruned);
     if (editAnnouncement && !pruned.has(editAnnouncement.key)) {
       setEditAnnouncement(null);
@@ -1822,12 +2208,12 @@ export default function DataTable<T>({
   }
 
   // The rows as they are when a save ends - the current object of its row
-  const latestData = useRef(data);
+  const latestData = useRef(knownRows);
 
   // A save can finish while Activity hides the table. Hidden commits must
   // update its rows too, so a poll does not discard the saved draft.
   useInsertionEffect(() => {
-    latestData.current = data;
+    latestData.current = knownRows;
   });
 
   // While a cell is edited the rows stay where they are: a saved value that
@@ -1837,24 +2223,39 @@ export default function DataTable<T>({
   // for is kept too - another page, sorting or filter ends the editing.
   const [frozenRows, setFrozenRows] = useState<{
     ids: RowId[];
+    /** Tree data: the rows with their places in the tree. */
+    nodes: TreeNode<T>[] | null;
     query: DataTableQuery;
   } | null>(null);
   if (editingCell && !frozenRows) {
-    setFrozenRows({ ids: rows.map((row) => getRowId(row)), query });
+    setFrozenRows({
+      ids: rows.map((row) => getRowId(row)),
+      nodes: tree.pageNodes,
+      query,
+    });
   } else if (!editingCell && frozenRows) {
     setFrozenRows(null);
   }
   const frozenRowIds = frozenRows?.ids;
+  const frozenNodes = frozenRows?.nodes;
 
   const bodyRows = useMemo(() => {
     if (!frozenRowIds) return rows;
 
-    const rowsById = new Map(data.map((row) => [getRowId(row), row]));
+    const rowsById = new Map(knownRows.map((row) => [getRowId(row), row]));
     return frozenRowIds.flatMap((id) => {
       const row = rowsById.get(id);
       return row ? [row] : [];
     });
-  }, [data, frozenRowIds, rows, getRowId]);
+  }, [frozenRowIds, knownRows, rows, getRowId]);
+
+  // Tree data: the rows shown - the sub rows of the expanded rows - in the
+  // order kept while a cell is edited
+  const { getShown, pageNodes, refreshNodes } = tree;
+  const shownNodes = useMemo(() => {
+    const nodes = frozenNodes ? refreshNodes(frozenNodes) : pageNodes;
+    return nodes ? getShown(nodes) : null;
+  }, [frozenNodes, getShown, pageNodes, refreshNodes]);
 
   const rowGroups = useMemo(
     () =>
@@ -1915,8 +2316,9 @@ export default function DataTable<T>({
             ? flatten(group.children)
             : group.rows,
       );
+    if (shownNodes) return shownNodes.map((node) => node.row);
     return rowGroups ? flatten(rowGroups) : bodyRows;
-  }, [bodyRows, collapsedGroups, rowGroups]);
+  }, [bodyRows, collapsedGroups, rowGroups, shownNodes]);
   const toggleGroup = (key: string) => {
     const next = new Set(collapsedGroups);
     if (!next.delete(key)) next.add(key);
@@ -1924,13 +2326,24 @@ export default function DataTable<T>({
     onCollapsedGroupKeysChange?.([...next]);
   };
 
+  // Tree data with `cascadeSelection`: a row is checked with its whole
+  // branch, mixed with some of it
+  const isCascading =
+    cascadeSelection && tree.enabled && selectionMode === "multiple";
+  const checkStates =
+    isCascading && pageNodes
+      ? getTreeCheckStates(pageNodes, displayedSelectedIds, canSelectRow)
+      : null;
+  const checkedIds = checkStates?.checked ?? displayedSelectedIds;
+
   // Shift + click selects the rows from the row clicked before - in the
   // order they are shown
   const [selectionAnchor, setSelectionAnchor] = useState<RowId | null>(null);
 
   const handleToggleRowSelection = (row: T, extend: boolean) => {
     if (!canSelectRow(row)) return;
-    const isChecked = !displayedSelectedIds.has(getRowId(row));
+    // A mixed row is checked with its whole branch, as a mixed checkbox is
+    const isChecked = !checkedIds.has(getRowId(row));
     setSelectionAnchor(getRowId(row));
 
     if (selectionMode === "single") {
@@ -1953,7 +2366,20 @@ export default function DataTable<T>({
             Math.min(anchorIndex, rowIndex),
             Math.max(anchorIndex, rowIndex) + 1,
           );
-    const toggled = rangeRows.filter(canSelectRow);
+    const rangeSelectable = rangeRows.filter(canSelectRow);
+    // Cascading, the rows take their branches along - collapsed too
+    const changedKeys = new Set(
+      rangeSelectable.map((candidate) => getRowKey(getRowId(candidate))),
+    );
+    const toggled =
+      checkStates && pageNodes
+        ? [
+            ...new Set([
+              ...rangeSelectable,
+              ...getBranchRows(pageNodes, changedKeys),
+            ]),
+          ].filter(canSelectRow)
+        : rangeSelectable;
     const toggledIds = new Set(toggled.map((candidate) => getRowId(candidate)));
 
     if (isAllFilteredSelected) {
@@ -1973,10 +2399,14 @@ export default function DataTable<T>({
     }
 
     const others = selectedIdList.filter((id) => !toggledIds.has(id));
+    const ids = isChecked
+      ? [...others, ...toggled.map((item) => getRowId(item))]
+      : others;
+    // Their parents are checked with all of their sub rows
     commitSelection(
-      isChecked
-        ? [...others, ...toggled.map((item) => getRowId(item))]
-        : others,
+      checkStates && pageNodes
+        ? selectAncestors(ids, pageNodes, changedKeys, canSelectRow)
+        : ids,
     );
   };
 
@@ -2024,7 +2454,7 @@ export default function DataTable<T>({
   // invalid value would not follow the page, sorting or filters the header
   // and the pagination show - a collapsed group, and a cell that can no
   // longer be edited (a refetch locked its row), whose field is gone but
-  // whose frozen rows would stay
+  // whose frozen rows would stay - and a failed load hiding the rows
   if (editingCell) {
     const editingRowIndex = shownRows.findIndex(
       (row) => getRowId(row) === editingCell.rowId,
@@ -2036,6 +2466,7 @@ export default function DataTable<T>({
       editingRowIndex === -1 ||
       !editingColumn ||
       !hasCellEditing ||
+      hasError ||
       !isEditableCell(editingColumn, shownRows[editingRowIndex]) ||
       (frozenRows && !isSameQuery(frozenRows.query, query))
     ) {
@@ -2063,13 +2494,13 @@ export default function DataTable<T>({
   // rows, so that the (memoized) rows do not render again.
   const getColumnSample = useCallback(
     (column: Column<T>) => {
-      for (const row of data) {
+      for (const row of knownRows) {
         const value = getColumnValue(row, column);
         if (!isEmpty(value)) return value;
       }
       return undefined;
     },
-    [data],
+    [knownRows],
   );
 
   const saveCellEdit = (
@@ -2196,6 +2627,27 @@ export default function DataTable<T>({
     return !!next;
   };
 
+  // The visible columns with the values their cells show - unless a column
+  // gives its own `exportValue` - for the export and the clipboard
+  const getShownColumns = () =>
+    sortedVisibleColumns.map((column) =>
+      column.exportValue
+        ? column
+        : {
+            ...column,
+            // The same value as the cell, including a rejected
+            // optimistic update or a save awaiting refreshed data.
+            // Resolve by column: getValue may read a nested value
+            // that cannot be replaced by assigning row[column.key].
+            exportValue: (row: T) =>
+              getShownValue(
+                cellStates.get(getCellKey(getRowId(row), column.key)),
+                row,
+                getColumnValue(row, column),
+              ).value,
+          },
+    );
+
   // CSV export - one at a time
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState(false);
@@ -2206,25 +2658,7 @@ export default function DataTable<T>({
     setExportError(false);
 
     // What the user sees now - the columns may change while rows load
-    const exportColumns = onExport
-      ? sortedVisibleColumns
-      : sortedVisibleColumns.map((column) =>
-          column.exportValue
-            ? column
-            : {
-                ...column,
-                // The same value as the cell, including a rejected
-                // optimistic update or a save awaiting refreshed data.
-                // Resolve by column: getValue may read a nested value
-                // that cannot be replaced by assigning row[column.key].
-                exportValue: (row: T) =>
-                  getShownValue(
-                    cellStates.get(getCellKey(getRowId(row), column.key)),
-                    row,
-                    getColumnValue(row, column),
-                  ).value,
-              },
-        );
+    const exportColumns = onExport ? sortedVisibleColumns : getShownColumns();
     let exportRows: T[] | null = matchingRows ?? rows;
 
     if (onExport) {
@@ -2241,9 +2675,25 @@ export default function DataTable<T>({
     }
 
     if (exportRows) {
+      // Tree data: depth first, with the level of each row in a column in
+      // front - `onExport` gives the top-level rows
+      const treeExport = tree.enabled
+        ? tree.getExport(onExport ? exportRows : undefined)
+        : null;
+      const csvRows = treeExport ? treeExport.rows : exportRows;
+      const csvColumns: Column<T>[] = treeExport
+        ? [
+            {
+              exportValue: (row: T) => treeExport.levels.get(row),
+              key: LEVEL_COLUMN_KEY,
+              label: messages.dataTable.tree.level,
+            },
+            ...exportColumns,
+          ]
+        : exportColumns;
       try {
         downloadCsv(
-          createCsv(exportRows, exportColumns, {
+          createCsv(csvRows, csvColumns, {
             locale,
             separator: csvSeparator,
           }),
@@ -2255,6 +2705,190 @@ export default function DataTable<T>({
         onExportError?.(error);
       }
     }
+  };
+
+  // The rows of the body - none while the message of a failed load takes
+  // their place
+  const tableBodyRows = hasError ? NO_ROWS : shownRows;
+
+  // Counts the failed loads - a retry failing with the same message is
+  // announced again, by a new alert
+  const [failure, setFailure] = useState({
+    count: 0,
+    error: hasError,
+    loading: !!loading,
+  });
+  if (failure.error !== hasError || failure.loading !== !!loading) {
+    const isNewFailure =
+      hasError && (!failure.error || (failure.loading && !loading));
+    setFailure({
+      count: failure.count + (isNewFailure ? 1 : 0),
+      error: hasError,
+      loading: !!loading,
+    });
+  }
+
+  // The message goes once rows load - taking along the focus of its "Try
+  // again" button, which goes to the rows (or the table) then instead of
+  // the page. Looked at as the message leaves, while it is in the page.
+  const loadErrorRef = useCallback((element: HTMLDivElement | null) => {
+    if (!element) return;
+    return () => {
+      const { ownerDocument } = element;
+      if (!element.contains(ownerDocument.activeElement)) return;
+      // Once the rows are in the page
+      queueMicrotask(() => {
+        const active = ownerDocument.activeElement;
+        if (active && active !== ownerDocument.body) return;
+        const table = tableRef.current;
+        (
+          getTabbableElements(table?.tBodies[0])[0] ??
+          getTabbableElements(table)[0] ??
+          getTabbableElements(rootRef.current)[0]
+        )?.focus();
+      });
+    };
+  }, []);
+
+  const loadError = hasError && (
+    <div
+      className="flex flex-col items-center gap-3 text-center"
+      ref={loadErrorRef}
+    >
+      <div
+        className="flex items-center gap-2 text-danger-700 dark:text-danger-400"
+        key={failure.count}
+        role="alert"
+      >
+        <CircleAlert aria-hidden="true" className="shrink-0" size={18} />
+        <span>{error === true ? messages.dataTable.loadFailed : error}</span>
+      </div>
+      {onRetry && (
+        <Button
+          className="print:hidden"
+          loading={loading}
+          onClick={onRetry}
+          size="sm"
+          variant="outline"
+        >
+          {messages.dataTable.retry}
+        </Button>
+      )}
+    </div>
+  );
+
+  // Copying to the clipboard with Ctrl + C - told to screen readers
+  const { copy } = useClipboard();
+  const [announcement, setAnnouncement] = useState<{
+    id: number;
+    text: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!announcement) return;
+    const timer = setTimeout(
+      () => setAnnouncement(null),
+      ANNOUNCEMENT_DURATION,
+    );
+    return () => clearTimeout(timer);
+  }, [announcement]);
+
+  /**
+   * What Ctrl + C copies with the focus at `target`: the selected rows in
+   * the order they are shown, or else the focused cell or row - `null` for
+   * nothing.
+   */
+  const getCopiedText = (target: Element) => {
+    const copyColumns = getShownColumns();
+
+    if (selectedCount > 0) {
+      const shownOrder = new Map(
+        (matchingRows ?? rows).map((row, index) => [row, index]),
+      );
+      const copiedRows = isAllFilteredSelected
+        ? (matchingRows ?? rows).filter(
+            (row) => canSelectRow(row) && !excludedIds.has(getRowId(row)),
+          )
+        : selectedRows.toSorted(
+            (a, b) =>
+              (shownOrder.get(a) ?? Infinity) - (shownOrder.get(b) ?? Infinity),
+          );
+      if (copiedRows.length > 0) {
+        return {
+          message: formatPlural(
+            locale.code,
+            messages.dataTable.copied.rows,
+            copiedRows.length,
+          ),
+          text: createTsv(copiedRows, copyColumns, { locale }),
+        };
+      }
+    }
+
+    // A row of this body - not of a table nested in the detail of a row
+    const body = tableRef.current?.tBodies[0];
+    const rowElement = body?.contains(target)
+      ? findBodyRow(body, target)
+      : null;
+    const index = rowElement?.getAttribute("data-row-index");
+    const row = index ? tableBodyRows[Number(index)] : undefined;
+    // Not the detail of a row, which has no cells of the columns
+    if (
+      !rowElement ||
+      row === undefined ||
+      !rowElement.querySelector(":scope > [data-column-key]")
+    ) {
+      return null;
+    }
+
+    const columnKey = Array.from(rowElement.children)
+      .find((cell) => cell.contains(target))
+      ?.getAttribute("data-column-key");
+    const column = copyColumns.find((candidate) => candidate.key === columnKey);
+
+    return column
+      ? {
+          message: messages.dataTable.copied.cell,
+          text: createTsv([row], [column], { header: false, locale }),
+        }
+      : {
+          message: formatPlural(locale.code, messages.dataTable.copied.rows, 1),
+          text: createTsv([row], copyColumns, { header: false, locale }),
+        };
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    onKeyDown?.(event);
+    if (
+      !copyable ||
+      event.defaultPrevented ||
+      !matchesShortcut(event, "mod+c")
+    ) {
+      return;
+    }
+
+    // A field copies its own text, and so does a text the user selected -
+    // and a dialog or a menu opened from the table (a portal) has its keys
+    const target = event.target as Element;
+    const selection = target.ownerDocument.getSelection();
+    if (
+      !event.currentTarget.contains(target) ||
+      isTypingTarget(target) ||
+      (selection && !selection.isCollapsed && selection.toString() !== "")
+    ) {
+      return;
+    }
+
+    const copied = getCopiedText(target);
+    if (!copied) return;
+
+    event.preventDefault();
+    void copy(copied.text).then((success) =>
+      setAnnouncement((current) => ({
+        id: (current?.id ?? 0) + 1,
+        text: success ? copied.message : messages.dataTable.copied.failed,
+      })),
+    );
   };
 
   // A row of the column groups over the headers of their columns
@@ -2279,11 +2913,12 @@ export default function DataTable<T>({
   // number (and place, `aria-rowindex`) from the attributes
   const rowCount = virtualized
     ? headerRowCount +
-      shownRows.length +
-      (renderSubRow
+      // The message of a failed load is a row of its own
+      (hasError ? 1 : shownRows.length) +
+      (renderSubRow && !hasError
         ? shownRows.filter((row) => expandedRows.has(getRowId(row))).length
         : 0) +
-      countGroupRows(bodyGroups) +
+      (hasError ? 0 : countGroupRows(bodyGroups)) +
       (hasSummaryRow ? 1 : 0)
     : undefined;
 
@@ -2297,10 +2932,11 @@ export default function DataTable<T>({
       {...props}
       className={cn(
         isFullScreen
-          ? "fixed inset-0 z-50 bg-surface dark:bg-surface-dark"
+          ? "fixed inset-0 z-50 bg-surface dark:bg-surface-dark print:static"
           : "relative",
         className,
       )}
+      onKeyDown={handleKeyDown}
       ref={rootRefCallback}
     >
       {/* Popovers opened in the table count as part of it in full screen */}
@@ -2308,14 +2944,14 @@ export default function DataTable<T>({
         {exportError && (
           <div
             role="alert"
-            className="mb-2 text-sm text-danger-700 dark:text-danger-400"
+            className="mb-2 text-sm text-danger-700 dark:text-danger-400 print:hidden"
           >
             {messages.dataTable.exportFailed}
           </div>
         )}
         {hasGroupActions && (rowsTotal ?? rows.length) > 0 && (
           <div
-            className="mb-2 flex flex-wrap items-center gap-3.5"
+            className="mb-2 flex flex-wrap items-center gap-3.5 print:hidden"
             ref={actionBarRef}
           >
             <div className="flex flex-wrap gap-2">
@@ -2384,7 +3020,7 @@ export default function DataTable<T>({
         {selectionConfig && (
           <div aria-live="polite">
             {selectedCount > 0 && (
-              <div className="mb-2 rounded-md border border-primary-200 bg-primary-50 px-3 py-2 text-sm text-primary-950 dark:border-primary-800 dark:bg-primary-950 dark:text-primary-50">
+              <div className="mb-2 rounded-md border border-primary-200 bg-primary-50 px-3 py-2 text-sm text-primary-950 dark:border-primary-800 dark:bg-primary-950 dark:text-primary-50 print:hidden">
                 {isAllFilteredSelected ? (
                   <>
                     {excludedRows.length === 0
@@ -2457,8 +3093,24 @@ export default function DataTable<T>({
             </div>
           </>
         )}
+        {tree.enabled && (
+          // Sub rows the user waits for, expanding or collapsing all rows
+          <div aria-live="polite" className="sr-only">
+            {tree.announcement && (
+              <span key={tree.announcement.id}>{tree.announcement.text}</span>
+            )}
+          </div>
+        )}
+        {/* What was copied - there before the first copy, so that a change
+            is announced; a new node repeats a message */}
+        <div aria-live="polite" className="sr-only">
+          {announcement && (
+            <span key={announcement.id}>{announcement.text}</span>
+          )}
+        </div>
         <div
-          className="overflow-x-auto rounded-t-lg border border-neutral-100 bg-surface shadow-lg dark:border-neutral-900 dark:bg-surface-dark"
+          // Printed whole - not up to `maxHeight`, which is inline
+          className="overflow-x-auto rounded-t-lg border border-neutral-100 bg-surface shadow-lg dark:border-neutral-900 dark:bg-surface-dark print:max-h-none! print:overflow-visible print:shadow-none"
           data-table-scroll=""
           onFocus={(event) => {
             // What sticks is in view already, but the browser scrolls the
@@ -2512,6 +3164,13 @@ export default function DataTable<T>({
             density={density}
             densityControl={densityControl}
             enableGlobalSearch={enableGlobalSearch}
+            filterChips={
+              <FilterChips
+                chips={activeFilterChips}
+                onClearAll={clearFilterChips}
+                onRemove={removeFilterChip}
+              />
+            }
             handleDragOver={handleDragOver}
             handleDragStart={handleDragStart}
             handleDrop={handleDrop}
@@ -2537,12 +3196,29 @@ export default function DataTable<T>({
             pinnedColumns={pinnedColumns}
             ref={headerRef}
             search={searchTerm}
+            searchResetKey={searchResetKey}
             setColumnVisibility={changeColumnVisibility}
             setIsFullScreen={setIsFullScreen}
             // The header of the actions column has the button otherwise - in
             // the row of the filters, which only a visible filter field adds
             showClearFilters={hasFilterColumns ? !actions : hasHiddenFilters}
             toolbar={toolbar}
+            viewsMenu={
+              hasViews && (
+                <SavedViews
+                  activeViewId={activeViewIdProp}
+                  columnState={currentColumnState}
+                  getLatestQuery={() => latestQuery.get()}
+                  onActiveViewChange={onActiveViewChange}
+                  onApply={applyView}
+                  onViewsChange={onViewsChange}
+                  presetViews={presetViews}
+                  query={query}
+                  tableId={tableId}
+                  views={views}
+                />
+              )
+            }
           />
 
           <table
@@ -2555,6 +3231,9 @@ export default function DataTable<T>({
             className={cn(
               "relative bg-surface dark:bg-surface-dark",
               isEverySized ? "w-auto" : "w-full",
+              // A printout has no checkboxes, actions and toggles, and keeps
+              // the rows whole
+              "print:**:data-leading-column:hidden print:[&_tr]:break-inside-avoid",
             )}
             ref={tableRefCallback}
           >
@@ -2568,6 +3247,7 @@ export default function DataTable<T>({
               columnGroups={hasColumnGroups ? columnGroups : null}
               expandColumnRef={expandColumnRef}
               filterResetKey={filterResetKey}
+              filterResetKeys={chipResetKeys}
               filters={query.filters}
               groupOf={groupOf}
               handleDragOver={handleDragOver}
@@ -2611,37 +3291,49 @@ export default function DataTable<T>({
               ref={theadRef}
               renderSubRow={renderSubRow}
               selectAllRef={selectAllRef}
-              selectAllDisabled={selectableRows.length === 0}
+              selectAllDisabled={selectableRows.length === 0 || hasError}
               selectionColumnRef={selectionColumnRef}
               selectionMode={selectionMode}
               sort={sort}
               sortedVisibleColumns={sortedVisibleColumns}
               stickyTop={headerHeight}
               toggleSelectAll={handleToggleSelectAll}
+              treeToggle={
+                treeColumnKey !== null && tree.canExpand
+                  ? {
+                      columnKey: treeColumnKey,
+                      expanded: tree.anyExpanded,
+                      onToggle: tree.anyExpanded
+                        ? tree.collapseAll
+                        : tree.expandAll,
+                    }
+                  : null
+              }
             />
 
             <TableBody
               actions={actions}
               cellLayouts={layout.layouts}
               cellStates={cellStates}
-              data={shownRows}
+              data={tableBodyRows}
               density={density}
               editHintId={editHintId}
               editingCell={editingCell}
-              emptyMessage={emptyMessage}
+              emptyMessage={loadError || emptyMessage}
               expandedRows={expandedRows}
               filters={query.filters}
               getColumnSample={getColumnSample}
               getRowBackgroundColor={getRowBackgroundColor}
               getRowClassName={getRowClassName}
               getRowHref={getRowHref}
+              getRowContextMenu={getRowContextMenu}
               getRowId={getRowId}
               isRowSelectable={isRowSelectable}
-              groups={bodyGroups}
+              groups={hasError ? null : bodyGroups}
               headerRowCount={headerRowCount}
               isEditable={isEditable}
               layoutKey={rowLayoutKey}
-              loading={loading}
+              loading={loading && !hasError}
               onCancelEdit={() => setEditingCell(null)}
               onCommitEdit={handleCommitEdit}
               onRowClick={onRowClick}
@@ -2650,11 +3342,20 @@ export default function DataTable<T>({
               renderSubRow={renderSubRow}
               scrollRef={scrollRef}
               search={searchTerm}
-              selectedIds={displayedSelectedIds}
+              partlySelectedIds={checkStates?.mixed}
+              selectedIds={checkedIds}
               selectionMode={selectionMode}
               sortedVisibleColumns={sortedVisibleColumns}
               toggleRowExpansion={toggleRowExpansion}
               toggleRowSelection={handleToggleRowSelection}
+              tree={
+                shownNodes && {
+                  columnKey: treeColumnKey,
+                  onRetry: tree.retry,
+                  onToggle: tree.toggle,
+                  rows: tree.describe(shownNodes),
+                }
+              }
               virtualized={virtualized}
             />
 

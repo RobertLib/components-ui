@@ -44,6 +44,13 @@ export default function SplitButtonPage() {
               focus back to it.
             </li>
             <li>
+              <code>disabledReason</code> explains a <code>disabled</code> split
+              button on both its buttons - they stay focusable, show the reason
+              in a tooltip and are described by it, and the menu does not open
+              (see <code>Button</code>). A <code>loading</code> one gives no
+              reason.
+            </li>
+            <li>
               The props of a button - <code>ref</code>,{" "}
               <code>type="submit"</code>, <code>name</code>,{" "}
               <code>startIcon</code>, … - go to the main button;{" "}

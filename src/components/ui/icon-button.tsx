@@ -1,4 +1,7 @@
-import cn from "../../utils/cn";
+import { useId } from "react";
+import cn, { joinTokens } from "../../utils/cn";
+import { hasReason } from "./disabled-reason";
+import DisabledReasonTooltip from "./disabled-reason-tooltip";
 import Tooltip, { type TooltipProps } from "./tooltip";
 import type { LinkComponentProps } from "../../providers/router";
 import { useRouterActions } from "../../providers/ui-context";
@@ -21,6 +24,17 @@ export interface IconButtonProps extends Omit<
    * @default "default"
    */
   color?: IconButtonColor;
+  /**
+   * Why the button is `disabled` - e.g. "The invoice is paid and cannot be
+   * edited". With a reason, the disabled button stays focusable
+   * (`aria-disabled`) and shows the reason in its tooltip - under the
+   * `tooltip`, if any - on hover, keyboard focus, a tap and a long press;
+   * screen readers read it as its description. It still does nothing - no
+   * `onClick`, no submit, no navigation of an `href`. Used only while
+   * `disabled`: keep it given while the button is enabled too, so the button
+   * stays the same element and keeps the focus.
+   */
+  disabledReason?: React.ReactNode;
   /**
    * Renders the button as a link to this URL, using the router's `Link`
    * configured in `UIProvider` - e.g. an "Edit" pencil that opens a page.
@@ -92,6 +106,7 @@ export default function IconButton({
   className,
   color: colorProp,
   disabled,
+  disabledReason,
   children,
   href,
   loading = false,
@@ -103,6 +118,7 @@ export default function IconButton({
   ...props
 }: IconButtonProps) {
   const { Link } = useRouterActions();
+  const reasonId = useId();
   const color = colorProp ?? variant ?? "default";
   // A bordered button has a size - the negative margin of one without
   // would pull the border into the content around
@@ -118,6 +134,12 @@ export default function IconButton({
   // Loading, it looks disabled but stays focusable - a native `disabled`
   // would drop the focus of the button just pressed to the page
   const isBusy = loading && !disabled;
+  // Disabled with a reason, it stays focusable too - to show the reason
+  const isExplained = !!disabled && hasReason(disabledReason);
+  const describedBy = joinTokens(
+    props["aria-describedby"],
+    isExplained ? reasonId : undefined,
+  );
 
   const classNames = cn(
     "cursor-pointer rounded-md leading-none transition-colors hover:bg-neutral-100 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-neutral-800",
@@ -181,17 +203,18 @@ export default function IconButton({
 
     control = disabled ? (
       // Without an `href` nothing can open a disabled link, and it is not
-      // in the tab order
+      // in the tab order - but with a reason to show
       <a
         {...(linkProps as React.ComponentProps<"a">)}
         aria-busy={loading || undefined}
+        aria-describedby={describedBy}
         aria-disabled="true"
         aria-label={label}
         className={classNames}
         onAuxClick={preventActivation}
         onClick={preventActivation}
         role="link"
-        tabIndex={undefined}
+        tabIndex={isExplained ? 0 : undefined}
       >
         {content}
       </a>
@@ -224,11 +247,12 @@ export default function IconButton({
       <button
         {...props}
         aria-busy={loading || undefined}
-        aria-disabled={isBusy || props["aria-disabled"]}
+        aria-describedby={describedBy}
+        aria-disabled={isBusy || isExplained || props["aria-disabled"]}
         aria-label={label}
         className={classNames}
-        disabled={disabled}
-        onClick={isBusy ? preventActivation : props.onClick}
+        disabled={disabled && !isExplained}
+        onClick={isBusy || isExplained ? preventActivation : props.onClick}
         type={type ?? "button"}
       >
         {content}
@@ -240,6 +264,24 @@ export default function IconButton({
     tooltipContent !== undefined &&
     tooltipContent !== null &&
     tooltipContent !== "";
+
+  // With a reason - even while enabled - the button is in the wrapper of
+  // its tooltip, so it stays the same element as it is disabled
+  if (disabledReason !== undefined) {
+    return (
+      <DisabledReasonTooltip
+        active={isExplained}
+        label={hasTooltip ? tooltipContent : undefined}
+        labelDescribes={hasTooltip && tooltipContent !== label}
+        nowrap={typeof tooltipContent === "string"}
+        position={tooltipPosition}
+        reason={disabledReason}
+        reasonId={reasonId}
+      >
+        {control}
+      </DisabledReasonTooltip>
+    );
+  }
 
   if (!hasTooltip) return control;
 

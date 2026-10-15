@@ -161,6 +161,8 @@ export default function CalendarHeader({
             }}
             // The calendar always shows a date
             clearable={false}
+            // No value of the form around - a read-only section leaves it be
+            readOnly={false}
             // Its Today is the one of the calendar
             timeZone={dateTimeZone(currentDate)}
             type="date"

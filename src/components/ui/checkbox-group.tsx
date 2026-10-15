@@ -26,6 +26,7 @@ import { ignoreChange, keepCheckboxState } from "./read-only-choice";
 import { useLocale } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
 import { getActiveElement } from "./overlay-stack";
+import { useReadOnly } from "./form-scope";
 
 export interface CheckboxOption<T extends string | number = string | number> {
   /** Content next to the checkbox - its accessible name. */
@@ -152,6 +153,7 @@ export interface CheckboxGroupProps<
    * ones, the picked values are submitted with the form. As a native
    * read-only field, the group is not validated: `required`, `min` and
    * `max` only mark it.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /** Ref to the group element (see `id`). */
@@ -405,7 +407,7 @@ export default function CheckboxGroup<
   onFocus,
   options,
   orientation = "vertical",
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required = false,
   selectAll = false,
@@ -413,6 +415,7 @@ export default function CheckboxGroup<
   variant = "default",
   ...props
 }: CheckboxGroupProps<T>) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = locale.messages.ui;
 
@@ -661,10 +664,10 @@ export default function CheckboxGroup<
   };
 
   return (
-    <div className="flex flex-col gap-1.5" ref={formResetRef}>
+    <div className="cui-field flex flex-col gap-1.5" ref={formResetRef}>
       {label ? (
         <fieldset {...groupProps}>
-          <legend className="block text-sm font-medium">
+          <legend className="cui-field-label block text-sm font-medium [--cui-label-offset:--spacing(1.5)]">
             {label}
             {messages.form.labelSuffix}{" "}
             {/* The star is for the eye - the browser tells what is missing */}

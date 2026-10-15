@@ -1,13 +1,9 @@
 import { createContext, use, useMemo } from "react";
-import DefaultLink from "./default-link";
+import GuardedLink from "./guarded-link";
 import { en } from "../i18n/ui/en";
 import type { Locale, Messages } from "../i18n/ui/types";
-import {
-  browserBack,
-  browserNavigate,
-  useBrowserLocation,
-  type RouterAdapter,
-} from "./router";
+import { guardedBrowserBack, guardedBrowserNavigate } from "./navigation-guard";
+import { useBrowserLocation, type RouterAdapter } from "./router";
 
 /**
  * Where overlays are rendered - an element, or a function returning one
@@ -86,10 +82,11 @@ export function useMessages(): Messages {
   return useLocale().messages;
 }
 
+// They ask before they leave a form with unsaved changes too
 const browserActions: Pick<RouterAdapter, "back" | "Link" | "navigate"> = {
-  back: browserBack,
-  Link: DefaultLink,
-  navigate: browserNavigate,
+  back: guardedBrowserBack,
+  Link: GuardedLink,
+  navigate: guardedBrowserNavigate,
 };
 
 /**

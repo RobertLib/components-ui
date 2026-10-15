@@ -18,6 +18,7 @@ import usePointerMoved from "../../hooks/use-pointer-moved";
 import { formatMessage, formatPlural } from "../../i18n/ui/format";
 import { useLocale, usePortalContainer } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
+import { fieldLabelClass, useReadOnly } from "./form-scope";
 
 export interface TagsInputProps extends Omit<
   React.ComponentProps<"input">,
@@ -78,6 +79,7 @@ export interface TagsInputProps extends Omit<
    * The values can't be changed - they are shown and submitted, and no ×
    * buttons, typing, pasting or suggestions add or remove any. The input
    * stays focusable, with `aria-readonly` and `data-readonly`.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /**
@@ -176,7 +178,7 @@ export default function TagsInput({
   onKeyDown,
   onPaste,
   placeholder,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required = false,
   separators = DEFAULT_SEPARATORS,
@@ -185,6 +187,7 @@ export default function TagsInput({
   value,
   ...props
 }: TagsInputProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const getPortalContainer = usePortalContainer();
   const messages = locale.messages.ui;
@@ -697,9 +700,12 @@ export default function TagsInput({
   );
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div className={cn("cui-field flex flex-col gap-1.5", className)}>
       {label && (
-        <label className="block text-sm font-medium" htmlFor={inputId}>
+        <label
+          className={cn(fieldLabelClass(dim), "block text-sm font-medium")}
+          htmlFor={inputId}
+        >
           {label}
           {messages.form.labelSuffix}{" "}
           {/* The star is for the eye - `aria-required` tells assistive technology */}

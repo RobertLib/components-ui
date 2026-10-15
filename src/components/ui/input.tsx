@@ -23,6 +23,7 @@ import RequiredMark from "./required-mark";
 import { useMessages } from "../../providers/ui-context";
 import useCustomValidity from "../../hooks/use-custom-validity";
 import { getActiveElement } from "./overlay-stack";
+import { fieldLabelClass, useReadOnly } from "./form-scope";
 
 // Types the browser draws a format hint in (dd.mm.yyyy, --:--) while empty -
 // a floating label must not cover it
@@ -181,6 +182,8 @@ export interface InputProps extends Omit<
    * Placeholders of your own for `mask`, by the character that stands for
    * them - `{ H: /[0-9a-f]/i }` for a hex digit, or with a `transform`:
    * `{ A: { pattern: /[A-Z]/, transform: (char) => char.toUpperCase() } }`.
+   * The value may end before an `optional` one - `"######/###?"` with
+   * `{ "?": { optional: true, pattern: /\d/ } }` takes 9 or 10 digits.
    */
   maskTokens?: MaskTokens;
   /**
@@ -222,6 +225,16 @@ export interface InputProps extends Omit<
    * `setValueAs: (text) => applyMask(mask, text).raw` instead.
    */
   unmask?: boolean;
+  /**
+   * Checks the value - returns a message for an invalid one, nothing for a
+   * valid one. The field is then invalid as with a native constraint: the
+   * browser refuses to submit the form and shows the message. Called while
+   * rendering, with the text as the field shows it (a `mask` filled in only
+   * in part has its own message), not for an empty field - `required`
+   * checks that. `useCzValidators` checks Czech identifiers:
+   * `validate={cz.ico}`.
+   */
+  validate?: (value: string) => string | null | undefined;
 }
 
 /** The props of `InputBase` - those of `Input` and what the library adds. */
@@ -256,12 +269,15 @@ export function InputBase({
   onMaskChange,
   passwordStrength = false,
   prefix,
+  readOnly: ownReadOnly,
   ref,
   required,
   suffix,
   unmask = false,
+  validate,
   ...props
 }: InputBaseProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const messages = useMessages().ui;
@@ -340,7 +356,7 @@ export function InputBase({
   const hasPrefix = hasContent(prefix);
   const hasSuffix = hasContent(suffix);
   const canClear = clearable && !UNCLEARABLE_TYPES.has(type);
-  const showClear = canClear && hasValue && !disabled && !props.readOnly;
+  const showClear = canClear && hasValue && !disabled && !readOnly;
 
   // With content next to the text the border goes to a frame around them. A
   // password with a floating label is framed too: as the first child of the
@@ -374,7 +390,13 @@ export function InputBase({
     masked && masked.formatted !== "" && !masked.complete
       ? messages.input.maskIncomplete
       : "";
-  const validityProps = useCustomValidity(inputRef, maskMessage);
+  // `validate` judges a value the mask lets through - an empty one is up
+  // to `required`
+  const shownText = masked ? masked.formatted : text;
+  const validationMessage =
+    maskMessage ||
+    (validate && shownText !== "" ? validate(shownText) || "" : "");
+  const validityProps = useCustomValidity(inputRef, validationMessage);
 
   /**
    * Makes what the browser did to a masked field - `input.value` with the
@@ -521,7 +543,7 @@ export function InputBase({
       autoCorrect={props.autoCorrect ?? (parsedMask ? "off" : undefined)}
       data-disabled={disabled ? "" : undefined}
       data-invalid={invalid ? "" : undefined}
-      data-readonly={props.readOnly ? "" : undefined}
+      data-readonly={readOnly ? "" : undefined}
       disabled={disabled}
       id={inputId}
       {...validityProps}
@@ -581,6 +603,7 @@ export function InputBase({
         );
       }}
       placeholder={floating ? "" : props.placeholder}
+      readOnly={readOnly}
       ref={fieldRef}
       required={required}
       spellCheck={props.spellCheck ?? (parsedMask ? false : undefined)}
@@ -590,7 +613,7 @@ export function InputBase({
   );
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="cui-field flex flex-col gap-1.5">
       {/* The form gets the characters of the placeholders alone */}
       {masked && unmask && name && (
         <input
@@ -603,7 +626,13 @@ export function InputBase({
         />
       )}
       {hasLabel && !floating && (
-        <label className="block truncate text-sm font-medium" htmlFor={inputId}>
+        <label
+          className={cn(
+            fieldLabelClass(dim),
+            "block truncate text-sm font-medium",
+          )}
+          htmlFor={inputId}
+        >
           {label}
           {messages.form.labelSuffix} {requiredMark}
         </label>

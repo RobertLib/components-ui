@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  areMonthsUnavailable,
   findDisabledDay,
   findEnabledDay,
   isMonthUnavailable,
@@ -43,9 +44,25 @@ describe("availability", () => {
     expect(isValueUnavailable("2026-09", "month", () => true)).toBe(true);
     expect(isValueUnavailable("2026-09", "month", isWeekend)).toBe(false);
     expect(isValueUnavailable("2026-W39", "week", () => true)).toBe(true);
+    const inFirstQuarter = (day: Date) => day.getMonth() < 3;
+    expect(isValueUnavailable("2026-Q1", "quarter", inFirstQuarter)).toBe(true);
+    expect(isValueUnavailable("2026-Q2", "quarter", inFirstQuarter)).toBe(
+      false,
+    );
+    expect(isValueUnavailable("2026", "year", () => true)).toBe(true);
+    expect(isValueUnavailable("2026", "year", inFirstQuarter)).toBe(false);
     expect(isValueUnavailable("10:00", "time", () => true)).toBe(false);
     expect(isValueUnavailable("", "date", () => true)).toBe(false);
     expect(isValueUnavailable("2026-09-26", "date", undefined)).toBe(false);
+  });
+
+  it("a quarter or a year is unavailable when all of its months are", () => {
+    // December 31 is the one day left of the year
+    const allButNewYearsEve = (day: Date) =>
+      day.getMonth() !== 11 || day.getDate() !== 31;
+    expect(areMonthsUnavailable(2026, 1, 12, allButNewYearsEve)).toBe(false);
+    expect(areMonthsUnavailable(2026, 1, 11, allButNewYearsEve)).toBe(true);
+    expect(areMonthsUnavailable(2026, 10, 12, allButNewYearsEve)).toBe(false);
   });
 
   it("findDisabledDay goes from the start to the end", () => {

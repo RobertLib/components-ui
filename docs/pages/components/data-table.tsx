@@ -34,7 +34,8 @@ const queryShape = `interface DataTableQuery {
   before: string | null;
 }
 
-// A text: contains (input), equals (select), that day (date) - "2026-09-24"
+// A text: contains (input), equals (select), that day (date) - "2026-09-24",
+//         yes or no (boolean)                       - "true" / "false"
 // A list: any of them (multiSelect)                  - ["active", "invited"]
 // A range: between, both included, either side open  - { from: "1000", to: "5000" }
 type DataTableFilterValue = string | string[] | { from?: string; to?: string };`;
@@ -133,6 +134,34 @@ export default function DataTablePage() {
         }
         name="data-table/filters"
         title="Filters: lists and ranges"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            The active filters and the search show as chips under the toolbar,
+            their values as the user reads them: the labels of the options, days
+            by the locale, ranges as <code>40,000–90,000</code> (
+            <code>from 40,000</code> with one bound), Yes / No - also a filter
+            whose field is hidden, e.g. of a hidden column from the URL. A
+            filter the table cannot read - of a <code>custom</code> field, a{" "}
+            <code>filterFn</code> - says what it means by the column&apos;s{" "}
+            <code>formatFilterValue(value)</code>. The × of a chip clears that
+            filter exactly like its field (the first page again; a text typed in
+            the field but not committed yet is dropped), &quot;Clear all&quot;
+            clears every filter and the search and keeps the focus. On by
+            default; <code>filterChips={"{false}"}</code> leaves the bar out.{" "}
+            <code>filter: &quot;boolean&quot;</code> is a field of any / yes /
+            no, the value <code>&quot;true&quot;</code> or{" "}
+            <code>&quot;false&quot;</code> - in the URL, in{" "}
+            <code>toFilterParams</code> (<code>active=true</code>) and for a
+            server; client-side a row is yes for <code>true</code>,{" "}
+            <code>1</code>, <code>&quot;true&quot;</code> or{" "}
+            <code>&quot;yes&quot;</code>, no otherwise (also when empty).
+          </p>
+        }
+        name="data-table/filter-chips"
+        title="Filter chips and a yes / no filter"
       />
       <Example
         collapsed
@@ -249,6 +278,28 @@ export default function DataTablePage() {
         collapsed
         description={
           <p>
+            <code>getRowContextMenu(row)</code> gives the entries of a
+            row&apos;s context menu - the items of <code>Dropdown</code>: icons,
+            separators, disabled and danger items, checkboxes, submenus. It
+            opens on a right click or a long press on a touch screen, and on a
+            focused row - or a control in it, its checkbox or link - with Shift
+            + F10 or the context menu key; the rows are one Tab stop then, the
+            arrow keys move between them. The row is highlighted while its menu
+            is open, and the focus goes back to it once the menu closes.{" "}
+            <code>null</code> for a row leaves the browser&apos;s own menu, and
+            so does the field of a cell being edited.{" "}
+            <code>Column.cellClassName</code> - a text or a function of the row
+            - adds classes to the body cells of a column, here striking out the
+            names of suspended people; it wins over the padding of the cell.
+          </p>
+        }
+        name="data-table/context-menu"
+        title="Context menus and cell classes"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
             <code>renderSubRow</code> makes rows expandable,{" "}
             <code>getRowBackgroundColor</code> / <code>getRowClassName</code>{" "}
             style rows, and a <code>custom</code> filter renders any field -
@@ -310,6 +361,121 @@ export default function DataTablePage() {
           </p>
         }
       />
+      <Section title="Tree data">
+        <Prose>
+          <p>
+            Rows can have sub rows with the same columns - a chart of accounts,
+            a bill of materials, an organization or a project with its tasks.{" "}
+            <code>data</code> holds the top-level rows,{" "}
+            <code>getSubRows(row)</code> returns the sub rows already loaded,
+            and <code>loadSubRows(row, {"{ signal }"})</code> loads them when a
+            row is first expanded (with <code>hasSubRows(row)</code> telling
+            which rows have any). The toggles and the indentation go to the
+            first column shown, or to <code>treeColumn</code>.{" "}
+            <code>getRowId</code> must be unique across all levels.
+          </p>
+          <ul>
+            <li>
+              <strong>Expansion</strong> - <code>defaultExpandDepth</code> (
+              <code>1</code> opens the top-level rows, <code>Infinity</code>{" "}
+              all), <code>defaultExpandedTreeIds</code>, or controlled{" "}
+              <code>expandedTreeIds</code> with{" "}
+              <code>onExpandedTreeIdsChange</code>. These are separate from{" "}
+              <code>expandedIds</code>, the details of <code>renderSubRow</code>
+              : a row can have both sub rows and a detail. The header of the
+              tree column expands all rows - collapses them while some are
+              expanded.
+            </li>
+            <li>
+              <strong>Client-side</strong> - the filters and the search show the
+              matching rows with their ancestors, expanded (the user may
+              collapse them until the filter changes; clearing it brings back
+              the expansion of before), and with their sub rows, collapsed. The
+              sorting orders the siblings within each parent, the pagination
+              counts the top-level rows - each page has whole branches.
+            </li>
+            <li>
+              <strong>Server data</strong> - the query works as without a tree:
+              the server filters, sorts and pages the top-level rows, the sub
+              rows come from <code>getSubRows</code> / <code>loadSubRows</code>{" "}
+              as they are.
+            </li>
+            <li>
+              <strong>Summaries</strong> - the summary row counts the rows at
+              the bottom of the tree (without sub rows, or with sub rows not
+              loaded yet), so parents holding the totals of their branches do
+              not count twice.
+            </li>
+            <li>
+              <strong>Selection</strong> - each row has its own checkbox; with{" "}
+              <code>cascadeSelection</code> a row takes its whole loaded branch
+              along (also collapsed rows) and is mixed when only some of it is
+              selected. "Select all" takes the sub rows of the page too.
+            </li>
+            <li>
+              <strong>CSV export</strong> - all rows, depth first, with a
+              &quot;Level&quot; column in front (<code>1</code> for the
+              top-level rows). <code>onExport</code> returns the top-level rows;
+              their <code>getSubRows</code> are exported with them.
+            </li>
+            <li>
+              <code>groupBy</code> is ignored with tree data - a warning says so
+              in development. Virtualization, pinned columns, row density,
+              inline editing, row links and clicks and the URL state work as
+              without a tree.
+            </li>
+          </ul>
+          <p>
+            The rows are a table, not a grid - with the place of each row in the
+            tree for screen readers (<code>aria-level</code>,{" "}
+            <code>aria-posinset</code>, <code>aria-setsize</code> and{" "}
+            <code>aria-expanded</code>, as in the treegrid pattern). Rows
+            without a link are one tab stop: the arrow keys go up and down,
+            ArrowRight expands a row and then goes to its first sub row,
+            ArrowLeft collapses it and then goes to its parent (the other way
+            round right to left), and Enter expands and collapses a row without{" "}
+            <code>onRowClick</code>. Rows with links keep their toggles in the
+            tab order. The rows the user waits for and expanding or collapsing
+            all rows are announced.
+          </p>
+        </Prose>
+        <Example
+          description={
+            <p>
+              A trial balance: classes, synthetic and analytical accounts - the
+              parents hold the totals of their branches, the summary row the
+              totals of the analytical accounts.{" "}
+              <code>
+                defaultExpandDepth=
+                {"{1}"}
+              </code>{" "}
+              opens the classes, <code>treeColumn=&quot;name&quot;</code>{" "}
+              indents the names. Search for &quot;cash&quot;, sort by debit,
+              check a class (<code>cascadeSelection</code>) or export the
+              accounts to CSV.
+            </p>
+          }
+          name="data-table/tree-data"
+          title="Chart of accounts"
+        />
+        <Example
+          description={
+            <p>
+              A bill of materials loaded part by part: <code>hasSubRows</code>{" "}
+              shows the toggles of the assemblies, <code>loadSubRows</code>{" "}
+              loads their parts as they are first expanded - the toggle shows a
+              spinner meanwhile, collapsing the row aborts the request (
+              <code>signal</code>). The loaded parts are kept; the hydraulic
+              unit fails at first and offers a retry. &quot;Reload parts&quot;
+              changes <code>loadSubRowsKey</code>: the parts shown load again,
+              staying until the new ones come. &quot;Expand all&quot; loads
+              nothing - it opens the rows whose sub rows are at hand.
+            </p>
+          }
+          name="data-table/tree-lazy"
+          title="Sub rows loaded lazily"
+        />
+      </Section>
       <Example
         collapsed
         description={
@@ -399,6 +565,31 @@ export default function DataTablePage() {
         collapsed
         description={
           <p>
+            <code>enableViews</code> adds the views menu to the toolbar. A view
+            is a name for the filters, search, sorting, page size and column
+            settings (<code>DataTableView</code>): &quot;Save as a new
+            view…&quot; asks for its name, picking a view applies it from the
+            first page. The button names the applied view, with a dot once the
+            table shows other settings - its item is unchecked then, and picking
+            it again brings its settings back. The user&apos;s own views can be
+            updated with the current settings, renamed and deleted (after a
+            question). <code>presetViews</code> lists views of the app first -
+            they cannot be changed. The views are remembered in{" "}
+            <code>localStorage</code> under <code>tableId</code> (shared by the
+            tabs of the browser), or controlled: <code>views</code> with{" "}
+            <code>onViewsChange</code> to keep them on a server, and{" "}
+            <code>activeViewId</code> with <code>onActiveViewChange</code>. A
+            preset may leave out <code>columnState</code> - applying it keeps
+            the columns - or the page size, which then stays.
+          </p>
+        }
+        name="data-table/saved-views"
+        title="Saved views"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
             <code>density</code> sets the height of the rows -{" "}
             <code>compact</code>, <code>normal</code> (the default) or{" "}
             <code>comfortable</code>. Users switch it with the rows icon in the
@@ -474,12 +665,15 @@ export default function DataTablePage() {
           column to the sorting (<code>multiSort</code>); rows of{" "}
           <code>onRowClick</code> without links are one Tab stop with the arrow
           keys and Enter, and Shift + Space on a checkbox selects a range. The
-          number of selected rows is announced. "Clear filters", "Reset
-          columns", the group actions and the paging buttons keep the focus when
-          pressing them leaves nothing more to do. Give each table of a page a
-          name with <code>aria-label</code> (or <code>aria-labelledby</code>) -
-          the region, the table and its pagination ("People pagination") take
-          it, so screen readers tell them apart.
+          number of selected rows is announced. Shift + F10 or the context menu
+          key opens the menu of a row (<code>getRowContextMenu</code>), Ctrl + C
+          copies the selected rows or the focused cell, and the copy is
+          announced. "Clear filters", "Reset columns", the group actions and the
+          paging buttons keep the focus when pressing them leaves nothing more
+          to do. Give each table of a page a name with <code>aria-label</code>{" "}
+          (or <code>aria-labelledby</code>) - the region, the table and its
+          pagination ("People pagination") take it, so screen readers tell them
+          apart.
         </p>
       </Callout>
       <Example
@@ -532,6 +726,44 @@ export default function DataTablePage() {
         }
         name="data-table/csv-export"
         title="CSV export"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            Ctrl + C (⌘ + C on a Mac) in the table copies the selected rows -
+            all matching ones of a &quot;select all N rows&quot; selection - as
+            tab-separated text with a line of the column names, which a
+            spreadsheet pastes into cells: the visible columns in their order,
+            the values as the CSV export writes them (<code>exportValue</code>,
+            numbers with the decimal separator of the locale). With no row
+            selected it copies the focused cell, or the focused row. A text the
+            user selected and a focused field copy as usual, and screen readers
+            hear &quot;2 rows copied.&quot;; <code>copyable={"{false}"}</code>{" "}
+            leaves the keys to the browser.{" "}
+            <code>createTsv(rows, columns, {"{ locale }"})</code> writes the
+            same text for rows of your choice - here a group action copies them
+            with <code>useClipboard</code>.
+          </p>
+        }
+        name="data-table/clipboard"
+        title="Copying to the clipboard"
+      />
+      <Example
+        collapsed
+        description={
+          <p>
+            A printed table leaves out the toolbar, the filters and their chips,
+            the checkboxes, the actions and expand columns and the pagination,
+            and is printed whole - not cut at <code>maxHeight</code>. The header
+            row repeats at the top of every page and no row is split between two
+            pages. A <code>virtualized</code> table renders all its loaded rows
+            while the browser prints (<code>beforeprint</code> /{" "}
+            <code>afterprint</code>) - here all 1 000 of them.
+          </p>
+        }
+        name="data-table/print"
+        title="Printing"
       />
       <Example
         collapsed
@@ -592,6 +824,27 @@ export default function DataTablePage() {
         </Callout>
       </Section>
 
+      <Example
+        collapsed
+        description={
+          <p>
+            <code>error</code> shows a message in place of the rows when they
+            could not be loaded - <code>true</code> for a generic one - as an
+            alert screen readers announce, also when a retry fails again with
+            the same message. <code>onRetry</code> adds a &quot;Try again&quot;
+            button. The error wins over the rows, which belong to the query that
+            failed (or an older one), and over <code>loading</code>, which shows
+            a spinner in the button meanwhile - it keeps the focus, which goes
+            to the rows once they load. The toolbar, the filters, the sorting
+            and the pagination stay usable, so the user can change the query
+            that failed. Pass a text, not an <code>Error</code>:{" "}
+            <code>error={"{query.error?.message}"}</code>.
+          </p>
+        }
+        name="data-table/load-error"
+        title="Load errors"
+      />
+
       <Section title="Dates and server rendering">
         <Prose>
           <p>
@@ -650,6 +903,10 @@ export default function DataTablePage() {
             or a sorting the user cannot see:
           </p>
           <ul>
+            <li>
+              Every active filter and the search show as chips under the toolbar
+              (<code>filterChips</code>) - also those without a field.
+            </li>
             <li>
               Hiding a column in the column settings clears the filter of its
               field.
@@ -731,6 +988,10 @@ export default function DataTablePage() {
               of your choice; <code>getCsvSeparator(localeCode)</code> - the
               separator a spreadsheet of the language expects
             </li>
+            <li>
+              <code>createTsv(rows, columns, {"{ locale }"})</code> - the
+              tab-separated text Ctrl + C copies, for the clipboard
+            </li>
           </ul>
         </Prose>
       </Section>
@@ -755,11 +1016,11 @@ export default function DataTablePage() {
             row renders again only when what it shows changes - without the
             React Compiler, keep <code>columns</code>, <code>getRowId</code>,{" "}
             <code>renderSubRow</code>, <code>actions</code>,{" "}
-            <code>getRowClassName</code> and <code>getRowBackgroundColor</code>{" "}
-            the same between renders (outside the component,{" "}
-            <code>useMemo</code>, <code>useCallback</code>), or every row
-            renders again with the table. <code>onRowClick</code> and the other
-            handlers may be inline.
+            <code>getRowClassName</code>, <code>getRowBackgroundColor</code>,{" "}
+            <code>getSubRows</code> and <code>hasSubRows</code> the same between
+            renders (outside the component, <code>useMemo</code>,{" "}
+            <code>useCallback</code>), or every row renders again with the
+            table. <code>onRowClick</code> and the other handlers may be inline.
           </p>
         }
       />
@@ -777,6 +1038,7 @@ export default function DataTablePage() {
         <PropsTable of="Column" />
         <PropsTable of="ColumnGroup" />
         <PropsTable of="DataTableColumnState" />
+        <PropsTable of="DataTableView" />
         <PropsTable of="DataTableRangeFilter" />
         <PropsTable of="DataTableSort" />
         <PropsTable
@@ -790,6 +1052,7 @@ export default function DataTablePage() {
         />
         <PropsTable of="FilteredSelectionConfig" />
         <PropsTable of="CsvOptions" title="createCsv options" />
+        <PropsTable of="TsvOptions" title="createTsv options" />
         <PropsTable
           of="UseDataTableQueryOptions"
           title="useDataTableQuery options"

@@ -12,9 +12,28 @@ const registerMask = `const zip = "### ##";
   {...register("zip", { setValueAs: (text) => applyMask(zip, text).raw })}
 />`;
 
+const registerValidate = `const cz = useCzValidators();
+
+// React Hook Form shows the message - "Zadejte platné IČO."
+<Input
+  {...CZ_MASKS.ico}
+  error={errors.ico?.message}
+  label="IČO"
+  {...register("ico", { required: true, validate: cz.ico })}
+/>`;
+
+const optionalToken = `// The value may end before an optional placeholder: 9 or 10 digits
+<Input
+  mask="######/###?"
+  maskTokens={{ "?": { optional: true, pattern: /\\d/ } }}
+/>`;
+
 export default function InputPage() {
   return (
-    <DocPage imports={["Input", "applyMask"]} title="Input">
+    <DocPage
+      imports={["Input", "applyMask", "CZ_MASKS", "useCzValidators"]}
+      title="Input"
+    >
       <Example
         description={
           <p>
@@ -172,6 +191,25 @@ export default function InputPage() {
       <Example
         description={
           <p>
+            <code>validate</code> checks the value: it returns a message for an
+            invalid one and nothing for a valid one. The field is then invalid
+            as with a native constraint - the browser refuses to submit the form
+            and shows the message. It gets the text as the field shows it, once
+            a mask is complete (until then the mask says the value is
+            incomplete), and is not called for an empty field -{" "}
+            <code>required</code> checks that. <code>useCzValidators</code>{" "}
+            returns checks of Czech identifiers with the messages of the locale
+            (&quot;Zadejte platné IČO.&quot;), and <code>CZ_MASKS</code> the
+            masks to spread onto the field. A birth number tells the date of
+            birth - <code>parseBirthNumber</code> reads it.
+          </p>
+        }
+        name="input/czech-fields"
+        title="Validation and Czech identifiers"
+      />
+      <Example
+        description={
+          <p>
             Pass <code>value</code> and <code>onChange</code> to control the
             field, or <code>defaultValue</code> to let it keep its own state.
           </p>
@@ -217,18 +255,94 @@ export default function InputPage() {
         <Callout type="warning">
           <p>
             A mask has a fixed length - every placeholder is one character, and
-            a value is complete once all are filled. Formats of a varying length
-            do not fit one: a Czech bank account number (an optional prefix of
-            up to 6 digits, 2 - 10 digits, a bank code) or cards whose numbers
-            are grouped otherwise (American Express). Use a plain field with a{" "}
-            <code>pattern</code> for them, or pass another <code>mask</code> as
-            the value changes. With placeholders of different kinds, a deletion
-            in the middle drops the characters after it that no longer fit their
-            place (a digit moving to a letter). A value the field formats is
-            written by a script, so the undo history of the browser does not go
-            back through the typing.
+            a value is complete once all are filled (or it reaches an{" "}
+            <code>optional</code> one). Formats of a varying length do not fit
+            one: a Czech bank account number (an optional prefix of up to 6
+            digits, 2 - 10 digits, a bank code) or cards whose numbers are
+            grouped otherwise (American Express). Use a plain field with a{" "}
+            <code>pattern</code> or <code>validate</code> for them, or pass
+            another <code>mask</code> as the value changes. With placeholders of
+            different kinds, a deletion in the middle drops the characters after
+            it that no longer fit their place (a digit moving to a letter). A
+            value the field formats is written by a script, so the undo history
+            of the browser does not go back through the typing.
           </p>
         </Callout>
+      </Section>
+
+      <Section title="Czech identifiers">
+        <Prose>
+          <ul>
+            <li>
+              <code>CZ_MASKS</code> has the masks of <code>postalCode</code>{" "}
+              (123 45, with <code>autoComplete=&quot;postal-code&quot;</code>),{" "}
+              <code>ico</code> (8 digits), <code>dic</code> (CZ and 8 - 10
+              digits), <code>birthNumber</code> (780123/4562, or 9 digits before
+              1954) and <code>iban</code> (a Czech one) - spread one onto the
+              field. A bank account number has none: its prefix and number vary
+              in length - check it with <code>validate</code> alone.
+            </li>
+            <li>
+              A mask checks the shape only, <code>useCzValidators</code> the
+              value: <code>ico</code>, <code>dic</code>,{" "}
+              <code>birthNumber</code>, <code>bankAccount</code>,{" "}
+              <code>iban</code> and <code>postalCode</code>. Each returns the
+              message for an invalid value and <code>undefined</code> for a
+              valid or an empty one - for <code>validate</code> of the field,
+              and for <code>rules.validate</code> of React Hook Form, where an
+              empty string would be an error. They stay the same while the
+              locale does.
+            </li>
+          </ul>
+        </Prose>
+        <CodeBlock code={registerValidate} />
+        <Prose>
+          <p>
+            The checks are pure functions, also for the server. They leave
+            whitespace out and take lowercase letters:
+          </p>
+          <ul>
+            <li>
+              <code>isValidIco</code> - 8 digits, the last a check digit.
+            </li>
+            <li>
+              <code>isValidDic</code> - CZ and a valid IČO, the birth number of
+              a person, or 9 digits starting with 6 the tax office gave (VAT
+              groups have CZ699…).
+            </li>
+            <li>
+              <code>isValidBirthNumber</code> and <code>parseBirthNumber</code>{" "}
+              - with or without the slash; 10 digits divisible by 11, or 9
+              digits before 1954. Women have 50 added to the month, and from
+              2004 on the month may have 20 more. <code>parseBirthNumber</code>{" "}
+              returns the <code>birthDate</code> (YYYY-MM-DD) and the{" "}
+              <code>sex</code>, or <code>null</code>. The date is not compared
+              with today.
+            </li>
+            <li>
+              <code>isValidBankAccount</code> - [prefix-]number/bank code, the
+              check digits of the Czech National Bank. The bank code is not
+              looked up.
+            </li>
+            <li>
+              <code>isValidIban</code> - the countries of the SWIFT registry
+              with their lengths and the check digits; a Czech or a Slovak IBAN
+              also has a valid account number. <code>formatIban</code> writes it
+              in groups of four.
+            </li>
+            <li>
+              <code>isValidPostalCode</code> - 5 digits, the first 1 - 7.{" "}
+              <code>formatPostalCode</code> writes &quot;110 00&quot;.
+            </li>
+          </ul>
+          <p>
+            They check the shape and the check digits - not that the company,
+            the person or the account exists. A placeholder of{" "}
+            <code>maskTokens</code> with <code>optional</code> lets the value
+            end before it - the last digit of a birth number:
+          </p>
+        </Prose>
+        <CodeBlock code={optionalToken} />
       </Section>
 
       <Section title="Notes">
@@ -251,6 +365,8 @@ export default function InputPage() {
       <Section title="Props">
         <PropsTable of="Input" />
         <PropsTable of="MaskedValue" />
+        <PropsTable of="CzMasks" title="CZ_MASKS" />
+        <PropsTable of="UseCzValidatorsResult" title="useCzValidators()" />
       </Section>
     </DocPage>
   );

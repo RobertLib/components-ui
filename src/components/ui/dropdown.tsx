@@ -121,6 +121,11 @@ export default function Dropdown({
     if (event.defaultPrevented) return;
 
     if (!open) {
+      // A button trigger disabled with a reason keeps the focus - its keys
+      // open nothing, as its clicks do not
+      if ((event.target as Element).getAttribute("aria-disabled") === "true") {
+        return;
+      }
       // Opened from the keyboard, the menu highlights its first item - its
       // last one with ArrowUp - once it is in the page
       if (

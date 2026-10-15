@@ -627,7 +627,8 @@ export default function Tooltip({
                 // Over the dialogs (50), popovers (50) and toasts (60) - a
                 // tooltip can be inside any of them. Forced colors take its
                 // background - an outline keeps it apart from the page.
-                "fixed z-70 max-w-[calc(100vw-0.5rem)] animate-fade-in rounded bg-neutral-900 px-2 py-1 text-sm font-medium text-white shadow-sm forced-colors:outline",
+                // Not printed - the pointer is not on paper
+                "fixed z-70 max-w-[calc(100vw-0.5rem)] animate-fade-in rounded bg-neutral-900 px-2 py-1 text-sm font-medium text-white shadow-sm print:hidden forced-colors:outline",
                 nowrap && "whitespace-nowrap",
               )}
               data-side={placement?.side}

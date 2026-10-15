@@ -13,6 +13,7 @@ import { getActiveElement } from "./overlay-stack";
 import { formatNumber, formatPlural } from "../../i18n/ui/format";
 import { useLocale } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
+import { useReadOnly } from "./form-scope";
 
 type Dim = "xs" | "sm" | "md" | "lg";
 
@@ -114,6 +115,7 @@ export interface RatingProps extends Omit<
    * Shows the value - any number, e.g. an average of 4.3 fills a third of
    * the fifth star - and takes the focus, but neither a click nor a key
    * changes it. Unlike a disabled rating, it is submitted with the form.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /** Ref to the slider - e.g. for `focus()`. */
@@ -208,12 +210,13 @@ export default function Rating({
   onBlur,
   onChange,
   onFocus,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required = false,
   value,
   ...props
 }: RatingProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = locale.messages.ui;
 
@@ -354,11 +357,11 @@ export default function Rating({
   const iconElement = icon ?? <Star />;
 
   return (
-    <div className="relative flex flex-col gap-1.5" ref={wrapperRef}>
+    <div className="cui-field relative flex flex-col gap-1.5" ref={wrapperRef}>
       {label && (
         // No input a `<label>` would focus by itself - the slider
         <label
-          className="block text-sm font-medium"
+          className="cui-field-label block text-sm font-medium [--cui-label-offset:--spacing(0.5)]"
           id={labelId}
           onClick={() => sliderElement.current?.focus()}
         >

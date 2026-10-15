@@ -134,12 +134,12 @@ export default function CalendarField({
     node instanceof Node && !!groupRef.current?.contains(node);
 
   return (
-    <div className="relative flex flex-col gap-1.5" ref={wrapperRef}>
+    <div className="cui-field relative flex flex-col gap-1.5" ref={wrapperRef}>
       {labeled && (
         // No input a `<label>` would focus by itself - the day in the tab
         // order
         <label
-          className="block text-sm font-medium"
+          className="cui-field-label block text-sm font-medium"
           id={labelId}
           onClick={() => focusCalendar(groupRef.current)}
         >

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import AppShell from "./app-shell";
 import Drawer from "./drawer";
 import Navbar from "./navbar";
+import SystemBanner from "./system-banner";
 import UIProvider from "../../providers/ui-provider";
 
 const renderShell = (drawerStorageKey?: string | null) =>
@@ -60,5 +61,44 @@ describe("AppShell", () => {
       screen.getByRole("navigation", { name: "Main navigation" }),
     ).toHaveClass("cui-drawer-collapsed");
     expect(localStorage.length).toBe(0);
+  });
+
+  it("stacks its banners above the navbar - beside the drawer", () => {
+    const { container } = render(
+      <AppShell
+        banner={
+          <>
+            <SystemBanner variant="warning">TEST environment</SystemBanner>
+            <SystemBanner variant="neutral">
+              Signed in as Jana Nováková
+            </SystemBanner>
+          </>
+        }
+        drawer={<Drawer items={[{ href: "/orders", label: "Orders" }]} />}
+        navbar={<Navbar />}
+      >
+        Page
+      </AppShell>,
+    );
+
+    // The layout CSS moves the banners aside for the drawer too
+    const [drawer, banners, navbar, main] = Array.from(container.children);
+    expect(drawer).toHaveClass("cui-drawer");
+    expect(banners).toHaveClass("cui-banners");
+    expect(navbar).toHaveClass("cui-navbar");
+    expect(main.tagName).toBe("MAIN");
+    expect(
+      Array.from(banners.children).map((banner) => banner.textContent),
+    ).toEqual(["TEST environment", "Signed in as Jana Nováková"]);
+  });
+
+  it("renders no banner area without banners", () => {
+    const { container } = render(
+      <AppShell banner={false} navbar={<Navbar />}>
+        Page
+      </AppShell>,
+    );
+
+    expect(container.querySelector(".cui-banners")).toBeNull();
   });
 });

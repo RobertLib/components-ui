@@ -215,17 +215,19 @@ createRoot(document.getElementById("root")!).render(
         {},
         "importing the public API without using it adds code",
       );
+      // The same modules - their order follows the first import of each in
+      // the entry, which differs
       assert.deepEqual(
         Object.keys(
           await bundle(
             'import { Button } from "./src/components/ui";\nconsole.log(Button);\n',
           ),
-        ),
+        ).toSorted(),
         Object.keys(
           await bundle(
             'import Button from "./src/components/ui/button";\nconsole.log(Button);\n',
           ),
-        ),
+        ).toSorted(),
         "a component from the public API takes more than from its module",
       );
     } finally {

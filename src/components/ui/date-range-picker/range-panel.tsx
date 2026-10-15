@@ -5,6 +5,7 @@ import PresetList from "../datetime-picker/preset-list";
 import { formatPlural } from "../../../i18n/ui/format";
 import useToday from "../../../hooks/use-today";
 import { useLocale } from "../../../providers/ui-context";
+import { toLocalDay } from "../../../utils/date";
 import {
   clampRange,
   countDays,
@@ -49,6 +50,12 @@ interface RangePanelProps {
   readOnly?: boolean;
   /** A form reset clears a draft even when the selected range stays the same. */
   resetCount?: number;
+  /**
+   * The IANA time zone of today - the day marked as today, the month shown
+   * without a range and the days of the built-in presets. The browser's by
+   * default.
+   */
+  timeZone?: string;
   /** The selected range. */
   value: DayRange | null;
 }
@@ -71,6 +78,7 @@ export default function RangePanel({
   presets,
   readOnly = false,
   resetCount = 0,
+  timeZone,
   value,
 }: RangePanelProps) {
   const locale = useLocale();
@@ -166,10 +174,12 @@ export default function RangePanel({
   };
 
   // The presets as ranges inside the limits - `null` for one with nothing
-  // left in them. The built-in ones count from today, of the browser - in
-  // a server-rendered calendar they wait for the hydration, and follow the
-  // day of a calendar left open past midnight.
-  const today = useToday();
+  // left in them. The built-in ones count from today, of `timeZone` (the
+  // browser's by default) - in a server-rendered calendar they wait for the
+  // hydration, and follow the day of a calendar left open past midnight. A
+  // day of the calendar, like those of the grid.
+  const zoneToday = useToday(timeZone);
+  const today = zoneToday && toLocalDay(zoneToday);
   const presetItems = presets.map((preset) => {
     const { label, range } =
       typeof preset === "string"
@@ -243,6 +253,7 @@ export default function RangePanel({
           readOnly={readOnly}
           revealSelectedKey={revealSelectedKey}
           selected={shownValue.start}
+          timeZone={timeZone}
         />
 
         <div className="mt-2 flex items-center justify-between gap-2 border-t border-neutral-200 pt-2 text-xs text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">

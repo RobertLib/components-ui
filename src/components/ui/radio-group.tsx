@@ -25,6 +25,7 @@ import {
 } from "./read-only-choice";
 import { useMessages } from "../../providers/ui-context";
 import RequiredMark from "./required-mark";
+import { useReadOnly } from "./form-scope";
 
 export interface RadioOption<T = string | number> {
   /** Secondary text under the label - it describes the radio. */
@@ -128,6 +129,7 @@ export interface RadioGroupProps extends Omit<
    * move the focus through the options. Unlike a disabled group, the pick
    * is submitted with the form. As a native read-only field, it is not
    * validated: `required` only marks it.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /** Ref to the group element (see `id`). */
@@ -165,13 +167,14 @@ export default function RadioGroup({
   onFocus,
   options,
   orientation = "vertical",
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   required,
   value: controlledValue,
   variant = "default",
   ...props
 }: RadioGroupProps) {
+  const readOnly = useReadOnly(ownReadOnly);
   const messages = useMessages().ui;
   const { fieldRef, handleChange, hasValue, value } = useFormControl({
     defaultValue,
@@ -369,11 +372,11 @@ export default function RadioGroup({
   };
 
   return (
-    <div className="flex flex-col gap-1.5" ref={groupRef}>
+    <div className="cui-field flex flex-col gap-1.5" ref={groupRef}>
       {label ? (
         // A fieldset is a `group`, which has no invalid or required state
         <fieldset {...groupProps}>
-          <legend className="block text-sm font-medium">
+          <legend className="cui-field-label block text-sm font-medium [--cui-label-offset:--spacing(1.5)]">
             {label}
             {messages.form.labelSuffix}{" "}
             {/* The star is for the eye - `required` tells assistive technology */}

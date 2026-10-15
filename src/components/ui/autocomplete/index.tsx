@@ -40,6 +40,7 @@ import { useLocale, useMessages } from "../../../providers/ui-context";
 import { defaultFilterOptions } from "./filter-options";
 import useVirtualList, { type VirtualListRow } from "./use-virtual-list";
 import RequiredMark from "../required-mark";
+import { fieldLabelClass, useReadOnly } from "../form-scope";
 
 export type {
   LoadOptionsPage,
@@ -257,6 +258,7 @@ interface BaseAutocompleteProps<
    * be changed: the list does not open, and there is no clear button, no ×
    * on the chips. `aria-readonly` and `data-readonly` are on the combobox.
    * Like a read-only native field, it is not checked by `required`.
+   * Defaults to `true` in a read-only `FormGrid` or `FormSection`.
    */
   readOnly?: boolean;
   /**
@@ -790,7 +792,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   options,
   pageSize = DEFAULT_PAGE_SIZE,
   placeholder,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   renderOption,
   required,
@@ -800,6 +802,7 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
   virtualized = false,
   ...props
 }: AutocompleteProps<TItem>) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = useMessages().ui;
 
@@ -2887,10 +2890,13 @@ export default function Autocomplete<TItem extends object = AutocompleteItem>({
       : createdMessage || announcedStatus;
 
   return (
-    <div {...props} className={cn("relative", className)}>
+    <div {...props} className={cn("cui-field relative", className)}>
       {label && (
         <label
-          className="mb-1.5 block text-sm font-medium"
+          className={cn(
+            fieldLabelClass(dim),
+            "mb-1.5 block text-sm font-medium",
+          )}
           htmlFor={asSelect ? undefined : inputId}
           id={labelId}
           // A select is no input a `<label>` focuses by itself

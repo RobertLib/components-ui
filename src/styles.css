@@ -231,9 +231,70 @@
   }
 
   /* The page makes room for the Drawer at once */
+  .cui-drawer ~ .cui-banners,
   .cui-drawer ~ .cui-navbar,
   .cui-drawer ~ main {
     transition: none;
+  }
+}
+
+/*
+ * Printing - the content of the page on paper. The frame of the app (the
+ * Drawer, the banners and the Navbar) is left out, and the content takes
+ * the width of the paper; the toasts, tooltips and popups leave themselves
+ * out (`print:hidden`). With a modal Dialog or Sheet open, it is printed
+ * alone. Unlayered, so an important utility of the app (`print:flex!`)
+ * still wins.
+ */
+@media print {
+  /* The parts the browser draws itself (fields, scrollbars) light - also on
+     a page in the dark scheme, which `useColorScheme` sets on <html> */
+  :root {
+    color-scheme: light !important;
+  }
+
+  /* A page locked by an open Dialog prints whole */
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .cui-drawer,
+  .cui-banners,
+  .cui-navbar {
+    display: none !important;
+  }
+
+  .cui-drawer ~ main {
+    margin-inline-start: 0 !important;
+    width: auto !important;
+  }
+
+  /* The page behind a modal Dialog or Sheet (the overlay stack marks it) -
+     not behind the slid-in Drawer, which is not printed itself */
+  :root:not(:has(.cui-drawer [aria-modal="true"])) [data-cui-background] {
+    display: none !important;
+  }
+
+  /* The open Dialog or Sheet in the flow of the page, as long as its
+     content - not fixed in the middle of every page */
+  .cui-modal-dialog {
+    position: static !important;
+    inset: auto !important;
+    width: auto !important;
+    max-width: none !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    translate: none !important;
+    scale: none !important;
   }
 }
 
@@ -308,8 +369,9 @@
     @apply inline-block size-16 rounded bg-neutral-200 dark:bg-neutral-700;
   }
 
-  /* App layout - the navbar and main content make room for the Drawer, at
-     the start edge of the page: the left one, right to left the right one */
+  /* App layout - the banners, the navbar and main content make room for
+     the Drawer, at the start edge of the page: the left one, right to left
+     the right one */
   .cui-drawer {
     width: var(--drawer-width, 240px);
   }
@@ -318,6 +380,7 @@
     width: var(--drawer-collapsed-width, 64px);
   }
 
+  .cui-drawer ~ .cui-banners,
   .cui-drawer ~ .cui-navbar,
   .cui-drawer ~ main {
     transition:
@@ -325,18 +388,21 @@
       width 0.3s ease;
   }
 
+  .cui-drawer.cui-drawer-open ~ .cui-banners,
   .cui-drawer.cui-drawer-open ~ .cui-navbar,
   .cui-drawer.cui-drawer-open ~ main {
     margin-inline-start: var(--drawer-width, 240px);
     width: calc(100% - var(--drawer-width, 240px));
   }
 
+  .cui-drawer.cui-drawer-collapsed ~ .cui-banners,
   .cui-drawer.cui-drawer-collapsed ~ .cui-navbar,
   .cui-drawer.cui-drawer-collapsed ~ main {
     margin-inline-start: var(--drawer-collapsed-width, 64px);
     width: calc(100% - var(--drawer-collapsed-width, 64px));
   }
 
+  .cui-drawer.cui-drawer-closed ~ .cui-banners,
   .cui-drawer.cui-drawer-closed ~ .cui-navbar,
   .cui-drawer.cui-drawer-closed ~ main {
     margin-inline-start: 0;
@@ -344,6 +410,7 @@
   }
 
   @media (max-width: 767.98px) {
+    .cui-drawer ~ .cui-banners,
     .cui-drawer ~ .cui-navbar,
     .cui-drawer ~ main {
       margin-inline-start: 0 !important;
@@ -399,6 +466,99 @@
      marks its optional fields instead */
   [data-required-mark="hidden"] .cui-required-mark {
     display: none;
+  }
+}
+
+/* The fields beside their labels - in a FormGrid or a FormSection with
+   `labelPosition="start"`, from 30rem of its width up (narrower, the labels
+   stay above). The label takes a column of `--cui-label-width` (the
+   `labelWidth`); the control, its description and error message the column
+   next to it. Checkboxes and switches, labelled beside the box anyway, line
+   up with the controls; a group floats its legend into the column of the
+   labels. A field without a label above it (a floating one, one with an
+   `aria-label`) stays as it is, and so do the fields of another field (the
+   two of PhoneInput take its label column together). A `"top"` inside puts
+   the labels above again. In the layer of the utilities - it replaces the
+   column the fields lay out by their classes. */
+@layer utilities {
+  @container cui-form (width >= 30rem) {
+    :is(
+      [data-label-position="start"]
+        .cui-field:not(
+          [data-label-position="start"] [data-label-position="top"] .cui-field
+        ),
+      [data-label-position="start"]
+        [data-label-position="top"]
+        [data-label-position="start"]
+        .cui-field
+    ):not(.cui-field .cui-field) {
+      &:has(> .cui-field-label, > fieldset > .cui-field-label) {
+        display: grid;
+        grid-template-columns: var(--cui-label-width, 10rem) minmax(0, 1fr);
+        align-items: start;
+        column-gap: 1rem;
+
+        & > * {
+          grid-column: 2;
+        }
+
+        /* Its text on the line of the text in the control - the offset of
+           an `md` field unless the field sets its own */
+        & > .cui-field-label {
+          grid-column: 1;
+          grid-row: 1;
+          padding-top: var(--cui-label-offset, 0.4375rem);
+          overflow-wrap: anywhere;
+          white-space: normal;
+        }
+
+        /* The legend stays the name of its fieldset - floated, it is no
+           longer drawn in its border, and pulled into the room the
+           fieldset leaves for it. The options start on its line. */
+        & > fieldset {
+          grid-column: 1 / -1;
+          padding-inline-start: calc(var(--cui-label-width, 10rem) + 1rem);
+        }
+
+        & > fieldset > .cui-field-label {
+          float: inline-start;
+          width: var(--cui-label-width, 10rem);
+          margin-inline-start: calc(-1rem - var(--cui-label-width, 10rem));
+          padding-top: var(--cui-label-offset, 0px);
+          overflow-wrap: anywhere;
+          white-space: normal;
+        }
+
+        & > fieldset > .cui-field-label ~ * {
+          margin-block-start: 0;
+        }
+      }
+
+      &.cui-field-check {
+        padding-inline-start: calc(var(--cui-label-width, 10rem) + 1rem);
+      }
+
+      /* The country and the number side by side next to the label of the
+         number - the select keeps its `aria-label` */
+      &.cui-field-phone:has(.cui-field-label) {
+        position: relative;
+        padding-inline-start: calc(var(--cui-label-width, 10rem) + 1rem);
+
+        & > :first-child .cui-field-label {
+          display: none;
+        }
+
+        & > :nth-child(2) .cui-field-label {
+          position: absolute;
+          inset-inline-start: 0;
+          top: 0;
+          width: var(--cui-label-width, 10rem);
+          padding-top: var(--cui-label-offset, 0.4375rem);
+          overflow-wrap: anywhere;
+          white-space: normal;
+        }
+      }
+    }
   }
 }
 

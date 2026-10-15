@@ -2,11 +2,14 @@ import type { DateDisabledPredicate } from "./availability";
 
 export type PickerDim = "xs" | "sm" | "md" | "lg";
 
-/** A day offered next to the calendar of the date popup - `presets`. */
+/** A value offered next to the popup - `presets`. */
 export interface DateTimePickerPreset {
   /** Text of the button. */
   label: string;
-  /** The day the button picks, `YYYY-MM-DD`. */
+  /**
+   * The value the button picks, in the value format of the picker -
+   * `YYYY-MM-DD` for a date, `YYYY-Qq` for a quarter.
+   */
   value: string;
 }
 
@@ -91,7 +94,7 @@ export interface CustomPickerProps {
   placeholder?: string;
   /** The date popup: the Today and Clear buttons under the days. */
   popupActions: boolean;
-  /** The date popup: days offered next to the calendar. */
+  /** Values offered next to the popup of a date or a period. */
   presets?: DateTimePickerPreset[];
   /** Keep a rejected typed draft available for correction. */
   preserveInvalidText?: boolean;

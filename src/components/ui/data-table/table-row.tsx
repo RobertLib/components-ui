@@ -7,6 +7,7 @@ import HighlightedText from "./highlight";
 import IconButton from "../icon-button";
 import Popover from "../popover";
 import Spinner from "../spinner";
+import TreeCell, { TREE_CONTROL } from "./tree-cell";
 import { formatCellValue } from "./format-value";
 import {
   followRowLink,
@@ -118,6 +119,8 @@ interface TableRowProps<T> {
   columnCount: number;
   /** The visible columns in the order they are shown. */
   columns: Column<T>[];
+  /** The context menu of the row is open - the row is highlighted. */
+  contextMenuOpen?: boolean;
   /** Height of the row. */
   density: DataTableDensity;
   /** A value of a column from any row - it picks the field of an empty cell. */
@@ -144,6 +147,11 @@ interface TableRowProps<T> {
   isExpanded: boolean;
   /** Touch device - long texts open on tap. */
   isMobile: boolean;
+  /**
+   * Only some of the branch of the row is selected (`cascadeSelection`) -
+   * the checkbox is mixed.
+   */
+  isPartlySelected?: boolean;
   /** The checkbox is checked. */
   isSelected: boolean;
   /** Formats the values. */
@@ -179,6 +187,10 @@ interface TableRowProps<T> {
   ) => boolean;
   /** Starts editing a cell. */
   onStartEdit: (rowId: RowId, columnKey: string) => void;
+  /** Tree data: loads the sub rows of the row again after a failure. */
+  onRetryTree?: (rowId: RowId) => void;
+  /** Tree data: expands or collapses the sub rows of the row. */
+  onToggleTree?: (rowId: RowId) => void;
   /** The expandable detail of the row. */
   renderSubRow?: (row: T) => React.ReactNode;
   /** The row. */
@@ -204,6 +216,18 @@ interface TableRowProps<T> {
    * one toggled before.
    */
   toggleRowSelection: (row: T, extend: boolean) => void;
+  /** Tree data: the column whose cell holds the toggle and indentation. */
+  treeColumnKey?: string | null;
+  /** Tree data: the sub rows are shown - `undefined` for a row without any. */
+  treeExpanded?: boolean;
+  /** Tree data: depth of the row - `1` at the top level; `undefined` without. */
+  treeLevel?: number;
+  /** Tree data: 1-based place of the row among its siblings. */
+  treePosInSet?: number;
+  /** Tree data: number of siblings of the row. */
+  treeSetSize?: number;
+  /** Tree data: the sub rows are loading, or failed to. */
+  treeStatus?: "error" | "loading";
 }
 
 /** A row of the table body, with its detail row when expanded. */
@@ -214,6 +238,7 @@ function TableRowView<T>({
   cellStates,
   columnCount,
   columns,
+  contextMenuOpen,
   density,
   editHintId,
   editingColumnKey,
@@ -227,6 +252,7 @@ function TableRowView<T>({
   isEditable,
   isExpanded,
   isMobile,
+  isPartlySelected = false,
   isSelected,
   locale,
   measureRef,
@@ -237,8 +263,10 @@ function TableRowView<T>({
   onCommitEdit,
   onRowClick,
   onRowFocus,
+  onRetryTree,
   onRowKeyDown,
   onStartEdit,
+  onToggleTree,
   renderSubRow,
   row,
   getRowId,
@@ -248,6 +276,12 @@ function TableRowView<T>({
   tabStopColumnKey,
   toggleRowExpansion,
   toggleRowSelection,
+  treeColumnKey,
+  treeExpanded,
+  treeLevel,
+  treePosInSet,
+  treeSetSize,
+  treeStatus,
 }: TableRowProps<T>) {
   const messages = locale.messages.ui;
   const { Link } = useRouterActions();
@@ -314,11 +348,19 @@ function TableRowView<T>({
       {/* No `aria-selected` - it belongs to grid rows, not to the rows of a
           table; the row's checkbox tells the selection. `data-selected` and
           `data-state` (of a row with a detail) are for styling. */}
+      {/* Tree data: the place of the row in the tree, read as it is focused
+          (the treegrid pattern, as far as it fits a table) */}
       <tr
+        aria-busy={treeStatus === "loading" || undefined}
+        aria-expanded={treeExpanded}
+        aria-level={treeLevel}
+        aria-posinset={treePosInSet}
         aria-rowindex={ariaRowIndex}
+        aria-setsize={treeSetSize}
         className={cn(
           "group transition-colors duration-150 hover:bg-neutral-100/80 motion-reduce:transition-none dark:hover:bg-neutral-800/80",
           isActivatable && "cursor-pointer",
+          contextMenuOpen && "bg-neutral-100/80 dark:bg-neutral-800/80",
           rowTabIndex !== undefined &&
             "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-400",
           getRowClassName?.(row),
@@ -424,6 +466,10 @@ function TableRowView<T>({
               onChange={(event) =>
                 toggleRowSelection(row, isShiftEvent(event.nativeEvent))
               }
+              // `indeterminate` exists only as a DOM property
+              ref={(input) => {
+                if (input) input.indeterminate = isPartlySelected;
+              }}
               type="checkbox"
             />
           </td>
@@ -450,6 +496,10 @@ function TableRowView<T>({
           const layout = cellLayouts[column.key] ?? DEFAULT_CELL_LAYOUT;
           const sticky = isSticky(layout);
           const cellId = columnIndex === 0 ? rowLabelId : undefined;
+          // Tree data: the cell with the toggle - named by its content
+          // alone, without the toggle and the failure of its sub rows
+          const isTreeCell =
+            treeLevel !== undefined && column.key === treeColumnKey;
           const state = cellStates.get(getCellKey(getRowId(row), column.key));
           const isPending = state?.status === "pending";
           // A cell being saved stays a tab stop, but cannot be edited again
@@ -586,6 +636,26 @@ function TableRowView<T>({
             }
           }
 
+          if (isTreeCell) {
+            content = (
+              <TreeCell
+                compact={density === "compact"}
+                expanded={treeExpanded}
+                idPrefix={`${idPrefix}-tree-${rowIndex}`}
+                labelId={cellId}
+                level={treeLevel}
+                locale={locale}
+                onRetry={() => onRetryTree?.(getRowId(row))}
+                onToggle={() => onToggleTree?.(getRowId(row))}
+                rowLabelId={rowLabelId}
+                status={treeStatus}
+                toggleTabIndex={rowTabIndex === undefined ? undefined : -1}
+              >
+                {content}
+              </TreeCell>
+            );
+          }
+
           return (
             <td
               aria-busy={isPending || undefined}
@@ -601,10 +671,13 @@ function TableRowView<T>({
                 hiddenBelowClassName(layout),
                 isEditableCell &&
                   "cursor-default focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-400",
+                typeof column.cellClassName === "function"
+                  ? column.cellClassName(row)
+                  : column.cellClassName,
               )}
               // The arrow keys find the cell of a column by it
               data-column-key={column.key}
-              id={cellId}
+              id={isTreeCell ? undefined : cellId}
               key={column.key}
               onClick={
                 canEdit && !isEditing
@@ -622,7 +695,13 @@ function TableRowView<T>({
               }
               onDoubleClick={
                 canEdit && !isEditing
-                  ? () => onStartEdit(getRowId(row), column.key)
+                  ? (event) => {
+                      // Not quick clicks of the toggle of the sub rows
+                      if ((event.target as Element).closest(TREE_CONTROL)) {
+                        return;
+                      }
+                      onStartEdit(getRowId(row), column.key);
+                    }
                   : undefined
               }
               onFocus={

@@ -17,6 +17,7 @@ import IconButton from "./icon-button";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { getActiveElement } from "./overlay-stack";
+import { useReadOnly } from "./form-scope";
 
 // Lets the browser enforce the count without a field of its own to show
 const hiddenValidationStyle: React.CSSProperties = {
@@ -78,6 +79,11 @@ export interface RepeatableFieldProps<T> extends Omit<
   name?: string;
   form?: string;
   disabled?: boolean;
+  /**
+   * Shows the groups without adding, removing or moving them - `renderItem`
+   * gets it for the fields of a group. Defaults to `true` in a read-only
+   * `FormGrid` or `FormSection`.
+   */
   readOnly?: boolean;
   required?: boolean;
   /**
@@ -112,7 +118,7 @@ export default function RepeatableField<T>({
   min = 0,
   name,
   onChange,
-  readOnly = false,
+  readOnly: ownReadOnly,
   ref,
   renderItem,
   reorderable = true,
@@ -120,6 +126,7 @@ export default function RepeatableField<T>({
   value,
   ...props
 }: RepeatableFieldProps<T>) {
+  const readOnly = useReadOnly(ownReadOnly);
   const locale = useLocale();
   const messages = locale.messages.ui.repeatableField;
   const generatedId = useId();

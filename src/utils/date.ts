@@ -1,6 +1,6 @@
 import { copyDate, zonedDay, dateTimeZone } from "./time-zone";
 import { toIntlLocale } from "../i18n/ui/format";
-import type { DatePatternToken, WeekDay } from "../i18n/ui/types";
+import type { DateFormats, DatePatternToken, WeekDay } from "../i18n/ui/types";
 
 export const pad2 = (value: number) => String(value).padStart(2, "0");
 
@@ -241,11 +241,34 @@ export interface DateParts {
   minutes: number;
   /** 1 - 12 */
   month: number;
+  /** 1 - 4 */
+  quarter: number;
   week: number;
   year: number;
 }
 
-const PATTERN_TOKEN = /\[([^\]]*)]|YYYY|MM|M|DD|D|HH|H|hh|h|mm|WW|W|A/g;
+/** The quarter (1 - 4) of a month (1 - 12). */
+export const quarterOfMonth = (month: number) => Math.ceil(month / 3);
+
+// The patterns of the formats a locale may leave out - those of the pickers
+// added after the others, which a locale of an app need not know
+const DEFAULT_PATTERNS = {
+  quarter: "[Q]Q YYYY",
+  year: "YYYY",
+};
+
+/**
+ * The pattern of `kind` of a locale's `formats` - the default one of a
+ * pattern the locale leaves out (`[Q]Q YYYY`, `YYYY`).
+ */
+export const getDatePattern = (
+  formats: DateFormats,
+  kind: keyof DateFormats,
+): string =>
+  formats[kind] ??
+  (kind === "quarter" || kind === "year" ? DEFAULT_PATTERNS[kind] : "");
+
+const PATTERN_TOKEN = /\[([^\]]*)]|YYYY|MM|M|DD|D|HH|H|hh|h|mm|WW|W|Q|A/g;
 
 /** The texts of the `A` token: AM and PM, e.g. `["dop.", "odp."]` in Czech. */
 export type DayPeriods = readonly [am: string, pm: string];
@@ -295,6 +318,8 @@ export function formatPattern(
         return pad2(value("week"));
       case "W":
         return String(value("week"));
+      case "Q":
+        return String(value("quarter"));
       case "A":
         return dayPeriods[value("hours") < 12 ? 0 : 1];
       default:
@@ -340,6 +365,7 @@ const TOKEN_PARTS: Record<string, keyof DateParts | "hours12" | "meridiem"> = {
   HH: "hours",
   M: "month",
   MM: "month",
+  Q: "quarter",
   W: "week",
   WW: "week",
   YYYY: "year",
@@ -371,6 +397,7 @@ const NUMBER_SOURCES: Record<keyof DateParts, string> = {
   // last two digits typed without one are the minutes: "930" is 9:30
   minutes: "[0-5]\\d|(?<=" + SEPARATOR + ")\\d(?!\\d)",
   month: "1[0-2]|0?[1-9]",
+  quarter: "[1-4]",
   week: "5[0-3]|[1-4]\\d|0?[1-9]",
   year: /* @__PURE__ */ notNegative("\\d{4}"),
 };
@@ -385,7 +412,7 @@ const NO_YEAR = "(?=\\s|$)";
 
 // The tokens of the date - after the last of them the year may be left out
 const DAY_AND_MONTH = new Set(["D", "DD", "M", "MM"]);
-const DATE_TOKENS = new Set(["D", "DD", "M", "MM", "W", "WW"]);
+const DATE_TOKENS = new Set(["D", "DD", "M", "MM", "Q", "W", "WW"]);
 
 /**
  * The year two digits stand for: one of the 100 years from 80 years before
@@ -601,8 +628,9 @@ export const writesWeek = (pattern: string) =>
   );
 
 /**
- * `formatPattern` for a `Date`. A pattern with the week (`W`, `WW`) shows
- * the year the ISO week belongs to - 2024-12-30 is `W01.2025`.
+ * `formatPattern` for a `Date` - also its quarter. A pattern with the week
+ * (`W`, `WW`) shows the year the ISO week belongs to - 2024-12-30 is
+ * `W01.2025`.
  */
 export function formatDate(
   date: Date,
@@ -619,6 +647,7 @@ export function formatDate(
       hours: date.getHours(),
       minutes: date.getMinutes(),
       month: date.getMonth() + 1,
+      quarter: quarterOfMonth(date.getMonth() + 1),
       week: isoWeek.week,
       year: showsWeek ? isoWeek.year : date.getFullYear(),
     },

@@ -47,6 +47,22 @@ export default function DropdownPage() {
       <Example
         description={
           <p>
+            <code>disabledReason</code> says why a <code>disabled</code> item
+            cannot be picked - a missing permission, the state of the record. It
+            shows on a line of its own under the label, in full contrast while
+            the rest of the item is faded, and screen readers read it as the
+            description of the item. It works the same in{" "}
+            <code>ContextMenu</code>, <code>Menubar</code>, the user menu of{" "}
+            <code>Navbar</code> and for radio options. Keep it given while the
+            item is enabled - it shows only while <code>disabled</code>.
+          </p>
+        }
+        name="dropdown/disabled-reason"
+        title="Why an item is disabled"
+      />
+      <Example
+        description={
+          <p>
             An item with <code>checked</code> is a checkbox;{" "}
             <code>{'{ type: "radio", value, onChange, options }'}</code> is a
             group of options of which one is checked, and{" "}
