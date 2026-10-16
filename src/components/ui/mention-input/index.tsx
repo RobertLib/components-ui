@@ -34,10 +34,11 @@ import {
   applyTextChange,
   findQuery,
   insertMentions,
-  MAX_MENTION_PART,
+  parseCopiedValue,
   parseValue,
   resolveTriggers,
   serializeValue,
+  toMentionParts,
   type LoadMentionSuggestions,
   type MentionQuery,
   type MentionRange,
@@ -95,7 +96,8 @@ export interface MentionInputProps extends Omit<
    * Loads the suggestions for the text typed after a trigger - from an API,
    * as the user pauses typing (right away after the trigger itself). The
    * `signal` aborts once the query changes. Used for the triggers without
-   * suggestions of their own.
+   * suggestions of their own. The list opened again loads anew - it offers
+   * nothing loaded before, also when this function is another one.
    */
   loadSuggestions?: LoadMentionSuggestions;
   /**
@@ -203,6 +205,9 @@ const DEFAULT_MAX_SUGGESTIONS = 8;
 // The type of the clipboard data that keeps the mentions of copied text -
 // pasted into a mention field, they stay mentions
 const CLIPBOARD_TYPE = "application/x-mention-value";
+// ... and the triggers it was written with - a field with others reads it
+// with them
+const CLIPBOARD_TRIGGERS_TYPE = "application/x-mention-triggers";
 
 // The undo history of the browser brings back texts - their mentions are
 // remembered for so many of them
@@ -452,6 +457,14 @@ export default function MentionInput({
   const loadKey =
     isWanted && hasLoader && query ? `${query.char}\u0000${query.text}` : null;
 
+  // The suggestions loaded stay while the list is open, as the next ones
+  // load. Closed, they are old - `loadSuggestions` may be another one when it
+  // opens again (of another project), and Enter must not insert theirs.
+  if (loadKey === null && (loaded !== null || failedKey !== null)) {
+    setLoaded(null);
+    setFailedKey(null);
+  }
+
   useEffect(() => {
     if (loadKey === null) return;
     const [char, text] = loadKey.split("\u0000");
@@ -691,18 +704,14 @@ export default function MentionInput({
     if (!query || !textarea || suggestion.disabled || locked) return;
 
     // A token that reads back: one line, not too long
-    const mentionLabel = suggestion.label
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, MAX_MENTION_PART);
-    const mentionId = String(suggestion.id).replace(/[\r\n]+/g, " ");
-    if (!mentionLabel || !mentionId || mentionId.length > MAX_MENTION_PART) {
-      return;
-    }
+    const parts = toMentionParts(suggestion.label, suggestion.id);
+    if (!parts) return;
+    const { id: mentionId, label: mentionLabel } = parts;
     const mentionText = query.char + mentionLabel;
-    // A space after it, unless there is one already - the caret goes past it
+    // A space after it, unless there is one already - the caret goes past
+    // it. Not past a line break: the space goes before it.
     const next = parsed.text[query.end];
-    const spacer = next !== undefined && /\s/.test(next) ? "" : " ";
+    const spacer = next !== undefined && /[^\S\n]/.test(next) ? "" : " ";
     const text = mentionText + spacer;
 
     setQuery(null);
@@ -796,53 +805,62 @@ export default function MentionInput({
   };
 
   /**
-   * Widens a collapsed selection at the edge of a mention over it, so that
-   * deleting deletes the whole mention - by the browser, which can undo it.
+   * What deleting at a collapsed caret deletes, so that a mention goes whole
+   * - the mention the caret is at the edge of. A word deleted backward (⌥ /
+   * Ctrl + Backspace) also takes the one before the white space the caret is
+   * after, "@Jana Nováková |", which the browser would delete half of.
+   * `null` for none.
    */
-  const selectMentionToDelete = (
+  const findMentionDeletion = (
     textarea: HTMLTextAreaElement,
     backward: boolean,
+    word = false,
   ) => {
-    const { selectionEnd, selectionStart } = textarea;
-    if (selectionStart !== selectionEnd || locked) return null;
+    const { selectionEnd, selectionStart: caret } = textarea;
+    if (caret !== selectionEnd || locked) return null;
 
     const mention = parsed.mentions.find((candidate) =>
       backward
-        ? candidate.end === selectionStart
-        : candidate.start === selectionStart,
+        ? candidate.end === caret ||
+          (word &&
+            candidate.end < caret &&
+            /^[^\S\n]+$/.test(parsed.text.slice(candidate.end, caret)))
+        : candidate.start === caret,
     );
-    if (mention) textarea.setSelectionRange(mention.start, mention.end);
-    return mention ?? null;
+    if (!mention) return null;
+    return backward
+      ? { from: mention.start, to: caret }
+      : { from: caret, to: mention.end };
   };
 
   /**
-   * A phone keyboard deletes without a key event of its own (key code 229).
-   * Its `beforeinput` comes with the range to delete taken already - the
-   * mention is deleted by the field instead.
+   * A phone keyboard deletes without a key event of its own (key code 229),
+   * and a word deleted backward may end in a mention. The `beforeinput` comes
+   * with the range to delete taken already - the field deletes the mention
+   * instead. One that cannot be cancelled (of a composition on Android) is
+   * left to the browser: the mention it reaches into becomes text.
    */
   const deleteMentionOnInput = (
     textarea: HTMLTextAreaElement,
     event: InputEvent,
   ) => {
-    if (
-      event.inputType !== "deleteContentBackward" &&
-      event.inputType !== "deleteContentForward"
-    ) {
-      return;
-    }
-    const mention = selectMentionToDelete(
+    const { inputType } = event;
+    const backward =
+      inputType === "deleteContentBackward" ||
+      inputType === "deleteWordBackward";
+    const forward =
+      inputType === "deleteContentForward" || inputType === "deleteWordForward";
+    if (!event.cancelable || (!backward && !forward)) return;
+
+    const deletion = findMentionDeletion(
       textarea,
-      event.inputType === "deleteContentBackward",
+      backward,
+      inputType === "deleteWordBackward",
     );
-    if (!mention || !event.cancelable) return;
+    if (!deletion) return;
 
     event.preventDefault();
-    replaceText(textarea, {
-      from: mention.start,
-      mentions: [],
-      text: "",
-      to: mention.end,
-    });
+    replaceText(textarea, { ...deletion, mentions: [], text: "" });
   };
 
   const latestDelete = useRef(deleteMentionOnInput);
@@ -915,8 +933,11 @@ export default function MentionInput({
       }
     }
 
+    // A collapsed selection at the edge of a mention widened over it - the
+    // browser deletes the whole mention, and can undo it
     if (event.key === "Backspace" || event.key === "Delete") {
-      selectMentionToDelete(textarea, event.key === "Backspace");
+      const deletion = findMentionDeletion(textarea, event.key === "Backspace");
+      if (deletion) textarea.setSelectionRange(deletion.from, deletion.to);
     }
   };
 
@@ -939,6 +960,7 @@ export default function MentionInput({
       CLIPBOARD_TYPE,
       serializeValue(text, mentions, chars),
     );
+    event.clipboardData.setData(CLIPBOARD_TRIGGERS_TYPE, chars);
     return true;
   };
 
@@ -962,9 +984,16 @@ export default function MentionInput({
     onPaste?.(event);
     if (event.defaultPrevented || locked) return;
 
-    const copied = event.clipboardData.getData(CLIPBOARD_TYPE);
+    const { clipboardData } = event;
+    const copied = clipboardData.getData(CLIPBOARD_TYPE);
     if (!copied) return;
-    const { mentions, text } = parseValue(copied, chars);
+    // Read with the triggers of the field it was copied from - a mention of
+    // another trigger is text here
+    const { mentions, text } = parseCopiedValue(
+      copied,
+      clipboardData.getData(CLIPBOARD_TRIGGERS_TYPE) || chars,
+      chars,
+    );
     const textarea = event.currentTarget;
     const { selectionEnd: to, selectionStart: from } = textarea;
     // Plain text - or text the browser cuts at `maxLength`, which would cut

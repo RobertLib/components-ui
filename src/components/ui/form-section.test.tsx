@@ -73,6 +73,17 @@ describe("FormSection", () => {
     expect(screen.getByRole("button", { name: "Unlock" })).toBeEnabled();
   });
 
+  it("disables its actions too without a title - no legend holds them", () => {
+    render(
+      <FormSection actions={<Button>Unlock</Button>} disabled>
+        <Input label="Number" />
+      </FormSection>,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Number:" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Unlock" })).toBeDisabled();
+  });
+
   it("lays out its fields with a FormGrid", () => {
     render(
       <FormSection

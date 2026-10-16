@@ -50,7 +50,9 @@ export interface ContextMenuProps extends Omit<
   disabled?: boolean;
   /**
    * Menu entries - the same as the items of `Dropdown`. Without any, the
-   * browser's own menu shows.
+   * browser's own menu shows. They may come as the target is pressed - set
+   * in its `onPointerDown`, e.g. the entries of the row pressed - also for
+   * a long press.
    */
   items: DropdownEntry[];
   /** Called when the menu opens or closes. */
@@ -159,10 +161,13 @@ function swallowNextClick() {
 /**
  * A touch held on the target without moving - a scroll moves the finger.
  * The handlers go on the target; `onLongPress` gets the point of the touch
- * and the target.
+ * and the target. With `awaitsItems`, a press starts also while it is not
+ * `enabled` - the items may come with it, set by an `onPointerDown` of the
+ * target (the row pressed) - and it opens only if they came by then.
  */
 function useLongPress(
   enabled: boolean,
+  awaitsItems: boolean,
   onLongPress: (point: Point, target: Element) => void,
 ) {
   const pressRef = useRef<{
@@ -172,6 +177,7 @@ function useLongPress(
     y: number;
   } | null>(null);
   const onLongPressRef = useRef(onLongPress);
+  const enabledRef = useRef(enabled);
 
   const cancel = useCallback(() => {
     if (pressRef.current) clearTimeout(pressRef.current.timer);
@@ -180,6 +186,7 @@ function useLongPress(
 
   useLayoutEffect(() => {
     onLongPressRef.current = onLongPress;
+    enabledRef.current = enabled;
     // Availability can change before the finger is released. Forget that
     // press even if the menu becomes available again before its timer fires.
     if (!enabled) cancel();
@@ -192,21 +199,34 @@ function useLongPress(
     cancel,
     onPointerDown: (event: React.PointerEvent) => {
       if (
-        !enabled ||
+        !(enabled || awaitsItems) ||
         event.defaultPrevented ||
         event.pointerType !== "touch" ||
         handledEvents.has(event.nativeEvent)
       ) {
         return;
       }
-      handledEvents.add(event.nativeEvent);
+      // A menu without items yet leaves the press to a menu around - it
+      // takes it once it has them, unless that one did
+      const {
+        clientX: x,
+        clientY: y,
+        currentTarget,
+        nativeEvent,
+        pointerId,
+      } = event;
+      if (enabled) handledEvents.add(nativeEvent);
       cancel();
 
-      const { clientX: x, clientY: y, currentTarget, pointerId } = event;
       pressRef.current = {
         id: pointerId,
         timer: setTimeout(() => {
           pressRef.current = null;
+          if (!enabledRef.current) return;
+          if (!enabled) {
+            if (handledEvents.has(nativeEvent)) return;
+            handledEvents.add(nativeEvent);
+          }
           onLongPressRef.current({ x, y }, currentTarget);
         }, LONG_PRESS_DELAY),
         x,
@@ -424,8 +444,9 @@ export default function ContextMenu({
     if (menu && !enabled) closeRef.current();
   }, [enabled, menu]);
 
-  // A long press on a touch screen opens the menu at the finger
-  const longPress = useLongPress(enabled, (point, target) => {
+  // A long press on a touch screen opens the menu at the finger - also of a
+  // target whose items come with the press (the row of a table pressed)
+  const longPress = useLongPress(enabled, !disabled, (point, target) => {
     swallowNextClick();
     openMenu(pointRect(point), 2, false, target);
   });

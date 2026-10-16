@@ -10,9 +10,11 @@ export interface FormSectionProps
       "columns" | "labelPosition" | "labelWidth" | "readOnly"
     > {
   /**
-   * Buttons at the end of the header, e.g. "Edit" or a menu. They are part
-   * of the legend - they stay usable in a `disabled` section, as the
-   * controls of a native legend do. Not with the `readOnly` of the section.
+   * Buttons at the end of the header, e.g. "Edit" or a menu. With a
+   * `title` they are part of the legend - they stay usable in a `disabled`
+   * section, as the controls of a native legend do. Without one there is
+   * no legend (its text would name the group), and `disabled` disables
+   * them with the fields. Not with the `readOnly` of the section.
    */
   actions?: React.ReactNode;
   /** The fields, laid out by a `FormGrid` - see `columns`. */

@@ -8,6 +8,8 @@ import NotificationPanel from "./notification-panel";
 import cn from "../../../utils/cn";
 import { formatPlural } from "../../../i18n/ui/format";
 import useIsMobile from "../../../hooks/use-is-mobile";
+import isPromiseLike from "../../../utils/is-promise-like";
+import logger from "../../../utils/logger";
 import { useLocale } from "../../../providers/ui-context";
 import type { NotificationFilter, NotificationItem } from "./types";
 
@@ -71,7 +73,8 @@ export interface NotificationCenterProps extends Omit<
   /**
    * Loads older notifications - "Load more", or the end of the list
    * scrolled into view. While a returned promise is pending (or
-   * `loadingMore`), it is not called again.
+   * `loadingMore`), it is not called again - also once the panel is closed
+   * and opened again.
    */
   onLoadMore?: () => unknown;
   /** "Mark all as read" - without it the button is not shown. */
@@ -158,6 +161,26 @@ export default function NotificationCenter({
     onFilterChange?.(next);
   };
 
+  // A promise of `onLoadMore` is pending - kept here, as the panel is gone
+  // while closed: opened again meanwhile, it does not load the same again
+  const [pending, setPending] = useState(false);
+  const busy = loadingMore || pending;
+
+  const loadMore = () => {
+    if (busy || !onLoadMore) return;
+    const result = onLoadMore();
+    if (!isPromiseLike(result)) return;
+
+    setPending(true);
+    Promise.resolve(result).then(
+      () => setPending(false),
+      (reason: unknown) => {
+        setPending(false);
+        logger.error("The onLoadMore of NotificationCenter failed.", reason);
+      },
+    );
+  };
+
   // A new unread count, announced once a burst of notifications settles -
   // not the count of the first load, nor a count going down
   const [announcement, setAnnouncement] = useState({ id: 0, text: "" });
@@ -204,11 +227,11 @@ export default function NotificationCenter({
       headingShown={!isMobile}
       infinite={infinite}
       loading={loading}
-      loadingMore={loadingMore}
+      loadingMore={busy}
       notifications={notifications}
       onActivate={() => changeOpen(false)}
       onFilterChange={changeFilter}
-      onLoadMore={onLoadMore}
+      onLoadMore={onLoadMore && loadMore}
       onMarkAllRead={onMarkAllRead}
       onReadChange={onReadChange}
       onRetry={onRetry}

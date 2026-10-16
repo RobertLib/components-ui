@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import FormSection from "./form-section";
 import Pagination from "./pagination";
 import { cs } from "../../i18n/ui/cs";
 import UIProvider from "../../providers/ui-provider";
@@ -451,6 +452,26 @@ describe("Pagination extras", () => {
     expect(select).not.toHaveAttribute("name");
     // In the landmark, beside the buttons
     expect(screen.getByRole("navigation")).toContainElement(select);
+  });
+
+  it("picks the page size also in a read-only section", async () => {
+    const user = userEvent.setup();
+    const onPageSizeChange = vi.fn();
+    render(
+      <FormSection readOnly title="Orders">
+        <Pagination
+          onPageSizeChange={onPageSizeChange}
+          pageSize={20}
+          pageSizeOptions={[10, 20, 50]}
+          total={200}
+        />
+      </FormSection>,
+    );
+
+    const select = screen.getByRole("combobox", { name: "Per page" });
+    expect(select).not.toHaveAttribute("aria-readonly");
+    await user.selectOptions(select, "50");
+    expect(onPageSizeChange).toHaveBeenCalledWith(50);
   });
 
   it("jumps to a page typed in - within the pages", async () => {

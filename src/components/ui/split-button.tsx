@@ -82,6 +82,8 @@ export default function SplitButton({
         className={fullWidth ? "min-w-0 flex-1" : undefined}
         disabled={disabled}
         disabledReason={disabledReason}
+        // The wrapper of the tooltip of a `disabledReason` too
+        fullWidth={fullWidth}
         id={buttonId}
         loading={loading}
       >

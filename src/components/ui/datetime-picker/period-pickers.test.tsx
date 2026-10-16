@@ -223,6 +223,32 @@ describe("DateTimePicker type year", () => {
     ).toBe("2027");
   });
 
+  it.each(["26", "-5", "12345", "2026.5"])(
+    "refuses %s in native mode - no year of four digits",
+    async (text) => {
+      const user = userEvent.setup();
+      render(
+        <form aria-label="Report">
+          <DateTimePicker label="Year" mode="native" name="year" type="year" />
+        </form>,
+      );
+      const form = screen.getByRole<HTMLFormElement>("form");
+      const input = screen.getByRole<HTMLInputElement>("spinbutton", {
+        name: /Year/,
+      });
+
+      await user.type(input, text);
+      expect(form.checkValidity()).toBe(false);
+      expect(input.validationMessage).toBe(
+        `“${text}” is not a valid value. Use the format YYYY.`,
+      );
+
+      await user.clear(input);
+      await user.type(input, "2026");
+      expect(form.checkValidity()).toBe(true);
+    },
+  );
+
   it("disables a year without a day that can be picked", async () => {
     const { input, user } = renderPicker({
       defaultValue: "2027",
@@ -401,6 +427,38 @@ describe("DateTimePicker type quarter", () => {
   it("keeps the custom picker in native mode", () => {
     renderPicker({ defaultValue: "2026-Q3", mode: "native", type: "quarter" });
     expect(screen.getByRole("combobox")).toHaveValue("Q3 2026");
+  });
+
+  it("works as the custom picker in native mode", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <form aria-label="Report">
+        <DateTimePicker
+          defaultValue="2026-Q3"
+          label="Quarter"
+          mode="native"
+          name="quarter"
+          onChange={(event) => onChange(event.target.value)}
+          type="quarter"
+        />
+      </form>,
+    );
+    const form = screen.getByRole<HTMLFormElement>("form");
+    const input = screen.getByRole("combobox", { name: /Quarter/ });
+
+    // The field writing the picked quarter is no value a script wrote
+    await user.click(input);
+    await user.click(button("Q1 2026"));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("2026-Q1");
+    expect(input).toHaveValue("Q1 2026");
+    expect(new FormData(form).get("quarter")).toBe("2026-Q1");
+
+    await user.clear(input);
+    await user.type(input, "Q2 2026{Enter}");
+    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenLastCalledWith("2026-Q2");
+    expect(new FormData(form).get("quarter")).toBe("2026-Q2");
   });
 
   it("drops a malformed value like a native input", () => {

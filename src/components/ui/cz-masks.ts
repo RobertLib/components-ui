@@ -50,6 +50,9 @@ const optionalDigit: MaskTokens = {
  * `<Input {...CZ_MASKS.ico} label="IČO" validate={cz.ico} />`. A mask
  * checks the shape only - `useCzValidators` checks the value. A bank
  * account number has no mask: its parts are of a varying length.
+ * `birthNumber` and `dic` hold functions (their optional digit), which a
+ * React Server Component cannot pass on - spread them in a client
+ * component.
  */
 export const CZ_MASKS: CzMasks = {
   birthNumber: {

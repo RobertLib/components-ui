@@ -85,11 +85,18 @@ interface DataTableTreeOptions<T> {
   locale: Locale;
   onExpandedIdsChange?: (ids: RowId[]) => void;
   onLoadError?: (error: unknown, row: T) => void;
+  /** `loadSubRows` brought the sub rows of the row of `key`. */
+  onLoaded?: (key: string, rows: readonly T[]) => void;
   page: number;
   pageInfo?: PageInfo;
   pageSize: number;
   pagination: boolean;
   queryColumns: Column<T>[];
+  /**
+   * Changes with the filters, the search and the sorting a server gets -
+   * the sub rows it loaded for another query are loaded again.
+   */
+  queryKey: string;
   search: string;
   searchColumns: Column<T>[];
   sort: DataTableSort[];
@@ -121,11 +128,13 @@ export default function useDataTableTree<T>({
   locale,
   onExpandedIdsChange,
   onLoadError,
+  onLoaded,
   page,
   pageInfo,
   pageSize,
   pagination,
   queryColumns,
+  queryKey,
   search,
   searchColumns,
   sort,
@@ -159,7 +168,11 @@ export default function useDataTableTree<T>({
   const awaitedKeyRef = useRef<string | null>(null);
 
   const { load, loads, release, retry } = useSubRowLoads(loadSubRows, {
-    loadKey: loadSubRowsKey,
+    // A server answers another query with other sub rows - those shown stay
+    // until theirs come, as with another `loadSubRowsKey`
+    loadKey: clientSide
+      ? loadSubRowsKey
+      : JSON.stringify([loadSubRowsKey ?? null, queryKey]),
     onError: (error, row) => {
       if (awaitedKeyRef.current === getRowKey(getRowId(row))) {
         awaitedKeyRef.current = null;
@@ -167,10 +180,11 @@ export default function useDataTableTree<T>({
       }
       onLoadError?.(error, row);
     },
-    onLoaded: (key, count) => {
+    onLoaded: (key, rows) => {
+      onLoaded?.(key, rows);
       if (awaitedKeyRef.current !== key) return;
       awaitedKeyRef.current = null;
-      announce(formatPlural(locale.code, messages.loaded, count));
+      announce(formatPlural(locale.code, messages.loaded, rows.length));
     },
   });
 
@@ -285,6 +299,10 @@ export default function useDataTableTree<T>({
     key: filterKey,
     overrides: NO_OVERRIDES,
   });
+  // Another filter - also the one of before again - opens its matches
+  if (filterExpansion.key !== filterKey) {
+    setFilterExpansion({ key: filterKey, overrides: NO_OVERRIDES });
+  }
   const filterOverrides =
     filtering && filterExpansion.key === filterKey
       ? filterExpansion.overrides
@@ -538,12 +556,17 @@ export default function useDataTableTree<T>({
     [allNodes],
   );
 
+  const anyExpanded = !!shownNodes?.some(isShownExpanded);
+
   return {
     announcement,
     /** Some row shown is expanded - the header button collapses all. */
-    anyExpanded: !!shownNodes?.some(isShownExpanded),
-    /** Some row of the page can be expanded. */
-    canExpand: !!pageNodes?.some(isExpandable),
+    anyExpanded,
+    /**
+     * The header button has something to do: some row is expanded, or has
+     * sub rows at hand to expand - "Expand all" loads none.
+     */
+    canExpand: anyExpanded || !!pageNodes?.some((node) => node.childCount > 0),
     collapseAll,
     describe,
     enabled,
@@ -560,7 +583,11 @@ export default function useDataTableTree<T>({
     pageNodes,
     pageRows,
     refreshNodes,
-    retry: (id: RowId) => retry(getRowKey(id)),
+    /** Loads the sub rows again after a failure - the user waits for them. */
+    retry: (id: RowId) => {
+      awaitedKeyRef.current = getRowKey(id);
+      retry(getRowKey(id));
+    },
     /** Client-side: the number of top-level rows matching - what pages. */
     rootTotal: clientSide && tree ? tree.data.rootStarts.length - 1 : undefined,
     summaryRows,

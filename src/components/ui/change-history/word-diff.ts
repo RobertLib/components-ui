@@ -10,8 +10,19 @@ export interface DiffPart {
 // changed parts are shown as replaced whole.
 const MAX_CELLS = 500_000;
 
-/** Words and the whitespace between them, in their order. */
-const tokenize = (text: string) => text.match(/\s+|[^\s]+/g) ?? [];
+/**
+ * The words of a text, each with the whitespace before it, in their order -
+ * and the whitespace at its end. A word and its space are one cell of the
+ * table, so it fits twice as many words as when they are two.
+ */
+const tokenize = (text: string) => text.match(/\s*\S+|\s+/g) ?? [];
+
+/**
+ * What a token is compared by - the first word of a text, which has no
+ * whitespace before it, as if it had a space: "a b" is in "x a b".
+ */
+const keyOf = (token: string, index: number) =>
+  index === 0 && !/^\s/.test(token) ? ` ${token}` : token;
 
 /** Appends a token to the parts - to the last one of the same type. */
 function push(parts: DiffPart[], type: DiffPart["type"], text: string) {
@@ -29,20 +40,44 @@ function push(parts: DiffPart[], type: DiffPart["type"], text: string) {
 export function diffWords(before: string, after: string): DiffPart[] {
   const a = tokenize(before);
   const b = tokenize(after);
+  // A number for each different key - the table compares numbers, which
+  // is faster than comparing texts
+  const ids = new Map<string, number>();
+  const keysOf = (tokens: string[]) =>
+    Int32Array.from(tokens, (token, index) => {
+      const key = keyOf(token, index);
+      let id = ids.get(key);
+      if (id === undefined) {
+        id = ids.size;
+        ids.set(key, id);
+      }
+      return id;
+    });
+  const keysA = keysOf(a);
+  const keysB = keysOf(b);
+
+  const parts: DiffPart[] = [];
+  // A word of both texts - as the new text writes it; after words removed
+  // from its start, with the whitespace the old text has before it
+  const same = (i: number, j: number) =>
+    push(parts, "same", j === 0 && parts.length > 0 ? a[i] : b[j]);
 
   let start = 0;
-  while (start < a.length && start < b.length && a[start] === b[start]) {
+  while (
+    start < a.length &&
+    start < b.length &&
+    keysA[start] === keysB[start]
+  ) {
     start += 1;
   }
   let endA = a.length;
   let endB = b.length;
-  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+  while (endA > start && endB > start && keysA[endA - 1] === keysB[endB - 1]) {
     endA -= 1;
     endB -= 1;
   }
 
-  const parts: DiffPart[] = [];
-  for (let index = 0; index < start; index++) push(parts, "same", a[index]);
+  for (let index = 0; index < start; index++) same(index, index);
 
   const n = endA - start;
   const m = endB - start;
@@ -53,7 +88,7 @@ export function diffWords(before: string, after: string): DiffPart[] {
     for (let i = n - 1; i >= 0; i--) {
       for (let j = m - 1; j >= 0; j--) {
         table[i * width + j] =
-          a[start + i] === b[start + j]
+          keysA[start + i] === keysB[start + j]
             ? table[(i + 1) * width + j + 1] + 1
             : Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
       }
@@ -62,8 +97,8 @@ export function diffWords(before: string, after: string): DiffPart[] {
     let i = 0;
     let j = 0;
     while (i < n && j < m) {
-      if (a[start + i] === b[start + j]) {
-        push(parts, "same", a[start + i]);
+      if (keysA[start + i] === keysB[start + j]) {
+        same(start + i, start + j);
         i += 1;
         j += 1;
       } else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) {
@@ -81,8 +116,8 @@ export function diffWords(before: string, after: string): DiffPart[] {
     for (let j = start; j < endB; j++) push(parts, "added", b[j]);
   }
 
-  for (let index = endA; index < a.length; index++) {
-    push(parts, "same", a[index]);
+  for (let index = 0; endA + index < a.length; index++) {
+    same(endA + index, endB + index);
   }
 
   return parts;
@@ -119,18 +154,18 @@ export function withContext(
     }
 
     shortened = true;
-    // The tokens of the first `keepStart` and the last `keepEnd` words
+    // The tokens of the first `keepStart` and the last `keepEnd` words - the
+    // last ones without the space before them, the gap has its own
     const cut = (count: number, fromEnd: boolean) => {
       const taken: string[] = [];
       let seen = 0;
       const ordered = fromEnd ? [...tokens].reverse() : tokens;
       for (const token of ordered) {
-        // Up to the last word - without the space after it
         if (seen === count) break;
         if (/\S/.test(token)) seen += 1;
         taken.push(token);
       }
-      return (fromEnd ? taken.reverse() : taken).join("");
+      return fromEnd ? taken.reverse().join("").trimStart() : taken.join("");
     };
     if (keepStart > 0)
       result.push({ text: cut(keepStart, false), type: "same" });

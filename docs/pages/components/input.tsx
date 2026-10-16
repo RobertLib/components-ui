@@ -200,8 +200,10 @@ export default function InputPage() {
             <code>required</code> checks that. <code>useCzValidators</code>{" "}
             returns checks of Czech identifiers with the messages of the locale
             (&quot;Zadejte platné IČO.&quot;), and <code>CZ_MASKS</code> the
-            masks to spread onto the field. A birth number tells the date of
-            birth - <code>parseBirthNumber</code> reads it.
+            masks to spread onto the field (the masks of a birth number and a
+            DIČ hold functions - in a client component, not a server one). A
+            birth number tells the date of birth - <code>parseBirthNumber</code>{" "}
+            reads it.
           </p>
         }
         name="input/czech-fields"

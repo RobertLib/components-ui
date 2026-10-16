@@ -115,10 +115,11 @@ export default function FilterBuilderPage() {
             <code>onChange</code>) filters the rows of a <code>clientSide</code>{" "}
             <code>DataTable</code> with <code>matchesFilter</code>. Below is
             what a server would get instead: <code>compactFilter</code> leaves
-            out the conditions without a value yet, the groups left empty, the{" "}
-            <code>id</code>s the builder gives to its conditions and groups, and
-            - with <code>fields</code> - the conditions of fields that are not
-            among them any more (an old saved filter).
+            out the conditions without a value yet, the empty items of lists and
+            ends of ranges, the groups left empty, the <code>id</code>s the
+            builder gives to its conditions and groups, and - with{" "}
+            <code>fields</code> - the conditions of fields that are not among
+            them any more (an old saved filter).
           </p>
         }
         name="filter-builder/data-table"
@@ -216,9 +217,15 @@ export default function FilterBuilderPage() {
               without a value.
             </li>
             <li>
+              Numbers also match numbers stored as text (&quot;10.5&quot;);
+              other text (&quot;N/A&quot;) is neither more nor less than a
+              number.
+            </li>
+            <li>
               Dates compare as local days and moments: <code>Date</code>s, ISO
-              texts (one with a time zone in the local time) and timestamps. A
-              day matches all the moments of that day.
+              texts (one with a time zone in the local time, also with a space
+              for the <code>T</code>, as SQL writes them) and timestamps. A day
+              matches all the moments of that day.
             </li>
             <li>
               A list of the record matches when one of its items does;{" "}

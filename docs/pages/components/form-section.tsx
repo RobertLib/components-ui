@@ -41,10 +41,12 @@ export default function FormSectionPage() {
         <Prose>
           <p>
             <code>disabled</code> disables every field of the section, as a
-            native fieldset does - also the custom ones. The{" "}
-            <code>actions</code> are in its legend, so they stay usable, like
-            the controls of a native legend: an &quot;Unlock&quot; button can
-            enable the section again.
+            native fieldset does - also the custom ones. With a{" "}
+            <code>title</code> the <code>actions</code> are in its legend, so
+            they stay usable, like the controls of a native legend: an
+            &quot;Unlock&quot; button can enable the section again. A section
+            without a <code>title</code> has no legend - its{" "}
+            <code>actions</code> are disabled with the fields.
           </p>
         </Prose>
       </Section>

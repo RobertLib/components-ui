@@ -13,6 +13,7 @@ import KanbanBoard, {
   type KanbanBoardProps,
   type KanbanCard,
   type KanbanColumn,
+  type KanbanMove,
 } from ".";
 import { cs } from "../../../i18n/ui/cs";
 import UIProvider from "../../../providers/ui-provider";
@@ -369,6 +370,9 @@ describe("KanbanBoard moving with the keys", () => {
     card("Alza").focus();
     await user.keyboard(" {ArrowRight}");
     expect(announced()).toBe("Column Offer, position 2 of 2.");
+    // Its cards are not shown - the card goes nowhere else in it
+    await user.keyboard("{Home}{ArrowUp}");
+    expect(announced()).toBe("Column Offer, position 2 of 2.");
     await user.keyboard(" ");
     expect(onMoveCard).toHaveBeenCalledWith(
       expect.objectContaining({ toColumnId: "offer", toIndex: 1 }),
@@ -468,6 +472,8 @@ describe("KanbanBoard saving a move", () => {
       "The card “Kofola” could not be moved.",
     );
     expect(card("Kofola")).not.toHaveAttribute("aria-busy");
+    // The focus went back with it
+    expect(card("Kofola")).toHaveFocus();
 
     await user.click(screen.getByRole("button", { name: "Close alert" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -498,6 +504,68 @@ describe("KanbanBoard saving a move", () => {
     expect(titlesIn("Lead")).toEqual(["Rohlik", "Kofola"]);
   });
 
+  it("moves every card back when saves fail together", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const rejects: ((error: Error) => void)[] = [];
+    const onMoveCard = () => new Promise<void>((_, fail) => rejects.push(fail));
+    function Controlled() {
+      const [cards, setCards] = useState(deals);
+      return (
+        <Board cards={cards} onCardsChange={setCards} onMoveCard={onMoveCard} />
+      );
+    }
+
+    for (const board of [
+      <Board key="uncontrolled" onMoveCard={onMoveCard} />,
+      <Controlled key="controlled" />,
+    ]) {
+      rejects.length = 0;
+      const { unmount } = render(board);
+      card("Alza").focus();
+      await user.keyboard(" {ArrowRight} ");
+      card("CEZ").focus();
+      await user.keyboard(" {ArrowLeft} ");
+      expect(titlesIn("Offer")).toEqual(["CEZ", "Alza", "Skoda"]);
+
+      // The server is down - both fail at once
+      await act(async () => {
+        for (const reject of rejects) reject(new Error("Offline"));
+      });
+      expect(titlesIn("Lead")).toEqual(["Alza", "Rohlik", "Kofola"]);
+      expect(titlesIn("Offer")).toEqual(["Skoda"]);
+      expect(titlesIn("Won")).toEqual(["CEZ"]);
+      unmount();
+    }
+  });
+
+  it("moves a carried card from where it is once another card moves back", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let reject: (error: Error) => void = () => {};
+    const onMoveCard = vi.fn((move: KanbanMove) =>
+      move.cardId === 3
+        ? new Promise<void>((_, fail) => (reject = fail))
+        : undefined,
+    );
+    render(<Board onMoveCard={onMoveCard} />);
+
+    card("Kofola").focus();
+    await user.keyboard(" {ArrowRight}{ArrowUp} ");
+    expect(titlesIn("Offer")).toEqual(["Kofola", "Skoda"]);
+
+    // Skoda is picked up second - and is first once Kofola goes back
+    card("Skoda").focus();
+    await user.keyboard(" ");
+    await act(async () => reject(new Error("Locked")));
+    expect(titlesIn("Offer")).toEqual(["Skoda"]);
+    await user.keyboard("{ArrowUp}");
+    expect(announced()).toBe("Column Offer, position 1 of 1.");
+    await user.keyboard(" ");
+    expect(announced()).toBe("The card “Skoda” stays where it was.");
+    expect(onMoveCard).toHaveBeenCalledTimes(1);
+  });
+
   it("shows a move of a controlled board until onMoveCard settles", async () => {
     const user = userEvent.setup();
     let resolve = () => {};
@@ -523,6 +591,47 @@ describe("KanbanBoard saving a move", () => {
     await act(async () => resolve());
     expect(titlesIn("Won")).toEqual(["Alza", "CEZ"]);
     expect(card("Alza")).not.toHaveAttribute("aria-busy");
+  });
+
+  it("shows the changed cards of a controlled board - not its saving moves again", async () => {
+    const user = userEvent.setup();
+    const saves = new Map<KanbanCard["id"], () => void>();
+    const onCardsChange = vi.fn();
+    function Controlled() {
+      const [cards, setCards] = useState(deals);
+      return (
+        <Board
+          cards={cards}
+          onCardsChange={(next) => {
+            onCardsChange(next);
+            setCards(next);
+          }}
+          onMoveCard={(move) =>
+            new Promise<void>((done) => saves.set(move.cardId, done))
+          }
+        />
+      );
+    }
+    render(<Controlled />);
+
+    card("Kofola").focus();
+    await user.keyboard(" {ArrowRight} ");
+    card("Skoda").focus();
+    await user.keyboard(" {ArrowDown} ");
+    expect(titlesIn("Offer")).toEqual(["Kofola", "Skoda"]);
+    expect(card("Kofola")).toHaveAttribute("aria-busy", "true");
+
+    // The later move is saved first - the earlier one, still saving, does
+    // not undo it, nor does another move
+    await act(async () => saves.get(4)!());
+    expect(titlesIn("Offer")).toEqual(["Kofola", "Skoda"]);
+    card("Alza").focus();
+    await user.keyboard(" {ArrowRight}{ArrowRight} ");
+    expect(titlesIn("Offer")).toEqual(["Kofola", "Skoda"]);
+    const offer = (onCardsChange.mock.lastCall![0] as Deal[])
+      .filter((deal) => deal.columnId === "offer")
+      .map((deal) => deal.title);
+    expect(offer).toEqual(["Kofola", "Skoda"]);
   });
 
   it("moves nothing in a controlled board without callbacks, or a disabled one", async () => {
@@ -727,14 +836,41 @@ describe("KanbanBoard dragging with the pointer", () => {
 
     // Resting on it picks it up; the page does not scroll with the finger
     press("Alza", "touch");
+    expect(fireEvent.touchMove(card("Alza"))).toBe(true);
     act(() => vi.advanceTimersByTime(500));
     expect(card("Alza")).toHaveAttribute("data-dragging");
-    expect(fireEvent.touchMove(document)).toBe(false);
+    expect(fireEvent.touchMove(card("Alza"))).toBe(false);
     moveTo(pointAt("CEZ", 0.8));
     release();
     expect(onMoveCard).toHaveBeenCalledWith(
       expect.objectContaining({ toColumnId: "won", toIndex: 1 }),
     );
+  });
+
+  it("listens to the finger before it touches - Safari on iOS needs it so", () => {
+    const listen = vi.spyOn(EventTarget.prototype, "addEventListener");
+    render(<Board onMoveCard={() => {}} />);
+
+    const board = document.querySelector("[data-kanban-board]");
+    expect(listen.mock.contexts).toContain(board);
+    const onBoard = listen.mock.calls.filter(
+      (_, index) => listen.mock.contexts[index] === board,
+    );
+    expect(onBoard).toContainEqual([
+      "touchmove",
+      expect.any(Function),
+      { passive: false },
+    ]);
+
+    // Not added only by a press
+    listen.mockClear();
+    press("Alza", "touch");
+    expect(listen).not.toHaveBeenCalledWith(
+      "touchmove",
+      expect.anything(),
+      expect.anything(),
+    );
+    release();
   });
 
   it("scrolls the board while the pointer is near its edge", () => {
@@ -756,6 +892,30 @@ describe("KanbanBoard dragging with the pointer", () => {
     expect(frames).toHaveLength(1);
     act(() => frames[0](0));
     expect(scroller.scrollLeft).toBeGreaterThan(0);
+    release();
+  });
+
+  it("scrolls a column running on below the window at the edge of the window", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) =>
+      frames.push(callback),
+    );
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    render(<Board />);
+    // The cards of Lead scroll - its column is 800px high, the window 768px
+    const cardsOfLead = column("Lead").querySelector<HTMLElement>(
+      "[data-kanban-scroll]",
+    )!;
+    cardsOfLead.style.overflowY = "auto";
+    Object.defineProperty(cardsOfLead, "scrollHeight", { value: 1600 });
+    Object.defineProperty(cardsOfLead, "clientHeight", { value: 700 });
+
+    press("Alza");
+    // 28px above the bottom of the window - 60px above that of the column
+    moveTo({ clientX: 100, clientY: 740 });
+    expect(frames).toHaveLength(1);
+    act(() => frames[0](0));
+    expect(cardsOfLead.scrollTop).toBeGreaterThan(0);
     release();
   });
 

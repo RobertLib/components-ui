@@ -24,11 +24,11 @@ export default function SessionTimeoutPage() {
         description={
           <p>
             <code>idleTimeout</code> ends the session after a time without
-            activity - a key, the pointer, a touch, the wheel or a scroll - in
-            any tab of the app. <code>warningBefore</code> the end an alert
-            dialog counts down the time left; "Stay signed in" (and Escape)
-            calls <code>onExtend</code>, with a spinner while its promise is
-            pending and an error message when it fails. "Sign out" calls{" "}
+            activity - a key, the pointer, a touch or the wheel - in any tab of
+            the app. <code>warningBefore</code> the end an alert dialog counts
+            down the time left; "Stay signed in" (and Escape) calls{" "}
+            <code>onExtend</code>, with a spinner while its promise is pending
+            and an error message when it fails. "Sign out" calls{" "}
             <code>onLogout</code>, the end <code>onTimeout</code>. Sign in and
             leave the page alone.
           </p>
@@ -40,9 +40,9 @@ export default function SessionTimeoutPage() {
         description={
           <p>
             <code>expiresAt</code> is the end of the session on the server.{" "}
-            <code>onExtend</code> may return its new end, which the other tabs
-            take too - or the app gives a new <code>expiresAt</code>, which
-            takes a warning away. With both, the earlier end counts.
+            <code>onExtend</code> may return its new end - or the app gives a
+            new <code>expiresAt</code>, which takes a warning away. The other
+            tabs take a later end too. With both, the earlier end counts.
           </p>
         }
         name="session-timeout/expires-at"
@@ -54,13 +54,15 @@ export default function SessionTimeoutPage() {
         <Prose>
           <ul>
             <li>
-              The tabs of the app share the activity, a stay and the end on a{" "}
+              The tabs of the app share the activity, a stay, the end of the
+              session on the server and the end on a{" "}
               <code>BroadcastChannel</code> (by <code>localStorage</code> in a
               browser without one): working in one tab keeps the others, a stay
-              in one closes the warning in all, and a sign out or the end in one
-              ends them all - <code>fromOtherTab</code> tells which.{" "}
-              <code>syncKey</code> names the channel, <code>false</code> keeps a
-              tab alone.
+              in one closes the warning in all, a later <code>expiresAt</code>{" "}
+              in one moves the end in all - also of a tab opened with an older
+              one - and a sign out or the end in one ends them all -{" "}
+              <code>fromOtherTab</code> tells which. <code>syncKey</code> names
+              the channel, <code>false</code> keeps a tab alone.
             </li>
             <li>
               The time is measured by the clock, not by timers alone: a computer
@@ -89,7 +91,9 @@ export default function SessionTimeoutPage() {
             <code>useIdle(timeout, options)</code> tells whether the user has
             done nothing for <code>timeout</code> milliseconds, in this tab or
             another tab of the app - e.g. for a presence status, or to pause
-            polling. Activity events are throttled (<code>throttle</code>), the
+            polling. Activity is a key, the pointer, a touch or the wheel (
+            <code>events</code>) - not a scroll, which a script scrolling a live
+            log makes too. The events are throttled (<code>throttle</code>), the
             time is measured by the clock, and it is not idle on the server.{" "}
             <code>reset()</code> counts as activity,{" "}
             <code>getLastActive()</code> reads the time of the last one.

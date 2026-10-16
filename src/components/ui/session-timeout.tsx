@@ -40,7 +40,8 @@ export interface SessionTimeoutProps extends Omit<
   events?: readonly string[];
   /**
    * When the session ends on the server - e.g. the expiry of the token. A
-   * new value (after a refresh of the session) is watched from then on.
+   * new value (after a refresh of the session) is watched from then on -
+   * also by the other tabs, which take an end later than theirs.
    */
   expiresAt?: SessionTime | null;
   /**
@@ -79,8 +80,9 @@ export interface SessionTimeoutProps extends Omit<
    */
   onTimeout: (details: SessionEndDetails) => void;
   /**
-   * Shares the activity, a stay and the end with the other tabs of the app
-   * on this channel - `false` for this tab only.
+   * Shares the activity, a stay, the end of the session on the server
+   * (`expiresAt`) and the end with the other tabs of the app on this channel
+   * - `false` for this tab only.
    * @default "components-ui:session"
    */
   syncKey?: string | false;
@@ -97,6 +99,9 @@ export interface SessionTimeoutProps extends Omit<
 /** A message between the tabs. */
 type SessionMessage =
   | { type: "extended"; until?: number }
+  // The end of the session on the server a tab knows - e.g. a new
+  // `expiresAt` of its app
+  | { type: "expiry"; until: number }
   | { reason: "logout" | "timeout"; type: "ended" };
 
 /** The warning shown - what ends the session, and its first announcement. */
@@ -250,6 +255,8 @@ export default function SessionTimeout({
   if (sessionKey !== session.key) {
     setSession({ id: session.id + 1, key: sessionKey });
     setEnded(false);
+    // A later end a stay brought is that of the last session
+    setExtended(null);
   }
 
   const watching = enabled && !ended;
@@ -264,10 +271,26 @@ export default function SessionTimeout({
   // Tells a stay apart from the next one - one that ends after the warning
   // closed otherwise is dropped
   const extendRunRef = useRef(0);
-  const latest = useRef({ onLogout, onTimeout, propExpiry, reset });
+  const latest = useRef({
+    expiry,
+    onLogout,
+    onTimeout,
+    propExpiry,
+    reset,
+    warning,
+    watching,
+  });
 
   useLayoutEffect(() => {
-    latest.current = { onLogout, onTimeout, propExpiry, reset };
+    latest.current = {
+      expiry,
+      onLogout,
+      onTimeout,
+      propExpiry,
+      reset,
+      warning,
+      watching,
+    };
   });
 
   // The session that ended - a second end of it (told by another tab that
@@ -299,6 +322,18 @@ export default function SessionTimeout({
   useEffect(() => {
     if (!enabled || !syncKey) return;
 
+    // An end of the session on the server another tab knows: a later one is
+    // taken, an earlier one is told the later end of this tab - a tab that
+    // missed a new `expiresAt` must not end the session for all
+    const takeEnd = (until: number) => {
+      const current = latest.current;
+      if (current.expiry === null || current.expiry < until) {
+        setExtended({ forExpiry: current.propExpiry, until });
+      } else if (current.expiry > until && current.watching) {
+        channelRef.current?.post({ type: "expiry", until: current.expiry });
+      }
+    };
+
     const channel = openTabChannel<SessionMessage>(syncKey, (received) => {
       if (received?.type === "extended") {
         extendRunRef.current += 1;
@@ -309,12 +344,9 @@ export default function SessionTimeout({
         setWarning(null);
         setExtending(false);
         setExtendFailed(false);
-        if (typeof received.until === "number") {
-          setExtended({
-            forExpiry: latest.current.propExpiry,
-            until: received.until,
-          });
-        }
+        if (typeof received.until === "number") takeEnd(received.until);
+      } else if (received?.type === "expiry") {
+        if (typeof received.until === "number") takeEnd(received.until);
       } else if (received?.type === "ended") {
         endRef.current(
           received.reason === "logout" ? "logout" : "timeout",
@@ -329,6 +361,13 @@ export default function SessionTimeout({
       channelRef.current = null;
     };
   }, [enabled, syncKey]);
+
+  // A new end the app gave - e.g. after a refresh of the session in this tab
+  // only: the other tabs take it, or tell a later one of theirs back
+  useEffect(() => {
+    if (!watching || propExpiry === null) return;
+    channelRef.current?.post({ type: "expiry", until: propExpiry });
+  }, [propExpiry, watching]);
 
   // Waits for the moment of the warning - by the clock, so a timer that
   // fires late (sleep, a background tab) or early (activity moved the end)
@@ -413,9 +452,12 @@ export default function SessionTimeout({
   const remaining = deadline === null ? 0 : deadline - now;
   const runsOut = warning !== null && deadline !== null && remaining <= 0;
 
-  // A later end (a new `expiresAt` of the app) takes the warning away
+  // A later end (a new `expiresAt` of the app or of another tab) takes the
+  // warning away - with a stay still running, whose outcome is dropped
   if (warning && (deadline === null || remaining > warningBefore)) {
     setWarning(null);
+    setExtending(false);
+    setExtendFailed(false);
   }
 
   useEffect(() => {
@@ -447,10 +489,16 @@ export default function SessionTimeout({
 
     extendRunRef.current += 1;
     const run = extendRunRef.current;
+    const shownWarning = warning;
     setExtending(true);
     void outcome.then((result) => {
-      // Ended, or stayed in another tab, meanwhile
-      if (extendRunRef.current !== run) return;
+      // Ended, stayed in another tab, or taken away by a later end meanwhile
+      if (
+        extendRunRef.current !== run ||
+        latest.current.warning !== shownWarning
+      ) {
+        return;
+      }
       if (result.ok) {
         completeStay(result.until);
       } else {

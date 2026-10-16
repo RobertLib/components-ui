@@ -79,7 +79,10 @@ export default function ButtonPage() {
             <code>SplitButton</code> on both its buttons. Keep the reason given
             while the button is enabled - it shows only while{" "}
             <code>disabled</code>, and the button stays the same element, so the
-            focus stays on it.
+            focus stays on it. The button is then in the wrapper of its tooltip:
+            classes that lay it out in a flex row (<code>flex-1</code>,{" "}
+            <code>ms-auto</code>) go on an element around it;{" "}
+            <code>fullWidth</code> stretches both.
           </p>
         }
         name="button/disabled-reason"
@@ -123,8 +126,8 @@ export default function ButtonPage() {
             <li>
               A disabled link is removed from the tab order and does not
               navigate - nor open in a new tab by a middle click or a drag. With
-              a <code>disabledReason</code> it stays in the tab order, without
-              an <code>href</code>.
+              a <code>disabledReason</code> it stays in the tab order (or as the{" "}
+              <code>tabIndex</code> given says), without an <code>href</code>.
             </li>
             <li>
               A button disabled with a <code>disabledReason</code> is{" "}

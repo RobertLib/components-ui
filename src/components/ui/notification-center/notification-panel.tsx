@@ -6,8 +6,6 @@ import IconButton from "../icon-button";
 import SegmentedControl from "../segmented-control";
 import Skeleton from "../skeleton";
 import cn from "../../../utils/cn";
-import isPromiseLike from "../../../utils/is-promise-like";
-import logger from "../../../utils/logger";
 import { getTabbableElements } from "../../../utils/tabbable";
 import useFormatDate from "../../../hooks/use-format-date";
 import useFormatRelativeTime, {
@@ -31,12 +29,14 @@ export interface NotificationPanelProps {
   headingShown: boolean;
   infinite: boolean;
   loading: boolean;
+  /** `loadingMore`, or a promise of `onLoadMore` is pending. */
   loadingMore: boolean;
   notifications: NotificationItem[];
   /** A notification was opened - the panel closes. */
   onActivate: () => void;
   onFilterChange: (filter: NotificationFilter) => void;
-  onLoadMore?: () => unknown;
+  /** Loads more - not called while `loadingMore`. */
+  onLoadMore?: () => void;
   onMarkAllRead?: () => void;
   onReadChange?: (notification: NotificationItem, read: boolean) => void;
   onRetry?: () => void;
@@ -268,15 +268,12 @@ export default function NotificationPanel({
   const listId = useId();
   const listRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  // A promise of `onLoadMore` is pending
-  const [pending, setPending] = useState(false);
   // The notifications read while the Unread filter shows them - they stay
   // until the filter changes, so the row and the focus in it do not vanish
   const [kept, setKept] = useState<ReadonlySet<NotificationId>>(
     () => new Set(),
   );
 
-  const busy = loadingMore || pending;
   const failed = error !== undefined && error !== false;
   const errorText = typeof error === "string" && error ? error : messages.error;
 
@@ -313,18 +310,7 @@ export default function NotificationPanel({
   };
 
   const loadMore = () => {
-    if (busy || !onLoadMore) return;
-    const result = onLoadMore();
-    if (!isPromiseLike(result)) return;
-
-    setPending(true);
-    Promise.resolve(result).then(
-      () => setPending(false),
-      (reason: unknown) => {
-        setPending(false);
-        logger.error("The onLoadMore of NotificationCenter failed.", reason);
-      },
-    );
+    if (!loadingMore) onLoadMore?.();
   };
 
   // The latest `loadMore` - for the observer below
@@ -336,7 +322,12 @@ export default function NotificationPanel({
 
   // Infinite: the end of the list scrolled into view loads more
   const canLoadMore =
-    infinite && hasMore && !busy && !failed && !loading && shown.length > 0;
+    infinite &&
+    hasMore &&
+    !loadingMore &&
+    !failed &&
+    !loading &&
+    shown.length > 0;
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -438,7 +429,7 @@ export default function NotificationPanel({
     content = (
       <>
         <ul
-          aria-busy={busy || undefined}
+          aria-busy={loadingMore || undefined}
           aria-labelledby={headingShown ? headingId : undefined}
           aria-label={headingShown ? undefined : heading}
           className="divide-y divide-neutral-100 dark:divide-neutral-800"
@@ -477,7 +468,7 @@ export default function NotificationPanel({
               <div aria-hidden="true" ref={sentinelRef} />
               <Button
                 fullWidth
-                loading={busy}
+                loading={loadingMore}
                 onClick={loadMore}
                 size="sm"
                 variant="ghost"

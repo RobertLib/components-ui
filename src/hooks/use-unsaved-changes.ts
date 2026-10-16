@@ -2,6 +2,7 @@ import { use, useCallback, useInsertionEffect, useRef } from "react";
 import { ConfirmContext } from "../providers/confirm-context";
 import {
   addLeaveGuard,
+  getFocusedForm,
   syncListeners,
   type LeaveGuard,
 } from "../providers/navigation-guard";
@@ -36,7 +37,9 @@ export interface UseUnsavedChangesResult {
  * of the query alone (a tab, a filter) stays on the page. Ask before the
  * app's own navigations with a blocker of its router and `confirmLeave()`.
  * Several forms ask once together; `dirty` going `false` (saved) asks no
- * more.
+ * more, nor does a submit to the server (a native POST) of the form the
+ * changes were made in - the one with the focus as `dirty` turned `true`,
+ * not another form of the page such as a search.
  */
 export default function useUnsavedChanges(
   dirty: boolean,
@@ -49,6 +52,7 @@ export default function useUnsavedChanges(
   const guard = useRef<LeaveGuard>({
     ask: () => Promise.resolve(true),
     dirty: false,
+    form: null,
     released: false,
   });
 
@@ -84,6 +88,9 @@ export default function useUnsavedChanges(
   useInsertionEffect(() => {
     guard.current.dirty = dirty;
     guard.current.released = false;
+    // The form being edited as the changes come - submitted to the server,
+    // it saves them; another form of the page (a search) does not
+    guard.current.form = dirty ? getFocusedForm() : null;
     syncListeners();
   }, [dirty]);
 

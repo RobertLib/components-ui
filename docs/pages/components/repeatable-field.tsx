@@ -28,10 +28,13 @@ export default function RepeatableFieldPage() {
           <p>
             <code>name</code> supplies a path such as <code>contacts.0</code> to
             each renderer. Append individual field names and pass the provided
-            disabled/readOnly state to controls. Values are submitted by those
-            controls; the component does not serialize arbitrary values. Dot
-            paths are ordinary FormData keys and can be parsed by your
-            application.
+            disabled/readOnly state to controls of your own - the fields of the
+            library in the groups follow the <code>readOnly</code> of the field,
+            also the one it takes from a read-only <code>FormSection</code>;{" "}
+            <code>readOnly={"{false}"}</code> keeps them editable there. Values
+            are submitted by those controls; the component does not serialize
+            arbitrary values. Dot paths are ordinary FormData keys and can be
+            parsed by your application.
           </p>
           <p>
             <code>min</code>, <code>max</code> and <code>required</code>{" "}

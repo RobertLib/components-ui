@@ -526,12 +526,13 @@ export default function FormsGuide() {
           </p>
           <p>
             Several forms with changes ask once together. <code>dirty</code>{" "}
-            going <code>false</code> - saved - asks no more, and so does a form
-            submitted to the server (a native POST). A handler that saves and
-            navigates at once calls <code>release()</code> before it navigates:
-            the new <code>dirty</code> comes only with the next render.{" "}
-            <code>onBeforeLeave</code> asks a question of your own, e.g. with a
-            Save button.
+            going <code>false</code> - saved - asks no more, and so does the
+            form the changes were made in once submitted to the server (a native
+            POST) - not another form of the page, such as a search. A handler
+            that saves and navigates at once calls <code>release()</code> before
+            it navigates: the new <code>dirty</code> comes only with the next
+            render. <code>onBeforeLeave</code> asks a question of your own, e.g.
+            with a Save button.
           </p>
         </Prose>
         <Example

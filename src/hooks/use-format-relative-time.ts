@@ -3,7 +3,7 @@ import useCurrentMinute from "../components/ui/calendar/use-current-minute";
 import useFormatDate from "./use-format-date";
 import { useLocale } from "../providers/ui-context";
 import { startOfDay } from "../utils/date";
-import { inTimeZone } from "../utils/time-zone";
+import { inTimeZone, isTimeZone } from "../utils/time-zone";
 
 export interface FormatRelativeTimeOptions {
   /**
@@ -60,7 +60,13 @@ function calendarMonths(date: Date, now: Date, timeZone?: string) {
  * Writes times relative to now - "před 5 minutami", "včera", "za 2 hodiny" -
  * by `Intl.RelativeTimeFormat` in the language of the locale, and writes
  * them again every minute. Less than 45 seconds is "now"; minutes up to 45,
- * hours up to 22, then calendar days ("včera"), weeks, months and years.
+ * hours up to 22 - and all of today ("před 23 hodinami", not "včera") -
+ * then calendar days ("včera"), weeks, calendar months and years. Weeks and
+ * years count as they pass: "před 1 týdnem", not "minulý týden", which is
+ * the calendar week before.
+ *
+ * Days are counted in `timeZone` (IANA, e.g. `"Europe/Prague"`) - by
+ * default, and for a zone the browser does not know, in the browser's.
  *
  * On the server and while a server-rendered page hydrates, it writes the
  * date and time (the locale's `dateTime`): the clock of the server is not
@@ -73,6 +79,8 @@ export default function useFormatRelativeTime(
   const locale = useLocale();
   const formatDate = useFormatDate();
   const now = useCurrentMinute(true);
+  // A zone `Intl` does not know would throw - the browser's instead
+  const zone = timeZone && isTimeZone(timeZone) ? timeZone : undefined;
 
   return useCallback<FormatRelativeTime>(
     (value, options = {}) => {
@@ -80,7 +88,7 @@ export default function useFormatRelativeTime(
       const date = toDate(value);
       if (!date) return "";
 
-      const absolute = () => formatDate(date, "dateTime", { timeZone });
+      const absolute = () => formatDate(date, "dateTime", { timeZone: zone });
       if (!now) return absolute();
 
       // The real moment, not the minute `now` was taken at
@@ -115,19 +123,25 @@ export default function useFormatRelativeTime(
         );
       }
 
-      const days = calendarDays(date, current, timeZone);
-      if (Math.abs(days) < 7) {
-        return format.format(days || Math.sign(diff), "day");
-      }
-      if (Math.abs(days) < 28)
-        return format.format(Math.round(days / 7), "week");
+      const days = calendarDays(date, current, zone);
+      // Still today - early in the morning seen late in the evening
+      if (days === 0) return format.format(Math.round(diff / HOUR), "hour");
+      if (Math.abs(days) < 7) return format.format(days, "day");
 
-      const months = calendarMonths(date, current, timeZone);
-      if (Math.abs(months) < 12) {
-        return format.format(months || Math.sign(diff), "month");
+      // "1 week ago" - "last week" would be the calendar week before, and 10
+      // days ago may be the one before that
+      const elapsed = new Intl.RelativeTimeFormat(locale.code, {
+        numeric: "always",
+        style,
+      });
+      const months = calendarMonths(date, current, zone);
+      // 4 weeks of the same month are no month ago
+      if (Math.abs(days) < 28 || months === 0) {
+        return elapsed.format(Math.round(days / 7), "week");
       }
-      return format.format(Math.trunc(months / 12) || Math.sign(diff), "year");
+      if (Math.abs(months) < 12) return format.format(months, "month");
+      return elapsed.format(Math.trunc(months / 12), "year");
     },
-    [formatDate, locale.code, now, timeZone],
+    [formatDate, locale.code, now, zone],
   );
 }

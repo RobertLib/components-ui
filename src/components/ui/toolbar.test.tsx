@@ -4,6 +4,7 @@ import { createRef, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import SegmentedControl from "./segmented-control";
 import Toolbar, { type ToolbarItem } from "./toolbar";
 import UIProvider from "../../providers/ui-provider";
 import { cs } from "../../i18n/ui/cs";
@@ -150,6 +151,139 @@ describe("Toolbar", () => {
     width = 1000;
     resize();
     expect(barItems()).toEqual(["New", "Edit", "Copy", "Export", "Print"]);
+  });
+
+  it("gives the items back as the row around a toolbar as wide as them widens", () => {
+    // In a flex row beside a title: as wide as what is in the flow of the
+    // bar - items 80px, the More button 34px - at most the room of the row
+    let room = 1000;
+    const isInFlow = (element: Element) =>
+      !element.hasAttribute("inert") ||
+      (element as HTMLElement).style.position === "static";
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Element) {
+        let width = 0;
+        if (this.getAttribute("role") === "toolbar") {
+          const content = Array.from(this.children)
+            .filter(isInFlow)
+            .reduce(
+              (sum, child) =>
+                sum + (child.hasAttribute("data-toolbar-slot") ? 80 : 34),
+              0,
+            );
+          width = Math.min(room, content);
+        } else if (this.hasAttribute("data-toolbar-slot")) {
+          width = 80;
+        } else if (this.parentElement?.getAttribute("role") === "toolbar") {
+          width = 34;
+        }
+        return DOMRect.fromRect({ height: 34, width, x: 0, y: 0 });
+      },
+    );
+    const observed: Element[] = [];
+    const observers: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          observers.push(callback);
+        }
+        disconnect() {}
+        observe(element: Element) {
+          observed.push(element);
+        }
+        unobserve() {}
+      },
+    );
+    const resize = () =>
+      act(() =>
+        observers.forEach((callback) =>
+          callback([], {} as unknown as ResizeObserver),
+        ),
+      );
+
+    render(
+      <div data-testid="row">
+        <Toolbar
+          items={["a", "b", "c", "d", "e"].map((id) => ({
+            id,
+            label: id.toUpperCase(),
+          }))}
+        />
+      </div>,
+    );
+    expect(barItems()).toEqual(["A", "B", "C", "D", "E"]);
+    // The row around is followed - the toolbar does not widen by itself
+    expect(observed).toContain(screen.getByTestId("row"));
+
+    room = 300;
+    resize();
+    expect(barItems()).toEqual(["A", "B", "C", "More"]);
+
+    room = 1000;
+    resize();
+    expect(barItems()).toEqual(["A", "B", "C", "D", "E"]);
+  });
+
+  it("does not open the menu again by itself once it closed with nothing in it", async () => {
+    let width = 200;
+    const resize = mockLayout(() => width);
+    const user = userEvent.setup();
+    render(<Toolbar items={actions} />);
+    await openMenu(user);
+
+    // Room for all - the menu closes
+    width = 1000;
+    resize();
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    width = 200;
+    resize();
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("button", { name: "More" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("gives the focus in the menu, or on its button, to the bar once all fit", async () => {
+    let width = 200;
+    const resize = mockLayout(() => width);
+    const user = userEvent.setup();
+    render(
+      <>
+        <Toolbar items={actions} />
+        <button type="button">Elsewhere</button>
+      </>,
+    );
+    const newButton = () => screen.getByRole("button", { name: "New" });
+
+    // In the menu - the bar widens, the menu goes
+    const menu = await openMenu(user);
+    expect(menu).toContainElement(document.activeElement as HTMLElement);
+    width = 1000;
+    resize();
+    // Not to the page after the commit either
+    await act(async () => {});
+    expect(newButton()).toHaveFocus();
+
+    // On the "More" button
+    width = 200;
+    resize();
+    act(() => screen.getByRole("button", { name: "More" }).focus());
+    width = 1000;
+    resize();
+    await act(async () => {});
+    expect(newButton()).toHaveFocus();
+
+    // Elsewhere - it stays there
+    width = 200;
+    resize();
+    act(() => screen.getByRole("button", { name: "Elsewhere" }).focus());
+    width = 1000;
+    resize();
+    await act(async () => {});
+    expect(screen.getByRole("button", { name: "Elsewhere" })).toHaveFocus();
   });
 
   it("keeps items of Infinity priority and custom content without a menu item", () => {
@@ -390,6 +524,142 @@ describe("Toolbar", () => {
     expect(search).toHaveFocus();
     await user.keyboard("{Home}{ArrowLeft}");
     expect(screen.getByRole("button", { name: "New" })).toHaveFocus();
+  });
+
+  it("moves through a group of radio buttons in it - one stop of Tab", async () => {
+    mockLayout(() => 1000);
+    const user = userEvent.setup();
+
+    function Views() {
+      const [view, setView] = useState("table");
+      return (
+        <>
+          <Toolbar
+            items={[
+              { id: "new", label: "New" },
+              {
+                id: "view",
+                render: (props) => (
+                  <SegmentedControl
+                    {...props}
+                    aria-label="View"
+                    onChange={setView}
+                    options={[
+                      { label: "Table", value: "table" },
+                      { label: "Board", value: "board" },
+                    ]}
+                    value={view}
+                  />
+                ),
+                type: "custom",
+              },
+              { id: "export", label: "Export" },
+            ]}
+          />
+          <button type="button">After</button>
+        </>
+      );
+    }
+
+    render(<Views />);
+    const table = screen.getByRole("radio", { name: "Table" });
+    const board = screen.getByRole("radio", { name: "Board" });
+
+    // One stop of Tab - not the group, nor its checked radio
+    await user.tab();
+    expect(screen.getByRole("button", { name: "New" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "After" })).toHaveFocus();
+    await user.tab({ shift: true });
+
+    // Into the group at its checked radio, through its options, then on
+    await user.keyboard("{ArrowRight}");
+    expect(table).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(board).toHaveFocus();
+    expect(board).toBeChecked();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("button", { name: "Export" })).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(board).toHaveFocus();
+
+    // Tab leaves the toolbar from the group and comes back to it
+    await user.tab();
+    expect(screen.getByRole("button", { name: "After" })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(board).toHaveFocus();
+  });
+
+  it("skips custom content with a disabled control", async () => {
+    mockLayout(() => 1000);
+    const user = userEvent.setup();
+    render(
+      <Toolbar
+        items={[
+          {
+            id: "state",
+            render: (props) => (
+              <select {...props} aria-label="State" disabled>
+                <option>All</option>
+              </select>
+            ),
+            type: "custom",
+          },
+          { id: "new", label: "New" },
+          {
+            id: "search",
+            render: (props) => (
+              <input {...props} aria-label="Search" disabled />
+            ),
+            type: "custom",
+          },
+          { id: "export", label: "Export" },
+        ]}
+      />,
+    );
+
+    // Tab reaches the first enabled item
+    await user.tab();
+    expect(screen.getByRole("button", { name: "New" })).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("button", { name: "Export" })).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("button", { name: "New" })).toHaveFocus();
+    await user.keyboard("{End}{Home}");
+    expect(screen.getByRole("button", { name: "New" })).toHaveFocus();
+  });
+
+  it("keeps a disabled link with a reason a stop of the arrow keys alone", async () => {
+    mockLayout(() => 1000);
+    const user = userEvent.setup();
+    render(
+      <>
+        <Toolbar
+          items={[
+            { id: "new", label: "New" },
+            {
+              disabled: true,
+              disabledReason: "You cannot open it",
+              href: "/orders/7",
+              id: "open",
+              label: "Open",
+            },
+          ]}
+        />
+        <button type="button">After</button>
+      </>,
+    );
+
+    const open = screen.getByRole("link", { name: "Open" });
+    expect(open).toHaveAttribute("tabindex", "-1");
+    await user.tab();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "After" })).toHaveFocus();
+
+    await user.tab({ shift: true });
+    await user.keyboard("{ArrowRight}");
+    expect(open).toHaveFocus();
+    expect(open).toHaveAccessibleDescription("You cannot open it");
   });
 
   it("gives the focus of an item moving into the menu to the More button", () => {

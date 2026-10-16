@@ -47,7 +47,7 @@ builds the package with Node.js 22.12 or newer.
    page):
 
    ```sh
-   npm install git+https://github.com/RobertLib/components-ui.git#v0.8.0
+   npm install git+https://github.com/RobertLib/components-ui.git#v0.8.1
    ```
 
    If npm reports that the `prepare` script of `components-ui` is not allowed
@@ -69,8 +69,8 @@ builds the package with Node.js 22.12 or newer.
    ```
 
    With Vite 8, the plugin of the library leaves the classes of the
-   components your app does not use out of the CSS of a build (8 kB with gzip
-   instead of 25 kB for an app with a `Button`):
+   components your app does not use out of the CSS of a build (9 kB with gzip
+   instead of 28 kB for an app with a `Button`):
 
    ```ts
    // vite.config.ts

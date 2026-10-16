@@ -449,9 +449,10 @@ export default function UtilitiesGuide() {
             relative to now in the language of the locale (
             <code>Intl.RelativeTimeFormat</code>) and writes it again every
             minute: less than 45 seconds is &quot;now&quot;, then minutes,
-            hours, calendar days (&quot;včera&quot;), weeks, months and years.
-            With <code>absoluteAfterDays</code> an older moment is written as
-            the locale&apos;s <code>dateTime</code>. On the server and while the
+            hours, calendar days (&quot;včera&quot;), weeks, calendar months and
+            years - weeks and years as they pass (&quot;před týdnem&quot;). With{" "}
+            <code>absoluteAfterDays</code> an older moment is written as the
+            locale&apos;s <code>dateTime</code>. On the server and while the
             page hydrates it writes the date and time - the clock of the server
             is not the user&apos;s. <code>NotificationCenter</code>,{" "}
             <code>CommentThread</code> and <code>ChangeHistory</code> write

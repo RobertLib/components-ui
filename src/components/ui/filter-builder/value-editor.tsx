@@ -126,6 +126,9 @@ function SingleEditor({
             aria-label={label}
             dim={dim}
             disabled={disabled}
+            // Anew for another field - the options loaded for the one
+            // before must not show while its own load
+            key={field.key}
             loadOptions={field.loadOptions}
             loadSelectedOptions={field.loadSelectedOptions}
             onChange={(picked) => onValueChange(picked ?? undefined)}
@@ -208,15 +211,19 @@ function ListEditor({
       placeholder: field.placeholder,
       value: values,
     };
+    // Anew for another field - the options loaded for the one before must
+    // not show while its own load
     return field.loadOptions ? (
       <Autocomplete
         {...common}
+        key={field.key}
         loadOptions={field.loadOptions}
         loadSelectedOptions={field.loadSelectedOptions}
       />
     ) : (
       <Autocomplete
         {...common}
+        key={field.key}
         options={(field.options ?? []).map((option) => ({
           disabled: option.disabled,
           label: option.label,

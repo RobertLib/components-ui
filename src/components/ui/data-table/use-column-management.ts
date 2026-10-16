@@ -315,6 +315,33 @@ export default function useColumnManagement<T>(
     [updateState],
   );
 
+  /**
+   * Whether two column settings show the columns alike - also when one
+   * names a default (a visible column as visible) that the other leaves
+   * out, as the settings the user changes do.
+   */
+  const isSameColumnState = useCallback(
+    (a: DataTableColumnState, b: DataTableColumnState) => {
+      const resolve = (columnState: DataTableColumnState) => {
+        const { columnOrder, columnPinning, columnVisibility, columnWidths } =
+          fromColumnState(columnState);
+        const visibility = resolveColumnVisibility(columns, columnVisibility);
+
+        return JSON.stringify([
+          resolveColumnOrder(columns, columnOrder, groupOf),
+          columns.map((column) => [
+            visibility[column.key],
+            columnPinning[column.key] ?? column.pinned ?? false,
+            columnWidths[column.key] ?? null,
+          ]),
+        ]);
+      };
+
+      return resolve(a) === resolve(b);
+    },
+    [columns, groupOf],
+  );
+
   const handleDragStart = useCallback(
     (event: React.DragEvent<HTMLElement>, columnKey: string) => {
       event.dataTransfer.setData("columnKey", columnKey);
@@ -464,6 +491,7 @@ export default function useColumnManagement<T>(
     handleDrop,
     handlePinColumn,
     hasCustomSettings,
+    isSameColumnState,
     moveColumn,
     pinnedColumns,
     resetColumnLayout,

@@ -75,6 +75,8 @@ export default function DurationInputPage() {
             minutes, <code>display=&quot;units&quot;</code> the units of the
             language - &quot;2 hr 15 min&quot; in English, &quot;2 h 15
             min&quot; in Czech. Either can be typed whatever the field shows.
+            The few languages whose units the field could not read back - a unit
+            before the number, or a number in words - get the clock.
           </p>
         }
         name="duration-input/display"

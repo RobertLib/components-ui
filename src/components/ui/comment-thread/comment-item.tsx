@@ -10,7 +10,12 @@ import { mentionsToText, type Mention } from "../mention-input/markup";
 import MentionText from "../mention-input/mention-text";
 import Tooltip from "../tooltip";
 import Composer from "./composer";
-import { getErrorMessage, isSubmitKey, type MentionFieldProps } from "./utils";
+import {
+  getErrorMessage,
+  isImeKey,
+  isSubmitKey,
+  type MentionFieldProps,
+} from "./utils";
 import type { CommentAuthor, CommentThreadItem } from "./types";
 
 /** What every comment of a thread takes from it. */
@@ -27,10 +32,16 @@ export interface ThreadContext extends MentionFieldProps {
   onEdit?: (comment: CommentThreadItem, body: string) => Promise<void> | void;
   onReply: (parent: CommentThreadItem, body: string) => Promise<void> | void;
   renderAttachments?: (comment: CommentThreadItem) => React.ReactNode;
-  /** The comment whose reply field is open. */
-  replyingTo: string | number | null;
-  setReplyingTo: (id: string | number | null) => void;
+  /** The comments whose reply fields are open - each keeps its own text. */
+  replyingTo: readonly (string | number)[];
+  /** Opens or closes the reply field of a comment. */
+  setReplying: (id: string | number, open: boolean) => void;
 }
+
+// The times are focusable - the date and time of their tooltips are for the
+// keyboard too
+const momentClassName =
+  "rounded-sm focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-hidden";
 
 // The actions under a comment - small, but a target of 24px
 const actionClassName =
@@ -53,8 +64,12 @@ function Moment({
   return (
     <Tooltip openOnClick title={context.formatAbsolute(date)}>
       <time
-        className="text-neutral-600 dark:text-neutral-400"
+        className={cn(
+          momentClassName,
+          "text-neutral-600 dark:text-neutral-400",
+        )}
         dateTime={date.toISOString()}
+        tabIndex={0}
       >
         {context.formatRelative(date)}
       </time>
@@ -89,13 +104,14 @@ export default function CommentItem({
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const editButtonRef = useRef<HTMLButtonElement>(null);
   const replyButtonRef = useRef<HTMLButtonElement>(null);
+  const replyFieldRef = useRef<HTMLDivElement>(null);
   // Where the focus goes once the field closes
   const focusAfterEdit = useRef(false);
 
   const isReply = parent !== undefined;
   const thread = parent ?? comment;
   const replies = isReply ? [] : (comment.replies ?? []);
-  const isReplyOpen = !isReply && context.replyingTo === comment.id;
+  const isReplyOpen = !isReply && context.replyingTo.includes(comment.id);
   const editable = !!context.onEdit && context.canEdit(comment);
   const deletable = context.canDelete(comment);
 
@@ -148,12 +164,26 @@ export default function CommentItem({
       });
   };
 
-  const openReply = () => context.setReplyingTo(thread.id);
+  const openReply = () => context.setReplying(thread.id, true);
 
+  // The focus goes back to "Reply" - when it was in the field, not from
+  // another one the user went on to while the reply was sent
   const closeReply = () => {
-    context.setReplyingTo(null);
-    replyButtonRef.current?.focus();
+    const active = document.activeElement;
+    const hadFocus =
+      !active ||
+      active === document.body ||
+      !!replyFieldRef.current?.contains(active);
+    context.setReplying(comment.id, false);
+    if (hadFocus) replyButtonRef.current?.focus();
   };
+
+  // A time that is no valid date (`null` from JSON) is no edit
+  const editedAt =
+    comment.editedAt === undefined || comment.editedAt === null
+      ? null
+      : toDate(comment.editedAt);
+  const isEdited = editedAt !== null && !Number.isNaN(editedAt.getTime());
 
   const attachments = context.renderAttachments?.(comment);
 
@@ -181,14 +211,20 @@ export default function CommentItem({
             {comment.author.name}
           </span>
           <Moment context={context} value={comment.createdAt} />
-          {comment.editedAt !== undefined && (
+          {isEdited && (
             <Tooltip
               openOnClick
               title={formatMessage(messages.commentThread.editedAt, {
-                time: context.formatAbsolute(toDate(comment.editedAt)),
+                time: context.formatAbsolute(editedAt),
               })}
             >
-              <span className="text-xs text-neutral-600 dark:text-neutral-400">
+              <span
+                className={cn(
+                  momentClassName,
+                  "text-xs text-neutral-600 dark:text-neutral-400",
+                )}
+                tabIndex={0}
+              >
                 ({messages.commentThread.edited})
               </span>
             </Tooltip>
@@ -212,6 +248,7 @@ export default function CommentItem({
                   save();
                 } else if (
                   event.key === "Escape" &&
+                  !isImeKey(event) &&
                   !saving &&
                   // The open list of suggestions takes its Escape itself
                   !event.currentTarget.hasAttribute("aria-controls")
@@ -318,7 +355,7 @@ export default function CommentItem({
         )}
 
         {isReplyOpen && (
-          <div className="mt-2">
+          <div className="mt-2" ref={replyFieldRef}>
             <Composer
               author={context.currentUser}
               autoFocus

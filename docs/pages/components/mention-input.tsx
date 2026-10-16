@@ -35,6 +35,8 @@ export default function MentionInputPage() {
             list name and rules of its own - a ticket number has no spaces (
             <code>allowSpaces: false</code>); a name may ("@Jana Nov"). A query
             with a space that finds nothing closes the list: it was no mention.
+            The list opened again loads anew - it offers nothing loaded before,
+            maybe by another <code>loadSuggestions</code>.
           </p>
         }
         name="mention-input/async"
@@ -87,12 +89,14 @@ export default function MentionInputPage() {
           </p>
           <p>
             A mention behaves as one piece: Backspace after it (or Delete before
-            it) deletes it whole, the caret skips over it, and a change inside
-            it - typed into a selection reaching into it - makes it plain text
-            again. Mentions are inserted by the editing of the browser, so undo
-            takes an insertion back, and undo or redo bring the mentions of the
-            text back with it. Copied and pasted between mention fields,
-            mentions stay mentions; pasted elsewhere they are text.
+            it) deletes it whole - and so does deleting a word (⌥ / Ctrl +
+            Backspace) after the spaces behind it - the caret skips over it, and
+            a change inside it - typed into a selection reaching into it - makes
+            it plain text again. Mentions are inserted by the editing of the
+            browser, so undo takes an insertion back, and undo or redo bring the
+            mentions of the text back with it. Copied and pasted between mention
+            fields, mentions stay mentions - of the triggers the field has;
+            pasted elsewhere they are text.
           </p>
           <p>
             Text that looks like a token is stored escaped - "@[" written as

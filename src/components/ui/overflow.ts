@@ -3,7 +3,8 @@
  * has no room for them - shared by `Tabs` and `Toolbar`. The items are
  * measured where they are rendered: those in the menu stay in the page,
  * out of sight (`OVERFLOW_HIDDEN_CLASSES`), so their widths are known for
- * when the row has room again.
+ * when the row has room again - measured back in the flow of the row
+ * (`measureInFlow`), also the room of a row as wide as its content.
  */
 
 /**
@@ -127,6 +128,48 @@ export function getOverflowingItems({
   }
 
   return [...hidden].sort((a, b) => a - b);
+}
+
+/**
+ * Calls `measure` with `elements` - the items out of sight in the menu -
+ * back in the flow of the row, and takes them out again before anything
+ * is painted. A bar as wide as its content (in a flex row, beside a title)
+ * narrows as its items move into the menu - measured with all of them, it
+ * takes the room it has for them, also once the row around it widens.
+ */
+export function measureInFlow<T>(
+  elements: readonly HTMLElement[],
+  measure: () => T,
+): T {
+  for (const element of elements) element.style.position = "static";
+  try {
+    return measure();
+  } finally {
+    for (const element of elements) element.style.removeProperty("position");
+  }
+}
+
+/**
+ * Whether a `ResizeObserver` reports a change the layout of a row follows -
+ * of an element but `parent`, or of the width of `parent`, the element
+ * around the row (`lastWidth` holds its width as last seen). A change of
+ * its height alone - the content under a bar - is none.
+ */
+export function isRowResize(
+  entries: readonly ResizeObserverEntry[],
+  parent: Element | null,
+  lastWidth: { current: number | null },
+) {
+  let resized = entries.length === 0;
+  for (const entry of entries) {
+    if (entry.target !== parent) {
+      resized = true;
+    } else if (entry.contentRect.width !== lastWidth.current) {
+      lastWidth.current = entry.contentRect.width;
+      resized = true;
+    }
+  }
+  return resized;
 }
 
 /** The width of the content box of `element` - without its padding. */

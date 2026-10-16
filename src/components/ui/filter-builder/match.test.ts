@@ -100,6 +100,16 @@ describe("matchesFilter", () => {
     expect(total("between", { from: 12_501 })).toBe(false);
     expect(total("between", { to: 12_500 })).toBe(true);
     expect(total("greaterThan", 9, { ...invoice, total: "10.5" })).toBe(true);
+    // Other text is no number - neither more nor less than one
+    expect(total("greaterThan", 1_000, { ...invoice, total: "N/A" })).toBe(
+      false,
+    );
+    expect(total("lessThan", 5, { ...invoice, total: "10 kg" })).toBe(false);
+    expect(
+      total("between", { from: 1, to: 20 }, { ...invoice, total: "9,5" }),
+    ).toBe(false);
+    expect(total("equals", "N/A", { ...invoice, total: "n/a" })).toBe(true);
+    expect(total("notEquals", 5, { ...invoice, total: "N/A" })).toBe(true);
     // No value is in no range
     expect(total("lessThan", 100, { ...invoice, total: null })).toBe(false);
     expect(total("between", { to: 100 }, { ...invoice, total: null })).toBe(
@@ -156,6 +166,28 @@ describe("matchesFilter", () => {
     expect(issued("on", "2026-10-01", moment.toISOString())).toBe(true);
     expect(issued("after", "2026-10-01T09:00", moment.getTime())).toBe(true);
     expect(issued("after", "2026-10-01T09:15", moment)).toBe(false);
+  });
+
+  it("compares moments written with a space for the `T`, as SQL does", () => {
+    const issued = (
+      operator: FilterCondition["operator"],
+      value: FilterCondition["value"],
+      issuedAt: Invoice["issuedAt"],
+    ) =>
+      matches({ field: "issuedAt", operator, value }, { ...invoice, issuedAt });
+
+    expect(issued("after", "2026-10-01T14:00", "2026-10-01 16:00:00")).toBe(
+      true,
+    );
+    expect(issued("before", "2026-10-01T14:00", "2026-10-01 16:00:00")).toBe(
+      false,
+    );
+    expect(issued("before", "2026-10-01T14:00", "2026-10-01t13:00")).toBe(true);
+    // With a time zone - in the local time
+    const moment = new Date(2026, 9, 1, 9, 15);
+    const zoned = moment.toISOString().replace("T", " ").toLowerCase();
+    expect(issued("after", "2026-10-01T09:00", zoned)).toBe(true);
+    expect(issued("after", "2026-10-01T09:15", zoned)).toBe(false);
   });
 
   it("compares the values of options exactly - 1 is “1”", () => {
@@ -465,5 +497,28 @@ describe("compactFilter", () => {
       conditions: [{ field: "removed", operator: "equals", value: 1 }],
     });
     expect(compactFilter(null)).toEqual({ combinator: "and", conditions: [] });
+  });
+
+  it("leaves out the empty items of a list and the empty ends of a range", () => {
+    expect(
+      compactFilter(
+        where(
+          { field: "status", operator: "in", value: ["paid", "", " "] },
+          { field: "total", operator: "between", value: { from: 0, to: null } },
+          {
+            field: "dueDate",
+            operator: "between",
+            value: { from: "", to: "2026-10-15" },
+          },
+        ),
+        fields,
+      ),
+    ).toEqual(
+      where(
+        { field: "status", operator: "in", value: ["paid"] },
+        { field: "total", operator: "between", value: { from: 0 } },
+        { field: "dueDate", operator: "between", value: { to: "2026-10-15" } },
+      ),
+    );
   });
 });

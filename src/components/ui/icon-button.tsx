@@ -203,7 +203,8 @@ export default function IconButton({
 
     control = disabled ? (
       // Without an `href` nothing can open a disabled link, and it is not
-      // in the tab order - but with a reason to show
+      // in the tab order - but with a reason to show (as the `tabIndex`
+      // given says)
       <a
         {...(linkProps as React.ComponentProps<"a">)}
         aria-busy={loading || undefined}
@@ -214,7 +215,7 @@ export default function IconButton({
         onAuxClick={preventActivation}
         onClick={preventActivation}
         role="link"
-        tabIndex={isExplained ? 0 : undefined}
+        tabIndex={isExplained ? (linkProps.tabIndex ?? 0) : undefined}
       >
         {content}
       </a>

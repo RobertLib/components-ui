@@ -1,11 +1,10 @@
 name: CI
 
-# The development branch too - releases are prepared there before they reach
-# main, so its pushes are checked even without a pull request
+# Only main - releases are prepared on development and checked when they
+# reach main
 on:
   push:
-    branches: [main, development]
-  pull_request:
+    branches: [main]
 
 jobs:
   check:
@@ -18,7 +17,12 @@ jobs:
           cache: npm
       # `prepare` builds the library on install
       - run: npm ci
+      # TypeScript 5 for the source copy to typecheck with too - outside the
+      # project, where its `tsc` would replace the one of the project
+      - run: npm install --prefix "$RUNNER_TEMP/typescript-5" typescript@5.9
       - run: npm run check
+        env:
+          SOURCE_COPY_TYPESCRIPT: ${{ runner.temp }}/typescript-5/node_modules/typescript
       # TZ-dependent tests must keep process workers when threads are requested
       - run: npm test -- --project=timezones --pool=threads
       - run: npm run build:docs

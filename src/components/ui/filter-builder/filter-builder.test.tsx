@@ -490,6 +490,53 @@ describe("FilterBuilder", () => {
     expect(lastValue(onChange).conditions[0]).toMatchObject({ value: 8 });
   });
 
+  it("offers no options of the field before while another loads its own", async () => {
+    const user = userEvent.setup();
+    const loadCustomers = vi.fn(async () => [{ label: "Acme", value: 7 }]);
+    // The owners are still loading
+    const loadOwners = vi.fn(() => new Promise<never>(() => {}));
+    render(
+      <FilterBuilder
+        defaultValue={{
+          combinator: "and",
+          conditions: [{ field: "customer", operator: "equals" }],
+        }}
+        fields={[
+          {
+            key: "customer",
+            label: "Customer",
+            loadOptions: loadCustomers,
+            type: "select",
+          },
+          {
+            key: "owner",
+            label: "Owner",
+            loadOptions: loadOwners,
+            type: "select",
+          },
+        ]}
+      />,
+    );
+    const value = () =>
+      within(condition("Condition 1")).getByRole("combobox", {
+        name: "Value",
+      });
+
+    await user.click(value());
+    expect(
+      await screen.findByRole("option", { name: "Acme" }),
+    ).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    await user.selectOptions(fieldSelect("Condition 1"), "owner");
+    await user.click(value());
+    await act(async () => {});
+    expect(loadOwners).toHaveBeenCalled();
+    expect(
+      screen.queryByRole("option", { name: "Acme" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("works controlled", async () => {
     const user = userEvent.setup();
     function Controlled() {

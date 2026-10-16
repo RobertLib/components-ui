@@ -119,6 +119,19 @@ function edgeSpeed(position: number, start: number, end: number) {
   return 0;
 }
 
+/**
+ * How fast to scroll `element` up and down - by the edges of the part of it
+ * in view: a column running on below the window scrolls at its bottom edge.
+ */
+function verticalSpeed(y: number, element: Element) {
+  const rect = element.getBoundingClientRect();
+  return edgeSpeed(
+    y,
+    Math.max(rect.top, 0),
+    Math.min(rect.bottom, window.innerHeight),
+  );
+}
+
 const scrollDelta = (speed: number) =>
   Math.sign(speed) *
   Math.max(1, Math.round(Math.abs(speed) * AUTO_SCROLL_SPEED));
@@ -210,12 +223,31 @@ export default function useKanbanDrag<T extends KanbanCard>(
   };
 
   // Moving turned off, or the card is gone - the move ends
-  if (
-    session &&
-    (!options.enabled ||
-      !options.cards.some((card) => card.id === session.cardId))
-  ) {
+  const place = session ? placeOf(options.cards, session.cardId) : null;
+  if (session && (!options.enabled || !place)) {
     setSession(null);
+  } else if (session && place && !samePlace(place, session.origin)) {
+    // The cards changed under the move - a failed save moved one back: it
+    // starts where the card is now, and goes where it was going (the end of
+    // a column that has fewer cards now)
+    const { origin, target } = session;
+    setSession({
+      ...session,
+      origin: place,
+      target:
+        target &&
+        (samePlace(target, origin)
+          ? place
+          : {
+              ...target,
+              index: Math.min(
+                target.index,
+                cardsIn(options.cards, target.columnId).filter(
+                  (card) => card.id !== session.cardId,
+                ).length,
+              ),
+            }),
+    });
   }
   const active = options.enabled ? session : null;
 
@@ -344,7 +376,8 @@ export default function useKanbanDrag<T extends KanbanCard>(
   const choose = (
     direction: "down" | "end" | "home" | "next" | "previous" | "up",
   ) => {
-    const { columns, isAllowed, messages, session } = latestRef.current;
+    const { columns, isAllowed, isCollapsed, messages, session } =
+      latestRef.current;
     const card = session && findCard(session.cardId);
     if (!session || !card) return;
     const current = session.target ?? session.origin;
@@ -369,8 +402,10 @@ export default function useKanbanDrag<T extends KanbanCard>(
       }
     } else {
       const max = othersCount(current.columnId, card.id);
-      const order =
-        direction === "home"
+      // A collapsed column takes a card at its end only
+      const order = isCollapsed(current.columnId)
+        ? []
+        : direction === "home"
           ? Array.from({ length: max + 1 }, (_, index) => index)
           : direction === "end"
             ? Array.from({ length: max + 1 }, (_, index) => max - index)
@@ -568,36 +603,45 @@ export default function useKanbanDrag<T extends KanbanCard>(
   };
 
   /**
-   * What scrolls near the pointer, and how fast: the board sideways - by
-   * the physical edges, in any writing direction - and the column under
-   * the pointer (or the page) up and down.
+   * What scrolls near the pointer, and how fast - by the edges of the parts
+   * in view: the board sideways - by the physical edges, in any writing
+   * direction - and the column under the pointer up and down, or what
+   * scrolls the board (the page) once the column is at its end.
    */
   const edgeScrolling = (press: Press) => {
     const { x, y } = press.pointer;
-    const board = latestRef.current.scrollerRef.current;
+    const { boardRef, scrollerRef } = latestRef.current;
+    const board = scrollerRef.current;
     const boardRect = board?.getBoundingClientRect();
     const hit =
       typeof document.elementFromPoint === "function"
         ? document.elementFromPoint(x, y)
         : null;
     const column = findScroller(hit?.closest("[data-kanban-scroll]") ?? null);
-    const columnRect = column?.getBoundingClientRect();
+    const page =
+      findScroller(boardRef.current?.parentElement ?? null) ??
+      document.scrollingElement;
 
     return {
       board,
-      boardSpeed: boardRect ? edgeSpeed(x, boardRect.left, boardRect.right) : 0,
-      vertical: column ?? document.scrollingElement,
-      verticalSpeed: edgeSpeed(
-        y,
-        columnRect ? columnRect.top : 0,
-        columnRect ? columnRect.bottom : window.innerHeight,
-      ),
+      boardSpeed: boardRect
+        ? edgeSpeed(
+            x,
+            Math.max(boardRect.left, 0),
+            Math.min(boardRect.right, window.innerWidth),
+          )
+        : 0,
+      column,
+      columnSpeed: column ? verticalSpeed(y, column) : 0,
+      page,
+      pageSpeed: page ? verticalSpeed(y, page) : 0,
     };
   };
 
   /** Scrolls what is near the pointer by a step - whether anything moved. */
   const scrollStep = (press: Press) => {
-    const { board, boardSpeed, vertical, verticalSpeed } = edgeScrolling(press);
+    const { board, boardSpeed, column, columnSpeed, page, pageSpeed } =
+      edgeScrolling(press);
     let moved = false;
 
     if (board && boardSpeed !== 0) {
@@ -605,10 +649,18 @@ export default function useKanbanDrag<T extends KanbanCard>(
       board.scrollLeft += scrollDelta(boardSpeed);
       if (board.scrollLeft !== before) moved = true;
     }
-    if (vertical && verticalSpeed !== 0) {
-      const before = vertical.scrollTop;
-      vertical.scrollTop += scrollDelta(verticalSpeed);
-      if (vertical.scrollTop !== before) moved = true;
+    // The column - at its end, the page
+    for (const [element, speed] of [
+      [column, columnSpeed],
+      [page, pageSpeed],
+    ] as const) {
+      if (!element || speed === 0) continue;
+      const before = element.scrollTop;
+      element.scrollTop += scrollDelta(speed);
+      if (element.scrollTop !== before) {
+        moved = true;
+        break;
+      }
     }
     return moved;
   };
@@ -616,8 +668,8 @@ export default function useKanbanDrag<T extends KanbanCard>(
   /** Scrolls while the pointer is near an edge - frame by frame. */
   const autoScroll = (press: Press) => {
     if (press.frame) return;
-    const { boardSpeed, verticalSpeed } = edgeScrolling(press);
-    if (boardSpeed === 0 && verticalSpeed === 0) return;
+    const { boardSpeed, columnSpeed, pageSpeed } = edgeScrolling(press);
+    if (boardSpeed === 0 && columnSpeed === 0 && pageSpeed === 0) return;
 
     const step = () => {
       press.frame = 0;
@@ -757,11 +809,7 @@ export default function useKanbanDrag<T extends KanbanCard>(
       cancel();
     };
 
-    // Picked up, the finger moves the card - not the page
-    const handleTouchMove = (touchEvent: TouchEvent) => {
-      if (press.dragging) touchEvent.preventDefault();
-    };
-    // Nor does resting on the card open the menu of the browser
+    // Resting on the card does not open the menu of the browser
     const handleContextMenu = (menuEvent: Event) => {
       if (press.touch) menuEvent.preventDefault();
     };
@@ -777,7 +825,6 @@ export default function useKanbanDrag<T extends KanbanCard>(
     document.addEventListener("pointerup", handleUp);
     document.addEventListener("pointercancel", handleCancel);
     document.addEventListener("keydown", handleKeyDown, true);
-    document.addEventListener("touchmove", handleTouchMove, { passive: false });
     document.addEventListener("contextmenu", handleContextMenu);
     document.addEventListener("selectstart", handleSelectStart);
     window.addEventListener("blur", handleWindowBlur);
@@ -787,7 +834,6 @@ export default function useKanbanDrag<T extends KanbanCard>(
       document.removeEventListener("pointerup", handleUp);
       document.removeEventListener("pointercancel", handleCancel);
       document.removeEventListener("keydown", handleKeyDown, true);
-      document.removeEventListener("touchmove", handleTouchMove);
       document.removeEventListener("contextmenu", handleContextMenu);
       document.removeEventListener("selectstart", handleSelectStart);
       window.removeEventListener("blur", handleWindowBlur);
@@ -814,6 +860,35 @@ export default function useKanbanDrag<T extends KanbanCard>(
     },
     [],
   );
+
+  // Picked up, the finger moves the card - not the page. Listened to on the
+  // board before any touch begins: Safari on iOS does not let a listener
+  // added during the touch (on the press) keep the page from scrolling
+  const { boardRef } = options;
+  useEffect(() => {
+    const board = boardRef.current;
+    if (!board) return;
+    const handleTouchMove = (event: TouchEvent) => {
+      if (pressRef.current?.dragging) event.preventDefault();
+    };
+    board.addEventListener("touchmove", handleTouchMove, { passive: false });
+    return () => board.removeEventListener("touchmove", handleTouchMove);
+  }, [boardRef]);
+
+  /**
+   * The card keeps the focus as it is moved back at its new place - when it
+   * has it now.
+   */
+  const keepFocus = (cardId: KanbanId, columnId: KanbanId) => {
+    const card = findElement(
+      latestRef.current.boardRef.current,
+      "kanbanCard",
+      idKey(cardId),
+    );
+    if (card?.contains(document.activeElement)) {
+      refocusRef.current = { cardId, columnId };
+    }
+  };
 
   // The card goes on having the focus at its new place - a drop into
   // another column renders it anew there
@@ -866,6 +941,7 @@ export default function useKanbanDrag<T extends KanbanCard>(
     /** What the live region says - a repeated text differs by a space. */
     announcement: announcement.text + (announcement.count % 2 === 1 ? " " : ""),
     attachGhost,
+    keepFocus,
     onBlur,
     onKeyDown,
     onPointerDown,

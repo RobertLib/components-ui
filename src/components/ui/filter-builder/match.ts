@@ -43,14 +43,19 @@ const localDateTime = (date: Date) =>
 /**
  * A date value of a record as the local `YYYY-MM-DD…` text the conditions
  * compare - a `Date` and an ISO text with a time zone in the local time, a
- * timestamp as its moment, a day or a local time as it is written.
+ * timestamp as its moment, a day or a local time as it is written. A space
+ * or a `t` between the day and the time (`2026-09-24 22:30:00`, as SQL
+ * writes it) is a `T`.
  */
 function toDateText(value: unknown): string {
   if (value instanceof Date) return localDateTime(value);
   if (typeof value === "number") return localDateTime(new Date(value));
   if (typeof value === "string") {
-    const text = value.trim();
-    return ZONED_DATE_TIME.test(text) ? localDateTime(new Date(text)) : text;
+    const text = value.trim().replace(/^(\d{4}-\d{2}-\d{2})[ t](?=\d)/, "$1T");
+    // RFC 3339 allows a `z` - the format of `Date` only a `Z`
+    return ZONED_DATE_TIME.test(text)
+      ? localDateTime(new Date(text.toUpperCase()))
+      : text;
   }
   return "";
 }
@@ -111,8 +116,9 @@ const comparators: Record<FilterFieldType, Compare> = {
   multiSelect: compareExact,
   number: (item, bound) =>
     compareNumbers(item, bound) ??
-    // Numbers stored as other text compare as text
-    compareTexts(item, bound),
+    // Other text ("N/A", "10 kg") is only the same text - neither more nor
+    // less than a number
+    (compareTexts(item, bound) === 0 ? 0 : null),
   select: compareExact,
   text: compareTexts,
 };
@@ -256,10 +262,12 @@ const compiled = new WeakMap<
  * fields))`. The value of a field is `row[key]` (or its `getValue`). Text
  * ignores case and accents, as the searches of the library do; a list of
  * the record matches when one of its items does (`hasAll`: when its items
- * include all the values). Conditions that are not complete yet, or of a
- * field not in `fields`, are left out - an empty filter matches every
- * record. Dates compare as local days and moments: `Date`s, ISO texts
- * (with a time zone in the local time) and timestamps.
+ * include all the values). Numbers also match numbers stored as text;
+ * other text ("N/A") is neither more nor less than a number. Conditions
+ * that are not complete yet, or of a field not in `fields`, are left out -
+ * an empty filter matches every record. Dates compare as local days and
+ * moments: `Date`s, ISO texts (with a time zone in the local time, also
+ * with a space for the `T`) and timestamps.
  */
 export function matchesFilter<T>(
   row: T,

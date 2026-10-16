@@ -47,7 +47,7 @@ interface SubRowLoadsOptions<T> {
   /** A load failed - after it is logged. */
   onError?: (error: unknown, row: T) => void;
   /** The sub rows of the row of `key` arrived. */
-  onLoaded?: (key: string, count: number) => void;
+  onLoaded?: (key: string, rows: readonly T[]) => void;
 }
 
 /**
@@ -118,7 +118,7 @@ export default function useSubRowLoads<T>(
         setLoads((previous) =>
           new Map(previous).set(key, { rows: subRows, status: "loaded" }),
         );
-        callbacks.current.onLoaded?.(key, subRows.length);
+        callbacks.current.onLoaded?.(key, subRows);
       },
       (error: unknown) => {
         if (controller.signal.aborted) return;

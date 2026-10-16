@@ -16,6 +16,12 @@ export interface LeaveGuard {
   /** The form has unsaved changes. */
   dirty: boolean;
   /**
+   * The `<form>` the changes are made in - the one of the field that had
+   * the focus as `dirty` turned `true`; `null` when none. Submitted to the
+   * server, it saves them.
+   */
+  form?: HTMLFormElement | null;
+  /**
    * The page may be left without a question until `dirty` changes - the
    * user chose to leave, or the form was saved (`release()`).
    */
@@ -48,15 +54,40 @@ function releaseAll() {
 }
 
 /**
+ * The `<form>` of the focused element - of a field in a shadow root too -
+ * or `null` outside one.
+ */
+export function getFocusedForm(): HTMLFormElement | null {
+  let active = document.activeElement;
+  while (active?.shadowRoot?.activeElement) {
+    active = active.shadowRoot.activeElement;
+  }
+  // A field may belong to a form elsewhere (its `form` attribute)
+  if (
+    active instanceof HTMLInputElement ||
+    active instanceof HTMLButtonElement ||
+    active instanceof HTMLSelectElement ||
+    active instanceof HTMLTextAreaElement
+  ) {
+    return active.form;
+  }
+  return active?.closest("form") ?? null;
+}
+
+/**
  * Asks "Leave without saving?" when a form of the page has unsaved changes
  * - with the `ConfirmProvider` of the first such form, else the browser's
  * `confirm()`. Resolves `true` at once without such a form, and when the
  * user chooses to leave - the forms do not ask again until their `dirty`
- * changes. For the blocker of a router, and before a navigation of your
- * own: `if (await confirmLeave()) router.push("/orders")`.
+ * changes. Resolves `false` when the forms it asked about are gone by the
+ * answer - their page was left meanwhile (by the back button of a browser
+ * that cannot stop it, a redirect of the app), and the navigation would
+ * leave the next one. For the blocker of a router, and before a navigation
+ * of your own: `if (await confirmLeave()) router.push("/orders")`.
  */
 export function confirmLeave(): Promise<boolean> {
-  const [first] = blockingGuards();
+  const asked = blockingGuards();
+  const [first] = asked;
   if (!first) return Promise.resolve(true);
 
   // One question, also for a second navigation while it is asked - one
@@ -64,6 +95,7 @@ export function confirmLeave(): Promise<boolean> {
   pendingQuestion ??= new Promise<boolean>((resolve) => resolve(first.ask()))
     .then(
       (leave) => {
+        if (!asked.some((guard) => guards.has(guard))) return false;
         if (leave) releaseAll();
         return leave;
       },
@@ -130,7 +162,25 @@ export function guardedBrowserBack() {
   guardNavigation(null, null, browserBack);
 }
 
-const getNavigation = () => (window as { navigation?: Navigation }).navigation;
+/**
+ * What the guard uses of the Navigation API - declared here, as the DOM
+ * types of TypeScript 5 have none of it.
+ */
+interface GuardNavigation extends EventTarget {
+  traverseTo: (key: string) => {
+    committed?: Promise<unknown>;
+    finished?: Promise<unknown>;
+  };
+}
+
+/** What the guard reads of a `navigate` event of the Navigation API. */
+interface GuardNavigateEvent extends Event {
+  destination: { key: string; sameDocument: boolean; url: string };
+  navigationType: string;
+}
+
+const getNavigation = () =>
+  (window as { navigation?: GuardNavigation }).navigation;
 
 /**
  * Closing the tab, a reload, a link to another document: the browser asks
@@ -154,10 +204,10 @@ function handleBeforeUnload(event: BeforeUnloadEvent) {
  * URL - the library asks before its own (`navigate`, the links), a blocker
  * of the router before the app's.
  */
-function handleNavigate(event: NavigateEvent) {
-  const { destination } = event;
+function handleNavigate(event: Event) {
+  const { destination, navigationType } = event as GuardNavigateEvent;
   if (
-    event.navigationType !== "traverse" ||
+    navigationType !== "traverse" ||
     !event.cancelable ||
     !destination.sameDocument ||
     !hasUnsavedChanges() ||
@@ -179,9 +229,10 @@ function handleNavigate(event: NavigateEvent) {
 
 /**
  * A form submitted to the server leaves the page with its values - that is
- * saving them, no question. Not one whose submit a script handles
- * (`preventDefault()`, as React's form actions do), nor one that opens in
- * another window or closes a dialog.
+ * saving its changes, no question. Not those of another form of the page
+ * (a search, a sign out), nor when a script handles the submit
+ * (`preventDefault()`, as React's form actions do), it opens in another
+ * window or closes a dialog.
  */
 function handleSubmit(event: SubmitEvent) {
   const form = event.target;
@@ -194,11 +245,15 @@ function handleSubmit(event: SubmitEvent) {
     submitter?.getAttribute("formtarget") ?? form.getAttribute("target");
   if (method?.toLowerCase() === "dialog") return;
   if (target && target.toLowerCase() !== "_self") return;
-  releaseAll();
+
+  for (const guard of blockingGuards()) {
+    if (guard.form === form) guard.released = true;
+  }
+  syncListeners();
 }
 
 /** What the listeners are on - `null` while none listens. */
-let listening: { navigation: Navigation | undefined } | null = null;
+let listening: { navigation: GuardNavigation | undefined } | null = null;
 
 /**
  * Listens to the browser while a form has unsaved changes - and only then:

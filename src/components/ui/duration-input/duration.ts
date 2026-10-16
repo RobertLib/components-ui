@@ -15,7 +15,10 @@ export type ParsedDuration =
 
 /** Writes and reads the durations of one locale - see `getDurationFormat`. */
 export interface DurationFormat {
-  /** Whole minutes as the field shows them - "1:30" or "1 h 30 min". */
+  /**
+   * Whole minutes as the field shows them - "1:30" or "1 h 30 min"; the
+   * clock also for the units of a locale `parse` cannot read back.
+   */
   format: (minutes: number, display: DurationDisplay) => string;
   /** Whole minutes in words, for screen readers - "1 hour, 30 minutes". */
   formatLong: (minutes: number) => string;
@@ -35,8 +38,8 @@ const UNIT_MINUTES = [1 / 60, 1, 60];
 const INTL_UNITS = ["second", "minute", "hour"] as const;
 
 // Czech and English unit words in any locale - also the accusative of the
-// Czech ("na hodinu"), which Intl does not write. Without diacritics, as
-// the typed text is compared without them.
+// Czech ("na hodinu"), which Intl does not write. Without diacritics, as a
+// typed word is also compared without them.
 const UNIT_WORDS: [rank: number, words: string][] = [
   [HOUR, "h hod hodina hodiny hodin hodinu hr hrs hour hours"],
   [MINUTE, "m min mins minuta minuty minut minutu minute minutes"],
@@ -61,7 +64,6 @@ const BIDI_MARKS = /[\u061C\u200E\u200F]/g;
 const COMBINING_MARKS = /\p{M}/gu;
 
 const NUMBER = /(\d+(?:[.,]\d+)?|[.,]\d+)\s*/y;
-const WORD = /(\p{L}+)\.?\s*/uy;
 const CLOCK = /^(\d*)\s*:\s*(\d{1,2})(?:\s*:\s*(\d{1,2}))?$/;
 // A number alone - with a fraction it is hours ("1,5"), whole it is in the
 // default unit
@@ -112,22 +114,43 @@ export function toIsoDuration(minutes: number) {
   return `${minutes < 0 ? "-" : ""}PT${hours ? `${hours}H` : ""}${rest ? `${rest}M` : ""}`;
 }
 
-/** The letters of a unit or a conjunction as the typed text is compared. */
+/**
+ * The letters of a unit or a conjunction as the typed text is compared -
+ * in lower case, with their combining marks ("मि") - and the abbreviation
+ * mark after them: the full stop of "Std.", the geresh of the Hebrew
+ * "דק׳". `null` for a text of other characters.
+ */
 function toWord(text: string) {
-  const word = fold(text).trim().replace(/\.$/, "");
-  return /^\p{L}+$/u.test(word) ? word : null;
+  const match = /^([\p{L}\p{M}]+)(\p{Po})?$/u.exec(
+    text.normalize("NFC").toLowerCase().trim(),
+  );
+  return match && { mark: match[2], word: match[1] };
 }
 
 /**
- * The unit words and conjunctions of the locale - those Intl writes, so
- * that the field reads whatever it shows ("1 Std., 30 Min." in German).
+ * The unit words, abbreviation marks and conjunctions of the locale -
+ * those Intl writes, so that the field reads what it shows ("1 Std., 30
+ * Min." in German).
  */
 function readLocaleWords(locale: string) {
+  // The unit of each word, and of each word without its diacritics - `null`
+  // where those of two units are the same then: the Malayalam hour "മ" is
+  // also the minute "മി" without its vowel sign
   const units = new Map<string, number>();
+  const foldedUnits = new Map<string, number | null>();
+  const addUnit = (word: string, rank: number) => {
+    // A word of another unit stays with it
+    if (!units.has(word)) units.set(word, rank);
+    const folded = fold(word);
+    const known = foldedUnits.get(folded);
+    if (known === undefined) foldedUnits.set(folded, rank);
+    else if (known !== rank) foldedUnits.set(folded, null);
+  };
   for (const [rank, words] of UNIT_WORDS) {
-    for (const word of words.split(" ")) units.set(word, rank);
+    for (const word of words.split(" ")) addUnit(word, rank);
   }
   const conjunctions = new Set(CONJUNCTIONS);
+  const marks = new Set(["."]);
 
   INTL_UNITS.forEach((unit, rank) => {
     for (const unitDisplay of ["long", "short", "narrow"] as const) {
@@ -138,9 +161,11 @@ function readLocaleWords(locale: string) {
       });
       for (const sample of PLURAL_SAMPLES) {
         for (const part of format.formatToParts(sample)) {
-          const word = part.type === "unit" ? toWord(part.value) : null;
-          // A word of another unit stays with it
-          if (word && !units.has(word)) units.set(word, rank);
+          const read = part.type === "unit" ? toWord(part.value) : null;
+          if (!read) continue;
+          addUnit(read.word, rank);
+          // Not those between the parts
+          if (read.mark && !",;".includes(read.mark)) marks.add(read.mark);
         }
       }
     }
@@ -152,15 +177,15 @@ function readLocaleWords(locale: string) {
       type,
     }).formatToParts(["1", "2"]);
     for (const part of parts) {
-      const word =
+      const read =
         part.type === "literal"
           ? toWord(part.value.replace(/[\s,;]/g, ""))
           : null;
-      if (word) conjunctions.add(word);
+      if (read) conjunctions.add(read.word).add(fold(read.word));
     }
   }
 
-  return { conjunctions, units };
+  return { conjunctions, foldedUnits, marks, units };
 }
 
 /**
@@ -192,8 +217,9 @@ function readNativeDigits(locale: string) {
  */
 function readUnits(
   text: string,
-  units: Map<string, number>,
+  unitOf: (word: string) => number | undefined,
   separator: RegExp,
+  wordPattern: RegExp,
 ): number | null {
   let index = 0;
   let minutes = 0;
@@ -212,12 +238,12 @@ function readUnits(
     if (!number) return null;
     index = NUMBER.lastIndex;
 
-    WORD.lastIndex = index;
-    const word = WORD.exec(text);
+    wordPattern.lastIndex = index;
+    const word = wordPattern.exec(text);
     let rank: number | undefined;
     if (word) {
-      rank = units.get(word[1]);
-      index = WORD.lastIndex;
+      rank = unitOf(word[1]);
+      index = wordPattern.lastIndex;
     } else if (previous <= HOUR) {
       rank = previous - 1;
     }
@@ -258,11 +284,23 @@ function createDurationFormat(locale: string): DurationFormat {
   };
 
   const native = readNativeDigits(locale);
-  const { conjunctions, units } = readLocaleWords(locale);
+  const { conjunctions, foldedUnits, marks, units } = readLocaleWords(locale);
   const separator = new RegExp(
-    String.raw`(?:[\s,;+&]|(?:${Array.from(conjunctions).join("|")})(?!\p{L}))*`,
+    String.raw`(?:[\s,;+&]|(?:${Array.from(conjunctions).join("|")})(?![\p{L}\p{M}]))*`,
     "uy",
   );
+  // A word - letters with their combining marks - and an abbreviation mark
+  // of the locale after it, escaped for a character class
+  const markClass = Array.from(marks, (mark) =>
+    mark.replace(/[\\\][^-]/g, "\\$&"),
+  ).join("");
+  const wordPattern = new RegExp(
+    String.raw`([\p{L}\p{M}]+)[${markClass}]?\s*`,
+    "uy",
+  );
+  /** The unit of a word as typed - else of it without diacritics. */
+  const unitOf = (word: string) =>
+    units.get(word) ?? foldedUnits.get(fold(word)) ?? undefined;
 
   /** The parts of whole minutes - the sign apart, as the units carry none. */
   const split = (minutes: number) => {
@@ -297,43 +335,62 @@ function createDurationFormat(locale: string): DurationFormat {
       return toNumber(text) * (isHours ? 60 : 1);
     }
 
-    return readUnits(text, units, separator);
+    return readUnits(text, unitOf, separator, wordPattern);
   };
+
+  const parse: DurationFormat["parse"] = (text, defaultUnit) => {
+    // Lower case, with the diacritics - a word is compared as it is typed
+    // first
+    let normalized = Array.from(text, (char) => native.get(char) ?? char)
+      .join("")
+      .normalize("NFC")
+      .toLowerCase()
+      .replace(FULL_WIDTH, (char) =>
+        String.fromCharCode(char.charCodeAt(0) - 0xfee0),
+      )
+      .replace(MINUS_SIGNS, "-")
+      .replace(BIDI_MARKS, "")
+      .trim();
+    if (!normalized) return { minutes: null };
+
+    const sign = normalized[0];
+    if (sign === "-" || sign === "+") {
+      normalized = normalized.slice(1).trimStart();
+    }
+
+    const minutes = read(normalized, defaultUnit);
+    if (minutes === null || !(minutes <= MAX_MINUTES)) {
+      return { error: "invalid" };
+    }
+    // Fractions of a minute round to whole minutes - a negative zero is
+    // none
+    const rounded = Math.round(minutes);
+    if (sign === "-" && rounded > 0) return { error: "negative" };
+    return { minutes: rounded };
+  };
+
+  // A few locales write units the field cannot read back - before the
+  // number (Swahili "saa 1"), or a number in words (Hebrew "שעתיים", two
+  // hours): their fields write the clock instead. Tried once per locale,
+  // with the hours and minutes of the plural forms of most languages.
+  const readsUnits = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 21, 22, 25, 100, 101,
+  ].every((hours) =>
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 21, 22, 25, 59].every((rest) => {
+      const minutes = hours * 60 + rest;
+      const parsed = parse(inUnits(minutes, short), "minutes");
+      return "minutes" in parsed && parsed.minutes === minutes;
+    }),
+  );
 
   return {
     format: (minutes, display) => {
-      if (display === "units") return inUnits(minutes, short);
+      if (display === "units" && readsUnits) return inUnits(minutes, short);
       const { hours, rest, sign } = split(minutes);
       return `${sign}${integer.format(hours)}:${twoDigits.format(rest)}`;
     },
     formatLong: (minutes) => inUnits(minutes, long),
-    parse: (text, defaultUnit) => {
-      let normalized = fold(
-        Array.from(text, (char) => native.get(char) ?? char).join(""),
-      )
-        .replace(FULL_WIDTH, (char) =>
-          String.fromCharCode(char.charCodeAt(0) - 0xfee0),
-        )
-        .replace(MINUS_SIGNS, "-")
-        .replace(BIDI_MARKS, "")
-        .trim();
-      if (!normalized) return { minutes: null };
-
-      const sign = normalized[0];
-      if (sign === "-" || sign === "+") {
-        normalized = normalized.slice(1).trimStart();
-      }
-
-      const minutes = read(normalized, defaultUnit);
-      if (minutes === null || !(minutes <= MAX_MINUTES)) {
-        return { error: "invalid" };
-      }
-      // Fractions of a minute round to whole minutes - a negative zero is
-      // none
-      const rounded = Math.round(minutes);
-      if (sign === "-" && rounded > 0) return { error: "negative" };
-      return { minutes: rounded };
-    },
+    parse,
   };
 }
 

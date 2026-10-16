@@ -28,8 +28,9 @@ export interface CommentThreadProps<
 > extends Omit<React.ComponentProps<"section">, "children" | "onSubmit"> {
   /**
    * Lets the user reply to a comment - one level: replies are listed under
-   * their comment, and "Reply" on a reply answers its comment. With
-   * `onSubmit`.
+   * their comment, and "Reply" on a reply answers its comment. The field of
+   * a reply stays, with its text, until the reply is sent or cancelled - also
+   * while the user replies to another comment. With `onSubmit`.
    */
   allowReplies?: boolean;
   /**
@@ -160,7 +161,11 @@ export default function CommentThread<
   const formatRelative = useFormatRelativeTime(timeZone);
   const formatDate = useFormatDate();
 
-  const [replyingTo, setReplyingTo] = useState<string | number | null>(null);
+  // The comments whose reply fields are open - each keeps its text while
+  // another one is written, and while its reply is sent
+  const [replyingTo, setReplyingTo] = useState<readonly (string | number)[]>(
+    [],
+  );
   const [deleting, setDeleting] = useState<{
     comment: T;
     error: string | null;
@@ -299,7 +304,14 @@ export default function CommentThread<
       ? (comment) => renderAttachments(comment as T)
       : undefined,
     replyingTo,
-    setReplyingTo,
+    setReplying: (id, open) =>
+      setReplyingTo((current) =>
+        open
+          ? current.includes(id)
+            ? current
+            : [...current, id]
+          : current.filter((other) => other !== id),
+      ),
     suggestions,
     triggers,
   };

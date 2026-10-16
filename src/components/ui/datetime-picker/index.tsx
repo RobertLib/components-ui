@@ -11,7 +11,12 @@ import PeriodPicker from "./period-picker";
 import TimePicker from "./time-picker";
 import WeekPicker from "./week-picker";
 import { isValueUnavailable, type DateDisabledPredicate } from "./availability";
-import { parseTime, sanitizePickerLimit, sanitizePickerValue } from "./parse";
+import {
+  parseTime,
+  parseYear,
+  sanitizePickerLimit,
+  sanitizePickerValue,
+} from "./parse";
 import { isAriaInvalid, useFormControl } from "../../../hooks/use-form-control";
 import { formatMessage } from "../../../i18n/ui/format";
 import {
@@ -111,7 +116,8 @@ export interface DateTimePickerProps extends Omit<
    * `custom` (default) - the library's popup, formatted by the locale;
    * `native` - the browser's own `<input type="date">` & co. No browser
    * has an input of a year or a quarter: a year is then a number input
-   * (`<input type="number">` with the numeric keyboard of phones), a
+   * (`<input type="number">` with the numeric keyboard of phones) - a
+   * number that is no year of four digits ("26") makes it invalid - and a
    * quarter keeps the custom picker.
    */
   mode?: "native" | "custom";
@@ -302,15 +308,17 @@ export default function DateTimePicker({
       );
     }
   }, [timeZone, timeZoneProp]);
+  // No browser has a quarter input - the custom picker stands in for it
+  const isNative = mode === "native" && type !== "quarter";
   const { fieldRef, handleChange, value } = useFormControl({
     defaultValue,
     // A value a script writes into the native input stays - `register()`.
     // The custom pickers' `fieldRef` is on a field showing formatted text.
-    followScriptWrites: mode === "native",
+    followScriptWrites: isNative,
     form: inputProps.form,
     // A native input holds its new value before its `onChange` - a custom
     // picker calls it itself, once its hidden input does
-    onChange: mode === "native" ? onChange : undefined,
+    onChange: isNative ? onChange : undefined,
     ref,
     value: valueProp,
   });
@@ -329,13 +337,28 @@ export default function DateTimePicker({
     },
     [fieldRef],
   );
-  const nativeMessage =
-    mode === "native" &&
-    isValueUnavailable(String(value ?? ""), type, isDateDisabled)
-      ? formatMessage(locale.messages.ui.dateTimePicker.unavailable, {
-          value: formatValue(String(value), type, locale),
+  // The display pattern of the locale as a placeholder - "DD.MM.RRRR"
+  const getFormatHint = () =>
+    formatPlaceholder(
+      getPattern(locale, type),
+      locale.messages.ui.dateTimePicker.placeholderTokens,
+    );
+  const nativeText = String(value ?? "");
+  // The number input of a year takes any number - "26", "12345"
+  const isNoYear =
+    type === "year" && nativeText !== "" && !parseYear(nativeText);
+  const nativeMessage = !isNative
+    ? ""
+    : isNoYear
+      ? formatMessage(locale.messages.ui.dateTimePicker.invalidText, {
+          format: getFormatHint(),
+          text: nativeText,
         })
-      : "";
+      : isValueUnavailable(nativeText, type, isDateDisabled)
+        ? formatMessage(locale.messages.ui.dateTimePicker.unavailable, {
+            value: formatValue(nativeText, type, locale),
+          })
+        : "";
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const nativeValidityProps = useCustomValidity(nativeRef, nativeMessage);
@@ -345,16 +368,9 @@ export default function DateTimePicker({
     minuteStep ?? (quarterMinutesOnly ? 15 : 1),
   );
 
-  // Placeholder based on the display pattern of the locale - "DD.MM.RRRR"
-  const getPlaceholder = () =>
-    placeholder ||
-    formatPlaceholder(
-      getPattern(locale, type),
-      locale.messages.ui.dateTimePicker.placeholderTokens,
-    );
+  const getPlaceholder = () => placeholder || getFormatHint();
 
-  // No browser has a quarter input - the custom picker stands in for it
-  if (mode === "native" && type !== "quarter") {
+  if (isNative) {
     // The step of a time is in seconds
     const minuteStepSeconds =
       (type === "time" || type === "datetime-local") && pickerMinuteStep > 1

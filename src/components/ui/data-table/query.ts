@@ -684,6 +684,25 @@ const toLocalDateTime = (date: Date) =>
 const ZONED_DATE_TIME =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}.*(?:Z|[+-]\d{2}:?\d{2})$/i;
 
+/**
+ * A date text as ISO writes it: a space or a `t` between the day and the
+ * time (`2026-09-24 22:30:00`, as SQL writes it) is a `T`. Other texts stay
+ * as they are.
+ */
+const toISODateTimeText = (text: string) =>
+  text.replace(/^(\d{4}-\d{2}-\d{2})[ t](?=\d)/, "$1T");
+
+/**
+ * The moment of an ISO text with a time zone - `null` for another text.
+ * RFC 3339 allows a `z` and a `t`, the format of `Date` only `Z` and `T`.
+ */
+function parseZonedText(value: string) {
+  const text = toISODateTimeText(value.trim());
+  if (!ZONED_DATE_TIME.test(text)) return null;
+  const time = Date.parse(text.toUpperCase());
+  return Number.isNaN(time) ? null : time;
+}
+
 /** A cell value as text for searching and filtering. */
 export function toText(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -719,12 +738,16 @@ const containsText = (value: unknown, term: string, locale?: Locale) =>
 
 /**
  * A date value as local `YYYY-MM-DDTHH:mm` - the format of the date filters.
- * ISO strings with a time zone are converted to the local time first.
+ * ISO strings with a time zone are converted to the local time first, and
+ * `2026-09-24 22:30` (SQL) is `2026-09-24T22:30`.
  */
-const toDateText = (value: unknown) =>
-  typeof value === "string" && ZONED_DATE_TIME.test(value)
-    ? toLocalDateTime(new Date(value))
-    : toText(value);
+const toDateText = (value: unknown) => {
+  if (typeof value !== "string") return toText(value);
+  const time = parseZonedText(value);
+  return time === null
+    ? toISODateTimeText(value.trim())
+    : toLocalDateTime(new Date(time));
+};
 
 /** The time of a date value - `HH:mm` of `YYYY-MM-DDTHH:mm`, or the value. */
 const toTimeText = (value: unknown) => {
@@ -909,16 +932,14 @@ export interface SortKey {
  */
 function toTime(value: unknown) {
   if (value instanceof Date) return value.getTime();
-  if (typeof value !== "string" || !ZONED_DATE_TIME.test(value)) return null;
-
-  const time = Date.parse(value);
-  return Number.isNaN(time) ? null : time;
+  return typeof value === "string" ? parseZonedText(value) : null;
 }
 
 export const toSortKey = (value: unknown): SortKey => ({
   empty: isEmptyValue(value),
   number: typeof value === "bigint" ? Number(value) : toNumber(value),
-  text: toText(value),
+  // A local moment of SQL among those of ISO - in their order
+  text: typeof value === "string" ? toISODateTimeText(value) : toText(value),
   time: toTime(value),
   value,
 });

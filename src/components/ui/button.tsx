@@ -23,7 +23,9 @@ export interface ButtonProps extends React.ComponentProps<"button"> {
    * navigation of a `link`. Used only while `disabled`: keep it given while
    * the button is enabled too (`disabled={!canApprove}
    * disabledReason="…"`), so the button stays the same element and keeps
-   * the focus.
+   * the focus. The button is then in the wrapper of the tooltip - classes
+   * that lay it out in a flex row (`flex-1`, `ms-auto`) belong to an
+   * element around it; `fullWidth` stretches both.
    */
   disabledReason?: React.ReactNode;
   /** An icon after the label, e.g. `<ChevronDown size={16} />`. */
@@ -298,6 +300,9 @@ export default function Button({
     sizeStyles[size],
     hasSlots && gapStyles[size],
     fullWidth && "w-full",
+    // In the wrapper of its tooltip (`disabledReason`), stretched across a
+    // column of buttons, it fills the wrapper as it would the column
+    disabledReason !== undefined && group?.orientation === "vertical" && "grow",
     colorStyles[color][variant],
     // Forced colors mode (Windows High Contrast) drops the fills and makes
     // every border and text one color - a filled button is drawn in the
@@ -349,7 +354,7 @@ export default function Button({
       // Without an `href` nothing can open a disabled link - no click, no
       // middle click, no dragging it into a tab, no "Open in new tab" of
       // the context menu - and it is not in the tab order, but with a
-      // reason to show
+      // reason to show (as the `tabIndex` given says - -1 in a toolbar)
       return withReason(
         <a
           {...(linkProps as React.ComponentProps<"a">)}
@@ -360,7 +365,7 @@ export default function Button({
           onAuxClick={preventActivation}
           onClick={preventActivation}
           role="link"
-          tabIndex={isExplained ? 0 : undefined}
+          tabIndex={isExplained ? (linkProps.tabIndex ?? 0) : undefined}
         >
           {content}
         </a>,

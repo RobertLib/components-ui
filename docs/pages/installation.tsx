@@ -3,7 +3,7 @@ import CodeBlock from "../components/code-block";
 import DocPage, { Callout, Prose, Section } from "../components/doc-page";
 
 const installGit = `# a tagged version from your git host - npm builds dist/ on install
-npm install git+https://github.com/RobertLib/components-ui.git#v0.8.0
+npm install git+https://github.com/RobertLib/components-ui.git#v0.8.1
 
 # the latest commit of a branch
 npm install git+https://github.com/RobertLib/components-ui.git#main
@@ -30,8 +30,8 @@ resolve: {
 },`;
 
 const installTarball = `# a copy instead of a link - like an install from a registry
-cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.8.0.tgz
-cd ../my-app && npm install ../components-ui/components-ui-0.8.0.tgz`;
+cd ../components-ui && npm pack    # builds dist/, writes components-ui-0.8.1.tgz
+cd ../my-app && npm install ../components-ui/components-ui-0.8.1.tgz`;
 
 const installRegistry = `# in the library: set a scoped name, remove "private": true, then
 npm publish --registry https://npm.your-company.com
@@ -456,8 +456,8 @@ export default function Installation() {
             newer, the plugin of the library keeps them out of the CSS: it
             follows the imports of the app to the components it uses - also
             through aliases, re-exports, <code>import.meta.glob</code> and
-            dynamic imports. An app with a <code>Button</code> gets 8 kB of CSS
-            with gzip instead of 25 kB. <code>vite dev</code> keeps all the
+            dynamic imports. An app with a <code>Button</code> gets 9 kB of CSS
+            with gzip instead of 28 kB. <code>vite dev</code> keeps all the
             classes; so do other bundlers (Next.js, webpack), which bundle only
             the scripts of the components used.
           </p>

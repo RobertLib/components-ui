@@ -48,9 +48,10 @@ export default function CommentThreadPage() {
             stays in its field, read-only, and the button shows a spinner; once
             it resolves the field empties (or closes). A rejection keeps the
             text with the error under it - the message of an <code>Error</code>,
-            else a localized one - so nothing the user wrote is lost. The thread
-            changes no comments itself: update <code>comments</code> when the
-            server confirms.
+            else a localized one - so nothing the user wrote is lost. Each reply
+            has a field of its own: it stays, with its text, while the user
+            replies to another comment. The thread changes no comments itself:
+            update <code>comments</code> when the server confirms.
           </p>
         </Prose>
       </Section>
@@ -62,8 +63,9 @@ export default function CommentThreadPage() {
             by their author and time; the actions of a comment are described by
             them too, so "Edit" says whose comment it edits. Comments of others
             added at the end - not older ones loaded above, nor the user's own -
-            are announced politely, as is a deletion. The focus stays where the
-            user works: in the field after sending, on "Edit" after editing, on
+            are announced politely, as is a deletion. The times take the focus,
+            which shows their date and time. The focus stays where the user
+            works: in the field after sending, on "Edit" after editing, on
             "Reply" after replying.
           </p>
         </Prose>

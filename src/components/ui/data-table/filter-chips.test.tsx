@@ -199,6 +199,25 @@ describe("DataTable filter chips", () => {
     expect(chipTexts()).toEqual(["Team: Accounting", "owner: 42"]);
   });
 
+  it("names a server's filter of a column without a filter field by the column", () => {
+    render(
+      <DataTable
+        columns={[
+          ...columns.slice(0, 1),
+          {
+            formatFilterValue: (value) => (value === "1" ? "Mine" : "Theirs"),
+            key: "owner",
+            label: "Owner",
+          },
+        ]}
+        data={rows}
+        defaultQuery={{ filters: { owner: "1" } }}
+      />,
+    );
+
+    expect(chipTexts()).toEqual(["Owner: Mine"]);
+  });
+
   it("leaves out what a clientSide table ignores", () => {
     render(
       <DataTable

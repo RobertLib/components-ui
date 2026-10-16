@@ -1,5 +1,156 @@
 # Changelog
 
+## 0.8.1
+
+Fixes of the components and features of 0.8.0.
+
+- **Breaking - useUnsavedChanges** - a native submit of another form of the
+  page (a search, a sign out) no longer lets unsaved changes go without a
+  question; only the form the changes were made in does. A form that became
+  dirty with none of its fields focused (dirty on mount, a value set from a
+  popover) is asked about on its native submit - call `release()` in its
+  `onSubmit`.
+- **useUnsavedChanges** - after "Leave", the `onClick` of the link (e.g.
+  `onRowClick` of a DataTable link) runs once, not twice.
+- **useUnsavedChanges** - "Leave" in a question whose page was left
+  meanwhile no longer navigates from the next page; `confirmLeave()` resolves
+  `false` then.
+- **Source copy** - compiles with TypeScript 5.9 again: the navigation guard
+  no longer uses the `Navigation` types only TypeScript 6 has.
+- **SessionTimeout** - a new `expiresAt` in one tab moves the end of the
+  session in all tabs, also in a tab opened with an older one; a tab that
+  missed it no longer signs out the session that was extended.
+- **SessionTimeout** - signed in again, a session no longer keeps the end a
+  stay brought to the last one (it could end at once).
+- **SessionTimeout** - a stay still running when a later `expiresAt` closes
+  the warning is dropped; the next warning no longer opens with its error or
+  spinner.
+- **useIdle** - a scroll no longer counts as activity: a script scrolling the
+  page kept an idle user signed in. The wheel, touch, keys and pointer still
+  count.
+- **NotificationCenter** - closing and opening the panel while `onLoadMore`
+  is pending no longer loads the same page again.
+- **DataTable** - a long press on a row opens its context menu the first
+  time too.
+- **ContextMenu** - a long press opens items that come with the press (set
+  in `onPointerDown`, as those of the row pressed).
+- **DataTable** - pressing "Try again" on a sub row that failed to load
+  keeps the focus on its row and announces the result.
+- **DataTable** - with a server's data, another filter, search or sorting
+  loads the sub rows of `loadSubRows` again; those shown stay until the new
+  ones come.
+- **DataTable** - with `cascadeSelection`, the sub rows a checked row loads
+  come checked; with all matching rows selected, unchecking a sub row
+  unchecks its parents too, and checking it back rechecks them.
+- **DataTable** - "Expand all" is offered only once some sub rows are
+  loaded; before, it did nothing yet announced that all rows were expanded.
+- **DataTable** - applying the same filter again opens its matches in a tree
+  the user had collapsed.
+- **DataTable** - a saved view no longer shows as modified once the columns
+  are back as it has them, also when it names their defaults.
+- **DataTable** - the chip of a server filter on a column without a filter
+  field shows the column's name instead of its key.
+- **DataTable** - date and time filters and sorting read moments written as
+  SQL writes them (`2026-10-15 16:00:00`) and with a lowercase `t` or `z`.
+- **DataTable** - the docs of `virtualized` say to call `window.print()`
+  from an event handler, not an effect, for a printout of all rows.
+- **KanbanBoard** - when several moves fail to save at once, every card goes
+  back to its column, and a focused card keeps the focus.
+- **KanbanBoard** - a controlled board with `onCardsChange` no longer shows a
+  move again while it saves, which could undo a later move in the cards.
+- **KanbanBoard** - on iOS Safari, the page no longer scrolls under a finger
+  dragging a card.
+- **KanbanBoard** - a card moved with the keys drops from where it really is
+  when another card moves back meanwhile; in a collapsed column it stays at
+  the end.
+- **KanbanBoard** - dragging near the bottom of the window scrolls a column
+  that runs on below it, then the page.
+- **VirtualList** - sorting the items keeps the scroll position instead of
+  following the first item.
+- **VirtualList** - `onEndReached` and `onStartReached` are no longer called
+  again right after a page arrives.
+- **VirtualList** - `scrollToIndex` stops holding its item once the user
+  drags the scroll bar; a smooth one is no longer stopped halfway, and the
+  other scrolls are instant, also in a page with `scroll-behavior: smooth`.
+- **VirtualList** - when `onStartReached` fails, an error with "Try again"
+  shows at the top; `loadMoreError={false}` hides the error row.
+- **FilterBuilder** - a condition switched to another field with loaded
+  options no longer offers the options of the previous field.
+- **FilterBuilder** - `matchesFilter`: text that is no number ("N/A") is no
+  longer greater or less than a number, and moments written with a space for
+  the `T` (`2026-10-15 16:00:00`) compare as moments.
+- **FilterBuilder** - `compactFilter` also leaves out the empty items of
+  lists and the empty ends of ranges.
+- **ChangeHistory** - a new entry added at the top is no longer announced as
+  loaded, and no longer takes the focus, after "Load older changes".
+- **ChangeHistory** - a `timeZone` the browser does not know no longer breaks
+  the history; it shows the browser's zone, with a warning.
+- **ChangeHistory** - a field or author picked in the filters stays in its
+  select when the entries no longer have it, so the filter can be undone.
+- **ChangeHistory** - entries not in order no longer give two lists the same
+  key.
+- **ChangeHistory** - texts of up to about 700 words are compared word by word
+  (before, about 350), and the space before a changed word is not marked.
+- **useFormatRelativeTime** - a time of today is no longer "yesterday" (or
+  "tomorrow") late in the evening; it is written in hours. Weeks and years
+  are written as time passed ("1 week ago"), and four weeks within the same
+  month are no longer "last month". A `timeZone` the browser does not know
+  falls back to its own.
+- **CommentThread** - each reply has its own field: sending a reply closes
+  only that field, and a failed reply keeps its text and error while the user
+  replies to another comment.
+- **CommentThread** - Escape while an input method (IME) is composing no
+  longer closes the field of an edit or a reply.
+- **CommentThread** - the times and the "edited" marker take the keyboard
+  focus, which shows their date and time.
+- **CommentThread** - `editedAt` may be `null`; a comment with `null` or an
+  invalid time is not marked as edited.
+- **MentionInput** - a mention picked before a line break gets a space before
+  it, and the caret stays on its line.
+- **MentionInput** - a list opened again loads its suggestions anew; Enter no
+  longer inserts one loaded earlier, maybe by another `loadSuggestions`.
+- **MentionInput** - mentions pasted from a field with other `triggers` are
+  read with that field's triggers; mentions of triggers this field lacks are
+  text.
+- **MentionInput** - deleting a word (⌥ / Ctrl + Backspace) after the spaces
+  behind a mention deletes the whole mention; a deletion the browser cannot
+  cancel (on Android) no longer selects the mention under it.
+- **toMentionToken** - writes the label on one line, cut to 200 characters,
+  as the field does; a mention without a label or id, or with a longer id, is
+  written as text.
+- **DateTimePicker** - a quarter field with `mode="native"` calls `onChange`
+  once and keeps a quarter picked in the popup; before, it called it twice
+  and an uncontrolled field lost the value.
+- **DateTimePicker** - a year field with `mode="native"` is invalid for a
+  number that is no year of four digits ("26", "12345").
+- **DurationInput** - `display="units"` reads the abbreviation marks of the
+  locale (Hebrew, Hindi) and no longer takes Malayalam hours for minutes; a
+  locale whose units it cannot read back writes the clock.
+- **FormSection** - the docs say that without a `title` its `actions` are
+  disabled with the section.
+- **Field** - an explicit `readOnly` on the control is kept again.
+- **RepeatableField** - the fields in its groups follow its `readOnly`, also
+  without `renderItem` passing it; `readOnly={false}` keeps them editable in
+  a read-only FormSection.
+- **Pagination** - the page size can be changed also inside a read-only
+  FormSection or FormGrid.
+- **Toolbar / Tabs** - items in the "More" menu come back as the row around
+  widens, also for a bar as wide as its items (beside a title or a button in
+  a flex row).
+- **Toolbar / Tabs** - the "More" menu no longer opens again by itself after
+  the bar had room for everything; the focus in the menu, or on its button,
+  moves to the bar then (its tab stop, the selected tab), not to the page.
+- **Toolbar** - a group of radio buttons (SegmentedControl) in a custom item
+  is one Tab stop, and the arrow keys pick its options before moving on;
+  custom content with a disabled control is skipped.
+- **Button / IconButton** - a disabled link with a `disabledReason` keeps the
+  `tabIndex` it is given, so it is no extra Tab stop in a Toolbar.
+- **SplitButton** - `fullWidth` stretches the buttons also with a
+  `disabledReason`; in a vertical ButtonGroup a button with a reason fills
+  the column.
+- **CZ_MASKS** - the docs say that the masks of a birth number and a DIČ hold
+  functions, so they are spread in a client component, not a server one.
+
 ## 0.8.0
 
 Components and features for large information systems: new components for

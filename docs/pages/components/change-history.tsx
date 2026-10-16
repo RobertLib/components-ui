@@ -57,8 +57,10 @@ export default function ChangeHistoryPage() {
             authors of the entries - a field filter shows only the change of
             that field. They filter the entries given; a controlled{" "}
             <code>filter</code> with <code>onFilterChange</code> lets the app
-            load others from a server. While <code>hasMore</code>, &quot;Load
-            older changes&quot; calls <code>onLoadMore</code> - append the older
+            load others from a server. A field or an author picked stays among
+            the options when the entries no longer have it, so the filter shows
+            and can be undone. While <code>hasMore</code>, &quot;Load older
+            changes&quot; calls <code>onLoadMore</code> - append the older
             entries to <code>entries</code>. A returned promise shows the button
             loading, and when it rejects an error with &quot;Try again&quot;.{" "}
             <code>loading</code> shows placeholders, a history without entries
@@ -102,7 +104,9 @@ export default function ChangeHistoryPage() {
           <code>&quot;Europe/Prague&quot;</code>) the server writes the days as
           dates and the times as absolute dates and times in that zone; once
           hydrated, they become &quot;Today&quot;, &quot;Yesterday&quot; and
-          relative times, written again every minute.
+          relative times, written again every minute. A zone the browser does
+          not know is replaced by the browser&apos;s, with a warning in the
+          console.
         </p>
       </Callout>
 

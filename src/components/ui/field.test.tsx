@@ -151,6 +151,36 @@ describe("Field", () => {
     expect(input.id).not.toBe("");
   });
 
+  it("keeps a readOnly the control has before its props", () => {
+    let props: object = {};
+    render(
+      <Field label="Code">
+        {(controlProps) => {
+          props = controlProps;
+          return <input readOnly {...controlProps} defaultValue="X-1" />;
+        }}
+      </Field>,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Code:" })).toHaveAttribute(
+      "readonly",
+    );
+    // Passed only while read-only
+    expect(props).not.toHaveProperty("readOnly");
+  });
+
+  it("passes readOnly to the control", () => {
+    render(
+      <Field label="Code" readOnly>
+        {(controlProps) => <input {...controlProps} defaultValue="X-1" />}
+      </Field>,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Code:" })).toHaveAttribute(
+      "readonly",
+    );
+  });
+
   it("renders on the server with the ids it hydrates with", async () => {
     const field = (
       <Field description="Help" error="Bad" label="Code" required>

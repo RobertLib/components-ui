@@ -306,7 +306,9 @@ export default function DateTimePickerPage() {
             <code>step</code>. No browser has an input of a year or a quarter: a
             year is then a number input (<code>{'<input type="number">'}</code>{" "}
             with the numeric keyboard of phones, <code>min</code> /{" "}
-            <code>max</code> as its limits), a quarter keeps the custom picker.
+            <code>max</code> as its limits) - a number that is no year of four
+            digits (<code>26</code>) makes the field invalid - and a quarter
+            keeps the custom picker.
           </p>
         }
         name="datetime-picker/native"

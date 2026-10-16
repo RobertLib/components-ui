@@ -121,12 +121,14 @@ export default function TabsPage() {
             <p>
               With <code>overflow="menu"</code> the tabs a horizontal bar has no
               room for move into a "More" menu at its end - from the end of the
-              bar, and back as it widens (it follows its size, also as labels
-              change or a web font loads). The active tab always stays in the
-              bar: a tab picked in the menu takes the place of the last one and
-              the focus. In the menu a tab keeps its icon and is disabled when
-              the tab is; link tabs are links there. A closable tab is closed
-              once it is back in the bar.
+              bar, and back as it widens (it follows its size and the size of
+              the element around it, also as labels change or a web font loads).
+              In a flex row, beside a button, the bar is as wide as its tabs, at
+              most the room the row leaves it. The active tab always stays in
+              the bar: a tab picked in the menu takes the place of the last one
+              and the focus. In the menu a tab keeps its icon and is disabled
+              when the tab is; link tabs are links there. A closable tab is
+              closed once it is back in the bar.
             </p>
             <p>
               Value tabs stay one tab stop: the arrow keys move along the tabs

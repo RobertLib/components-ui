@@ -264,6 +264,39 @@ describe("Button with a disabledReason", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent(REASON);
   });
 
+  it("keeps the tabIndex given to a link - in a toolbar", () => {
+    render(
+      <>
+        <Button
+          disabled
+          disabledReason={REASON}
+          link="/invoices/7/approve"
+          tabIndex={-1}
+        >
+          Approve
+        </Button>
+        <IconButton
+          aria-label="Edit"
+          disabled
+          disabledReason={REASON}
+          href="/invoices/7/edit"
+          tabIndex={-1}
+        >
+          <svg />
+        </IconButton>
+      </>,
+    );
+
+    expect(screen.getByRole("link", { name: "Approve" })).toHaveAttribute(
+      "tabindex",
+      "-1",
+    );
+    expect(screen.getByRole("link", { name: "Edit" })).toHaveAttribute(
+      "tabindex",
+      "-1",
+    );
+  });
+
   it("works joined in a ButtonGroup", () => {
     render(
       <ButtonGroup aria-label="Invoice">
@@ -278,6 +311,23 @@ describe("Button with a disabledReason", () => {
     expect(screen.getByRole("button", { name: "Approve" })).toHaveClass(
       "rounded-e-md",
     );
+  });
+
+  it("fills the column of a vertical ButtonGroup as the others do", () => {
+    render(
+      <ButtonGroup aria-label="Invoice" orientation="vertical">
+        <Button>Edit the invoice</Button>
+        <Button disabled disabledReason={REASON}>
+          Approve
+        </Button>
+      </ButtonGroup>,
+    );
+
+    // The wrapper of the tooltip is stretched - the button fills it
+    expect(screen.getByRole("button", { name: "Approve" })).toHaveClass("grow");
+    expect(
+      screen.getByRole("button", { name: "Edit the invoice" }),
+    ).not.toHaveClass("grow");
   });
 });
 
@@ -378,6 +428,27 @@ describe("SplitButton with a disabledReason", () => {
     expect(screen.queryByRole("menu")).toBeNull();
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("stretches the main button with fullWidth - in the wrapper of its tooltip", () => {
+    render(
+      <SplitButton
+        disabled
+        disabledReason={REASON}
+        fullWidth
+        items={[{ label: "Approve and send" }]}
+      >
+        Approve
+      </SplitButton>,
+    );
+
+    // The main button takes the room the menu button leaves - also in the
+    // wrapper of its tooltip, the item of the row
+    const main = screen.getByRole("button", { name: "Approve" });
+    expect(main).toHaveClass("flex-1");
+    const wrapper = main.closest("[data-state]")!;
+    expect(wrapper.parentElement).toHaveAttribute("role", "group");
+    expect(wrapper).toHaveClass("w-full");
   });
 
   it("gives no reason while it only loads", () => {

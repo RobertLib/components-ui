@@ -326,6 +326,62 @@ describe("ContextMenu with the pointer", () => {
       expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(true);
     },
   );
+
+  /** Files whose entries come as one is pressed - none for a locked one. */
+  function Files() {
+    const [pressed, setPressed] = useState<string | null>(null);
+    return (
+      <ContextMenu
+        aria-label={`Actions for ${pressed}`}
+        items={pressed === "report.pdf" ? [{ label: "Rename" }] : []}
+        onPointerDown={(event) =>
+          setPressed((event.target as Element).textContent)
+        }
+      >
+        <ul>
+          <li>report.pdf</li>
+          <li>locked.pdf</li>
+        </ul>
+      </ContextMenu>
+    );
+  }
+
+  it("opens on a long press whose items come with the press", () => {
+    vi.useFakeTimers();
+    render(<Files />);
+    const touch = { pointerId: 7, pointerType: "touch" };
+
+    fireEvent.pointerDown(screen.getByText("locked.pdf"), touch);
+    act(() => vi.advanceTimersByTime(600));
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.pointerUp(screen.getByText("locked.pdf"), touch);
+
+    // The first press of the file - its items come after the press began
+    fireEvent.pointerDown(screen.getByText("report.pdf"), touch);
+    act(() => vi.advanceTimersByTime(500));
+    expect(
+      screen.getByRole("menu", { name: "Actions for report.pdf" }),
+    ).toBeInTheDocument();
+  });
+
+  it("leaves a long press that brings no items to a menu around", () => {
+    vi.useFakeTimers();
+    render(
+      <ContextMenu aria-label="Folder" items={[{ label: "Refresh" }]}>
+        <div>
+          <Files />
+        </div>
+      </ContextMenu>,
+    );
+
+    fireEvent.pointerDown(screen.getByText("locked.pdf"), {
+      pointerId: 7,
+      pointerType: "touch",
+    });
+    act(() => vi.advanceTimersByTime(500));
+    expect(screen.getAllByRole("menu")).toHaveLength(1);
+    expect(screen.getByRole("menu", { name: "Folder" })).toBeInTheDocument();
+  });
 });
 
 describe("ContextMenu right to left", () => {

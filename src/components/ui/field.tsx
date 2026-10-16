@@ -116,7 +116,9 @@ export default function Field({
     "aria-required": required ? "true" : undefined,
     "data-invalid": error ? "" : undefined,
     id: controlId,
-    readOnly: readOnly || undefined,
+    // Only while read-only - a `readOnly` given to the control before the
+    // props stays
+    ...(readOnly && { readOnly: true }),
   };
 
   return (

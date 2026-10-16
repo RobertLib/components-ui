@@ -17,7 +17,7 @@ import IconButton from "./icon-button";
 import FormDescription from "./form-description";
 import FormError from "./form-error";
 import { getActiveElement } from "./overlay-stack";
-import { useReadOnly } from "./form-scope";
+import { ReadOnlyContext, useReadOnly } from "./form-scope";
 
 // Lets the browser enforce the count without a field of its own to show
 const hiddenValidationStyle: React.CSSProperties = {
@@ -80,9 +80,10 @@ export interface RepeatableFieldProps<T> extends Omit<
   form?: string;
   disabled?: boolean;
   /**
-   * Shows the groups without adding, removing or moving them - `renderItem`
-   * gets it for the fields of a group. Defaults to `true` in a read-only
-   * `FormGrid` or `FormSection`.
+   * Shows the groups without adding, removing or moving them, the fields of
+   * the library in them read-only - `renderItem` gets it for controls of
+   * your own. Defaults to `true` in a read-only `FormGrid` or
+   * `FormSection`; `false` keeps the groups and their fields editable there.
    */
   readOnly?: boolean;
   required?: boolean;
@@ -284,27 +285,30 @@ export default function RepeatableField<T>({
           tabIndex={-1}
         >
           <fieldset className="min-w-0 flex-1" disabled={disabled} form={form}>
-            {renderItem({
-              ...item,
-              index,
-              name: name ? `${name}.${index}` : undefined,
-              dim,
-              form,
-              disabled,
-              readOnly,
-              onChange: (nextValue) => {
-                const current = latest.get();
-                // A row removed meanwhile stays removed
-                if (!current.some((entry) => entry.id === item.id)) return;
-                report(
-                  current.map((entry) =>
-                    entry.id === item.id
-                      ? { ...entry, value: nextValue }
-                      : entry,
-                  ),
-                );
-              },
-            })}
+            {/* Its fields follow it - not the section around it */}
+            <ReadOnlyContext value={readOnly}>
+              {renderItem({
+                ...item,
+                index,
+                name: name ? `${name}.${index}` : undefined,
+                dim,
+                form,
+                disabled,
+                readOnly,
+                onChange: (nextValue) => {
+                  const current = latest.get();
+                  // A row removed meanwhile stays removed
+                  if (!current.some((entry) => entry.id === item.id)) return;
+                  report(
+                    current.map((entry) =>
+                      entry.id === item.id
+                        ? { ...entry, value: nextValue }
+                        : entry,
+                    ),
+                  );
+                },
+              })}
+            </ReadOnlyContext>
           </fieldset>
           {!readOnly && (
             <div className="flex gap-1">

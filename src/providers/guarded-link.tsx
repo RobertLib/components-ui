@@ -10,6 +10,20 @@ import { RouterLinkContext } from "./router-link-context";
 
 const pageLocation = () => null;
 
+// The link clicked again once the user chose to leave - its click was
+// handled already: its `onClick` does not run twice
+let replayed: HTMLAnchorElement | null = null;
+
+/** Clicks the link again - for the router to follow it, as it would have. */
+function replayClick(anchor: HTMLAnchorElement) {
+  replayed = anchor;
+  try {
+    anchor.click();
+  } finally {
+    replayed = null;
+  }
+}
+
 /**
  * Whether a click keeps the page - it opens the link in another tab or
  * window (the middle button, Ctrl, Cmd, Shift, a `target`) or downloads it
@@ -42,6 +56,7 @@ export default function GuardedLink({ onClick, ...props }: LinkComponentProps) {
     <RouterLink
       {...props}
       onClick={(event) => {
+        if (event.currentTarget === replayed) return;
         onClick?.(event);
         if (
           event.defaultPrevented ||
@@ -59,7 +74,7 @@ export default function GuardedLink({ onClick, ...props }: LinkComponentProps) {
           // The click again - the router follows the link as it would have.
           // A link gone meanwhile (in a menu that closed) through the router,
           // or the browser.
-          if (anchor.isConnected) anchor.click();
+          if (anchor.isConnected) replayClick(anchor);
           else if (router?.navigate) router.navigate(props.href);
           else window.location.assign(anchor.href);
         });

@@ -12,7 +12,9 @@ import {
   getContentWidth,
   getOverflowingItems,
   getShownItems,
+  isRowResize,
   isSameList,
+  measureInFlow,
   OVERFLOW_HIDDEN_CLASSES,
 } from "./overflow";
 import Separator from "./separator";
@@ -133,7 +135,9 @@ export interface ToolbarCustomItem extends ToolbarItemBase {
   /**
    * Renders the item - spread the props on its control, so that the arrow
    * keys of the toolbar reach it. In a text field they move its caret, and
-   * on along the toolbar at the end of its text.
+   * on along the toolbar at the end of its text; in a group of radio
+   * buttons (a `SegmentedControl`) they pick the next option, and move on
+   * past the last one. A disabled control is skipped.
    */
   render: (props: ToolbarItemProps) => React.ReactNode;
   type: "custom";
@@ -264,11 +268,58 @@ function getEntries(items: ToolbarProps["items"]) {
 }
 
 /**
+ * The radio buttons of a group the props of a custom item are on (a
+ * `SegmentedControl`) - none for a control of its own.
+ */
+const getGroupRadios = (stop: Element) =>
+  stop instanceof HTMLInputElement
+    ? []
+    : Array.from(
+        stop.querySelectorAll<HTMLInputElement>("input[type='radio']"),
+      );
+
+/**
+ * The element a stop gives the focus to - the stop itself, or of a group
+ * of radio buttons the checked one (the first enabled one while none is).
+ * `null` for a disabled control, which the focus cannot reach - the arrow
+ * keys and Tab skip it.
+ */
+function getFocusTarget(stop: HTMLElement): HTMLElement | null {
+  const radios = getGroupRadios(stop);
+  if (radios.length === 0) return stop.matches(":disabled") ? null : stop;
+
+  const enabled = radios.filter((radio) => !radio.matches(":disabled"));
+  return enabled.find((radio) => radio.checked) ?? enabled[0] ?? null;
+}
+
+/** The enabled radio buttons of the group of `radio`, in their order. */
+function getRadioGroup(radio: HTMLInputElement) {
+  if (!radio.name) return [radio];
+  const root = radio.getRootNode() as ParentNode;
+  return Array.from(
+    root.querySelectorAll<HTMLInputElement>("input[type='radio']"),
+  ).filter(
+    (other) =>
+      other.name === radio.name &&
+      other.form === radio.form &&
+      !other.matches(":disabled"),
+  );
+}
+
+/**
  * Whether the key stays with the element it was pressed on - it moves the
  * caret of a text field (but at its end in the direction of the key, where
- * it moves on along the toolbar), or the value of a slider.
+ * it moves on along the toolbar), the check of a group of radio buttons
+ * (on along the toolbar past its last one), or the value of a slider.
  */
 function isKeyOwner(element: Element, key: string, forward: boolean) {
+  if (element instanceof HTMLInputElement && element.type === "radio") {
+    if (key !== "ArrowLeft" && key !== "ArrowRight") return false;
+    const group = getRadioGroup(element);
+    const index = group.indexOf(element);
+    return forward ? index < group.length - 1 : index > 0;
+  }
+
   const isText =
     element instanceof HTMLTextAreaElement ||
     (element instanceof HTMLInputElement &&
@@ -294,9 +345,10 @@ function isKeyOwner(element: Element, key: string, forward: boolean) {
  * arrow keys (and Home / End) move between its items, the left one to the
  * next right to left. The items that do not fit the row move into a "More"
  * menu at its end - those of the lowest `priority` first, then from the
- * end - and back as it widens; a button with the icon alone shows its
- * label in a tooltip. Left out when printed. `ref` and the other props go
- * to the toolbar; name it with `aria-label`.
+ * end - and back as it widens, or the element around it does (a toolbar
+ * as wide as its items, in a flex row beside a title); a button with the
+ * icon alone shows its label in a tooltip. Left out when printed. `ref`
+ * and the other props go to the toolbar; name it with `aria-label`.
  */
 export default function Toolbar({
   className,
@@ -318,7 +370,13 @@ export default function Toolbar({
   const [movedIds, setMovedIds] = useState<string[]>([]);
   // The item Tab stops at - the one the focus was on last
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  // The custom items with a disabled control - no stops, as a disabled
+  // button is none: the focus could not reach them
+  const [blockedKeys, setBlockedKeys] = useState<string[]>([]);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  // Whether the menu was open as of the last commit - once the "More"
+  // button goes away, the focus was in it
+  const wasMenuOpenRef = useRef(false);
 
   // The items of the bar - the others are always in the menu
   const { barEntries, entries, separators } = getEntries(items);
@@ -343,11 +401,19 @@ export default function Toolbar({
     }
   }
   const hasMenu = menuEntries.length > 0;
+  // Closed with nothing left in it - the bar has room again - and so not
+  // opened again by itself once it has none
+  if (isMenuOpen && !hasMenu) setIsMenuOpen(false);
 
   // The stops of the arrow keys - and of Tab, the one the focus was on last
   const stopKeys = [
     ...barEntries.flatMap(({ item, key }, index) =>
-      shown[index] && !isSeparator(item) && !isSkipped(item) ? [key] : [],
+      shown[index] &&
+      !isSeparator(item) &&
+      !isSkipped(item) &&
+      !blockedKeys.includes(key)
+        ? [key]
+        : [],
     ),
     ...(hasMenu ? [MORE] : []),
   ];
@@ -369,15 +435,31 @@ export default function Toolbar({
     const more = moreRef.current;
     if (!container || !more) return;
 
-    const slots = Array.from(container.children).filter((child) =>
-      child.hasAttribute("data-toolbar-slot"),
+    const slots = Array.from(container.children).filter(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement && child.hasAttribute("data-toolbar-slot"),
     );
     const { barEntries, entries, separators } = getEntries(items);
+    // The items in the bar while none is in the menu - the separators but
+    // those at its ends
+    const shownAll = getShownItems(barEntries.length, new Set(), separators);
 
     const update = () => {
       const gap = getColumnGap(container);
+      // With all the items in the row - a bar as wide as its content takes
+      // the room it has for them
+      const [available, widths] = measureInFlow(
+        slots.filter(
+          (slot, index) => shownAll[index] && slot.hasAttribute("inert"),
+        ),
+        () =>
+          [
+            getContentWidth(container),
+            slots.map((slot) => slot.getBoundingClientRect().width),
+          ] as const,
+      );
       const hidden = getOverflowingItems({
-        available: getContentWidth(container),
+        available,
         forceMore: entries.some(({ item }) => isMenuOnly(item)),
         gap,
         moreWidth: more.getBoundingClientRect().width + gap,
@@ -390,7 +472,7 @@ export default function Toolbar({
           )
           .map(({ index }) => index),
         separators,
-        widths: slots.map((slot) => slot.getBoundingClientRect().width),
+        widths,
       });
       const next = hidden.map((index) => barEntries[index].key);
       setMovedIds((prev) => (isSameList(prev, next) ? prev : next));
@@ -399,13 +481,72 @@ export default function Toolbar({
     update();
     if (typeof ResizeObserver === "undefined") return;
 
-    // The bar narrows or widens, a label changes, a web font loads
-    const observer = new ResizeObserver(update);
+    // The bar narrows or widens, a label changes, a web font loads - or the
+    // element around it widens, which a bar as wide as its content does not
+    const parent = container.parentElement;
+    const parentWidth = { current: null as number | null };
+    const observer = new ResizeObserver((resized) => {
+      if (isRowResize(resized, parent, parentWidth)) update();
+    });
     observer.observe(container);
     slots.forEach((slot) => observer.observe(slot));
     observer.observe(more);
+    if (parent) observer.observe(parent);
     return () => observer.disconnect();
   }, [items]);
+
+  // The custom items whose control is disabled, with the items rendered
+  // again. A group of radio buttons (a `SegmentedControl`) with the props
+  // of a custom item gives its tab stop to its radios - the browser leaves
+  // the checked one in the order of Tab - and is no stop itself.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const blocked: string[] = [];
+    for (const stop of container.querySelectorAll<HTMLElement>(
+      "[data-toolbar-item]",
+    )) {
+      const key = stop.getAttribute("data-toolbar-item") ?? "";
+      if (getFocusTarget(stop) === null) blocked.push(key);
+
+      const radios = getGroupRadios(stop);
+      if (radios.length === 0) continue;
+      stop.removeAttribute("tabindex");
+      for (const radio of radios) {
+        radio.tabIndex = key === tabStopKey ? 0 : -1;
+      }
+    }
+    setBlockedKeys((prev) => (isSameList(prev, blocked) ? prev : blocked));
+  }, [items, tabStopKey]);
+
+  // The "More" button goes away - the bar has room for every item: the
+  // focus in its menu, or on it, goes to the stop of the bar, not to the
+  // page. The focus elsewhere stays there.
+  useLayoutEffect(() => {
+    if (hasMenu) return;
+
+    const container = containerRef.current;
+    const doc = container?.ownerDocument;
+    const focused = getActiveElement(doc);
+    const isOnButton = !!focused && !!moreRef.current?.contains(focused);
+    // The menu went from the page with the focus in it
+    const isLost =
+      wasMenuOpenRef.current && (!focused || focused === doc?.body);
+    if (!container || (!isOnButton && !isLost)) return;
+
+    const stop = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-toolbar-item]"),
+    ).find(
+      (element) => element.getAttribute("data-toolbar-item") === tabStopKey,
+    );
+    if (stop) getFocusTarget(stop)?.focus();
+  }, [hasMenu, tabStopKey]);
+
+  // After the effect above - which reads the state of the commit before
+  useLayoutEffect(() => {
+    wasMenuOpenRef.current = isMenuOpen;
+  });
 
   // An item with the focus that moves into the menu leaves it to the
   // "More" button
@@ -454,13 +595,15 @@ export default function Toolbar({
     const elements = Array.from(
       event.currentTarget.querySelectorAll<HTMLElement>("[data-toolbar-item]"),
     );
+    // Past a control disabled since the last render too
     const stops = stopKeys.flatMap((key) => {
       const element = elements.find(
         (candidate) => candidate.getAttribute("data-toolbar-item") === key,
       );
-      return element ? [element] : [];
+      const focusTarget = element && getFocusTarget(element);
+      return element && focusTarget ? [{ element, focusTarget }] : [];
     });
-    const current = stops.findIndex((stop) => stop.contains(target));
+    const current = stops.findIndex(({ element }) => element.contains(target));
     if (current === -1 || stops.length === 0) return;
 
     let next: number;
@@ -471,7 +614,7 @@ export default function Toolbar({
     } else return;
 
     event.preventDefault();
-    stops[next].focus();
+    stops[next].focusTarget.focus();
   };
 
   const renderItem = (item: ToolbarItem, key: string) => {
@@ -592,8 +735,7 @@ export default function Toolbar({
           items={menuEntries}
           offset={4}
           onOpenChange={setIsMenuOpen}
-          // Closed with nothing left in it - the bar has room again
-          open={isMenuOpen && hasMenu}
+          open={isMenuOpen}
           trigger={
             <Button
               {...stopProps(MORE)}

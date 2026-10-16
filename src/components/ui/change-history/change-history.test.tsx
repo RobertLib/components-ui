@@ -74,6 +74,34 @@ describe("ChangeHistory", () => {
     ).toHaveLength(1);
   });
 
+  it("starts another list for a day the entries come back to", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Not in order - today, yesterday and today again
+    render(
+      <ChangeHistory
+        entries={[entries[0], entries[1], { ...entries[0], id: 4 }]}
+      />,
+    );
+
+    expect(
+      screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent),
+    ).toEqual(["Today", "Yesterday", "Today"]);
+    // No two lists of one key
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("shows the browser's zone for a time zone it does not know", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    render(<ChangeHistory entries={entries} timeZone="Europe/Atlantis" />);
+
+    expect(
+      screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent),
+    ).toEqual(["Today", "Yesterday", "Thursday, October 1, 2026"]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('timeZone "Europe/Atlantis"'),
+    );
+  });
+
   it("tells who did what and when", () => {
     render(<ChangeHistory entries={entries} />);
 
@@ -256,6 +284,34 @@ describe("ChangeHistory", () => {
     ).toBeInTheDocument();
   });
 
+  it("still offers a field and an author picked that the entries no longer have", async () => {
+    const user = userEvent.setup();
+    const fields = { total: { label: "Total" } };
+    const { rerender } = render(
+      <ChangeHistory entries={entries} fields={fields} filterable />,
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Field" }),
+      "total",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Author" }),
+      "7",
+    );
+
+    // Entries of another record - without them
+    rerender(
+      <ChangeHistory entries={[entries[2]]} fields={fields} filterable />,
+    );
+    expect(screen.getByRole("combobox", { name: "Field" })).toHaveDisplayValue(
+      "Total",
+    );
+    expect(screen.getByRole("combobox", { name: "Author" })).toHaveValue("7");
+    expect(
+      screen.getByRole("heading", { name: "No changes match the filter" }),
+    ).toBeInTheDocument();
+  });
+
   it("filters controlled", async () => {
     const user = userEvent.setup();
     function Controlled() {
@@ -318,6 +374,73 @@ describe("ChangeHistory", () => {
     expect(
       screen.getByText("Petr Svoboda", { selector: "[data-entry-id]" }),
     ).toHaveFocus();
+  });
+
+  it("tells of the older entries only - not of one added at the top meanwhile", async () => {
+    const user = userEvent.setup();
+    let resolve: () => void = () => {};
+    const onLoadMore = () =>
+      new Promise<void>((done) => {
+        resolve = done;
+      });
+    const { rerender } = render(
+      <ChangeHistory entries={[entries[1]]} hasMore onLoadMore={onLoadMore} />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Load older changes" }),
+    );
+    // A new change of the record at the top - and an older one at the end
+    rerender(
+      <ChangeHistory
+        entries={entries}
+        hasMore={false}
+        onLoadMore={onLoadMore}
+      />,
+    );
+    await act(async () => resolve());
+    expect(screen.getByText("Loaded 1 more change.")).toBeInTheDocument();
+    expect(
+      screen.getByText("System", { selector: "[data-entry-id]" }),
+    ).toHaveFocus();
+  });
+
+  it("tells nothing of an entry added at the top once loading found no older ones", async () => {
+    const user = userEvent.setup();
+    const onLoadMore = vi.fn(async () => {});
+    const { rerender } = render(
+      <ChangeHistory
+        entries={entries.slice(1)}
+        hasMore
+        onLoadMore={onLoadMore}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Load older changes" }),
+    );
+    await act(async () => {});
+    // None older - the button is gone, and the focus with it
+    rerender(
+      <ChangeHistory
+        entries={entries.slice(1)}
+        hasMore={false}
+        onLoadMore={onLoadMore}
+      />,
+    );
+    expect(document.body).toHaveFocus();
+
+    // Later a new change of the record
+    rerender(
+      <ChangeHistory
+        entries={entries}
+        hasMore={false}
+        onLoadMore={onLoadMore}
+      />,
+    );
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.queryByText(/Loaded/)).not.toBeInTheDocument();
+    expect(document.body).toHaveFocus();
   });
 
   it("offers to try again when loading fails", async () => {
@@ -453,18 +576,39 @@ describe("ChangeHistory on the server", () => {
 describe("diffWords", () => {
   it("marks the removed and the added words", () => {
     expect(diffWords("Pay within 14 days", "Pay within 30 days")).toEqual([
-      { text: "Pay within ", type: "same" },
-      { text: "14", type: "removed" },
-      { text: "30", type: "added" },
+      { text: "Pay within", type: "same" },
+      { text: " 14", type: "removed" },
+      { text: " 30", type: "added" },
       { text: " days", type: "same" },
     ]);
     expect(diffWords("", "New text")).toEqual([
       { text: "New text", type: "added" },
     ]);
     expect(diffWords("a b c", "a c")).toEqual([
-      { text: "a ", type: "same" },
-      { text: "b ", type: "removed" },
-      { text: "c", type: "same" },
+      { text: "a", type: "same" },
+      { text: " b", type: "removed" },
+      { text: " c", type: "same" },
+    ]);
+    // The first word is the same word with a word before it
+    expect(diffWords("a b", "x a b")).toEqual([
+      { text: "x", type: "added" },
+      { text: " a b", type: "same" },
+    ]);
+    expect(diffWords("x a b", "a b")).toEqual([
+      { text: "x", type: "removed" },
+      { text: " a b", type: "same" },
+    ]);
+  });
+
+  it("compares two texts of 700 words word by word - changed at both ends", () => {
+    const words = Array.from({ length: 700 }, (_, index) => `w${index}`);
+    const changed = ["first", ...words.slice(1, -1), "last"];
+    expect(diffWords(words.join(" "), changed.join(" "))).toEqual([
+      { text: "w0", type: "removed" },
+      { text: "first", type: "added" },
+      { text: ` ${words.slice(1, -1).join(" ")}`, type: "same" },
+      { text: " w699", type: "removed" },
+      { text: " last", type: "added" },
     ]);
   });
 
@@ -478,9 +622,9 @@ describe("diffWords", () => {
     )!;
     expect(parts.map((part) => ("text" in part ? part.text : "…"))).toEqual([
       "…",
-      "w17 w18 w19 ",
-      "w20",
-      "X",
+      "w17 w18 w19",
+      " w20",
+      " X",
       " w21 w22 w23",
       "…",
     ]);

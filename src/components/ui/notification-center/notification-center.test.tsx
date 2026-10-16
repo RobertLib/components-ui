@@ -341,6 +341,29 @@ describe("NotificationCenter", () => {
     expect(onLoadMore).toHaveBeenCalledTimes(2);
   });
 
+  it("does not load the same again when opened again while it loads", async () => {
+    const user = userEvent.setup();
+    let finish!: () => void;
+    const onLoadMore = vi.fn(
+      () => new Promise<void>((resolve) => (finish = resolve)),
+    );
+    renderCenter({ hasMore: true, infinite: false, onLoadMore });
+
+    await openPanel(user);
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    // Closed and opened again - the panel is new, the loading is not
+    await user.keyboard("{Escape}");
+    await openPanel(user);
+    const loadMore = screen.getByRole("button", { name: "Load more" });
+    expect(loadMore).toHaveAttribute("aria-busy", "true");
+    await user.click(loadMore);
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+
+    await act(async () => finish());
+    await user.click(loadMore);
+    expect(onLoadMore).toHaveBeenCalledTimes(2);
+  });
+
   it("loads more as the end of the list scrolls into view", async () => {
     const user = userEvent.setup();
     const observers: {

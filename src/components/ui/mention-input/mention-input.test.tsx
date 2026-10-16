@@ -230,6 +230,29 @@ describe("MentionInput suggestions", () => {
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
+  it("inserts a mention before a line break with a space, the caret on its line", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <MentionInput
+        aria-label="Comment"
+        defaultValue={"x @ja\nahoj"}
+        onChange={onChange}
+        suggestions={people}
+      />,
+    );
+
+    await user.click(field());
+    field().setSelectionRange(5, 5);
+    fireEvent.select(field());
+    await user.keyboard("{Enter}");
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      "x @[Jana Nováková](user:42) \nahoj",
+    );
+    expect(field().selectionStart).toBe(17);
+  });
+
   it("tells screen readers how many suggestions there are, in Czech too", () => {
     vi.useFakeTimers();
     render(
@@ -354,6 +377,37 @@ describe("MentionInput loading suggestions", () => {
     expect(loadSuggestions).toHaveBeenCalledTimes(1);
   });
 
+  it("offers none of the suggestions loaded before once the list opens again", async () => {
+    vi.useFakeTimers();
+    const loadA = vi.fn(() => Promise.resolve(people.slice(0, 1)));
+    const loadB = vi.fn(() => new Promise<MentionSuggestion[]>(() => {}));
+    const { rerender } = render(
+      <MentionInput aria-label="Comment" loadSuggestions={loadA} />,
+    );
+    const type = (text: string) => {
+      fireEvent.change(field(), { target: { value: text } });
+      field().setSelectionRange(text.length, text.length);
+      fireEvent.select(field());
+    };
+
+    act(() => field().focus());
+    type("@");
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(options()).toHaveLength(1);
+
+    // Closed, and opened again - with the people of another project
+    type("");
+    rerender(<MentionInput aria-label="Comment" loadSuggestions={loadB} />);
+    type("@");
+    expect(options()).toHaveLength(0);
+    expect(screen.getAllByText("Loading…")[0]).toBeVisible();
+    // Enter waits for them - it inserts no one of before
+    expect(fireEvent.keyDown(field(), { key: "Enter" })).toBe(false);
+    expect(field()).toHaveValue("@");
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(loadB).toHaveBeenCalledWith("", expect.anything());
+  });
+
   it("takes the suggestions and the name of a trigger of its own", async () => {
     const user = userEvent.setup();
     const loadTickets = vi.fn(() => [
@@ -440,6 +494,58 @@ describe("MentionInput editing", () => {
     expect(onChange).toHaveBeenLastCalledWith("Ahoj ");
     expect(field()).toHaveValue("Ahoj ");
     expect(field().selectionStart).toBe(5);
+  });
+
+  it("deletes a mention whole with a word deleted after it", () => {
+    const onChange = vi.fn();
+    render(
+      <MentionInput
+        aria-label="Comment"
+        defaultValue="Ahoj @[Jana Nováková](user:42)  x"
+        onChange={onChange}
+      />,
+    );
+
+    act(() => field().focus());
+    // ⌥ / Ctrl + Backspace after the spaces - the browser would delete
+    // "Nováková  " alone
+    field().setSelectionRange(21, 21);
+    const event = new InputEvent("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+      inputType: "deleteWordBackward",
+    });
+    act(() => {
+      field().dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(onChange).toHaveBeenLastCalledWith("Ahoj x");
+    expect(field().selectionStart).toBe(5);
+  });
+
+  it("leaves a deletion it cannot cancel to the browser", () => {
+    render(
+      <MentionInput
+        aria-label="Comment"
+        defaultValue="Ahoj @[Jana Nováková](user:42)"
+      />,
+    );
+
+    act(() => field().focus());
+    field().setSelectionRange(19, 19);
+    // Of a composition on Android - the selection is not widened under it
+    act(() => {
+      field().dispatchEvent(
+        new InputEvent("beforeinput", {
+          bubbles: true,
+          inputType: "deleteContentBackward",
+        }),
+      );
+    });
+
+    expect(field().selectionStart).toBe(19);
+    expect(field().selectionEnd).toBe(19);
   });
 
   it("deletes a mention whole with Delete before it", async () => {
@@ -612,6 +718,56 @@ describe("MentionInput editing", () => {
     fireEvent.paste(target, { clipboardData });
     expect(onChange).toHaveBeenLastCalledWith("Díky @[Jana Nováková](user:42)");
     expect(target).toHaveValue("Díky @Jana Nováková");
+  });
+
+  it("pastes the mentions of a field with other triggers as text", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <>
+        <MentionInput
+          aria-label="Tickets"
+          defaultValue="@[Jana](1) #[T-12](ticket:12)"
+          triggers={["@", "#"]}
+        />
+        <MentionInput
+          aria-label="People"
+          defaultValue="@[Jana](1) #[T-12](x)"
+        />
+        <MentionInput aria-label="Target" onChange={onChange} />
+        <MentionInput
+          aria-label="Target with tickets"
+          onChange={onChange}
+          triggers={["@", "#"]}
+        />
+      </>,
+    );
+    const copyAndPaste = async (from: string, to: string) => {
+      const data = new Map<string, string>();
+      const clipboardData = {
+        getData: (type: string) => data.get(type) ?? "",
+        setData: (type: string, value: string) => data.set(type, value),
+      };
+      const source = screen.getByRole("textbox", {
+        name: from,
+      }) as HTMLTextAreaElement;
+      await user.click(source);
+      source.setSelectionRange(0, source.value.length);
+      fireEvent.copy(source, { clipboardData });
+      const target = screen.getByRole("textbox", { name: to });
+      await user.click(target);
+      fireEvent.paste(target, { clipboardData });
+    };
+
+    // A ticket is text in a field without "#"
+    await copyAndPaste("Tickets", "Target");
+    expect(onChange).toHaveBeenLastCalledWith("@[Jana](1) #T-12");
+    // Text of a field without "#" stays text in one with it
+    await copyAndPaste("People", "Target with tickets");
+    expect(onChange).toHaveBeenLastCalledWith("@[Jana](1) #\\[T-12](x)");
+    expect(
+      screen.getByRole("textbox", { name: "Target with tickets" }),
+    ).toHaveValue("@Jana #[T-12](x)");
   });
 
   it("cuts mentions out", async () => {

@@ -526,6 +526,25 @@ describe("DataTable tree data on the client", () => {
     );
   });
 
+  it("opens the matches again when the same filter comes back", async () => {
+    const user = userEvent.setup();
+    renderTree();
+    const filter = screen.getByRole("searchbox", { name: "Filter Name" });
+    const matches = ["Assets", "  Bank accounts", "    Current account"];
+
+    await user.type(filter, "current");
+    await waitFor(() => expect(shownRows()).toEqual(matches));
+    await user.click(toggle("Assets"));
+    expect(shownRows()).toEqual(["Assets"]);
+
+    await user.clear(filter);
+    await waitFor(() =>
+      expect(shownRows()).toEqual(["Assets", "Liabilities", "Equity"]),
+    );
+    await user.type(filter, "current");
+    await waitFor(() => expect(shownRows()).toEqual(matches));
+  });
+
   it("sorts the siblings within each parent", async () => {
     const user = userEvent.setup();
     renderTree({ defaultExpandDepth: Infinity });
@@ -769,6 +788,51 @@ describe("DataTable tree data loaded lazily", () => {
     expect(liabilities).not.toHaveTextContent("The rows could not be loaded.");
   });
 
+  it("keeps the focus on the row as Retry loads again, and announces the result", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    renderLazy();
+    const failure = () =>
+      screen.getByText("The rows could not be loaded.", {
+        selector: "[aria-live] span",
+      });
+
+    await user.click(toggle("Liabilities"));
+    await act(async () => requests[0].reject(new Error("Offline")));
+    const firstFailure = failure();
+
+    act(() =>
+      screen.getByRole("button", { name: "Retry Liabilities" }).focus(),
+    );
+    await user.keyboard("{Enter}");
+    // The button goes while the rows load - not the focus
+    expect(rowOf("Liabilities")).toHaveFocus();
+    expect(rowOf("Liabilities")).toHaveAttribute("aria-busy", "true");
+
+    // Failed again - announced again
+    await act(async () => requests[1].reject(new Error("Offline")));
+    expect(failure()).not.toBe(firstFailure);
+
+    await user.click(screen.getByRole("button", { name: "Retry Liabilities" }));
+    await act(async () => requests[2].resolve([account("21", "Loans", 250)]));
+    expect(announced()).toContain("1 row loaded");
+  });
+
+  it("gives the focus of Retry to the toggle of a row with a link", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    renderLazy({ getRowHref: (row) => `/accounts/${row.id}` });
+
+    await user.click(toggle("Liabilities"));
+    await act(async () => requests[0].reject(new Error("Offline")));
+    act(() =>
+      screen.getByRole("button", { name: "Retry Liabilities" }).focus(),
+    );
+    await user.keyboard("{Enter}");
+
+    expect(toggle("Liabilities")).toHaveFocus();
+  });
+
   it("tries again a row expanded again after a failure", async () => {
     const user = userEvent.setup();
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -803,6 +867,23 @@ describe("DataTable tree data loaded lazily", () => {
     expect(loadSubRows).toHaveBeenCalledTimes(2);
     unmount();
     expect(requests[1].signal.aborted).toBe(true);
+  });
+
+  it("offers expand all only once some sub rows are at hand", async () => {
+    const user = userEvent.setup();
+    renderLazy();
+
+    // It would load none - there is nothing to expand yet
+    expect(
+      screen.queryByRole("button", { name: "Expand all rows" }),
+    ).toBeNull();
+
+    await user.click(toggle("Assets"));
+    await act(async () => requests[0].resolve([account("11", "Cash", 100)]));
+    await user.click(screen.getByRole("button", { name: "Collapse all rows" }));
+    await user.click(screen.getByRole("button", { name: "Expand all rows" }));
+    expect(shownRows()).toContain("  Cash");
+    expect(loadSubRows).toHaveBeenCalledTimes(1);
   });
 
   it("shows a row whose load brings no rows as one without sub rows", async () => {
@@ -882,6 +963,81 @@ describe("DataTable tree data loaded lazily", () => {
     // The other row loads once it is expanded
     await user.click(toggle("Liabilities"));
     expect(loadSubRows).toHaveBeenCalledTimes(4);
+  });
+
+  it("loads the sub rows again for another query of a server", async () => {
+    const user = userEvent.setup();
+    renderLazy();
+
+    await user.click(toggle("Assets"));
+    await act(async () => requests[0].resolve([account("11", "Cash", 100)]));
+    await user.click(toggle("Liabilities"));
+    await act(async () => requests[1].resolve([account("21", "Loans", 250)]));
+    await user.click(toggle("Liabilities"));
+
+    // The server filters the sub rows too - those shown stay meanwhile
+    await user.type(
+      screen.getByRole("searchbox", { name: "Filter Name" }),
+      "bank",
+    );
+    await waitFor(() => expect(loadSubRows).toHaveBeenCalledTimes(3));
+    expect(requests[2].row).toBe(folders[0]);
+    expect(shownRows()).toContain("  Cash");
+    await act(async () => requests[2].resolve([account("12", "Bank", 500)]));
+    expect(shownRows()).toEqual(["Assets", "  Bank", "Liabilities", "Equity"]);
+
+    // A collapsed row loads when expanded next
+    await user.click(toggle("Liabilities"));
+    expect(loadSubRows).toHaveBeenCalledTimes(4);
+  });
+
+  it("checks the sub rows loaded under a checked row with cascadeSelection", async () => {
+    const user = userEvent.setup();
+    const onSelectedIdsChange = vi.fn();
+    renderLazy({
+      cascadeSelection: true,
+      onSelectedIdsChange,
+      selectionMode: "multiple",
+    });
+    const select = (name: string) =>
+      screen.getByRole("checkbox", { name: `Select row ${name}` });
+
+    await user.click(select("Assets"));
+    await user.click(toggle("Assets"));
+    await act(async () => requests[0].resolve([account("11", "Cash", 100)]));
+
+    expect(select("Assets")).toBeChecked();
+    expect(select("Cash")).toBeChecked();
+    expect(onSelectedIdsChange).toHaveBeenLastCalledWith(
+      ["1", "11"],
+      expect.anything(),
+    );
+
+    // Not those of a row that is not checked
+    await user.click(toggle("Liabilities"));
+    await act(async () => requests[1].resolve([account("21", "Loans", 250)]));
+    expect(select("Loans")).not.toBeChecked();
+  });
+
+  it("checks the sub rows of checked rows loaded at once", async () => {
+    renderLazy({
+      cascadeSelection: true,
+      defaultExpandDepth: 1,
+      defaultSelectedIds: ["1", "2"],
+      selectionMode: "multiple",
+    });
+
+    await waitFor(() => expect(loadSubRows).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      requests[0].resolve([account("11", "Cash", 100)]);
+      requests[1].resolve([account("21", "Loans", 250)]);
+    });
+
+    for (const name of ["Assets", "Cash", "Liabilities", "Loans"]) {
+      expect(
+        screen.getByRole("checkbox", { name: `Select row ${name}` }),
+      ).toBeChecked();
+    }
   });
 
   it("mixes given and loaded sub rows", async () => {
@@ -970,6 +1126,38 @@ describe("DataTable tree data selection", () => {
     await user.click(select("Current account"));
     await user.click(select("Savings account"));
     expect(select("Bank accounts")).toBeChecked();
+    expect(select("Assets")).toBeChecked();
+  });
+
+  it("leaves the parents of an unchecked sub row out of all matching rows", async () => {
+    const user = userEvent.setup();
+    const onSelectedIdsChange = vi.fn();
+    renderTree({
+      cascadeSelection: true,
+      defaultQuery: { pageSize: 1 },
+      filteredSelection: true,
+      onSelectedIdsChange,
+      selectionMode: "multiple",
+    });
+    const select = (name: string) =>
+      screen.getByRole("checkbox", { name: `Select row ${name}` });
+
+    await user.click(select("Assets"));
+    await user.click(screen.getByRole("button", { name: "Select all 8 rows" }));
+    await user.click(toggle("Assets"));
+    await user.click(toggle("Bank accounts"));
+
+    await user.click(select("Savings account"));
+    let [ids, selection] = onSelectedIdsChange.mock.lastCall ?? [];
+    expect(selection.allFiltered).toBe(true);
+    expect(ids).toEqual(["11", "121", "2", "21", "3"]);
+    expect(select("Bank accounts")).toBePartiallyChecked();
+    expect(select("Assets")).toBePartiallyChecked();
+
+    // Back with their last sub row
+    await user.click(select("Savings account"));
+    [ids, selection] = onSelectedIdsChange.mock.lastCall ?? [];
+    expect(selection.excludedRows).toEqual([]);
     expect(select("Assets")).toBeChecked();
   });
 

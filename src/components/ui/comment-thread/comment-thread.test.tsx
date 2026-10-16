@@ -1,4 +1,11 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -105,6 +112,38 @@ describe("CommentThread display", () => {
     );
     expect(screen.getByText("(upraveno)")).toBeVisible();
     expect(screen.getByRole("button", { name: "Odeslat" })).toBeDisabled();
+  });
+
+  it("shows the date and time of a time to the keyboard too", async () => {
+    const user = userEvent.setup();
+    render(<Thread />);
+
+    await user.tab();
+    // The time of the first comment - its reply is 2 hours old too
+    const time = screen.getAllByText("2 hours ago")[0];
+    expect(time).toHaveFocus();
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent(/\d{4}/);
+    expect(time).toHaveAttribute("aria-describedby", tooltip.id);
+
+    // Past the times of the reply and the second comment - to its edit
+    await user.tab();
+    await user.tab();
+    await user.tab();
+    expect(screen.getByText("(edited)")).toHaveFocus();
+  });
+
+  it("says no edit without a valid time of it", () => {
+    render(
+      <Thread
+        comments={[
+          { ...comments[0], editedAt: null },
+          { ...comments[1], editedAt: "never" },
+        ]}
+      />,
+    );
+
+    expect(screen.queryByText("(edited)")).not.toBeInTheDocument();
   });
 
   it("shows placeholders while loading, and a message without comments", () => {
@@ -327,6 +366,64 @@ describe("CommentThread actions", () => {
     expect(
       screen.queryByRole("textbox", { name: "Reply to Jana Nováková" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps the field of each reply - also while another one is sent", async () => {
+    const user = userEvent.setup();
+    const sending: {
+      reject: (error: Error) => void;
+      resolve: () => void;
+    }[] = [];
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((resolve, reject) =>
+          sending.push({ reject, resolve }),
+        ),
+    );
+    render(<Thread allowReplies onSubmit={onSubmit} />);
+    const replyField = (author: string) =>
+      screen.queryByRole("textbox", { name: `Reply to ${author}` });
+
+    await user.click(action(articles()[0], "Reply"));
+    await user.type(replyField("Petr Svoboda") as HTMLElement, "Ok");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    // While it is sent, a reply to another comment
+    await user.click(action(articles()[2], "Reply"));
+    await user.type(replyField("Jana Nováková") as HTMLElement, "Díky");
+
+    // The reply sent closes its own field - the focus stays in the other one
+    await act(async () => sending[0].resolve());
+    expect(replyField("Petr Svoboda")).not.toBeInTheDocument();
+    expect(replyField("Jana Nováková")).toHaveValue("Díky");
+    expect(replyField("Jana Nováková")).toHaveFocus();
+
+    // A reply that fails keeps its text and error, another field open or not
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    await user.click(action(articles()[0], "Reply"));
+    await act(async () => sending[1].reject(new Error("Server down")));
+    expect(replyField("Jana Nováková")).toHaveValue("Díky");
+    expect(screen.getByRole("alert")).toHaveTextContent("Server down");
+    expect(replyField("Petr Svoboda")).toHaveFocus();
+  });
+
+  it("leaves the Escape of an input method (IME) to it", async () => {
+    const user = userEvent.setup();
+    render(<Thread allowReplies onEdit={() => {}} onSubmit={() => {}} />);
+
+    await user.click(action(articles()[2], "Edit"));
+    const editField = screen.getByRole("textbox", { name: "Edit comment" });
+    // Cancelling a conversion - Safari sends it after `compositionend`
+    fireEvent.keyDown(editField, { key: "Escape", keyCode: 229 });
+    expect(editField).toBeInTheDocument();
+
+    await user.click(action(articles()[0], "Reply"));
+    const replyField = screen.getByRole("textbox", {
+      name: "Reply to Petr Svoboda",
+    });
+    fireEvent.keyDown(replyField, { isComposing: true, key: "Escape" });
+    expect(replyField).toBeInTheDocument();
+    fireEvent.keyDown(replyField, { key: "Escape" });
+    expect(replyField).not.toBeInTheDocument();
   });
 
   it("gives the focus to the first comment once the last older ones load", async () => {

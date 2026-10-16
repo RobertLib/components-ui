@@ -405,6 +405,43 @@ describe("applyDataTableQuery", () => {
     expect(sorted("desc")).toEqual([3, 4, 1, 2]);
   });
 
+  it("matches moments written as SQL writes them, or with a lowercase t and z", () => {
+    const moment = new Date(2026, 9, 15, 16, 0);
+    const events = [
+      { id: 1, at: "2026-10-15 16:00:00" },
+      { id: 2, at: moment.toISOString().replace("T", " ") },
+      { id: 3, at: moment.toISOString().toLowerCase() },
+      { id: 4, at: "2026-10-15 09:00:00" },
+    ];
+    const matching = (filter: "datetime" | "time", value: string) =>
+      applyDataTableQuery(
+        events,
+        createDataTableQuery({ filters: { at: value } }),
+        [{ filter, key: "at", label: "At" }],
+      ).rows.map((event) => event.id);
+
+    expect(matching("datetime", "2026-10-15T16:00")).toEqual([1, 2, 3]);
+    expect(matching("time", "16:00")).toEqual([1, 2, 3]);
+  });
+
+  it("sorts moments written as SQL writes them among those of ISO", () => {
+    const events = [
+      { id: 1, at: "2026-10-15 16:00:00" },
+      { id: 2, at: "2026-10-15T09:00:00" },
+      // Earlier, though its text is later
+      { id: 3, at: "2026-10-15 16:00:00+02:00" },
+      { id: 4, at: "2026-10-15T15:30:00Z" },
+    ];
+    const sorted = applyDataTableQuery(
+      events,
+      createDataTableQuery({ order: "asc", sortBy: "at" }),
+      [{ key: "at", label: "At" }],
+    ).rows.map((event) => event.id);
+
+    // The moments with a time zone first, then the local ones
+    expect(sorted).toEqual([3, 4, 2, 1]);
+  });
+
   it("returns all rows without pagination", () => {
     const result = applyDataTableQuery(
       rows,

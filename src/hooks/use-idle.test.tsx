@@ -62,13 +62,12 @@ describe("useIdle", () => {
     expect(result.current.idle).toBe(true);
   });
 
-  it("counts a scroll in a container, a wheel and a touch", () => {
+  it("counts a wheel, a touch and a pointer in a container", () => {
     const { result } = setup(MINUTE);
     const box = document.createElement("div");
     document.body.append(box);
 
     for (const fire of [
-      () => fireEvent.scroll(box),
       () => fireEvent.wheel(box),
       () => fireEvent.touchStart(box),
       () => fireEvent.pointerDown(box),
@@ -79,6 +78,22 @@ describe("useIdle", () => {
     }
     expect(result.current.idle).toBe(false);
     box.remove();
+  });
+
+  it("does not count a scroll - a script scrolls too", () => {
+    const { result } = setup(MINUTE);
+    const log = document.createElement("div");
+    document.body.append(log);
+
+    // A live log keeps its end in view
+    for (let second = 0; second < 60; second += 5) {
+      advance(5000);
+      act(() => {
+        fireEvent.scroll(log);
+      });
+    }
+    expect(result.current.idle).toBe(true);
+    log.remove();
   });
 
   it("counts the events given in events only", () => {

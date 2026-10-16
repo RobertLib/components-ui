@@ -398,7 +398,9 @@ export default function DataTablePage() {
               <strong>Server data</strong> - the query works as without a tree:
               the server filters, sorts and pages the top-level rows, the sub
               rows come from <code>getSubRows</code> / <code>loadSubRows</code>{" "}
-              as they are.
+              as they are. Another filter, search or sorting loads the sub rows
+              of <code>loadSubRows</code> again - those shown stay until theirs
+              come.
             </li>
             <li>
               <strong>Summaries</strong> - the summary row counts the rows at
@@ -409,8 +411,10 @@ export default function DataTablePage() {
             <li>
               <strong>Selection</strong> - each row has its own checkbox; with{" "}
               <code>cascadeSelection</code> a row takes its whole loaded branch
-              along (also collapsed rows) and is mixed when only some of it is
-              selected. "Select all" takes the sub rows of the page too.
+              along (also collapsed rows), the sub rows it loads later come
+              checked, and it is mixed - and not selected itself - when only
+              some of it is selected. "Select all" takes the sub rows of the
+              page too.
             </li>
             <li>
               <strong>CSV export</strong> - all rows, depth first, with a
@@ -469,7 +473,9 @@ export default function DataTablePage() {
               unit fails at first and offers a retry. &quot;Reload parts&quot;
               changes <code>loadSubRowsKey</code>: the parts shown load again,
               staying until the new ones come. &quot;Expand all&quot; loads
-              nothing - it opens the rows whose sub rows are at hand.
+              nothing - it opens the rows whose sub rows are at hand, and is
+              offered once some are. &quot;Try again&quot; keeps the focus on
+              its row and announces the result.
             </p>
           }
           name="data-table/tree-lazy"
@@ -759,7 +765,10 @@ export default function DataTablePage() {
             row repeats at the top of every page and no row is split between two
             pages. A <code>virtualized</code> table renders all its loaded rows
             while the browser prints (<code>beforeprint</code> /{" "}
-            <code>afterprint</code>) - here all 1 000 of them.
+            <code>afterprint</code>) - here all 1 000 of them. React cannot
+            render them while it runs effects: call <code>window.print()</code>{" "}
+            from an event handler, or from an effect in a{" "}
+            <code>setTimeout</code>.
           </p>
         }
         name="data-table/print"

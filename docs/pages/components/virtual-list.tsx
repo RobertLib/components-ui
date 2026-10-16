@@ -21,7 +21,8 @@ export default function VirtualListPage() {
             not measured. <code>handleRef</code> gives{" "}
             <code>scrollToIndex(index, {"{ align, behavior }"})</code> - it
             scrolls to an item that is not rendered too, and places it again as
-            the items it passed are measured.
+            the items it passed are measured, until the user scrolls (by the
+            scroll bar too). Items sorted anew keep the scroll position.
           </p>
         }
         name="virtual-list/basic"
@@ -53,8 +54,9 @@ export default function VirtualListPage() {
             and loads older messages as the view nears the top:{" "}
             <code>onStartReached</code> puts them before the others and the view
             stays on the messages it showed - give <code>getItemKey</code>, so
-            that the measured heights and the focus stay with their messages. A
-            message sent scrolls to the end.
+            that the measured heights and the focus stay with their messages.
+            When its promise rejects, an error with &quot;Try again&quot; shows
+            at the top. A message sent scrolls to the end.
           </p>
         }
         name="virtual-list/chat"
@@ -106,8 +108,8 @@ export default function VirtualListPage() {
             Down scroll it - and, when the list has a name, a region of that
             name. An item with the focus stays rendered while it is scrolled out
             of view, so the focus is not lost. The loading rows are live regions
-            - screen readers hear &quot;Loading more…&quot; - and the error row
-            is an alert.
+            - screen readers hear &quot;Loading more…&quot; - and the errors are
+            alerts.
           </p>
         </Prose>
       </Section>

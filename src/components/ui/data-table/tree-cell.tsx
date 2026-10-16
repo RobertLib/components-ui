@@ -1,5 +1,7 @@
 import { ChevronRight } from "lucide-react";
+import { useRef } from "react";
 import cn from "../../../utils/cn";
+import { getActiveElement } from "../overlay-stack";
 import type { Locale } from "../../../i18n/ui/types";
 
 // Indentation of each level below the top one, in rem - as in `TreeView`
@@ -60,6 +62,19 @@ export default function TreeCell({
   const labelledBy = (id: string) =>
     rowLabelId ? `${id} ${rowLabelId}` : undefined;
   const size = compact ? "size-4" : "size-5";
+  const toggleRef = useRef<HTMLButtonElement>(null);
+
+  const handleRetry = (event: React.MouseEvent<HTMLButtonElement>) => {
+    // The button goes as the sub rows load again - its focus goes to the
+    // row (the tab stop of the rows), or to the toggle of a row with a link
+    const button = event.currentTarget;
+    const root = button.getRootNode() as Document | ShadowRoot;
+    if (getActiveElement(root) === button) {
+      const row = button.closest("tr");
+      (toggleTabIndex === -1 && row ? row : toggleRef.current)?.focus();
+    }
+    onRetry();
+  };
 
   return (
     <div
@@ -83,6 +98,7 @@ export default function TreeCell({
           data-tree-control=""
           id={toggleId}
           onClick={onToggle}
+          ref={toggleRef}
           tabIndex={toggleTabIndex}
           title={expanded ? messages.collapseRow : messages.expandRow}
           type="button"
@@ -134,7 +150,7 @@ export default function TreeCell({
               className="cursor-pointer rounded-sm font-semibold underline underline-offset-2 hover:text-danger-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500 dark:hover:text-danger-300"
               data-tree-control=""
               id={retryId}
-              onClick={onRetry}
+              onClick={handleRetry}
               type="button"
             >
               {messages.tree.retry}

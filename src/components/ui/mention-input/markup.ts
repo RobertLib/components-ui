@@ -243,13 +243,45 @@ function escapeText(text: string, chars: string) {
 const escapePart = (part: string, close: string) =>
   part.replace(close === "]" ? /[\\\]]/g : /[\\)]/g, "\\$&");
 
+// The token of a mention as it is - a value is written back with the labels
+// and ids it was read with, their spaces too
+const writeToken = ({ id, label, trigger }: Mention) =>
+  `${trigger}[${escapePart(label, "]")}](${escapePart(id, ")")})`;
+
+/**
+ * The label and the id of a new mention as its token keeps them - the label
+ * on one line, cut to `MAX_MENTION_PART` characters, the id without line
+ * breaks. `null` when the token would read as no mention: without a label or
+ * an id, or with a longer id.
+ */
+export function toMentionParts(label: string, id: string | number) {
+  const mentionLabel = label
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_MENTION_PART);
+  const mentionId = String(id).replace(/[\r\n]+/g, " ");
+
+  return mentionLabel && mentionId && mentionId.length <= MAX_MENTION_PART
+    ? { id: mentionId, label: mentionLabel }
+    : null;
+}
+
 /**
  * The token of a mention as a value stores it - `@[Jana Nováková](user:42)`
  * - e.g. to write a value with a mention on the server, or to start a reply
- * with one.
+ * with one. Like the field, it writes the label on one line, cut to
+ * `MAX_MENTION_PART` characters. A mention without a label or an id, or with
+ * a longer id, would read as no mention - it is written as text then.
  */
-export const toMentionToken = ({ id, label, trigger }: Mention) =>
-  `${trigger}[${escapePart(label, "]")}](${escapePart(id, ")")})`;
+export function toMentionToken({ id, label, trigger }: Mention) {
+  const parts = toMentionParts(label, id);
+  if (parts) return writeToken({ ...parts, trigger });
+
+  logger.warn(
+    `toMentionToken: the mention "${trigger}${label}" has no label or id, or its id is longer than ${MAX_MENTION_PART} characters - it is written as text.`,
+  );
+  return escapeText(trigger + label, trigger);
+}
 
 /** The value of a text and its mentions - the reverse of `parseValue`. */
 export function serializeValue(
@@ -262,11 +294,34 @@ export function serializeValue(
 
   for (const mention of [...mentions].sort((a, b) => a.start - b.start)) {
     value += escapeText(text.slice(cursor, mention.start), chars);
-    value += toMentionToken(mention);
+    value += writeToken(mention);
     cursor = mention.end;
   }
 
   return value + escapeText(text.slice(cursor), chars);
+}
+
+/**
+ * A value copied from a mention field with the triggers `sourceChars`, as a
+ * field with the triggers `chars` takes it - read with the triggers it was
+ * written with, the mentions of triggers the field does not have are text.
+ */
+export function parseCopiedValue(
+  value: string,
+  sourceChars: string,
+  chars: string,
+): ParsedValue {
+  // The clipboard comes from anywhere - only characters that can be
+  // triggers
+  const readChars = Array.from(sourceChars)
+    .filter((char) => char.length === 1 && !RESERVED.test(char))
+    .join("");
+  const { mentions, text } = parseValue(value, readChars);
+
+  return {
+    mentions: mentions.filter((mention) => chars.includes(mention.trigger)),
+    text,
+  };
 }
 
 /**

@@ -507,6 +507,9 @@ export default function Pagination({
               label: formatNumber(locale.code, option),
               value: option,
             }))}
+            // Navigation, no value of a form - a read-only section around
+            // leaves it be
+            readOnly={false}
             value={pageSize}
           />
         </div>

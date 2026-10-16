@@ -65,21 +65,71 @@ describe("getDurationFormat - format", () => {
     });
   });
 
-  it.each(["de-DE", "sk-SK", "pl-PL", "fr-FR", "en-GB", "ja-JP"])(
-    "reads what it writes in %s",
+  it("tells apart the units of words alike without their diacritics", () => {
+    // Malayalam - the hour "മ" is the minute "മി" without its vowel sign
+    const malayalam = getDurationFormat("ml-IN");
+    expect(malayalam.parse("2 മ", "minutes")).toEqual({ minutes: 120 });
+    expect(malayalam.parse("2 മി.", "minutes")).toEqual({ minutes: 2 });
+    expect(malayalam.parse("1 മ, 30 മി.", "minutes")).toEqual({
+      minutes: 90,
+    });
+  });
+
+  it("reads the abbreviation marks of the locale", () => {
+    // The geresh of Hebrew, the abbreviation sign of Hindi
+    expect(getDurationFormat("he-IL").parse("1 שעה 30 דק׳", "minutes")).toEqual(
+      { minutes: 90 },
+    );
+    expect(getDurationFormat("hi-IN").parse("1 घं॰ 30 मि॰", "minutes")).toEqual(
+      { minutes: 90 },
+    );
+  });
+
+  it.each(["he-IL", "sw-KE", "si-LK"])(
+    "writes a clock for units it cannot read back in %s",
+    (locale) => {
+      // A number in words, or the unit before the number
+      const format = getDurationFormat(locale);
+      expect(format.format(120, "units")).toBe(format.format(120, "clock"));
+    },
+  );
+
+  it.each(["he-IL", "sw-KE", "si-LK", "ha-NG", "my-MM", "or-IN"])(
+    "reads the text of its field in %s",
     (locale) => {
       const format = getDurationFormat(locale);
-      for (const minutes of [0, 1, 5, 45, 60, 90, 125, 1500]) {
-        for (const text of [
-          format.format(minutes, "clock"),
-          format.format(minutes, "units"),
-          format.formatLong(minutes),
-        ]) {
-          expect(format.parse(text, "minutes")).toEqual({ minutes });
+      for (const minutes of [0, 1, 2, 5, 45, 60, 61, 90, 120, 125, 1500]) {
+        for (const display of ["clock", "units"] as const) {
+          expect(
+            format.parse(format.format(minutes, display), "minutes"),
+          ).toEqual({ minutes });
         }
       }
     },
   );
+
+  it.each([
+    "de-DE",
+    "sk-SK",
+    "pl-PL",
+    "fr-FR",
+    "en-GB",
+    "ja-JP",
+    "hi-IN",
+    "ml-IN",
+    "sd-IN",
+  ])("reads what it writes in %s", (locale) => {
+    const format = getDurationFormat(locale);
+    for (const minutes of [0, 1, 5, 45, 60, 90, 125, 1500]) {
+      for (const text of [
+        format.format(minutes, "clock"),
+        format.format(minutes, "units"),
+        format.formatLong(minutes),
+      ]) {
+        expect(format.parse(text, "minutes")).toEqual({ minutes });
+      }
+    }
+  });
 });
 
 describe("getDurationFormat - parse", () => {

@@ -24,8 +24,11 @@ export interface CommentThreadItem {
    * relative to now ("před 5 minutami"), the date and time in a tooltip.
    */
   createdAt: Date | string | number;
-  /** When it was last edited - the comment says "edited" then. */
-  editedAt?: Date | string | number;
+  /**
+   * When it was last edited - the comment says "edited" then. `null`, or a
+   * time that is no valid date, is no edit.
+   */
+  editedAt?: Date | string | number | null;
   /** Unique among the comments and the replies. */
   id: string | number;
   /**

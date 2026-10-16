@@ -209,6 +209,37 @@ describe("DataTable saved views", () => {
     expect(bodyNames()).toEqual(["Cyril", "Adam"]);
   });
 
+  it("takes columns back as the view has them for unmodified - also its defaults", async () => {
+    const user = userEvent.setup();
+    const namesOnly: DataTableView = {
+      // A visible column named visible - the table remembers no default
+      columnState: { visibility: { city: false, name: true } },
+      id: "names",
+      name: "Names",
+      query: {},
+    };
+    render(
+      <DataTable
+        clientSide
+        columns={columns}
+        data={rows}
+        presetViews={[namesOnly]}
+      />,
+    );
+
+    const menu = await openMenu(user);
+    await user.click(
+      within(menu).getByRole("menuitemradio", { name: "Names" }),
+    );
+    expect(viewsButton("View: Names")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Columns" }));
+    await user.click(screen.getByRole("switch", { name: "Status" }));
+    expect(viewsButton("View: Names (modified)")).toBeInTheDocument();
+    await user.click(screen.getByRole("switch", { name: "Status" }));
+    expect(viewsButton("View: Names")).toBeInTheDocument();
+  });
+
   it("updates, renames and deletes a view of the user", async () => {
     const user = userEvent.setup();
     const onViewsChange = vi.fn();

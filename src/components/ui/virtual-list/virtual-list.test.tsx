@@ -1,9 +1,17 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef, useState } from "react";
+import { createRef, useEffect, useState } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import VirtualList, { type VirtualListHandle } from ".";
 import { cs } from "../../../i18n/ui/cs";
 import UIProvider from "../../../providers/ui-provider";
@@ -44,6 +52,52 @@ function scrollTo(scrollTop: number) {
     scroller().scrollTop = scrollTop;
     fireEvent.scroll(scroller());
   });
+}
+
+/**
+ * Observes the sizes of the rendered items, `height` px each - measures
+ * them when the returned function is called.
+ */
+function measureItems(height: () => number) {
+  const observers = new Map<
+    Element,
+    (entries: ResizeObserverEntry[]) => void
+  >();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      notify: (entries: ResizeObserverEntry[]) => void;
+      constructor(callback: ResizeObserverCallback) {
+        this.notify = (entries) =>
+          callback(entries, this as unknown as ResizeObserver);
+      }
+      observe(element: Element) {
+        observers.set(element, this.notify);
+      }
+      unobserve(element: Element) {
+        observers.delete(element);
+      }
+      disconnect() {}
+    },
+  );
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: HTMLElement) {
+      return {
+        height: this.dataset.index === undefined ? 0 : height(),
+        top: 0,
+      } as DOMRect;
+    },
+  );
+  return () => {
+    const rendered = items();
+    act(() =>
+      observers.get(rendered[0])!(
+        rendered.map(
+          (target) => ({ target }) as unknown as ResizeObserverEntry,
+        ),
+      ),
+    );
+  };
 }
 
 function renderList(
@@ -298,6 +352,69 @@ describe("VirtualList", () => {
     vi.unstubAllGlobals();
   });
 
+  it("does not hold the item scrolled to once the user drags the scroll bar", () => {
+    let height = 100;
+    const measure = measureItems(() => height);
+    const handle = createRef<VirtualListHandle>();
+    renderList({ handleRef: handle });
+
+    act(() => handle.current!.scrollToIndex(500, { align: "start" }));
+    measure();
+    expect(scroller().scrollTop).toBe(500 * 100);
+
+    // Dragging the scroll bar - only scroll events, no wheel
+    scrollTo(10000);
+    height = 60;
+    measure();
+    expect(scroller().scrollTop).toBeLessThan(20000);
+    expect(screen.queryByText("2026-00501")).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not stop a smooth scroll to an item, nor scroll a page smoothly otherwise", () => {
+    let height = 100;
+    const measure = measureItems(() => height);
+    // The element scrolls at once, or starts an animation
+    const scrolls: ScrollToOptions[] = [];
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      configurable: true,
+      value(this: HTMLElement, options: ScrollToOptions) {
+        scrolls.push(options);
+        if (options.behavior !== "smooth") this.scrollTop = options.top!;
+      },
+    });
+    onTestFinished(() => {
+      delete (HTMLElement.prototype as { scrollTo?: unknown }).scrollTo;
+    });
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(
+      100_000,
+    );
+    const handle = createRef<VirtualListHandle>();
+    renderList({ handleRef: handle });
+
+    act(() =>
+      handle.current!.scrollToIndex(500, {
+        align: "start",
+        behavior: "smooth",
+      }),
+    );
+    expect(scrolls).toEqual([{ behavior: "smooth", top: 500 * 40 }]);
+
+    // Half way there, the items passed are measured - the animation goes on
+    scrollTo(10000);
+    measure();
+    expect(scroller().scrollTop).toBe(10000);
+    expect(scrolls).toHaveLength(1);
+
+    // There - the view is held on its items again, at once
+    scrollTo(20000);
+    height = 50;
+    measure();
+    expect(scrolls).toHaveLength(2);
+    expect(scrolls[1].behavior).toBe("instant");
+    vi.unstubAllGlobals();
+  });
+
   it("keeps the view on its items when items are put before them", () => {
     function Chat() {
       const [messages, setMessages] = useState(() => orders(100, 101));
@@ -329,6 +446,39 @@ describe("VirtualList", () => {
     expect(scroller().scrollTop).toBe(30 * 40 + 10);
     expect(texts()).toContain("2026-00111");
     expect(items()[0]).toHaveAttribute("aria-posinset", String(30 - 4 + 1));
+  });
+
+  it("keeps the scroll position when the items are sorted anew", () => {
+    const { rerender } = renderList();
+
+    // Newest first - at the top, the list shows its new first items
+    rerender(
+      <VirtualList<Order>
+        aria-label="Orders"
+        estimateSize={40}
+        getItemKey={(order) => order.id}
+        height={200}
+        items={orders(1000).reverse()}
+        renderItem={(order) => <span>{order.number}</span>}
+      />,
+    );
+    expect(scroller().scrollTop).toBe(0);
+    expect(texts()[0]).toBe("2026-01000");
+
+    // Further down, the place in the list stays
+    scrollTo(4000);
+    rerender(
+      <VirtualList<Order>
+        aria-label="Orders"
+        estimateSize={40}
+        getItemKey={(order) => order.id}
+        height={200}
+        items={orders(1000)}
+        renderItem={(order) => <span>{order.number}</span>}
+      />,
+    );
+    expect(scroller().scrollTop).toBe(4000);
+    expect(texts()).toContain("2026-00101");
   });
 
   it("asks for more items as the view nears the end - once for each length", async () => {
@@ -371,6 +521,8 @@ describe("VirtualList", () => {
         renderItem={(order) => order.number}
       />,
     );
+    // The new page puts the end 2000px further - nothing more yet
+    expect(onEndReached).toHaveBeenCalledTimes(1);
     scrollTo(100 * 40 - 200);
     expect(onEndReached).toHaveBeenCalledTimes(2);
 
@@ -452,12 +604,80 @@ describe("VirtualList", () => {
     expect(onEndReached).not.toHaveBeenCalled();
   });
 
+  it("shows no error row with loadMoreError false - also once loading fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const onEndReached = vi.fn().mockRejectedValue(new Error("Network down"));
+    renderList({ items: orders(3), loadMoreError: false, onEndReached });
+
+    await act(async () => {});
+    expect(onEndReached).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("asks for older items at the start", () => {
     const onStartReached = vi.fn(() => new Promise<void>(() => {}));
     renderList({ items: orders(100), onStartReached });
 
     // At the top already
     expect(onStartReached).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Loading more…")).toBeInTheDocument();
+  });
+
+  it("asks for older items once as they come - the view is held far from the start", async () => {
+    let resolve = () => {};
+    const onStartReached = vi.fn(
+      () => new Promise<void>((done) => (resolve = done)),
+    );
+    let showOlder = () => {};
+    function Chat() {
+      const [messages, setMessages] = useState(() => orders(100, 1001));
+      useEffect(() => {
+        // As a request would: the items and the settled promise together
+        showOlder = () => {
+          setMessages((current) => [...orders(100, 901), ...current]);
+          resolve();
+        };
+      });
+      return (
+        <VirtualList
+          estimateSize={40}
+          getItemKey={(order) => order.id}
+          height={200}
+          items={messages}
+          onStartReached={onStartReached}
+          renderItem={(order) => order.number}
+        />
+      );
+    }
+    render(<Chat />);
+    expect(onStartReached).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      setTimeout(() => showOlder());
+      await new Promise((done) => setTimeout(done, 10));
+    });
+    expect(scroller().scrollTop).toBe(100 * 40);
+    expect(onStartReached).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an error with a retry when loading older items fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const user = userEvent.setup();
+    const onStartReached = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Network down"))
+      .mockReturnValueOnce(new Promise(() => {}));
+    renderList({ items: orders(100), onStartReached });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("More items could not be loaded.");
+    // Not asked again and again
+    await act(async () => {});
+    expect(onStartReached).toHaveBeenCalledTimes(1);
+
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+    expect(onStartReached).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByText("Loading more…")).toBeInTheDocument();
   });
 
@@ -544,9 +764,10 @@ describe("VirtualList", () => {
     expect(texts()).toContain("2026-00101");
     expect(screen.queryByText("2026-00001")).not.toBeInTheDocument();
 
+    // At once - also in a page with `scroll-behavior: smooth`
     act(() => handle.current!.scrollToIndex(10, { align: "start" }));
     expect(scrollToSpy).toHaveBeenCalledWith({
-      behavior: "auto",
+      behavior: "instant",
       top: 4300 - 4000 + 10 * 40,
     });
   });

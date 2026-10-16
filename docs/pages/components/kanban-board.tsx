@@ -75,9 +75,11 @@ export default function KanbanBoardPage() {
             or <code>cards</code> with <code>onCardsChange</code> to keep it in
             your state. A controlled board with only <code>onMoveCard</code>{" "}
             shows a move until its promise settles - update <code>cards</code>{" "}
-            by then. The cards of a column are in the order of the array;{" "}
-            <code>toIndex</code> of a move is the position among the cards of
-            the column it goes to.
+            by then; with <code>onCardsChange</code> too, it shows your{" "}
+            <code>cards</code> as soon as they change. When saves fail, each
+            card moves back - also when several fail at once. The cards of a
+            column are in the order of the array; <code>toIndex</code> of a move
+            is the position among the cards of the column it goes to.
           </p>
         </Prose>
       </Section>

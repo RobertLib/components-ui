@@ -59,8 +59,8 @@ export interface VirtualListProps<T> extends Omit<
   /**
    * Stable key of an item, e.g. its id - its measured height, the focus in
    * it and the scroll position stay with the item when items are added
-   * before it. The index by default, which is enough for a list that only
-   * grows at the end.
+   * before it (items sorted anew keep the scroll position). The index by
+   * default, which is enough for a list that only grows at the end.
    */
   getItemKey?: (item: T, index: number) => React.Key;
   /**
@@ -104,8 +104,8 @@ export interface VirtualListProps<T> extends Omit<
   /**
    * Shows the error row at the end of the list, with a "Try again" button
    * calling `onEndReached` - `true` with the text of the locale, or a
-   * message. By default it shows when the promise of `onEndReached`
-   * rejects.
+   * message; `false` hides it. By default it shows when the promise of
+   * `onEndReached` rejects.
    */
   loadMoreError?: boolean | React.ReactNode;
   /** Max height of the scroll container - a number of px or any CSS length. */
@@ -123,7 +123,8 @@ export interface VirtualListProps<T> extends Omit<
    * the list - e.g. to load older messages and put them before the others.
    * The view stays on the items it showed (give `getItemKey`). Called once
    * for each length of `items`; a returned promise shows a loading
-   * indicator at the top while it is pending.
+   * indicator at the top while it is pending, and an error with a "Try
+   * again" button when it rejects.
    */
   onStartReached?: () => void | PromiseLike<unknown>;
   /**
@@ -276,7 +277,7 @@ export default function VirtualList<T>({
   const start = useLoader(onStartReached);
   const isLoadingMore = loadingMore ?? end.pending;
   const showError =
-    loadMoreError !== undefined && loadMoreError !== false ? true : end.failed;
+    loadMoreError === undefined ? end.failed : loadMoreError !== false;
 
   // Each list asks for more once - a page that brought nothing new must
   // not be asked for again and again
@@ -308,6 +309,7 @@ export default function VirtualList<T>({
       !onStartReached ||
       !nearStart ||
       start.pending ||
+      start.failed ||
       count === 0 ||
       isSameRequest(startRequestedRef.current, request)
     ) {
@@ -367,15 +369,34 @@ export default function VirtualList<T>({
     >
       {onStartReached && (
         // Over the items, taking no room - they must not move as it comes
-        <div aria-live="polite" className="sticky top-0 z-10 h-0">
-          {start.pending && (
-            <div className="flex justify-center pt-2">
-              <span className="flex items-center gap-2 rounded-full bg-surface px-3 py-1 text-sm text-neutral-600 shadow-sm ring-1 ring-neutral-200 dark:bg-surface-dark dark:text-neutral-300 dark:ring-neutral-700">
-                <LoaderCircle
-                  aria-hidden="true"
-                  className="size-4 animate-spin"
-                />
-                {messages.loading}
+        <div className="sticky top-0 z-10 h-0">
+          <div aria-live="polite">
+            {start.pending && (
+              <div className="flex justify-center pt-2">
+                <span className="flex items-center gap-2 rounded-full bg-surface px-3 py-1 text-sm text-neutral-600 shadow-sm ring-1 ring-neutral-200 dark:bg-surface-dark dark:text-neutral-300 dark:ring-neutral-700">
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="size-4 animate-spin"
+                  />
+                  {messages.loading}
+                </span>
+              </div>
+            )}
+          </div>
+          {start.failed && !start.pending && (
+            <div className="flex justify-center px-3 pt-2" role="alert">
+              <span className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-2xl bg-surface px-3 py-1 text-sm text-danger-700 shadow-sm ring-1 ring-neutral-200 dark:bg-surface-dark dark:text-danger-300 dark:ring-neutral-700">
+                {messages.loadError}
+                <Button
+                  onClick={() => {
+                    startRequestedRef.current = request;
+                    start.run();
+                  }}
+                  size="sm"
+                  variant="outline"
+                >
+                  {messages.retry}
+                </Button>
               </span>
             </div>
           )}

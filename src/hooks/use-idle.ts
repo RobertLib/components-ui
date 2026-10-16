@@ -16,8 +16,11 @@ export interface UseIdleOptions {
    */
   enabled?: boolean;
   /**
-   * The events on the page that count as activity.
-   * @default ["keydown", "mousemove", "pointerdown", "scroll", "touchstart", "wheel"]
+   * The events on the page that count as activity. The user scrolls with
+   * the wheel, a touch, the keys or the pointer on the scrollbar - not
+   * `"scroll"`, which a script scrolling the page (a live log, a feed)
+   * fires too, keeping an idle user active.
+   * @default ["keydown", "mousemove", "pointerdown", "touchstart", "wheel"]
    */
   events?: readonly string[];
   /** Called when the user becomes active again after being idle. */
@@ -61,7 +64,6 @@ const DEFAULT_EVENTS = [
   "keydown",
   "mousemove",
   "pointerdown",
-  "scroll",
   "touchstart",
   "wheel",
 ] as const;
@@ -70,9 +72,9 @@ const DEFAULT_EVENTS = [
 const MAX_DELAY = 2_147_483_647;
 
 /**
- * Whether the user has done nothing - no key, pointer, touch, wheel or
- * scroll - for `timeout` milliseconds, in this tab or another tab of the
- * app: `const { idle } = useIdle(5 * 60_000)`. The time is measured by the
+ * Whether the user has done nothing - no key, pointer, touch or wheel -
+ * for `timeout` milliseconds, in this tab or another tab of the app:
+ * `const { idle } = useIdle(5 * 60_000)`. The time is measured by the
  * clock, not by timers alone, so a computer woken from sleep or a tab
  * brought back from the background is idle as long as it really was. On
  * the server and before the effects run it is not idle.

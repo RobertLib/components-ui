@@ -138,6 +138,132 @@ describe("Tabs with overflow menu", () => {
     expect(screen.queryByRole("button", { name: "More" })).toBeNull();
   });
 
+  it("give the tabs back as the row around a bar as wide as them widens", () => {
+    // In a flex row beside a button: as wide as what is in the flow of the
+    // bar - tabs 100px, the More button 80px - at most the room of the row
+    let room = 600;
+    const isInFlow = (element: Element) =>
+      !element.hasAttribute("inert") ||
+      (element as HTMLElement).style.position === "static";
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Element) {
+        let width = 0;
+        if (this.classList.contains("overflow-x-auto")) {
+          const tabs = Array.from(this.querySelectorAll("li")).filter(isInFlow);
+          const more = this.querySelector("ul + div")!;
+          width = Math.min(room, tabs.length * 100 + (isInFlow(more) ? 80 : 0));
+        } else if (this.tagName === "LI") {
+          width = 100;
+        } else if (this.previousElementSibling?.tagName === "UL") {
+          width = 80;
+        }
+        return DOMRect.fromRect({ height: 32, width, x: 0, y: 0 });
+      },
+    );
+    const observed: Element[] = [];
+    const observers: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          observers.push(callback);
+        }
+        disconnect() {}
+        observe(element: Element) {
+          observed.push(element);
+        }
+        unobserve() {}
+      },
+    );
+    const resize = () =>
+      act(() =>
+        observers.forEach((callback) =>
+          callback([], {} as unknown as ResizeObserver),
+        ),
+      );
+
+    render(
+      <div data-testid="row">
+        <Controlled initial="All" />
+      </div>,
+    );
+    expect(barTabs()).toEqual(labels);
+    // The row around is followed - the bar does not widen by itself
+    expect(observed).toContain(screen.getByTestId("row"));
+
+    room = 350;
+    resize();
+    expect(barTabs()).toEqual(["All", "Draft"]);
+
+    room = 600;
+    resize();
+    expect(barTabs()).toEqual(labels);
+  });
+
+  it("do not open the menu again by itself once it closed with nothing in it", async () => {
+    let width = 350;
+    const resize = mockLayout(() => width);
+    const user = userEvent.setup();
+    render(<Controlled initial="All" />);
+    await user.click(screen.getByRole("button", { name: "More" }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    // Room for all - the menu closes
+    width = 600;
+    resize();
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    width = 350;
+    resize();
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("button", { name: "More" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("give the focus in the menu, or on its button, to the selected tab once all fit", async () => {
+    let width = 350;
+    const resize = mockLayout(() => width);
+    const user = userEvent.setup();
+    render(
+      <>
+        <Controlled initial="Draft" />
+        <button type="button">Elsewhere</button>
+      </>,
+    );
+    const draft = () => screen.getByRole("tab", { name: "Draft" });
+
+    // In the menu - the bar widens, the menu goes
+    await user.click(screen.getByRole("button", { name: "More" }));
+    expect(screen.getByRole("menu")).toContainElement(
+      document.activeElement as HTMLElement,
+    );
+    width = 600;
+    resize();
+    // Not to the page after the commit either
+    await act(async () => {});
+    expect(draft()).toHaveFocus();
+
+    // On the "More" button
+    width = 350;
+    resize();
+    act(() => screen.getByRole("button", { name: "More" }).focus());
+    width = 600;
+    resize();
+    await act(async () => {});
+    expect(draft()).toHaveFocus();
+
+    // Elsewhere - it stays there
+    width = 350;
+    resize();
+    act(() => screen.getByRole("button", { name: "Elsewhere" }).focus());
+    width = 600;
+    resize();
+    await act(async () => {});
+    expect(screen.getByRole("button", { name: "Elsewhere" })).toHaveFocus();
+  });
+
   it("measure each tab - a long one moves out sooner", () => {
     mockLayout(() => 450, { Draft: 300 });
     render(<Controlled initial="All" />);

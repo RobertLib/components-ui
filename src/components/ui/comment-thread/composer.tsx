@@ -6,7 +6,12 @@ import Kbd from "../kbd";
 import MentionInput from "../mention-input";
 import { mentionsToText } from "../mention-input/markup";
 import type { CommentAuthor } from "./types";
-import { getErrorMessage, isSubmitKey, type MentionFieldProps } from "./utils";
+import {
+  getErrorMessage,
+  isImeKey,
+  isSubmitKey,
+  type MentionFieldProps,
+} from "./utils";
 
 /** The `{shortcut}` of a text replaced by the keys. */
 function SubmitHint({ template }: { template: string }) {
@@ -125,6 +130,7 @@ export default function Composer({
               submit();
             } else if (
               event.key === "Escape" &&
+              !isImeKey(event) &&
               onCancel &&
               !pending &&
               // The open list of suggestions takes its Escape itself

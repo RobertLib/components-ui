@@ -218,13 +218,23 @@ export default function KanbanBoard<T extends KanbanCard = KanbanCard>({
   const isControlled = cards !== undefined;
   const baseCards = isControlled ? cards : internalCards;
   // The moves `onMoveCard` still saves - a controlled board shows them
-  // until the app has the cards moved
+  // until the app has the cards moved: once saved, or with `onCardsChange`
+  // as soon as its cards change (they have the move then, and maybe newer
+  // ones that showing it again would undo)
   const [pendingMoves, setPendingMoves] = useState<
-    { card: T; move: KanbanMove; result: PromiseLike<unknown>; token: object }[]
+    {
+      /** The cards of the app when it was made. */
+      base: readonly T[];
+      card: T;
+      move: KanbanMove;
+      result: PromiseLike<unknown>;
+      token: object;
+    }[]
   >([]);
   const shownCards = isControlled
     ? pendingMoves.reduce<readonly T[]>(
-        (list, { move }) => applyMove(list, move),
+        (list, { base, move }) =>
+          onCardsChange && base !== baseCards ? list : applyMove(list, move),
         baseCards,
       )
     : baseCards;
@@ -316,10 +326,48 @@ export default function KanbanBoard<T extends KanbanCard = KanbanCard>({
     );
   };
 
+  const commitMove = (card: T, origin: KanbanPlace, target: KanbanPlace) => {
+    const move: KanbanMove = {
+      cardId: card.id,
+      fromColumnId: origin.columnId,
+      fromIndex: origin.index,
+      toColumnId: target.columnId,
+      toIndex: target.index,
+    };
+    const next = applyMove(shownCards, move);
+    setMoveError(null);
+    if (!isControlled) setInternalCards(next);
+    onCardsChange?.(next);
+
+    const token = {};
+    setLastMoves((current) => new Map(current).set(idKey(card.id), token));
+    const result = onMoveCard?.(move);
+    if (isPromiseLike(result)) {
+      setPendingMoves((list) => [
+        ...list,
+        { base: baseCards, card, move, result, token },
+      ]);
+    }
+  };
+
+  const drag = useKanbanDrag<T>({
+    boardRef,
+    canMove,
+    cards: shownCards,
+    columns,
+    enabled: movable,
+    getLabel: labelOf,
+    isAllowed,
+    isCollapsed,
+    onDrop: commitMove,
+    scrollerRef,
+  });
+
   // For the settling of the moves, which comes between renders
   const latest = {
     baseCards,
     isControlled,
+    keepFocus: drag.keepFocus,
     labelOf,
     lastMoves,
     messages,
@@ -335,6 +383,7 @@ export default function KanbanBoard<T extends KanbanCard = KanbanCard>({
     const {
       baseCards: current,
       isControlled,
+      keepFocus,
       lastMoves,
       onCardsChange,
     } = latestRef.current;
@@ -349,6 +398,10 @@ export default function KanbanBoard<T extends KanbanCard = KanbanCard>({
       toColumnId: from.columnId,
       toIndex: from.index,
     });
+    // A move failing too before the board renders again is moved back in
+    // these cards - not in those it last rendered, which would undo this
+    latestRef.current = { ...latestRef.current, baseCards: next };
+    keepFocus(move.cardId, from.columnId);
     if (!isControlled) setInternalCards(next);
     onCardsChange?.(next);
   };
@@ -379,39 +432,6 @@ export default function KanbanBoard<T extends KanbanCard = KanbanCard>({
     }
   });
 
-  const commitMove = (card: T, origin: KanbanPlace, target: KanbanPlace) => {
-    const move: KanbanMove = {
-      cardId: card.id,
-      fromColumnId: origin.columnId,
-      fromIndex: origin.index,
-      toColumnId: target.columnId,
-      toIndex: target.index,
-    };
-    const next = applyMove(shownCards, move);
-    setMoveError(null);
-    if (!isControlled) setInternalCards(next);
-    onCardsChange?.(next);
-
-    const token = {};
-    setLastMoves((current) => new Map(current).set(idKey(card.id), token));
-    const result = onMoveCard?.(move);
-    if (isPromiseLike(result)) {
-      setPendingMoves((list) => [...list, { card, move, result, token }]);
-    }
-  };
-
-  const drag = useKanbanDrag<T>({
-    boardRef,
-    canMove,
-    cards: shownCards,
-    columns,
-    enabled: movable,
-    getLabel: labelOf,
-    isAllowed,
-    isCollapsed,
-    onDrop: commitMove,
-    scrollerRef,
-  });
   const session = drag.session;
   const draggedCard = session
     ? shownCards.find((card) => card.id === session.cardId)

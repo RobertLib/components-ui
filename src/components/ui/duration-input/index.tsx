@@ -70,7 +70,9 @@ interface DurationInputBaseProps extends Omit<
    * How the field writes the duration: `"clock"` (default) as hours and
    * minutes - "1:30", "0:45", "125:00"; `"units"` with the units of the
    * locale of `UIProvider` - "1 h 30 min" in Czech, "1 hr 30 min" in
-   * English. Either can be typed whatever it shows.
+   * English. Either can be typed whatever it shows. A locale whose units
+   * the field could not read back - a unit before the number (Swahili), a
+   * number in words (Hebrew) - gets the clock.
    */
   display?: "clock" | "units";
   /** Validation message - also marks the field as invalid. */

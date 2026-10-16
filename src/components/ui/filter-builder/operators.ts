@@ -192,6 +192,16 @@ export function convertValue(
   }
 }
 
+/** A value without the empty items of a list and empty ends of a range. */
+function compactValue(value: FilterValue | undefined): FilterValue | undefined {
+  if (Array.isArray(value)) return value.filter(hasValue);
+  if (!isRange(value)) return value;
+  const range: FilterRange = {};
+  if (hasValue(value.from)) range.from = value.from;
+  if (hasValue(value.to)) range.to = value.to;
+  return range;
+}
+
 /** Removes what `compactFilter` leaves out of a group, `null` for nothing. */
 function compactGroup(
   group: FilterGroup,
@@ -212,7 +222,7 @@ function compactGroup(
         operator: node.operator,
       };
       if (getOperatorArity(node.operator) !== "none") {
-        condition.value = node.value;
+        condition.value = compactValue(node.value);
       }
       conditions.push(condition);
     }
@@ -225,10 +235,10 @@ function compactGroup(
 
 /**
  * The filter as a server wants it: without the conditions that are not
- * complete yet (no value), the groups left empty and the `id`s of the
- * builder - and, with `fields`, without the conditions of fields not
- * among them (e.g. of an old saved filter). Always a group, with no
- * conditions for none.
+ * complete yet (no value), the empty items of lists and ends of ranges,
+ * the groups left empty and the `id`s of the builder - and, with `fields`,
+ * without the conditions of fields not among them (e.g. of an old saved
+ * filter). Always a group, with no conditions for none.
  */
 export function compactFilter<T>(
   filter: FilterGroup | null | undefined,

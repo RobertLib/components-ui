@@ -99,6 +99,11 @@ interface SavedViewsProps {
   columnState: DataTableColumnState;
   /** The query of the last change - a parent may still be about to show it. */
   getLatestQuery: () => DataTableQuery;
+  /** Whether two column settings show the columns alike. */
+  isSameColumnState: (
+    a: DataTableColumnState,
+    b: DataTableColumnState,
+  ) => boolean;
   /** Called with the id of the view applied, saved or deleted. */
   onActiveViewChange?: (viewId: string | null) => void;
   /** Applies the query and the column settings of a view. */
@@ -127,6 +132,7 @@ export function SavedViews({
   activeViewId: activeViewIdProp,
   columnState,
   getLatestQuery,
+  isSameColumnState,
   onActiveViewChange,
   onApply,
   onViewsChange,
@@ -155,7 +161,8 @@ export function SavedViews({
     activeView !== null &&
     !presetViews?.some((view) => view.id === activeView.id);
   const isModified =
-    activeView !== null && isViewModified(activeView, query, columnState);
+    activeView !== null &&
+    isViewModified(activeView, query, columnState, isSameColumnState);
 
   const changeActiveView = (viewId: string | null) => {
     if (activeViewIdProp === undefined) setInternalActiveViewId(viewId);

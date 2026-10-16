@@ -121,32 +121,20 @@ export function getViewQuery(query: DataTableQuery): DataTableViewQuery {
   };
 }
 
-/** Column settings as a text - the same for equal ones in any key order. */
-function columnStateKey(state: DataTableColumnState) {
-  const { columnOrder, columnPinning, columnVisibility, columnWidths } =
-    fromColumnState(state);
-  const entries = (record: Record<string, unknown>) =>
-    Object.keys(record)
-      .sort()
-      .map((key) => [key, record[key]]);
-
-  return JSON.stringify([
-    columnOrder,
-    entries(columnPinning),
-    entries(columnVisibility),
-    entries(columnWidths),
-  ]);
-}
-
 /**
  * Whether the table shows other settings than a view - other filters,
  * search or sorting, and another page size or other column settings when
- * the view has them.
+ * the view has them. `isSameColumnState` compares the columns as they are
+ * shown: a view may name their defaults, which the table leaves out.
  */
 export function isViewModified(
   view: DataTableView,
   query: DataTableQuery,
   columnState: DataTableColumnState,
+  isSameColumnState: (
+    a: DataTableColumnState,
+    b: DataTableColumnState,
+  ) => boolean,
 ) {
   const { filters = {}, pageSize, search = "", sort = [] } = view.query;
 
@@ -156,7 +144,7 @@ export function isViewModified(
     !isSameSort(getQuerySort(query), sort) ||
     (pageSize !== undefined && pageSize !== query.pageSize) ||
     (view.columnState !== undefined &&
-      columnStateKey(view.columnState) !== columnStateKey(columnState))
+      !isSameColumnState(view.columnState, columnState))
   );
 }
 

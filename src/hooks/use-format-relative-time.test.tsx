@@ -58,6 +58,39 @@ describe("useFormatRelativeTime", () => {
     expect(format(new Date(2026, 9, 14, 13, 0))).toBe("yesterday");
   });
 
+  it("writes a moment of today in hours - also seen late in the evening", () => {
+    vi.setSystemTime(new Date(2026, 9, 15, 23, 0));
+    expect(setup()(new Date(2026, 9, 15, 0, 30))).toBe("22 hours ago");
+
+    vi.setSystemTime(new Date(2026, 9, 15, 1, 0));
+    expect(setup()(new Date(2026, 9, 15, 23, 30))).toBe("in 23 hours");
+  });
+
+  it("counts weeks and years as they pass - not as the calendar ones before", () => {
+    const format = setup();
+    // 10 days ago is in the week before last
+    expect(format(new Date(2026, 9, 5, 12, 0))).toBe("1 week ago");
+    expect(format(new Date(2026, 9, 22, 12, 0))).toBe("in 1 week");
+    expect(format(new Date(2026, 8, 1, 12, 0))).toBe("last month");
+    expect(format(new Date(2025, 8, 1, 12, 0))).toBe("1 year ago");
+
+    // 4 weeks of this month are no month ago
+    vi.setSystemTime(new Date(2026, 9, 29, 12, 0));
+    expect(setup()(new Date(2026, 9, 1, 12, 0))).toBe("4 weeks ago");
+  });
+
+  it("counts the days in the browser's zone for a zone it does not know", () => {
+    const { result } = renderHook(
+      () => useFormatRelativeTime("Europe/Atlantis"),
+      {
+        wrapper: ({ children }) => (
+          <UIProvider locale={en}>{children}</UIProvider>
+        ),
+      },
+    );
+    expect(result.current(new Date(2026, 9, 13, 8, 0))).toBe("2 days ago");
+  });
+
   it("writes in the language of the locale", () => {
     const format = setup(cs);
     expect(format(new Date(2026, 9, 15, 11, 55))).toBe("před 5 minutami");

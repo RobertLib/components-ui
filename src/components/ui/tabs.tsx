@@ -8,6 +8,8 @@ import {
   getColumnGap,
   getContentWidth,
   getOverflowingItems,
+  isRowResize,
+  measureInFlow,
   OVERFLOW_HIDDEN_CLASSES,
 } from "./overflow";
 import cn from "../../utils/cn";
@@ -116,7 +118,8 @@ export interface TabsProps extends Omit<
    * What a horizontal bar does with the tabs it has no room for: `scroll` -
    * it scrolls sideways, the edges with more tabs faded; `menu` - they move
    * from the end into a "More" menu at the end of the bar, and back as the
-   * bar widens. The active tab always stays in the bar.
+   * bar widens or the element around it does (a bar as wide as its tabs, in
+   * a flex row). The active tab always stays in the bar.
    * @default "scroll"
    */
   overflow?: "scroll" | "menu";
@@ -465,6 +468,9 @@ export default function Tabs({
   const isMenuOverflow = overflow === "menu" && !isVertical && !loading;
   const [menuTabs, setMenuTabs] = useState(NO_MENU_TABS);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  // Whether the menu was open as of the last commit - once the "More"
+  // button goes away, the focus was in it
+  const wasMenuOpenRef = useRef(false);
   // The slot of the "More" button - measured also while it is out of sight
   const moreRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
@@ -516,6 +522,9 @@ export default function Tabs({
     : NO_MENU_TABS;
   const hiddenTabs = new Set(shownMenuTabs.map(({ index }) => index));
   const hasMenu = shownMenuTabs.length > 0;
+  // Closed with nothing left in it - the bar has room again - and so not
+  // opened again by itself once it has none
+  if (isMenuOpen && !hasMenu) setIsMenuOpen(false);
   // Changes with the tabs in the bar - the indicator is measured again
   const menuKey = shownMenuTabs.map(({ index }) => index).join();
 
@@ -536,15 +545,25 @@ export default function Tabs({
 
     const update = () => {
       const tabs = getTabElements(list);
+      // With all the tabs in the row - a bar as wide as its content (in a
+      // flex row) takes the room it has for them
+      const [available, widths] = measureInFlow(
+        tabs.filter((tab) => tab.hasAttribute("inert")),
+        () =>
+          [
+            getContentWidth(scroller),
+            tabs.map((tab) => tab.getBoundingClientRect().width),
+          ] as const,
+      );
       const hidden = getOverflowingItems({
-        available: getContentWidth(scroller),
+        available,
         gap: getColumnGap(list),
         moreWidth: more.getBoundingClientRect().width,
         order: tabs
           .map((_, index) => index)
           .filter((index) => index !== activeIndex)
           .reverse(),
-        widths: tabs.map((tab) => tab.getBoundingClientRect().width),
+        widths,
       });
       // The menu shows the text of a label - also of one for screen readers
       // only, or of an element that renders it
@@ -558,11 +577,17 @@ export default function Tabs({
     update();
     if (typeof ResizeObserver === "undefined") return;
 
-    // The bar narrows or widens, a label changes, a web font loads
-    const observer = new ResizeObserver(update);
+    // The bar narrows or widens, a label changes, a web font loads - or the
+    // element around it widens, which a bar as wide as its content does not
+    const parent = scroller.parentElement;
+    const parentWidth = { current: null as number | null };
+    const observer = new ResizeObserver((resized) => {
+      if (isRowResize(resized, parent, parentWidth)) update();
+    });
     observer.observe(scroller);
     getTabElements(list).forEach((tab) => observer.observe(tab));
     observer.observe(more);
+    if (parent) observer.observe(parent);
     return () => observer.disconnect();
   }, [activeIndex, hasPanels, isMenuOverflow, items]);
 
@@ -836,6 +861,32 @@ export default function Tabs({
           (item, index) => !item.disabled && !hiddenTabs.has(index),
         );
 
+  // The "More" button goes away - the bar has room for every tab: the
+  // focus in its menu, or on it, goes to the selected tab (the first
+  // enabled one without it), not to the page. The focus elsewhere stays
+  // there.
+  useLayoutEffect(() => {
+    if (hasMenu) return;
+
+    const list = tabsRef.current;
+    const doc = list?.ownerDocument;
+    const focused = getActiveElement(doc);
+    const isOnButton = !!focused && !!moreRef.current?.contains(focused);
+    // The menu went from the page with the focus in it
+    const isLost =
+      wasMenuOpenRef.current && (!focused || focused === doc?.body);
+    if (!list || (!isOnButton && !isLost)) return;
+
+    getTabElements(list)
+      [tabStopIndex]?.querySelector<HTMLElement>("button, a[href]")
+      ?.focus();
+  }, [hasMenu, tabStopIndex]);
+
+  // After the effect above - which reads the state of the commit before
+  useLayoutEffect(() => {
+    wasMenuOpenRef.current = isMenuOpen;
+  });
+
   const tabClassName = cn(
     "flex items-center rounded-md font-medium",
     isVertical
@@ -1077,8 +1128,7 @@ export default function Tabs({
               items={menuEntries}
               offset={4}
               onOpenChange={setIsMenuOpen}
-              // Closed with nothing left in it - the bar has room again
-              open={isMenuOpen && hasMenu}
+              open={isMenuOpen}
               trigger={
                 <button
                   className={cn(

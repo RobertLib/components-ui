@@ -12,6 +12,7 @@ import RepeatableField, {
   type RepeatableFieldItemProps,
 } from "./repeatable-field";
 import Input from "./input";
+import FormSection from "./form-section";
 const initial = [
   { id: "a", value: "Adam" },
   { id: "b", value: "Eva" },
@@ -326,5 +327,34 @@ describe("RepeatableField", () => {
     );
     expect(screen.getByLabelText(/^Contact 1/)).toBeDisabled();
     expect(screen.getByRole("button", { name: "Add item" })).toBeDisabled();
+  });
+
+  it("gives its readOnly to the fields of its groups - also false in a read-only section", () => {
+    // The fields take no readOnly of `renderItem`
+    const renderName = (item: RepeatableFieldItemProps<string>) => (
+      <Input defaultValue={item.value} label={`Contact ${item.index + 1}`} />
+    );
+    const { rerender } = render(
+      <FormSection readOnly title="Customer">
+        <RepeatableField
+          createItem={() => ""}
+          defaultValue={initial}
+          readOnly={false}
+          renderItem={renderName}
+        />
+      </FormSection>,
+    );
+    expect(screen.getByRole("button", { name: "Add item" })).toBeEnabled();
+    expect(screen.getByLabelText(/^Contact 1/)).not.toHaveAttribute("readonly");
+
+    rerender(
+      <RepeatableField
+        createItem={() => ""}
+        defaultValue={initial}
+        readOnly
+        renderItem={renderName}
+      />,
+    );
+    expect(screen.getByLabelText(/^Contact 1/)).toHaveAttribute("readonly");
   });
 });

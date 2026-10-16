@@ -15,7 +15,9 @@ export interface VirtualListScrollOptions {
   align?: VirtualListAlign;
   /**
    * `smooth` scrolls in an animation - the place is worked out from the
-   * heights known when it starts.
+   * heights known when it starts, and the view is not held on its items
+   * while it runs. Otherwise the view jumps there at once, also in a page
+   * with `scroll-behavior: smooth`.
    * @default "auto"
    */
   behavior?: ScrollBehavior;
@@ -35,7 +37,8 @@ export interface UseVirtualListOptions {
   /**
    * Stable key of the item at `index` - its measured height, the focus in
    * it and the scroll position stay with the item when items are added
-   * before it. The index by default.
+   * before it (items sorted anew keep the scroll position). The index by
+   * default.
    */
   getItemKey?: (index: number) => React.Key;
   /**
@@ -146,6 +149,22 @@ function isSameList(a: readonly unknown[], b: readonly unknown[]) {
   return true;
 }
 
+/**
+ * Whether the items of `previous` that `layout` still has come in the same
+ * order there - items were added or removed, not sorted.
+ */
+function keepsOrder(previous: Layout, layout: Layout) {
+  if (previous.keys === layout.keys) return true;
+  let last = -1;
+  for (const key of previous.keys) {
+    const index = layout.indexOf.get(key);
+    if (index === undefined) continue;
+    if (index < last) return false;
+    last = index;
+  }
+  return true;
+}
+
 /** The first index whose item ends past `position` (binary search). */
 function findIndex(offsets: Float64Array, position: number) {
   let low = 0;
@@ -239,9 +258,9 @@ function scrollTarget(
  * and the room of the others. Rendered items are measured; the others are
  * estimated. When the items above the view change their height - measured
  * at last, or added before it (older messages of a chat) - the view stays
- * on the item it showed. Works in a scroll container of its own or in the
- * scrolling page (`useWindowScroll`), and renders the first items on the
- * server.
+ * on the item it showed; items sorted anew keep the scroll position. Works
+ * in a scroll container of its own or in the scrolling page
+ * (`useWindowScroll`), and renders the first items on the server.
  */
 export default function useVirtualList({
   count,
@@ -259,7 +278,14 @@ export default function useVirtualList({
     end: Math.max(0, initialCount),
     start: 0,
   }));
-  const [edges, setEdges] = useState({ nearEnd: false, nearStart: false });
+  // Whether the view is near the start and the end - of the layout they were
+  // worked out by. A new layout (items added, the view yet to be held on its
+  // item) is near neither until they are worked out again, right after
+  const [edges, setEdges] = useState<{
+    layout: Layout | null;
+    nearEnd: boolean;
+    nearStart: boolean;
+  }>({ layout: null, nearEnd: false, nearStart: false });
   // The item with the focus - rendered also while it is scrolled away
   const [focusedKey, setFocusedKey] = useState<React.Key | null>(null);
 
@@ -380,29 +406,73 @@ export default function useVirtualList({
     };
   }, []);
 
-  /** Scrolls the view to `position` in the list. */
+  /** How far the view is scrolled, and how far it can be - in px. */
+  const readScroll = useCallback(() => {
+    if (latest.current.useWindowScroll) {
+      return {
+        max: document.documentElement.scrollHeight - window.innerHeight,
+        position: window.scrollY,
+      };
+    }
+    const scroller = scrollerRef.current;
+    return scroller
+      ? {
+          max: scroller.scrollHeight - scroller.clientHeight,
+          position: scroller.scrollTop,
+        }
+      : null;
+  }, []);
+
+  // Where the view was last scrolled to here - a scroll to elsewhere is the
+  // user's own
+  const scrolledToRef = useRef<number | null>(null);
+  // Where a smooth scroll goes - while it is on its way, the view is not held
+  // on its items: scrolling it there would stop the animation
+  const smoothToRef = useRef<number | null>(null);
+
+  /**
+   * Scrolls the view to `position` in the list - at once unless `smooth`,
+   * also in a page that scrolls smoothly (`scroll-behavior`), as the items
+   * there are worked out right after.
+   */
   const scrollViewTo = useCallback(
-    (position: number, behavior: ScrollBehavior = "auto") => {
+    (position: number, behavior: ScrollBehavior = "instant") => {
       const list = listElementRef.current;
       if (!list) return;
+      let smooth = behavior === "smooth";
+      let top: number;
 
       if (latest.current.useWindowScroll) {
-        const top =
-          window.scrollY + list.getBoundingClientRect().top + position;
-        window.scrollTo({ behavior, top: Math.max(0, top) });
-        return;
+        top = Math.max(
+          0,
+          window.scrollY + list.getBoundingClientRect().top + position,
+        );
+        window.scrollTo({ behavior: smooth ? "smooth" : "instant", top });
+      } else {
+        const scroller = scrollerRef.current;
+        if (!scroller) return;
+        top = Math.max(0, listTopIn(scroller, list) + position);
+        if (typeof scroller.scrollTo === "function") {
+          scroller.scrollTo({ behavior: smooth ? "smooth" : "instant", top });
+        } else {
+          scroller.scrollTop = top;
+          smooth = false;
+        }
       }
 
-      const scroller = scrollerRef.current;
-      if (!scroller) return;
-      const top = Math.max(0, listTopIn(scroller, list) + position);
-      if (behavior === "smooth" && typeof scroller.scrollTo === "function") {
-        scroller.scrollTo({ behavior, top });
+      const scroll = readScroll();
+      if (!scroll) return;
+      if (smooth) {
+        // On its way until it gets there - or as far as it can
+        const to = Math.min(top, Math.max(0, scroll.max));
+        smoothToRef.current = Math.abs(to - scroll.position) > 1 ? to : null;
+        scrolledToRef.current = null;
       } else {
-        scroller.scrollTop = top;
+        smoothToRef.current = null;
+        scrolledToRef.current = scroll.position;
       }
     },
-    [],
+    [readScroll],
   );
 
   // Where the view was when the items in view were last worked out, and
@@ -450,9 +520,11 @@ export default function useVirtualList({
     const nearStart = view.top <= threshold;
     const nearEnd = bottom >= offsets[total] - threshold;
     setEdges((previous) =>
-      previous.nearStart === nearStart && previous.nearEnd === nearEnd
+      previous.layout === layout &&
+      previous.nearStart === nearStart &&
+      previous.nearEnd === nearEnd
         ? previous
-        : { nearEnd, nearStart },
+        : { layout, nearEnd, nearStart },
     );
   }, [readView]);
 
@@ -492,13 +564,19 @@ export default function useVirtualList({
 
   // Items above the view that take another room than they did - measured,
   // or added - must not move the items in view: the item at the top of the
-  // view stays where it is. A `scrollToIndex` places its item again.
+  // view stays where it is. A `scrollToIndex` places its item again. Not
+  // while a smooth scroll is on its way, which scrolling would stop.
   useLayoutEffect(() => {
     const previous = committedRef.current;
     committedRef.current = layout;
 
     const view = readView();
-    if (previous && previous !== layout && view) {
+    if (
+      previous &&
+      previous !== layout &&
+      view &&
+      smoothToRef.current === null
+    ) {
       const pending = pendingRef.current;
       const pendingIndex = pending
         ? layout.indexOf.get(pending.key)
@@ -533,7 +611,13 @@ export default function useVirtualList({
         // end stays there; another one was where it was last seen.
         const top = atEnd && seen && seen.top > view.top ? seen.top : view.top;
 
-        if (!(atEnd && seen?.atEnd) && top >= 0) {
+        if (
+          !(atEnd && seen?.atEnd) &&
+          top >= 0 &&
+          // Sorted, the item at the top went elsewhere - the view stays
+          // scrolled as it was
+          keepsOrder(previous, layout)
+        ) {
           const { offsets, keys } = previous;
           const total = offsets.length - 1;
           if (total > 0 && top < offsets[total]) {
@@ -552,22 +636,60 @@ export default function useVirtualList({
     update();
   }, [layout, readView, scrollViewTo, update]);
 
-  /** The user scrolls - a `scrollToIndex` does not hold its item any more. */
+  /**
+   * The user scrolls - a `scrollToIndex` does not hold its item any more,
+   * nor is a smooth one on its way.
+   */
   const releasePending = useCallback(() => {
     pendingRef.current = null;
+    smoothToRef.current = null;
   }, []);
+
+  /** A scroll came to its end - a smooth one too. */
+  const endSmoothScroll = useCallback(() => {
+    smoothToRef.current = null;
+  }, []);
+
+  /**
+   * The view scrolled. Not to where it was scrolled here, it is the user's
+   * scroll - by the scroll bar too: a `scrollToIndex` does not hold its item
+   * any more. A smooth scroll is over once it gets where it goes, or as far
+   * as it can.
+   */
+  const handleScroll = useCallback(() => {
+    const scroll = readScroll();
+    const smoothTo = smoothToRef.current;
+    if (scroll && smoothTo !== null) {
+      if (
+        Math.abs(scroll.position - smoothTo) <= 1 ||
+        (smoothTo > scroll.position && scroll.position >= scroll.max - 1)
+      ) {
+        smoothToRef.current = null;
+      }
+    } else if (
+      !scroll ||
+      scrolledToRef.current === null ||
+      Math.abs(scroll.position - scrolledToRef.current) > 1
+    ) {
+      pendingRef.current = null;
+    }
+    update();
+  }, [readScroll, update]);
 
   const scrollRef = useCallback(
     (element: HTMLElement | null) => {
       scrollerRef.current = element;
       if (!element) return;
 
-      element.addEventListener("scroll", update, { passive: true });
+      element.addEventListener("scroll", handleScroll, { passive: true });
+      element.addEventListener("scrollend", endSmoothScroll);
       element.addEventListener("wheel", releasePending, { passive: true });
       element.addEventListener("touchstart", releasePending, {
         passive: true,
       });
       element.addEventListener("keydown", releasePending);
+      // A press on the scroll bar too
+      element.addEventListener("pointerdown", releasePending);
       // A taller view shows more items
       const resizeObserver =
         typeof ResizeObserver === "undefined"
@@ -577,15 +699,17 @@ export default function useVirtualList({
       update();
 
       return () => {
-        element.removeEventListener("scroll", update);
+        element.removeEventListener("scroll", handleScroll);
+        element.removeEventListener("scrollend", endSmoothScroll);
         element.removeEventListener("wheel", releasePending);
         element.removeEventListener("touchstart", releasePending);
         element.removeEventListener("keydown", releasePending);
+        element.removeEventListener("pointerdown", releasePending);
         resizeObserver?.disconnect();
         if (scrollerRef.current === element) scrollerRef.current = null;
       };
     },
-    [releasePending, update],
+    [endSmoothScroll, handleScroll, releasePending, update],
   );
 
   const listRef = useCallback(
@@ -612,7 +736,8 @@ export default function useVirtualList({
 
       const windowScroll = useWindowScroll;
       if (windowScroll) {
-        window.addEventListener("scroll", update, { passive: true });
+        window.addEventListener("scroll", handleScroll, { passive: true });
+        window.addEventListener("scrollend", endSmoothScroll);
         window.addEventListener("resize", update);
         window.addEventListener("wheel", releasePending, { passive: true });
         window.addEventListener("touchstart", releasePending, {
@@ -625,7 +750,8 @@ export default function useVirtualList({
         element.removeEventListener("focusin", onFocusIn);
         element.removeEventListener("focusout", onFocusOut);
         if (windowScroll) {
-          window.removeEventListener("scroll", update);
+          window.removeEventListener("scroll", handleScroll);
+          window.removeEventListener("scrollend", endSmoothScroll);
           window.removeEventListener("resize", update);
           window.removeEventListener("wheel", releasePending);
           window.removeEventListener("touchstart", releasePending);
@@ -635,7 +761,7 @@ export default function useVirtualList({
         }
       };
     },
-    [releasePending, update, useWindowScroll],
+    [endSmoothScroll, handleScroll, releasePending, update, useWindowScroll],
   );
 
   const measureRef = useCallback(
@@ -648,6 +774,8 @@ export default function useVirtualList({
   );
 
   const { offsets } = layout;
+  // Worked out for these items - see `edges`
+  const edgesKnown = edges.layout === layout;
   const end = Math.min(range.end, total);
   const start = Math.min(range.start, end);
   const focusedIndex =
@@ -692,8 +820,8 @@ export default function useVirtualList({
       position: "relative",
     },
     measureRef,
-    nearEnd: edges.nearEnd,
-    nearStart: edges.nearStart,
+    nearEnd: edgesKnown && edges.nearEnd,
+    nearStart: edgesKnown && edges.nearStart,
     scrollRef,
     scrollToIndex,
     totalSize: offsets[total],

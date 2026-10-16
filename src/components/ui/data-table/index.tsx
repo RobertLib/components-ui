@@ -36,6 +36,7 @@ import useQueryColumns from "./use-query-columns";
 import useRowSelection from "./use-row-selection";
 import useDataTableTree from "./use-data-table-tree";
 import {
+  buildTree,
   getBranchRows,
   getTreeCheckStates,
   LEVEL_COLUMN_KEY,
@@ -281,8 +282,11 @@ export interface DataTableProps<T> extends Omit<
   autoResetSelectedRows?: boolean;
   /**
    * Tree data: checking a row checks its sub rows too - all of its branch
-   * that is loaded, also collapsed - and unchecking unchecks them. A row
-   * is checked when its whole branch is, mixed when only some of it is.
+   * that is loaded, also collapsed - and unchecking unchecks them; the sub
+   * rows `loadSubRows` brings for a checked row come checked. A row is
+   * checked when its whole branch is, mixed when only some of it is - and
+   * only then is it selected itself, also among all rows matching the
+   * filters (`filteredSelection`).
    */
   cascadeSelection?: boolean;
   /**
@@ -460,15 +464,19 @@ export interface DataTableProps<T> extends Omit<
    * Tree data: loads the sub rows of a row when it is first expanded - its
    * toggle shows a spinner meanwhile, a failure a message with a retry
    * button. The loaded rows are kept (collapsing and expanding again loads
-   * nothing) until `loadSubRowsKey` changes; `signal` aborts when the row
-   * is collapsed or the table unmounts. "Expand all" opens only rows whose
-   * sub rows are at hand - it loads none.
+   * nothing) until `loadSubRowsKey` changes - or, with a server's data (not
+   * `clientSide`), its filters, search or sorting; `signal` aborts when the
+   * row is collapsed or the table unmounts. "Expand all" opens only rows
+   * whose sub rows are at hand - it loads none, and is not offered before
+   * some are loaded.
    */
   loadSubRows?: (row: T, options: { signal: AbortSignal }) => Promise<T[]>;
   /**
    * Tree data: change it to load the sub rows again, e.g. after a change on
    * the server - those shown stay until their new rows come, the others
-   * load when expanded next. Loads on their way are aborted.
+   * load when expanded next. Loads on their way are aborted. A table with a
+   * server's data does so by itself when its filters, search or sorting
+   * change.
    */
   loadSubRowsKey?: string | number;
   /** Controlled ids of expanded detail rows; use with `onExpandedIdsChange`. */
@@ -666,7 +674,10 @@ export interface DataTableProps<T> extends Omit<
    * Renders only the rows in view of the scrolling table (see `maxHeight`)
    * - for thousands of rows, e.g. a `clientSide` table with
    * `pagination={false}`. Rows may differ in height (expanded details);
-   * they are measured. A printout has all of them.
+   * they are measured. A printout has all of them - rendered as printing
+   * starts, which React cannot do while it runs effects: call
+   * `window.print()` from an event handler, or from an effect in a
+   * `setTimeout`.
    */
   virtualized?: boolean;
 }
@@ -831,6 +842,7 @@ export default function DataTable<T>({
     handleDrop,
     handlePinColumn,
     hasCustomSettings,
+    isSameColumnState,
     moveColumn,
     pinnedColumns,
     resetColumnLayout,
@@ -866,6 +878,8 @@ export default function DataTable<T>({
   // A printout has all the rows - not only those a virtualized table shows.
   // Rendered before the browser lays the page out for print, which comes
   // right after `beforeprint` (or the change of the media query in Safari).
+  // Not when `window.print()` is called from an effect: React cannot render
+  // while it runs effects, and `flushSync` leaves the rows as they are.
   const [isPrinting, setIsPrinting] = useState(false);
 
   useEffect(() => {
@@ -906,6 +920,9 @@ export default function DataTable<T>({
       (column) => column.sortable && column.key === key,
     );
   const querySort = getQuerySort(query);
+  // The search and the sorting a server gets - also a search without its
+  // field, and sorting by any column
+  const serverQueryKey = JSON.stringify([query.search, querySort]);
   const sortKey = JSON.stringify(
     querySort.filter(({ key }) => isShownSortKey(key)),
   );
@@ -982,6 +999,11 @@ export default function DataTable<T>({
     [flatMatchingRows, pagination, query.page, query.pageSize],
   );
 
+  // Sub rows `loadSubRows` brought - see `selectLoadedSubRows`
+  const subRowsLoadedRef = useRef<
+    ((key: string, subRows: readonly T[]) => void) | null
+  >(null);
+
   // Tree data: the rows with their sub rows - client-side filtered with the
   // ancestors of the matches, siblings sorted, paged by the top-level rows
   const treeFilters = useMemo(
@@ -1005,11 +1027,14 @@ export default function DataTable<T>({
     locale,
     onExpandedIdsChange: onExpandedTreeIdsChange,
     onLoadError: onLoadSubRowsError,
+    onLoaded: (key, subRows) => subRowsLoadedRef.current?.(key, subRows),
     page: query.page,
     pageInfo,
     pageSize: query.pageSize,
     pagination,
     queryColumns,
+    // What a server gets - its filters, search and sorting
+    queryKey: filtersKey + serverQueryKey,
     search: searchTerm,
     searchColumns,
     sort,
@@ -1415,15 +1440,17 @@ export default function DataTable<T>({
 
   /**
    * What a selection is - reported with its ids. `excluded` for all rows
-   * matching the filters but these.
+   * matching the filters but these; `newRows` are rows the table does not
+   * show yet (sub rows that have just loaded).
    */
   const describeSelection = (
     ids: RowId[],
     excluded: T[] | null,
+    newRows: readonly T[] = [],
   ): GroupActionSelection<T> => {
     const idSet = new Set(ids);
     const loaded = new Map(
-      (clientSide ? knownRows : rows)
+      [...(clientSide ? knownRows : rows), ...newRows]
         .filter(canSelectRow)
         .map((row) => [getRowId(row), row]),
     );
@@ -1449,9 +1476,14 @@ export default function DataTable<T>({
 
   /**
    * Makes a selection - of the ids, or (`excluded`) of all rows matching
-   * the filters but those - and reports it.
+   * the filters but those - and reports it. `newRows` - see
+   * `describeSelection`.
    */
-  const commitSelection = (ids: RowId[], excluded: T[] | null = null) => {
+  const commitSelection = (
+    ids: RowId[],
+    excluded: T[] | null = null,
+    newRows: readonly T[] = [],
+  ) => {
     if (excluded === null) {
       const known = new Map(knownRows.map((row) => [getRowId(row), row]));
       ids = ids.filter(
@@ -1465,7 +1497,7 @@ export default function DataTable<T>({
       if (ids.length === 0) setSelectionScope({ key: selectionScopeKey });
       setAllFilteredSelection(null);
       if (!isSelectionControlled) setSelectedIds(ids);
-      onSelectedIdsChange?.(ids, describeSelection(ids, null));
+      onSelectedIdsChange?.(ids, describeSelection(ids, null, newRows));
       return;
     }
 
@@ -1859,8 +1891,8 @@ export default function DataTable<T>({
   const [searchResetKey, setSearchResetKey] = useState(0);
 
   // The chips of the active filters - in the order of the columns, those of
-  // no column after them (a server gets them), then the search where it
-  // applies
+  // no filterable column after them (a server gets them), then the search
+  // where it applies
   const activeFilterChips: FilterChip[] = [];
   if (filterChips) {
     const { activeFilters } = messages.dataTable;
@@ -1886,7 +1918,14 @@ export default function DataTable<T>({
     }
     if (!clientSide) {
       for (const key of activeFilterKeys) {
-        if (!isColumnFilter(key)) addChip(key, key);
+        if (isColumnFilter(key)) continue;
+        // A column without a filter field still names its filter
+        const column = columns.find((candidate) => candidate.key === key);
+        addChip(
+          key,
+          column ? (column.labelTitle ?? column.label) : key,
+          column,
+        );
       }
     }
     const appliedSearch = clientSide ? searchTerm : query.search;
@@ -2336,6 +2375,39 @@ export default function DataTable<T>({
       : null;
   const checkedIds = checkStates?.checked ?? displayedSelectedIds;
 
+  // Cascading, the sub rows `loadSubRows` brings for a selected row come
+  // selected - as its whole branch is. Loads that end before the table
+  // renders again build on each other.
+  const cascadeRef = useRef<{ base: RowId[]; ids: RowId[] } | null>(null);
+
+  const selectLoadedSubRows = (key: string, subRows: readonly T[]) => {
+    if (!isCascading || isAllFilteredSelected) return;
+    const latest =
+      cascadeRef.current?.base === selectedIdList
+        ? cascadeRef.current.ids
+        : selectedIdList;
+    if (!latest.some((id) => getRowKey(id) === key)) return;
+
+    // With the sub rows they come with
+    const branch = buildTree(subRows, {
+      getChildren: (row) => getSubRows?.(row) ?? [],
+      getRowId,
+    }).nodes.map((node) => node.row);
+    const selected = new Set(latest);
+    const added = branch
+      .filter((row) => canSelectRow(row) && !selected.has(getRowId(row)))
+      .map((row) => getRowId(row));
+    if (added.length === 0) return;
+
+    const ids = [...latest, ...added];
+    cascadeRef.current = { base: selectedIdList, ids };
+    commitSelection(ids, null, branch);
+  };
+
+  useInsertionEffect(() => {
+    subRowsLoadedRef.current = selectLoadedSubRows;
+  });
+
   // Shift + click selects the rows from the row clicked before - in the
   // order they are shown
   const [selectionAnchor, setSelectionAnchor] = useState<RowId | null>(null);
@@ -2385,10 +2457,36 @@ export default function DataTable<T>({
     if (isAllFilteredSelected) {
       // All matching rows but the unchecked ones - checked again, a row is
       // back in; with none left, nothing is selected
-      const excluded = [
+      let excluded = [
         ...excludedRows.filter((current) => !toggledIds.has(getRowId(current))),
         ...(isChecked ? [] : toggled),
       ];
+
+      if (checkStates && pageNodes) {
+        // Their parents follow - left out with a sub row left out, back in
+        // once all of their sub rows are
+        const leftOut = new Set(excluded.map((row) => getRowId(row)));
+        const kept = new Set(
+          selectAncestors(
+            pageNodes.flatMap((node) =>
+              canSelectRow(node.row) && !leftOut.has(node.id) ? [node.id] : [],
+            ),
+            pageNodes,
+            changedKeys,
+            canSelectRow,
+          ),
+        );
+        excluded = [
+          ...excluded.filter((row) => !kept.has(getRowId(row))),
+          ...pageNodes.flatMap((node) =>
+            canSelectRow(node.row) &&
+            !kept.has(node.id) &&
+            !leftOut.has(node.id)
+              ? [node.row]
+              : [],
+          ),
+        ];
+      }
 
       if (excluded.length >= selectionTotal) {
         resetAllSelection();
@@ -3209,6 +3307,7 @@ export default function DataTable<T>({
                   activeViewId={activeViewIdProp}
                   columnState={currentColumnState}
                   getLatestQuery={() => latestQuery.get()}
+                  isSameColumnState={isSameColumnState}
                   onActiveViewChange={onActiveViewChange}
                   onApply={applyView}
                   onViewsChange={onViewsChange}

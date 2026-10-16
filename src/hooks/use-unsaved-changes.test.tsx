@@ -56,6 +56,22 @@ function EditPage({
   );
 }
 
+/** A form the server saves - with changes once its field is typed into. */
+function ServerForm() {
+  const [note, setNote] = useState("");
+  useUnsavedChanges(note !== "");
+
+  return (
+    <form action="/orders/1" method="post">
+      <input
+        aria-label="Note"
+        onChange={(event) => setNote(event.target.value)}
+        value={note}
+      />
+    </form>
+  );
+}
+
 /** A router adapter whose links and navigations the test sees. */
 function createRouter() {
   const navigate = vi.fn<RouterAdapter["navigate"]>();
@@ -262,6 +278,51 @@ describe("useUnsavedChanges", () => {
     expect(navigate).toHaveBeenCalledExactlyOnceWith("/invoices");
   });
 
+  it("runs the onClick of a link once as the user leaves", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    const { navigate } = renderWithRouter(
+      <>
+        <Link href="/invoices" onClick={onClick}>
+          Invoices
+        </Link>
+        <EditPage dirty />
+      </>,
+    );
+
+    await user.click(screen.getByRole("link", { name: "Invoices" }));
+    await user.click(await screen.findByRole("button", { name: "Leave" }));
+    // Clicked again for the router - not for the app
+    expect(navigate).toHaveBeenCalledExactlyOnceWith("/invoices");
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("follows no link once its page was left during the question", async () => {
+    const user = userEvent.setup();
+    const { navigate, router } = createRouter();
+    const page = (pathname: string) => (
+      <UIProvider router={{ ...router, pathname }}>
+        <ConfirmProvider>
+          {pathname === "/orders/1/edit" ? (
+            <EditPage dirty />
+          ) : (
+            <p>Customers</p>
+          )}
+        </ConfirmProvider>
+      </UIProvider>
+    );
+    const { rerender } = render(page("/orders/1/edit"));
+
+    await user.click(screen.getByRole("link", { name: "Orders" }));
+    await screen.findByRole("alertdialog", { name: "Leave without saving?" });
+    // Back in a browser that cannot stop it - the router shows another page
+    rerender(page("/customers"));
+    await user.click(screen.getByRole("button", { name: "Leave" }));
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.getByText("Customers")).toBeInTheDocument();
+  });
+
   it("navigates right away when saved", async () => {
     const user = userEvent.setup();
     const { navigate, rerender } = renderWithRouter(<EditPage dirty />);
@@ -459,12 +520,10 @@ describe("useUnsavedChanges", () => {
     expect(traverseTo).toHaveBeenCalledExactlyOnceWith("previous");
   });
 
-  it("lets a form submitted to the server go", () => {
-    render(
-      <form action="/orders/1" method="post">
-        <EditPage dirty />
-      </form>,
-    );
+  it("lets a form submitted to the server go", async () => {
+    const user = userEvent.setup();
+    render(<ServerForm />);
+    await user.type(screen.getByRole("textbox", { name: "Note" }), "Urgent");
 
     const form = document.querySelector("form")!;
     form.addEventListener("submit", (event) => event.preventDefault(), {
@@ -481,6 +540,31 @@ describe("useUnsavedChanges", () => {
     fireEvent.submit(form);
     expect(hasUnsavedChanges()).toBe(false);
     expect(beforeUnload()).toBe(false);
+  });
+
+  it("keeps asking when another form of the page is submitted", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <form action="/search" role="search">
+          <input aria-label="Search" type="search" />
+        </form>
+        <ServerForm />
+      </>,
+    );
+    await user.type(screen.getByRole("textbox", { name: "Note" }), "Urgent");
+    await user.type(
+      screen.getByRole("searchbox", { name: "Search" }),
+      "bearings",
+    );
+
+    // jsdom submits nothing - the default prevented after the guard saw it
+    window.addEventListener("submit", (event) => event.preventDefault(), {
+      once: true,
+    });
+    fireEvent.submit(screen.getByRole("search"));
+    expect(hasUnsavedChanges()).toBe(true);
+    expect(beforeUnload()).toBe(true);
   });
 
   it("keeps asking for a form Activity hides", () => {

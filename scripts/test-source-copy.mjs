@@ -15,12 +15,24 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import ts from "typescript";
 import { build } from "vite";
 import { exportSource } from "./export-source.mjs";
+
+// TypeScript 5 too, where one is given (CI) - an app may not have moved to
+// 6, whose DOM types know more (`Navigation`). The folder of its package:
+// in the project its `tsc` would replace the one of the project
+const olderTypeScript = process.env.SOURCE_COPY_TYPESCRIPT;
+const compilers = olderTypeScript
+  ? [
+      ts,
+      (await import(pathToFileURL(join(olderTypeScript, "lib/typescript.js"))))
+        .default,
+    ]
+  : [ts];
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -108,41 +120,49 @@ createRoot(document.getElementById("root")!).render(
     '<div id="root"></div><script type="module" src="/src/main.tsx"></script>',
   );
 
-  await t.test(
-    "typechecks all copied modules with browser types and ES2023",
-    () => {
-      const files = readdirSync(source, { recursive: true, encoding: "utf8" })
-        .filter((file) => /\.tsx?$/.test(file))
-        .map((file) => join(source, file));
-      const options = {
-        strict: true,
-        noEmit: true,
-        // The declarations too - `vite.d.ts` of the copy among them
-        skipLibCheck: false,
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.ESNext,
-        moduleResolution: ts.ModuleResolutionKind.Bundler,
-        jsx: ts.JsxEmit.ReactJSX,
-        lib: ["lib.es2023.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"],
-        types: ["react", "react-dom"],
-      };
-      // An app without Vite - Next.js, webpack: the copy needs none of its
-      // types, nor those of Node
-      const host = ts.createCompilerHost(options);
-      const isVite = (path) =>
-        /[\\/]node_modules[\\/]vite(?:[\\/]|$)/.test(path);
-      const { directoryExists, fileExists } = host;
-      host.fileExists = (path) => !isVite(path) && fileExists.call(host, path);
-      host.directoryExists = (path) =>
-        !isVite(path) && (directoryExists?.call(host, path) ?? true);
-      const program = ts.createProgram(files, options, host);
-      const errors = ts.getPreEmitDiagnostics(program).map((diagnostic) => ({
-        file: diagnostic.file?.fileName,
-        message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
-      }));
-      assert.deepEqual(errors, []);
-    },
-  );
+  for (const compiler of compilers) {
+    await t.test(
+      `typechecks all copied modules with browser types and ES2023 (TypeScript ${compiler.versionMajorMinor})`,
+      () => {
+        const files = readdirSync(source, { recursive: true, encoding: "utf8" })
+          .filter((file) => /\.tsx?$/.test(file))
+          .map((file) => join(source, file));
+        const options = {
+          strict: true,
+          noEmit: true,
+          // The declarations too - `vite.d.ts` of the copy among them
+          skipLibCheck: false,
+          target: compiler.ScriptTarget.ES2022,
+          module: compiler.ModuleKind.ESNext,
+          moduleResolution: compiler.ModuleResolutionKind.Bundler,
+          jsx: compiler.JsxEmit.ReactJSX,
+          lib: ["lib.es2023.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"],
+          types: ["react", "react-dom"],
+        };
+        // An app without Vite - Next.js, webpack: the copy needs none of its
+        // types, nor those of Node
+        const host = compiler.createCompilerHost(options);
+        const isVite = (path) =>
+          /[\\/]node_modules[\\/]vite(?:[\\/]|$)/.test(path);
+        const { directoryExists, fileExists } = host;
+        host.fileExists = (path) =>
+          !isVite(path) && fileExists.call(host, path);
+        host.directoryExists = (path) =>
+          !isVite(path) && (directoryExists?.call(host, path) ?? true);
+        const program = compiler.createProgram(files, options, host);
+        const errors = compiler
+          .getPreEmitDiagnostics(program)
+          .map((diagnostic) => ({
+            file: diagnostic.file?.fileName,
+            message: compiler.flattenDiagnosticMessageText(
+              diagnostic.messageText,
+              "\n",
+            ),
+          }));
+        assert.deepEqual(errors, []);
+      },
+    );
+  }
 
   await t.test(
     "builds the local public API and stylesheet without React Compiler",

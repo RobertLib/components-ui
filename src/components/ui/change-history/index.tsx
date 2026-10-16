@@ -1,7 +1,9 @@
 import { Cog, History } from "lucide-react";
 import {
+  Fragment,
   isValidElement,
   useCallback,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -20,13 +22,14 @@ import {
 import { useLocale } from "../../../providers/ui-context";
 import cn from "../../../utils/cn";
 import isPromiseLike from "../../../utils/is-promise-like";
+import logger from "../../../utils/logger";
 import {
   addDays,
   capitalize,
   startOfDay,
   toISODate,
 } from "../../../utils/date";
-import { dateTimeZone, inTimeZone } from "../../../utils/time-zone";
+import { dateTimeZone, inTimeZone, isTimeZone } from "../../../utils/time-zone";
 import Avatar from "../avatar";
 import Button from "../button";
 import Chip, { type ChipColor } from "../chip";
@@ -188,8 +191,10 @@ export interface ChangeHistoryProps extends Omit<
   size?: "sm" | "md";
   /**
    * IANA time zone the days and times are written in, e.g.
-   * `"Europe/Prague"` - the browser's by default. Give it for a page
-   * rendered on the server, which does not know the zone of the user.
+   * `"Europe/Prague"` - the browser's by default, which also stands in for
+   * a zone the browser does not know (with a warning in the console). Give
+   * it for a page rendered on the server, which does not know the zone of
+   * the user.
    */
   timeZone?: string;
 }
@@ -230,6 +235,16 @@ const PICKER_DATE =
 // An ISO moment with its time zone
 const ZONED_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}.*(?:Z|[+-]\d{2}:?\d{2})$/i;
 
+/**
+ * The whitespace before the words of a changed part, and the words - the
+ * space is no part of the change, so not marked (nor is a part of only
+ * whitespace, at the end of a text).
+ */
+const splitSpace = (text: string) => {
+  const words = text.trimStart();
+  return [text.slice(0, text.length - words.length), words] as const;
+};
+
 /** The words of a long text compared - removed and added ones marked. */
 function TextDiff({
   added,
@@ -253,26 +268,34 @@ function TextDiff({
                 {" … "}
               </span>
             );
-          case "removed":
+          case "removed": {
+            const [space, words] = splitSpace(part.text);
             return (
-              <del
-                className="rounded-sm bg-danger-100 text-danger-800 decoration-danger-600 dark:bg-danger-950 dark:text-danger-200 forced-colors:decoration-[CanvasText]"
-                key={index}
-              >
-                <span className="sr-only">{removed} </span>
-                {part.text}
-              </del>
+              <Fragment key={index}>
+                {space}
+                {words && (
+                  <del className="rounded-sm bg-danger-100 text-danger-800 decoration-danger-600 dark:bg-danger-950 dark:text-danger-200 forced-colors:decoration-[CanvasText]">
+                    <span className="sr-only">{removed} </span>
+                    {words}
+                  </del>
+                )}
+              </Fragment>
             );
-          case "added":
+          }
+          case "added": {
+            const [space, words] = splitSpace(part.text);
             return (
-              <ins
-                className="rounded-sm bg-success-100 text-success-800 no-underline dark:bg-success-950 dark:text-success-200 forced-colors:underline"
-                key={index}
-              >
-                <span className="sr-only">{added} </span>
-                {part.text}
-              </ins>
+              <Fragment key={index}>
+                {space}
+                {words && (
+                  <ins className="rounded-sm bg-success-100 text-success-800 no-underline dark:bg-success-950 dark:text-success-200 forced-colors:underline">
+                    <span className="sr-only">{added} </span>
+                    {words}
+                  </ins>
+                )}
+              </Fragment>
             );
+          }
           default:
             return <span key={index}>{part.text}</span>;
         }
@@ -342,9 +365,19 @@ export default function ChangeHistory({
   onLoadMore,
   ref,
   size = "md",
-  timeZone,
+  timeZone: timeZoneProp,
   ...props
 }: ChangeHistoryProps) {
+  // A zone `Intl` does not know would throw - the browser's instead
+  const timeZone =
+    timeZoneProp && isTimeZone(timeZoneProp) ? timeZoneProp : undefined;
+  useEffect(() => {
+    if (timeZoneProp && !timeZone) {
+      logger.warn(
+        `ChangeHistory: timeZone "${timeZoneProp}" is no IANA time zone this browser knows - the history shows the browser's zone.`,
+      );
+    }
+  }, [timeZone, timeZoneProp]);
   const locale = useLocale();
   const messages = locale.messages.ui.changeHistory;
   const formatDate = useFormatDate();
@@ -368,16 +401,19 @@ export default function ChangeHistory({
   const [loadFailed, setLoadFailed] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const isLoadingMore = loadingMore ?? loadPending;
-  // The entries there were when older ones were asked for, and whether the
-  // button had the focus then
-  const loadRef = useRef<{ count: number; focused: boolean } | null>(null);
+  // The id of the last entry when older ones were asked for - they come
+  // after it - and whether the button had the focus then
+  const loadRef = useRef<{ focused: boolean; last: string | null } | null>(
+    null,
+  );
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   const loadMore = (button: HTMLElement) => {
     if (!onLoadMore) return;
+    const last = entries.at(-1);
     loadRef.current = {
-      count: entries.length,
       focused: button.ownerDocument.activeElement === button,
+      last: last ? String(last.id) : null,
     };
     setLoadFailed(false);
     setAnnouncement("");
@@ -397,10 +433,23 @@ export default function ChangeHistory({
   // first of them when the button it was on is gone
   useLayoutEffect(() => {
     const load = loadRef.current;
-    if (!load || entries.length <= load.count) return;
+    if (!load) return;
+    // The older entries follow the last one there was - not an entry added
+    // at the top meanwhile (a new change of the record), also once loading
+    // has ended without any
+    const start =
+      load.last === null
+        ? 0
+        : entries.findIndex((entry) => String(entry.id) === load.last) + 1;
+    if (start === 0 && load.last !== null) {
+      // Other entries altogether - of another record
+      loadRef.current = null;
+      return;
+    }
+    if (entries.length <= start) return;
     loadRef.current = null;
     setAnnouncement(
-      formatPlural(locale.code, messages.loaded, entries.length - load.count),
+      formatPlural(locale.code, messages.loaded, entries.length - start),
     );
 
     const root = rootRef.current;
@@ -408,7 +457,7 @@ export default function ChangeHistory({
     const active = root.ownerDocument.activeElement;
     if (active && active !== root.ownerDocument.body && root.contains(active))
       return;
-    const first = String(entries[load.count].id);
+    const first = String(entries[start].id);
     [...root.querySelectorAll<HTMLElement>("[data-entry-id]")]
       .find((element) => element.dataset.entryId === first)
       ?.focus();
@@ -430,6 +479,20 @@ export default function ChangeHistory({
         );
       }
     }
+  }
+  // A field or an author picked that the entries no longer have (others
+  // were given) - still offered, so that the filter shows and can be undone
+  if (filter.field && !fieldOptions.has(filter.field)) {
+    fieldOptions.set(
+      filter.field,
+      fields?.[filter.field]?.label ?? filter.field,
+    );
+  }
+  if (filter.author && !authorOptions.has(filter.author)) {
+    authorOptions.set(
+      filter.author,
+      filter.author === SYSTEM_AUTHOR ? messages.system : filter.author,
+    );
   }
 
   const shown = entries.flatMap((entry) => {
@@ -676,15 +739,28 @@ export default function ChangeHistory({
   };
 
   // Consecutive entries of the same day under its heading - one list
-  // without headings before the zone of the user is known
-  const days: { day: string | null; items: TimelineItem[] }[] = [];
+  // without headings before the zone of the user is known. A day the
+  // entries come back to (not in order) is another list, with a key of its
+  // own.
+  const days: { day: string | null; items: TimelineItem[]; key: string }[] = [];
+  const listsOfDay = new Map<string, number>();
   for (const entry of shown) {
     const date = toDate(entry.time);
     const day = date ? dayOf(date) : null;
     const last = days.at(-1);
     const item = toItem(entry, date);
-    if (last && last.day === day) last.items.push(item);
-    else days.push({ day, items: [item] });
+    if (last && last.day === day) {
+      last.items.push(item);
+      continue;
+    }
+    const name = day ?? "all";
+    const count = (listsOfDay.get(name) ?? 0) + 1;
+    listsOfDay.set(name, count);
+    days.push({
+      day,
+      items: [item],
+      key: count > 1 ? `${name}-${count}` : name,
+    });
   }
 
   const setRoot = useCallback(
@@ -768,8 +844,8 @@ export default function ChangeHistory({
           />
         )
       ) : (
-        days.map(({ day, items }, index) => (
-          <div key={day ?? `all-${index}`}>
+        days.map(({ day, items, key }, index) => (
+          <div key={key}>
             {day && (
               <Heading
                 className="mb-3 text-xs font-semibold tracking-wide text-neutral-500 uppercase dark:text-neutral-400"

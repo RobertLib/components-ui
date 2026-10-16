@@ -58,7 +58,9 @@ export default function ContextMenuPage() {
               A long press is a touch held still for half a second - a finger
               that moves scrolls the page instead. The element does not select
               its text on touch screens, so the press is not taken for a
-              selection.
+              selection. The items may come with the press - set in{" "}
+              <code>onPointerDown</code>, e.g. those of the row pressed of a
+              list - and the long press opens them.
             </li>
             <li>
               The keys the menu uses do not reach the page, so a list or a table

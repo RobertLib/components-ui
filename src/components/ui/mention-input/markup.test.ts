@@ -3,7 +3,9 @@ import {
   applyTextChange,
   findQuery,
   insertMentions,
+  MAX_MENTION_PART,
   mentionsToText,
+  parseCopiedValue,
   parseMentions,
   parseValue,
   resolveTriggers,
@@ -69,6 +71,13 @@ describe("parseValue and serializeValue", () => {
     expect(parseValue(value, "@")).toEqual({ mentions: [], text });
   });
 
+  it("writes the labels and ids back as they were read", () => {
+    const value = "@[ Jana  Nováková ](user:42) a";
+    const { mentions, text } = parseValue(value, "@");
+
+    expect(serializeValue(text, mentions, "@")).toBe(value);
+  });
+
   it("leaves ordinary text as it is", () => {
     expect(serializeValue("Cena [Kč] (bez DPH) @ 21 %", [], "@#")).toBe(
       "Cena [Kč] (bez DPH) @ 21 %",
@@ -112,6 +121,27 @@ describe("the helpers of stored values", () => {
     expect(toMentionToken({ id: "7", label: "Petr", trigger: "@" })).toBe(
       "@[Petr](7)",
     );
+    // On one line and not too long, as the field writes it - it reads back
+    expect(
+      toMentionToken({ id: "7\n8", label: " Petr\n Svoboda ", trigger: "@" }),
+    ).toBe("@[Petr Svoboda](7 8)");
+    expect(
+      parseMentions(
+        toMentionToken({ id: "7", label: "P".repeat(300), trigger: "@" }),
+      ),
+    ).toEqual([{ id: "7", label: "P".repeat(MAX_MENTION_PART), trigger: "@" }]);
+  });
+
+  it("writes a mention that would read as no mention as text", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(toMentionToken({ id: "", label: "[Petr]", trigger: "@" })).toBe(
+      "@\\[Petr]",
+    );
+    expect(
+      toMentionToken({ id: "7".repeat(201), label: "Petr", trigger: "@" }),
+    ).toBe("@Petr");
+    expect(warn).toHaveBeenCalledTimes(2);
   });
 
   it("skips invalid triggers", () => {
@@ -190,5 +220,22 @@ describe("findQuery", () => {
     expect(findQuery("#T-12 x", 7, [], triggers)).toBeNull();
     expect(findQuery("@Jana Nováková", 14, [jana], triggers)).toBeNull();
     expect(findQuery(`@${"x".repeat(60)}`, 61, [], triggers)).toBeNull();
+  });
+});
+
+describe("parseCopiedValue", () => {
+  it("reads a copied value with the triggers of the field it comes from", () => {
+    // The tickets of a field with "#" are text in one without
+    expect(
+      parseCopiedValue("@[Jana](1) a #[T-12](ticket:12)", "@#", "@"),
+    ).toEqual({
+      mentions: [{ end: 5, id: "1", label: "Jana", start: 0, trigger: "@" }],
+      text: "@Jana a #T-12",
+    });
+    // Text of a field without "#" that looks like a token stays text
+    expect(parseCopiedValue("#[T-12](ticket:12)", "@", "@#")).toEqual({
+      mentions: [],
+      text: "#[T-12](ticket:12)",
+    });
   });
 });

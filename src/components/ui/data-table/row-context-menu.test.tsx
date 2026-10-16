@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import DataTable from ".";
 import { cs } from "../../../i18n/ui/cs";
 import UIProvider from "../../../providers/ui-provider";
@@ -46,6 +46,10 @@ function renderTable(
   return onOpen;
 }
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("DataTable row context menu", () => {
   it("opens the entries of the row on a right click", async () => {
     const user = userEvent.setup();
@@ -67,6 +71,27 @@ describe("DataTable row context menu", () => {
     expect(onOpen).toHaveBeenCalledWith(rows[2]);
     expect(screen.queryByRole("menu")).toBeNull();
     expect(bodyRows()[2]).not.toHaveClass("bg-neutral-100/80");
+  });
+
+  it("opens the entries of a row on its first long press", () => {
+    vi.useFakeTimers();
+    renderTable();
+    const touch = { pointerId: 7, pointerType: "touch" };
+
+    // A row without entries keeps the callout of the browser
+    fireEvent.pointerDown(screen.getByText("Faktura 2026-002"), touch);
+    act(() => vi.advanceTimersByTime(600));
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.pointerUp(screen.getByText("Faktura 2026-002"), touch);
+
+    fireEvent.pointerDown(screen.getByText("Faktura 2026-003"), touch);
+    act(() => vi.advanceTimersByTime(500));
+    expect(
+      within(screen.getByRole("menu", { name: "Row actions" })).getByRole(
+        "menuitem",
+        { name: "Open Faktura 2026-003" },
+      ),
+    ).toBeInTheDocument();
   });
 
   it("leaves the menu of the browser to a row without entries", async () => {

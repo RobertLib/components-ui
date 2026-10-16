@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SessionTimeout, { type SessionTimeoutProps } from "./session-timeout";
 import UIProvider from "../../providers/ui-provider";
@@ -310,6 +310,58 @@ describe("SessionTimeout", () => {
     expect(warning()).not.toBeNull();
   });
 
+  it("starts a new session without the end a stay brought to the last one", () => {
+    const { onTimeout, rerender } = renderSession({
+      onExtend: () => START + 20 * MINUTE,
+    });
+
+    advance(13 * MINUTE);
+    fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
+    // Signed out, and in again after the end of that session
+    rerender({ enabled: false });
+    advance(30 * MINUTE);
+    rerender({ enabled: true });
+
+    expect(onTimeout).not.toHaveBeenCalled();
+    advance(13 * MINUTE);
+    expect(warning()).not.toBeNull();
+  });
+
+  it("drops a stay still running when a later end takes the warning away", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let fail!: (error: Error) => void;
+    const onExtend = vi.fn(
+      () => new Promise<void>((_, reject) => (fail = reject)),
+    );
+    const { rerender } = renderSession({
+      expiresAt: START + 30 * MINUTE,
+      idleTimeout: undefined,
+      onExtend,
+      onLogout: vi.fn(),
+    });
+
+    advance(28 * MINUTE);
+    fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
+    // Refreshed by the app meanwhile
+    rerender({
+      expiresAt: START + 60 * MINUTE,
+      idleTimeout: undefined,
+      onExtend,
+      onLogout: vi.fn(),
+    });
+    expect(warning()).toBeNull();
+    await act(async () => fail(new Error("Offline")));
+
+    // The next warning starts anew - no error, no spinner
+    advance(30 * MINUTE);
+    expect(warning()).not.toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Stay signed in" }),
+    ).not.toHaveAttribute("aria-busy");
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
+  });
+
   it("speaks Czech", () => {
     render(
       <UIProvider locale={cs}>
@@ -527,6 +579,89 @@ describe("SessionTimeout in several tabs", () => {
     expect(warning()).toBeNull();
     advance(10 * MINUTE);
     expect(onTimeout).not.toHaveBeenCalled();
+  });
+
+  it("keeps the session another tab got a new expiresAt for", () => {
+    const first = vi.fn();
+    const second = vi.fn();
+
+    // The app refreshes the session as the user stays - in its tab only
+    function FirstTab() {
+      const [expiresAt, setExpiresAt] = useState(START + 30 * MINUTE);
+      return (
+        <SessionTimeout
+          expiresAt={expiresAt}
+          onExtend={() => setExpiresAt(START + 90 * MINUTE)}
+          onTimeout={first}
+          title="First tab"
+          warningBefore={2 * MINUTE}
+        />
+      );
+    }
+    render(
+      <>
+        <FirstTab />
+        <SessionTimeout
+          expiresAt={START + 30 * MINUTE}
+          onTimeout={second}
+          title="Second tab"
+          warningBefore={2 * MINUTE}
+        />
+      </>,
+    );
+
+    advance(28 * MINUTE);
+    const stay = screen
+      .getAllByRole("button", { hidden: true, name: "Stay signed in" })
+      .find(
+        (button) =>
+          button.closest("[role='alertdialog']") === dialog("First tab"),
+      )!;
+    fireEvent.click(stay);
+    expect(dialog("First tab")).toBeNull();
+    expect(dialog("Second tab")).toBeNull();
+
+    // The old end passes - the second tab knows the new one
+    advance(10 * MINUTE);
+    expect(first).not.toHaveBeenCalled();
+    expect(second).not.toHaveBeenCalled();
+    advance(50 * MINUTE);
+    expect(dialog("Second tab")).not.toBeNull();
+  });
+
+  it("takes a later end from the other tabs - and tells them its own", () => {
+    const onTimeout = vi.fn();
+    const otherTab = new FakeBroadcastChannel("components-ui:session");
+    const received: unknown[] = [];
+    otherTab.onmessage = (event) => received.push(event.data);
+
+    // Opened with an old end - the other tabs refreshed the session since
+    render(
+      <SessionTimeout
+        expiresAt={START + 30 * MINUTE}
+        onTimeout={onTimeout}
+        warningBefore={2 * MINUTE}
+      />,
+    );
+    expect(received).toEqual([{ type: "expiry", until: START + 30 * MINUTE }]);
+    act(() =>
+      otherTab.postMessage({ type: "expiry", until: START + 90 * MINUTE }),
+    );
+
+    advance(60 * MINUTE);
+    expect(warning()).toBeNull();
+    expect(onTimeout).not.toHaveBeenCalled();
+
+    // Told an earlier end, it tells the later one back
+    act(() => otherTab.postMessage({ type: "expiry", until: START }));
+    expect(received).toEqual([
+      { type: "expiry", until: START + 30 * MINUTE },
+      { type: "expiry", until: START + 90 * MINUTE },
+    ]);
+    advance(28 * MINUTE);
+    expect(warning()).not.toBeNull();
+    advance(2 * MINUTE);
+    expect(onTimeout).toHaveBeenCalledTimes(1);
   });
 
   it("shares by localStorage without a BroadcastChannel", () => {
